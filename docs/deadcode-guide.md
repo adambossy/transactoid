@@ -1,0 +1,139 @@
+# Deadcode Configuration Guide
+
+> This document must stay in lock-step with `[tool.deadcode]` in `pyproject.toml`. When you edit the configuration, update this guide so that future editors (humans or LLMs) understand why each directive exists and how to exercise it.
+
+## exclude
+
+Skips entire paths that only contain generated or third-party code so they do not pollute the report.
+
+**Without (`docs/` not excluded)**
+
+```shell
+$ deadcode docs/api_reference.py
+docs/api_reference.py:1:0: DC01 Variable `EXAMPLE_CONSTANT` is never used
+```
+
+```python
+# docs/api_reference.py
+EXAMPLE_CONSTANT = 42
+```
+
+**With (`docs/` listed in exclude)**
+
+```toml
+[tool.deadcode]
+exclude = ["docs/"]
+```
+
+```shell
+$ deadcode docs/api_reference.py
+Well done! ✨ 🚀 ✨
+```
+
+## ignore-names
+
+Suppresses common sentinel names—like module-level loggers, metadata fields, or wildcard fixtures—that appear unused from static analysis but are required for runtime wiring.
+
+**Without `ignore-names`**
+
+```shell
+$ deadcode src/logging.py
+src/logging.py:3:0: DC01 Variable `LOGGER` is never used
+```
+
+```python
+# src/logging.py
+import logging
+
+LOGGER = logging.getLogger(__name__)
+```
+
+**With `ignore-names = ["logger", "LOGGER", "*_fixture", ...]`**
+
+```shell
+$ deadcode src/logging.py
+Well done! ✨ 🚀 ✨
+```
+
+## ignore-names-in-files
+
+Tells deadcode to skip unused-name reports inside matching files. We use it to keep fixtures and re-export modules quiet.
+
+**Without `tests/**` in `ignore-names-in-files`**
+
+```shell
+$ deadcode tests/test_feature.py
+tests/test_feature.py:4:0: DC02 Function `user_fixture` is never used
+```
+
+```python
+# tests/test_feature.py
+import pytest
+
+@pytest.fixture
+def user_fixture():
+    return {"name": "Ada"}
+```
+
+**With `ignore-names-in-files = ["tests/**", "test/**", "*/__init__.py"]`**
+
+```shell
+$ deadcode tests/test_feature.py
+Well done! ✨ 🚀 ✨
+```
+
+## ignore-definitions
+
+Temporarily disables analysis for definitions whose names match the supplied patterns—handy for generated migration shims that always look unused.
+
+**Without `ignore-definitions`**
+
+```shell
+$ deadcode app/users/migrations/0001_initial.py
+app/users/migrations/0001_initial.py:1:0: DC03 Class `Migration` is never used
+app/users/migrations/0001_initial.py:2:4: DC04 Method `forwards` is never used
+```
+
+```python
+# app/users/migrations/0001_initial.py
+class Migration:
+    def forwards(self) -> None:
+        ...
+```
+
+**With `ignore-definitions = ["Migration", "*Migration"]`**
+
+```shell
+$ deadcode app/users/migrations/0001_initial.py
+Well done! ✨ 🚀 ✨
+```
+
+## ignore-definitions-if-inherits-from
+
+Skips entire class bodies when they inherit from known framework base types (e.g., `BaseModel`, `Schema`, `Settings`). This prevents deadcode from flagging declarative data models that are activated by reflection.
+
+**Without `ignore-definitions-if-inherits-from`**
+
+```shell
+$ deadcode app/models/user.py
+app/models/user.py:4:0: DC03 Class `User` is never used
+app/models/user.py:5:4: DC04 Method `name` is never used
+```
+
+```python
+# app/models/user.py
+class BaseModel:
+    ...
+
+class User(BaseModel):
+    def name(self) -> str:
+        return "Ada"
+```
+
+**With `ignore-definitions-if-inherits-from = ["BaseModel", "Schema", "Settings"]`**
+
+```shell
+$ deadcode app/models/user.py
+Well done! ✨ 🚀 ✨
+```
+

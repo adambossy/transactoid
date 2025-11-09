@@ -1,0 +1,32 @@
+[tool.deadcode]
+exclude = [
+    ".venv/",
+    "build/",
+    "dist/",
+    "**/site-packages/",
+]
+ignore-names = [
+    "__all__",
+    "__doc__",
+    "__path__",
+    "__version__",
+    "_",
+    "logger",
+    "LOGGER",
+    "*_fixture",
+]
+ignore-names-in-files = [
+    "*/__init__.py",
+    "tests/**",
+    "test/**",
+]
+ignore-definitions = [
+    "Migration",
+    "*Migration",
+]
+ignore-definitions-if-inherits-from = [
+    "BaseModel",
+    "Schema",
+    "Settings",
+]
+
