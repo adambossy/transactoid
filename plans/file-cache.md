@@ -1,0 +1,216 @@
+---
+title: File Cache Implementation Plan
+status: ready
+updated: 2025-11-09
+owner: services
+---
+
+# Overview
+
+Implement `services/file_cache.py` as a namespaced JSON cache with deterministic keys and atomic writes. The cache underpins LLM interactions (categorizer, analyzer verifier, NL→SQL) and must be robust against process interruptions and unsafe key inputs.
+
+# Goals
+
+- Provide ergonomic, type-aware APIs for setting, retrieving, and managing cached JSON payloads.
+- Guarantee file-system safety and atomic persistence for concurrent readers/writers.
+- Deliver deterministic cache keys for arbitrary JSON-serializable payloads.
+- Support namespace-level maintenance operations (`clear_namespace`, `list_keys`).
+- Supply comprehensive docstrings and testing guidance to speed downstream adoption.
+
+# Non-Goals
+
+- Implement TTL or cache eviction policies (future enhancement).
+- Support non-JSON payload formats.
+- Provide distributed cache semantics.
+
+# Deliverables
+
+- `services/file_cache.py` with full API surface from specification.
+- Module-level documentation and `__all__` exports for discoverability.
+- Unit-test guidelines (actual tests deferred until test suite scaffolding lands).
+- Optional logging hooks (no mandatory integration with logging config).
+
+# Implementation Plan
+
+1. **Module scaffolding**
+   - Import `contextlib`, `json`, `logging`, `os`, `tempfile`.
+   - Use `pathlib.Path` for all filesystem interactions.
+   - Define `JSONType = Any`, `__all__ = ["FileCache", "stable_key"]`.
+   - `FileCache.__init__`: accept `base_dir: str = ".cache"`, resolve to absolute `Path`, ensure directory exists.
+
+2. **Namespace & key handling**
+   - Private `_validate_namespace(namespace: str)` and `_validate_key(key: str)` enforcing non-empty strings and rejecting path traversal (`..`, `/`, `os.sep`).
+   - Private `_namespace_dir(namespace: str) -> Path`: validate, create directory (`mkdir(parents=True, exist_ok=True)`), return `Path`.
+   - Private `_key_path(namespace: str, key: str) -> Path`: sanitize key (replace whitespace with `_`, allow simple word characters), append `.json`.
+   - Public `path_for(namespace, key) -> str` returning stringified `_key_path`.
+
+3. **Core cache operations**
+   - `get(namespace, key) -> Optional[JSONType]`: return `None` when file missing or JSON decode fails; log at debug level on decode failure.
+   - `set(namespace, key, value) -> None`: serialize using `json.dumps(value, ensure_ascii=True, sort_keys=True)`; write via `_atomic_writer`.
+   - `exists(namespace, key) -> bool`: check `path.exists()`.
+   - `delete(namespace, key) -> bool`: unlink file; swallow `FileNotFoundError`; return `True` on deletion.
+   - `clear_namespace(namespace) -> int`: delete all files within namespace; skip subdirectories; return count of removed files.
+   - `list_keys(namespace) -> list[str]`: return sorted list of keys (filenames without `.json`), excluding non-files.
+
+4. **Atomic writer**
+   - Implement `_atomic_writer(namespace, key)` as a `@contextmanager`.
+   - Use `_namespace_dir` to ensure target directory.
+   - Create temp file with `tempfile.NamedTemporaryFile(delete=False, dir=namespace_dir, prefix=".tmp")`.
+   - Yield file object to caller for writing; on exit, flush and replace original file using `os.replace(tmp_path, final_path)`.
+   - On exceptions, ensure temp file is unlinked before re-raising.
+
+5. **Stable key generation**
+   - Implement `stable_key(payload: Any) -> str`.
+   - Serialize payload via `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)`.
+   - Hash with `hashlib.sha256` and return hex digest (`hexdigest()`).
+   - Document expectation that payload is JSON serializable.
+
+6. **Error handling & logging**
+   - Raise `ValueError` for invalid namespace/key inputs.
+   - Use module-level logger `logging.getLogger(__name__)` for debug-level events (decode failures, delete errors).
+   - Keep public methods forgiving (return booleans/None) unless misused (invalid inputs).
+
+7. **Documentation & typing**
+   - Comprehensive docstrings referencing requirement IDs (plans §10).
+   - Annotate return types precisely; use `typing.Optional`, `typing.List`.
+   - Mention atomicity and naming constraints in class docstring.
+
+8. **Testing guidance**
+   - Execute tests with pytest and the `tmp_path` fixture; each scenario below lists code for inputs and expected assertions.
+   - Tests:
+     - **Test name:** `test_set_get_round_trip`
+
+       Inputs:
+       ```python
+       cache = FileCache(base_dir=tmp_path)
+       cache.set("ns", "key", {"foo": 1})
+       result = cache.get("ns", "key")
+       ```
+
+       Outputs:
+       ```python
+       assert result == {"foo": 1}
+       assert cache.exists("ns", "key") is True
+       ```
+
+     - **Test name:** `test_delete_semantics`
+
+       Inputs:
+       ```python
+       cache = FileCache(base_dir=tmp_path)
+       cache.set("ns", "key", 42)
+       first = cache.delete("ns", "key")
+       second = cache.delete("ns", "key")
+       exists = cache.exists("ns", "key")
+       ```
+
+       Outputs:
+       ```python
+       assert first is True
+       assert second is False
+       assert exists is False
+       ```
+
+     - **Test name:** `test_clear_namespace_counts_files`
+
+       Inputs:
+       ```python
+       cache = FileCache(base_dir=tmp_path)
+       populate_namespace(cache, "ns", values=[0, 1, 2])
+       cleared = cache.clear_namespace("ns")
+       remaining = list(Path(cache.path_for("ns", "dummy")).parent.iterdir())
+       ```
+
+       Outputs:
+       ```python
+       assert cleared == 3
+       assert remaining == []
+       ```
+
+     - **Test name:** `test_atomic_writer_cleans_temp_on_exception`
+
+       Inputs:
+       ```python
+       cache = FileCache(base_dir=tmp_path)
+       namespace_dir = Path(cache.path_for("ns", "key")).parent
+       provoke_atomic_write_failure(cache, "ns", "key", payload="partial")
+       temp_files = list(namespace_dir.glob(".tmp*"))
+       final_file_exists = Path(cache.path_for("ns", "key")).exists()
+       ```
+
+       Outputs:
+       ```python
+       assert temp_files == []
+       assert final_file_exists is False
+       ```
+
+     - **Test name:** `test_stable_key_is_deterministic`
+
+       Inputs:
+       ```python
+       payload_a = {"a": 1, "b": 2}
+       payload_b = {"b": 2, "a": 1}
+       key_a = stable_key(payload_a)
+       key_b = stable_key(payload_b)
+       ```
+
+       Outputs:
+       ```python
+       assert key_a == key_b
+       assert len(key_a) == 64
+       ```
+
+     - **Test name:** `test_invalid_namespace_or_key_raises`
+
+       Inputs:
+       ```python
+       cache = FileCache(base_dir=tmp_path)
+       with pytest.raises(ValueError):
+           cache.get("../evil", "key")
+       with pytest.raises(ValueError):
+           cache.set("ns", "bad/../key", 1)
+       ```
+
+       Outputs:
+       ```python
+       # pytest verifies that ValueError is raised in both contexts
+       ```
+
+   - Helper functions used above:
+
+     ```python
+     def populate_namespace(cache: FileCache, namespace: str, values: list[int]) -> None:
+         for idx, value in enumerate(values):
+             cache.set(namespace, f"key{idx}", value)
+
+     def provoke_atomic_write_failure(cache: FileCache, namespace: str, key: str, payload: str) -> None:
+         try:
+             with cache._atomic_writer(namespace, key) as tmp_file:
+                 tmp_file.write(payload)
+                 raise RuntimeError("boom")
+         except RuntimeError:
+             pass
+     ```
+
+9. **Integration pointers**
+   - Document CLI (`clear-cache`) expectation: instantiate `FileCache` and call `clear_namespace`.
+   - Highlight LLM call-sites (categorizer, analyzer) as primary consumers; encourage reuse via dependency injection.
+
+# Risks & Mitigations
+
+- **Path traversal via namespaces/keys:** enforce strict validation and sanitize before use.
+- **Partial writes on crash:** rely on atomic rename semantics; temp files cleaned up post-failure.
+- **JSON decode errors:** surface `None` and log, allowing callers to rebuild cache entries.
+- **Future TTL requirements:** structure code so eviction policies can be layered without breaking API.
+
+# Decisions on Prior Open Questions
+
+- JSON decode failures: retain the current “log only” strategy; failures are vanishingly rare and no additional handling is required.
+- JSON serialization parameters: keep defaults hard-coded (no configuration surface needed).
+- Namespace creation: rely entirely on on-demand creation; no pre-created namespaces are required.
+
+# Appendix
+
+- Spec reference: `plans/transactoid-requirements.md` §10 (File cache requirements).
+- Downstream dependencies: `agents/categorizer.py`, `agents/analyzer_tool.py`, CLI `clear-cache` command.
+
