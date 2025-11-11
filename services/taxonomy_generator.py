@@ -7,6 +7,11 @@ import re
 from textwrap import dedent
 from typing import Any, Dict, Optional, Tuple
 
+import yaml
+from openai import OpenAI
+from promptorium.services import PromptService
+from promptorium.storage.fs import FileSystemPromptStorage
+from promptorium.util.repo_root import find_repo_root
 
 # Merged prompt template with {input_yaml} placeholder.
 # This is used as a fallback if Promptorium is not available.
@@ -44,17 +49,9 @@ def load_prompt_text(key: str) -> str:
     Load the latest prompt text by key from Promptorium.
     Uses the Promptorium library with filesystem storage rooted at the repository.
     """
-    try:
-        # Prefer the high-level service API for consistency with advanced usage.
-        from promptorium.services import PromptService  # type: ignore[import]
-        from promptorium.storage.fs import FileSystemPromptStorage  # type: ignore[import]
-        from promptorium.util.repo_root import find_repo_root  # type: ignore[import]
-
-        storage = FileSystemPromptStorage(find_repo_root())
-        svc = PromptService(storage)
-        return str(svc.load_prompt(key))
-    except Exception as exc:  # pragma: no cover - surfaced in real integration
-        raise RuntimeError(f"Failed to load Promptorium key '{key}': {exc}") from exc
+    storage = FileSystemPromptStorage(find_repo_root())
+    svc = PromptService(storage)
+    return str(svc.load_prompt(key))
 
 
 def store_generated(markdown: str) -> None:
@@ -63,26 +60,19 @@ def store_generated(markdown: str) -> None:
     Uses the Promptorium library and creates the key if it does not exist.
     """
     key = "taxonomy-personal-finance"
+    storage = FileSystemPromptStorage(find_repo_root())
+    svc = PromptService(storage)
+    # Try updating directly; if key doesn't exist, add then retry.
     try:
-        from promptorium.services import PromptService  # type: ignore[import]
-        from promptorium.storage.fs import FileSystemPromptStorage  # type: ignore[import]
-        from promptorium.util.repo_root import find_repo_root  # type: ignore[import]
-
-        storage = FileSystemPromptStorage(find_repo_root())
-        svc = PromptService(storage)
+        svc.update_prompt(key, markdown)
+        return
+    except Exception:
         try:
-            # Try updating directly; if key doesn't exist, add then retry.
-            svc.update_prompt(key, markdown)
-            return
+            storage.add_prompt(key, custom_dir=None)
         except Exception:
-            try:
-                storage.add_prompt(key, custom_dir=None)
-            except Exception:
-                # If add_prompt fails because it already exists or any race, ignore and retry update.
-                pass
-            svc.update_prompt(key, markdown)
-    except Exception as exc:  # pragma: no cover - surfaced in real integration
-        raise RuntimeError(f"Failed to store Promptorium key '{key}': {exc}") from exc
+            # If add_prompt fails because it already exists or any race, ignore and retry update.
+            pass
+        svc.update_prompt(key, markdown)
 
 
 def load_latest_generated_text() -> Optional[str]:
@@ -91,18 +81,10 @@ def load_latest_generated_text() -> Optional[str]:
     Returns None if no prior version exists.
     """
     key = "taxonomy-personal-finance"
-    try:
-        from promptorium.services import PromptService  # type: ignore[import]
-        from promptorium.storage.fs import FileSystemPromptStorage  # type: ignore[import]
-        from promptorium.util.repo_root import find_repo_root  # type: ignore[import]
-
-        storage = FileSystemPromptStorage(find_repo_root())
-        svc = PromptService(storage)
-        text = svc.load_prompt(key)
-        return str(text) if str(text).strip() else None
-    except Exception:
-        # Treat any load failure as "no latest version available"
-        return None
+    storage = FileSystemPromptStorage(find_repo_root())
+    svc = PromptService(storage)
+    text = svc.load_prompt(key)
+    return str(text) if str(text).strip() else None
 
 
 # ----------------------------
@@ -124,9 +106,6 @@ def _normalize_yaml_for_hash(yaml_text: str) -> str:
     - Goal: semantically equivalent YAML yields identical hashes; whitespace-only diffs ignored
     """
     try:
-        # Optional dependency: PyYAML
-        import yaml  # type: ignore
-
         data = yaml.safe_load(yaml_text)
         # Some YAMLs may be empty (None); represent deterministically
         if data is None:
@@ -182,23 +161,10 @@ def _extract_front_matter(md: str) -> Tuple[Dict[str, Any], int]:
 
     fm_block = md[4:next_delim_idx]  # content after first '---\n' up to '\n---'
 
-    try:
-        import yaml  # type: ignore
-
-        fm = yaml.safe_load(fm_block)
-        if isinstance(fm, dict):
-            return fm, next_delim_idx + 4  # include trailing '---\n'
-        return {}, next_delim_idx + 4
-    except Exception:
-        # Best-effort parse for simple key: value pairs when PyYAML isn't available
-        fm: Dict[str, Any] = {}
-        for line in fm_block.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            fm[key.strip()] = value.strip().strip('"').strip("'")
-        return fm, next_delim_idx + 4
+    fm = yaml.safe_load(fm_block)
+    if isinstance(fm, dict):
+        return fm, next_delim_idx + 4  # include trailing '---\n'
+    return {}, next_delim_idx + 4
 
 
 def should_regenerate(
@@ -246,38 +212,33 @@ def call_openai(markdown_prompt: str, model: str) -> str:
         raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
 
     # Try the modern Responses API; fall back to Chat Completions if unavailable
+    client = OpenAI(api_key=api_key)
     try:
-        from openai import OpenAI  # type: ignore
-
-        client = OpenAI(api_key=api_key)
+        # Newer SDK (Responses API)
+        resp = client.responses.create(
+            model=model,
+            input=markdown_prompt,
+        )
+        # The text can be located in multiple places; normalize to a single string.
+        # Prefer output_text if present; otherwise join all text segments.
+        text: Optional[str] = None
         try:
-            # Newer SDK (Responses API)
-            resp = client.responses.create(
-                model=model,
-                input=markdown_prompt,
-            )
-            # The text can be located in multiple places; normalize to a single string.
-            # Prefer output_text if present; otherwise join all text segments.
-            text: Optional[str] = None
-            try:
-                text = resp.output_text  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            if text is None:
-                # Fallback: try flattening content if output_text isn't available
-                text = str(resp)
-            return text
+            text = resp.output_text  # type: ignore[attr-defined]
         except Exception:
-            # Older SDK (Chat Completions)
-            chat = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": markdown_prompt}],
-            )
-            if chat and chat.choices and chat.choices[0].message:
-                return chat.choices[0].message.content or ""
-            return ""
-    except Exception as exc:
-        raise RuntimeError(f"Failed to call OpenAI: {exc}") from exc
+            pass
+        if text is None:
+            # Fallback: try flattening content if output_text isn't available
+            text = str(resp)
+        return text
+    except Exception:
+        # Older SDK (Chat Completions)
+        chat = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": markdown_prompt}],
+        )
+        if chat and chat.choices and chat.choices[0].message:
+            return chat.choices[0].message.content or ""
+        return ""
 
 
 def _yaml_dump_front_matter(meta: Dict[str, Any]) -> str:
@@ -286,26 +247,12 @@ def _yaml_dump_front_matter(meta: Dict[str, Any]) -> str:
     - Prefer PyYAML if available
     - Otherwise write a minimal, safe subset
     """
-    try:
-        import yaml  # type: ignore
-
-        return yaml.safe_dump(
-            meta,
-            sort_keys=True,
-            default_flow_style=False,
-            allow_unicode=True,
-        ).strip()
-    except Exception:
-        lines = []
-        for key in sorted(meta.keys()):
-            value = meta[key]
-            if isinstance(value, (int, float)) or value is None:
-                lines.append(f"{key}: {value}")
-            else:
-                # Quote strings to be safe
-                val = str(value).replace('"', '\\"')
-                lines.append(f'{key}: "{val}"')
-        return "\n".join(lines)
+    return yaml.safe_dump(
+        meta,
+        sort_keys=True,
+        default_flow_style=False,
+        allow_unicode=True,
+    ).strip()
 
 
 def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
