@@ -91,6 +91,7 @@ def _normalize_yaml_for_hash(yaml_text: str) -> str:
     Normalize YAML text for hashing.
     - Prefer canonicalization via PyYAML if available (sorted keys, stable dump)
     - Fallback to whitespace-trimmed text, which is stable but not key-sorted
+    - Goal: semantically equivalent YAML yields identical hashes; whitespace-only diffs ignored
     """
     try:
         # Optional dependency: PyYAML
