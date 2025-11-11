@@ -1,0 +1,11 @@
+app:
+  name: transactoid
+  env: development
+db:
+  url: sqlite:///./transactoid.db
+plaid:
+  env: sandbox
+  client_id: "your-client-id"
+  secret: "your-secret"
+
+
