@@ -1,14 +1,13 @@
-Here’s your **final, consolidated project overview**—directory tree + the **public interfaces and types** for every file, plus each file’s **key dependencies**. Everything reflects the revisions we made along the way (e.g., two-level taxonomy; `category_key` → `key`; `merchant_descriptor`; Promptorium prompts; single-pass categorization with optional `revised_*`; model-only DB returns; verifier LLM is *not* in DB).
+Here’s your final, consolidated project overview—directory tree + the public interfaces and types for every file, plus each file’s key dependencies. This version merges the analyzer and categorizer agents into a single agent at `agents/transactoid.py` and removes any requirement to create prompt files on disk (prompt keys remain referenced where applicable).
 
 ---
 
-# Directory tree (final)
+# Directory tree (updated)
 
 ```
 transactoid/
 ├─ agents/
-│  ├─ categorizer.py
-│  └─ analyzer_tool.py
+│  └─ transactoid.py
 ├─ tools/
 │  ├─ ingest/
 │  │  ├─ ingest_tool.py
@@ -19,7 +18,7 @@ transactoid/
 │  ├─ persist/
 │  │  └─ persist_tool.py
 │  └─ analytics/
-│     └─ analytics_tool.py
+│     └─ analyzer_tool.py
 ├─ services/
 │  ├─ file_cache.py
 │  ├─ plaid_client.py
@@ -28,9 +27,6 @@ transactoid/
 ├─ db/
 │  ├─ schema.sql
 │  └─ migrations/
-├─ prompts/
-│  ├─ categorize_prompt.md
-│  └─ nl_to_sql_prompt.md
 ├─ ui/
 │  └─ cli.py
 ├─ configs/
@@ -48,103 +44,33 @@ transactoid/
 
 ---
 
-# File-by-file interfaces & dependencies
+## File-by-file interfaces & dependencies
 
-## agents/categorizer.py
+### agents/transactoid.py
 
-**Role:** Orchestrate ingest → categorize → persist. (Handoff is controlled by scripts/CLI.)
-
-```python
-from __future__ import annotations
-from typing import Iterable, Optional
-
-def run(
-    *,
-    batch_size: int = 25,
-    confidence_threshold: float = 0.70,
-) -> None:
-    """
-    Loop:
-      - Ingest tool fetches up to batch_size NormalizedTransaction
-      - Categorizer.categorize([...]) -> List[CategorizedTransaction]
-      - PersistTool.save_transactions([...])
-    Stops when ingestion returns an empty batch.
-    """
-    ...
-```
-
-**Depends on:**
-
-* `tools.ingest.ingest_tool.NormalizedTransaction` (data shape)
-* `tools.categorize.categorizer_tool.Categorizer`
-* `tools.persist.persist_tool.PersistTool`
-* `services.taxonomy.Taxonomy` (injected into categorizer)
-* Promptorium (prompt key: **`categorize-transacations`**)
-
----
-
-## agents/analyzer_tool.py
-
-**Role:** NL→SQL QA tool. Public **`verify_sql`** and **`answer`**.
+Role: Unified agent for ingest → categorize → persist. Exposes a single `run()` method.
 
 ```python
 from __future__ import annotations
-from typing import Any, Callable, Generic, List, Optional, Type, TypeVar, TypedDict
-from sqlalchemy.engine import Row
-from services.db import Transaction  # ORM sample model
+from typing import Optional
 
-A = TypeVar("A")            # aggregate view-model type
-S = TypeVar("S", bound=Transaction)
-
-class AnalyzerSQLRefused(Exception): ...
-
-class AnalyzerAnswer(TypedDict, Generic[A, S]):
-    aggregates: List[A]     # caller-provided view-model via row factory
-    samples: List[S]        # ORM entities (default: Transaction)
-    rationales: List[str]   # optional verifier/model reasons
-
-class AnalyzerTool(Generic[A, S]):
+class TransactoidAgent:
     def __init__(
         self,
         *,
         model_name: str = "gpt-5",
-        prompt_key_verify: str = "verify-sql",
-        prompt_key_nl2sql: str = "nl-to-sql",
+        prompt_key_categorize: str = "categorize-transacations",
+        confidence_threshold: float = 0.70,
     ) -> None: ...
 
-    def verify_sql(
-        self,
-        sql: str,
-        *,
-        rationale_out: Optional[List[str]] = None,
-    ) -> None:
-        """LLM second opinion on a SQL string; raises AnalyzerSQLRefused on rejection."""
-        ...
-
-    def answer(
-        self,
-        question: str,
-        *,
-        aggregate_model: Type[A],
-        aggregate_row_factory: Callable[[Row[Any]], A],
-        sample_model: Type[S] = Transaction,
-        sample_pk_column: str = "transaction_id",
-        rationale_out: Optional[List[str]] = None,
-    ) -> AnalyzerAnswer[A, S]:
-        """
-        1) Promptorium(prompt_key_nl2sql) + Responses API → {aggregate_sql, sample_rows_sql}
-        2) verify_sql(...) on both
-        3) DB.run_sql(aggregate_sql, model=aggregate_model, pk_column=...)  [if ORM aggregates]
-           OR DB.run_sql with projection via row factory (via caller in scripts)
-        4) DB.run_sql(sample_rows_sql, model=sample_model, pk_column=sample_pk_column)
-        """
-        ...
+    def run(self, *, batch_size: int = 25) -> None: ...
 ```
 
-**Depends on:**
-
-* Promptorium prompt keys: **`nl-to-sql`**, **`verify-sql`**
-* `services.db.DB.run_sql` (execution; DB does **not** verify SQL)
+Depends on:
+* `tools.categorize.categorizer_tool.Categorizer`
+* `tools.persist.persist_tool.PersistTool`
+* `services.taxonomy.Taxonomy` (injected into categorizer)
+* Promptorium prompt key: `categorize-transacations` (no prompt files required)
 
 ---
 
@@ -314,44 +240,61 @@ class PersistTool:
 
 ---
 
-## tools/analytics/analytics_tool.py
+### tools/analytics/analyzer_tool.py
 
-**Role:** **Verifier-only** helper; *no execution here*. (DB handles execution and returns model objects.)
+Role: Public-facing NL→SQL helper. Verifies SQL via LLM, executes via DB, and returns aggregates + sample rows.
 
 ```python
-from typing import Optional, List, Type, TypeVar
-from services.db import DB
+from __future__ import annotations
+from typing import Any, Callable, Generic, List, Optional, Type, TypeVar, TypedDict
+from sqlalchemy.engine import Row
+from services.db import DB, Transaction
 
 M = TypeVar("M")
+A = TypeVar("A")            # aggregate view-model type
+S = TypeVar("S", bound=Transaction)
 
-class AnalyticsSQLRefused(Exception): ...
+class AnalyzerSQLRefused(Exception): ...
 
-class AnalyticsTool:
+class AnalyzerAnswer(TypedDict, Generic[A, S]):
+    aggregates: List[A]     # caller-provided view-model via row factory
+    samples: List[S]        # ORM entities (default: Transaction)
+    rationales: List[str]   # optional verifier/model reasons
+
+class AnalyzerTool(Generic[A, S]):
     def __init__(
         self,
         db: DB,
         *,
-        model: Type[M],
         prompt_key_verify: str = "verify-sql",
+        prompt_key_nl2sql: str = "nl-to-sql",
         max_rows: Optional[int] = None,
     ) -> None: ...
 
-    def _verify_sql(
+    def verify_sql(
         self,
         sql: str,
         *,
         rationale_out: Optional[List[str]] = None,
     ) -> None:
-        """LLM-based second opinion; raises AnalyticsSQLRefused on rejection."""
+        """LLM second opinion on a SQL string; raises AnalyzerSQLRefused on rejection."""
         ...
 
-    def _load_verify_prompt(self) -> str: ...
-    def _schema_hint(self) -> dict: ...
+    def answer(
+        self,
+        question: str,
+        *,
+        aggregate_model: Type[A],
+        aggregate_row_factory: Callable[[Row[Any]], A],
+        sample_model: Type[S] = Transaction,
+        sample_pk_column: str = "transaction_id",
+        rationale_out: Optional[List[str]] = None,
+    ) -> AnalyzerAnswer[A, S]: ...
 ```
 
-**Depends on:**
-
-* Promptorium key: **`verify-sql`**
+Depends on:
+* Promptorium keys: `nl-to-sql`, `verify-sql` (no prompt files required)
+* `services.db.DB.run_sql` (execution; DB does not verify SQL)
 * `services.db.DB.compact_schema_hint` (internal prompt context)
 
 ---
@@ -604,14 +547,6 @@ def run_pipeline(
 
 ---
 
-## prompts/
-
-* `categorize_prompt.md` — used by Promptorium key **`categorize-transacations`**
-* `nl_to_sql_prompt.md` — used by Promptorium key **`nl-to-sql`**
-  *(Verify-SQL prompt text is also managed in Promptorium under key **`verify-sql`**.)*
-
----
-
 ## db/schema.sql, db/migrations/
 
 * Tables: `merchants`, `categories` (`key`, `rules` TEXT[]), `transactions` (`merchant_descriptor`, `institution`, `is_verified`), `tags`, `transaction_tags`
@@ -622,8 +557,8 @@ def run_pipeline(
 
 ## configs/, tests/, .env.example, pyproject.toml, README.md
 
-* Standard scaffolding as previously outlined (no code here).
+* Standard scaffolding as previously outlined (no prompt files required).
 
 ---
 
-If you want, I can now **generate stub files** that exactly match these interfaces, so you can start filling in implementations without chasing types/imports.
+If you want, I can now generate stub files that match these interfaces, so you can start filling in implementations without chasing types/imports.
