@@ -37,42 +37,72 @@ DEFAULT_MERGED_TEMPLATE: str = dedent(
 
 
 # ----------------------------
-# Promptorium integration (stubs)
+# Promptorium integration (library-based)
 # ----------------------------
 def load_prompt_text(key: str) -> str:
     """
     Load the latest prompt text by key from Promptorium.
-    This default implementation requires integration to be provided by the caller.
-
-    For production usage, provide a concrete implementation via monkeypatching,
-    dependency injection, or by replacing this function.
+    Uses the Promptorium library with filesystem storage rooted at the repository.
     """
-    raise RuntimeError(
-        "Promptorium integration not configured. Override load_prompt_text(key) "
-        "or install and wire Promptorium."
-    )
+    try:
+        # Prefer the high-level service API for consistency with advanced usage.
+        from promptorium.services import PromptService  # type: ignore[import]
+        from promptorium.storage.fs import FileSystemPromptStorage  # type: ignore[import]
+        from promptorium.util.repo_root import find_repo_root  # type: ignore[import]
+
+        storage = FileSystemPromptStorage(find_repo_root())
+        svc = PromptService(storage)
+        return str(svc.load_prompt(key))
+    except Exception as exc:  # pragma: no cover - surfaced in real integration
+        raise RuntimeError(f"Failed to load Promptorium key '{key}': {exc}") from exc
 
 
 def store_generated(markdown: str) -> None:
     """
     Store generated taxonomy markdown to Promptorium under key `taxonomy-personal-finance`.
-    This default implementation requires integration to be provided by the caller.
+    Uses the Promptorium library and creates the key if it does not exist.
     """
-    raise RuntimeError(
-        "Promptorium integration not configured. Override store_generated(markdown) "
-        "or install and wire Promptorium."
-    )
+    key = "taxonomy-personal-finance"
+    try:
+        from promptorium.services import PromptService  # type: ignore[import]
+        from promptorium.storage.fs import FileSystemPromptStorage  # type: ignore[import]
+        from promptorium.util.repo_root import find_repo_root  # type: ignore[import]
+
+        storage = FileSystemPromptStorage(find_repo_root())
+        svc = PromptService(storage)
+        try:
+            # Try updating directly; if key doesn't exist, add then retry.
+            svc.update_prompt(key, markdown)
+            return
+        except Exception:
+            try:
+                storage.add_prompt(key, custom_dir=None)
+            except Exception:
+                # If add_prompt fails because it already exists or any race, ignore and retry update.
+                pass
+            svc.update_prompt(key, markdown)
+    except Exception as exc:  # pragma: no cover - surfaced in real integration
+        raise RuntimeError(f"Failed to store Promptorium key '{key}': {exc}") from exc
 
 
 def load_latest_generated_text() -> Optional[str]:
     """
     Load the latest stored taxonomy markdown for comparison (front matter read).
-    Returns None if no prior version exists or integration isn't configured.
+    Returns None if no prior version exists.
     """
-    raise RuntimeError(
-        "Promptorium integration not configured. Override load_latest_generated_text() "
-        "or install and wire Promptorium."
-    )
+    key = "taxonomy-personal-finance"
+    try:
+        from promptorium.services import PromptService  # type: ignore[import]
+        from promptorium.storage.fs import FileSystemPromptStorage  # type: ignore[import]
+        from promptorium.util.repo_root import find_repo_root  # type: ignore[import]
+
+        storage = FileSystemPromptStorage(find_repo_root())
+        svc = PromptService(storage)
+        text = svc.load_prompt(key)
+        return str(text) if str(text).strip() else None
+    except Exception:
+        # Treat any load failure as "no latest version available"
+        return None
 
 
 # ----------------------------
