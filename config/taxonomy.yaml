@@ -1,0 +1,18 @@
+# Example seed taxonomy input YAML
+parents:
+  - name: Housing
+    children:
+      - Rent
+      - Mortgage
+      - Property Taxes
+  - name: Transportation
+    children:
+      - Fuel
+      - Public Transit
+      - Rideshare
+  - name: Groceries
+    children:
+      - Supermarket
+      - Convenience Store
+
+
