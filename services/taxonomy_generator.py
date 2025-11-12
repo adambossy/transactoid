@@ -221,11 +221,7 @@ def call_openai(markdown_prompt: str, model: str) -> str:
         )
         # The text can be located in multiple places; normalize to a single string.
         # Prefer output_text if present; otherwise join all text segments.
-        text: Optional[str] = None
-        try:
-            text = resp.output_text  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        text: Optional[str] = getattr(resp, "output_text", None)
         if text is None:
             # Fallback: try flattening content if output_text isn't available
             text = str(resp)
