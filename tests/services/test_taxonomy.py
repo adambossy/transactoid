@@ -120,13 +120,40 @@ def test_from_db_converts_categories_to_nodes() -> None:
 
 # Helpers (readable setup)
 
+
 def build_sample_nodes() -> list[CategoryNode]:
     return [
-        CategoryNode(key="food", name="Food", description="All food spend", parent_key=None, rules=None),
-        CategoryNode(key="food.groceries", name="Groceries", description=None, parent_key="food", rules=["grocery"]),
-        CategoryNode(key="food.restaurants", name="Restaurants", description=None, parent_key="food", rules=["restaurant"]),
-        CategoryNode(key="travel", name="Travel", description=None, parent_key=None, rules=None),
-        CategoryNode(key="travel.flights", name="Flights", description=None, parent_key="travel", rules=["flight"]),
+        CategoryNode(
+            key="food",
+            name="Food",
+            description="All food spend",
+            parent_key=None,
+            rules=None,
+        ),
+        CategoryNode(
+            key="food.groceries",
+            name="Groceries",
+            description=None,
+            parent_key="food",
+            rules=["grocery"],
+        ),
+        CategoryNode(
+            key="food.restaurants",
+            name="Restaurants",
+            description=None,
+            parent_key="food",
+            rules=["restaurant"],
+        ),
+        CategoryNode(
+            key="travel", name="Travel", description=None, parent_key=None, rules=None
+        ),
+        CategoryNode(
+            key="travel.flights",
+            name="Flights",
+            description=None,
+            parent_key="travel",
+            rules=["flight"],
+        ),
     ]
 
 
@@ -149,9 +176,27 @@ class FakeDBForFromDB(FakeDB):
     def __init__(self) -> None:
         super().__init__({})
         self._rows = [
-            {"key": "food", "name": "Food", "description": "All food spend", "parent_key": None, "rules": None},
-            {"key": "food.groceries", "name": "Groceries", "description": None, "parent_key": "food", "rules": ["grocery", "supermarket"]},
-            {"key": "travel", "name": "Travel", "description": None, "parent_key": None, "rules": None},
+            {
+                "key": "food",
+                "name": "Food",
+                "description": "All food spend",
+                "parent_key": None,
+                "rules": None,
+            },
+            {
+                "key": "food.groceries",
+                "name": "Groceries",
+                "description": None,
+                "parent_key": "food",
+                "rules": ["grocery", "supermarket"],
+            },
+            {
+                "key": "travel",
+                "name": "Travel",
+                "description": None,
+                "parent_key": None,
+                "rules": None,
+            },
         ]
 
     def fetch_categories(self) -> list[dict[str, object]]:
@@ -160,5 +205,3 @@ class FakeDBForFromDB(FakeDB):
 
 def build_fake_db_for_from_db() -> FakeDBForFromDB:
     return FakeDBForFromDB()
-
-

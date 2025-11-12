@@ -1,5 +1,3 @@
 """
 Scripts package initializer.
 """
-
-

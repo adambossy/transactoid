@@ -44,5 +44,3 @@ class AnalyticsTool:
     def _schema_hint(self) -> dict:
         # Minimal stub schema hint
         return {}
-
-

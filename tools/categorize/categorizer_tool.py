@@ -31,8 +31,8 @@ class Categorizer:
         self._model = model
         self._confidence_threshold = confidence_threshold
 
-    def categorize(self, txns: Iterable[NormalizedTransaction]) -> List[CategorizedTransaction]:
+    def categorize(
+        self, txns: Iterable[NormalizedTransaction]
+    ) -> List[CategorizedTransaction]:
         # Minimal stub: returns empty list
         return []
-
-

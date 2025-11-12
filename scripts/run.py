@@ -35,5 +35,3 @@ def run_pipeline(
     questions: Optional[List[str]] = None,
 ) -> None:
     return None
-
-

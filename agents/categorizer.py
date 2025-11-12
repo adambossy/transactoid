@@ -15,5 +15,3 @@ def run(
     """
     # Minimal stub: intentionally does nothing for now.
     return None
-
-

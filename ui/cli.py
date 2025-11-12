@@ -34,5 +34,3 @@ def clear_cache(namespace: str = "default") -> None:
 def main() -> None:
     # Minimal stub entrypoint
     return None
-
-

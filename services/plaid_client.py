@@ -51,7 +51,9 @@ class PlaidClient:
         self._client_name = client_name
         self._products = products or []
 
-    def create_link_token(self, *, user_id: str, redirect_uri: Optional[str] = None) -> str:
+    def create_link_token(
+        self, *, user_id: str, redirect_uri: Optional[str] = None
+    ) -> str:
         return "stub-link-token"
 
     def exchange_public_token(self, public_token: str) -> Dict[str, str]:
@@ -61,7 +63,11 @@ class PlaidClient:
         return []
 
     def get_item_info(self, access_token: str) -> PlaidItemInfo:
-        return {"item_id": "stub-item", "institution_id": None, "institution_name": None}
+        return {
+            "item_id": "stub-item",
+            "institution_id": None,
+            "institution_name": None,
+        }
 
     def list_transactions(
         self,
@@ -86,5 +92,3 @@ class PlaidClient:
 
     def institution_name_for_item(self, access_token: str) -> Optional[str]:
         return None
-
-

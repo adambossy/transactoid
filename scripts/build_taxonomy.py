@@ -60,7 +60,9 @@ def run_build(yaml_path: str, model: str) -> bool:
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build the taxonomy via Promptorium + OpenAI.")
+    parser = argparse.ArgumentParser(
+        description="Build the taxonomy via Promptorium + OpenAI."
+    )
     parser.add_argument(
         "--yaml",
         dest="yaml_path",
@@ -90,5 +92,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

@@ -68,5 +68,3 @@ class AnalyzerTool(Generic[A, S]):
             "samples": [],
             "rationales": ["stub"],
         }
-
-

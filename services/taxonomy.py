@@ -33,8 +33,12 @@ class Taxonomy:
                 CategoryNode(
                     key=str(row["key"]),
                     name=str(row["name"]),
-                    description=None if row.get("description") is None else str(row["description"]),
-                    parent_key=None if row.get("parent_key") is None else str(row["parent_key"]),
+                    description=None
+                    if row.get("description") is None
+                    else str(row["description"]),
+                    parent_key=None
+                    if row.get("parent_key") is None
+                    else str(row["parent_key"]),
                     rules=None
                     if row.get("rules") is None
                     else [str(r) for r in list(row["rules"])],  # type: ignore[call-overload]
@@ -112,5 +116,3 @@ class Taxonomy:
         if parent is not None:
             parts.insert(0, parent.name)
         return sep.join(parts)
-
-

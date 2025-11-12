@@ -21,7 +21,4 @@ class NormalizedTransaction:
 
 
 class IngestTool(Protocol):
-    def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]:
-        ...
-
-
+    def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]: ...

@@ -9,7 +9,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "promptorium @ git+https://github.com/adambossy/promptorium@main",
+    "promptorium-python @ git+https://github.com/adambossy/promptorium-python@main",
     "openai>=1.0.0",
     "PyYAML>=6.0",
 ]
