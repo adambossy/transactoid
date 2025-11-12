@@ -1,10 +1,21 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "transactoid"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "promptorium-python @ git+https://github.com/adambossy/promptorium-python@main",
+    "openai>=1.0.0",
+    "PyYAML>=6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["agents*", "configs*", "db*", "plans*", "prompts*", "services*", "tools*", "ui*"]
 
 [tool.deadcode]
 exclude = [
@@ -36,5 +47,12 @@ ignore-definitions-if-inherits-from = [
     "BaseModel",
     "Schema",
     "Settings",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.2",
+    "pytest>=9.0.0",
+    "ruff>=0.14.4",
 ]
 
