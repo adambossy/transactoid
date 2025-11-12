@@ -10,7 +10,6 @@ class CategoryNode:
     name: str
     description: Optional[str]
     parent_key: Optional[str]
-    rules: Optional[List[str]]
 
 
 class Taxonomy:
@@ -35,9 +34,6 @@ class Taxonomy:
                     name=str(row["name"]),
                     description=None if row.get("description") is None else str(row["description"]),
                     parent_key=None if row.get("parent_key") is None else str(row["parent_key"]),
-                    rules=None
-                    if row.get("rules") is None
-                    else [str(r) for r in list(row["rules"])],  # type: ignore[call-overload]
                 )
             )
         # Sort to keep stable order
@@ -80,7 +76,6 @@ class Taxonomy:
         self,
         *,
         include_keys: Optional[Iterable[str]] = None,
-        include_rules: bool = True,
     ) -> Dict[str, object]:
         if include_keys is None:
             selected = self.all_nodes()
@@ -95,13 +90,9 @@ class Taxonomy:
                     "name": n.name,
                     "description": n.description,
                     "parent_key": n.parent_key,
-                    "rules": n.rules if include_rules else None,
                 }
             )
-        return {
-            "include_rules": include_rules,
-            "nodes": nodes_payload,
-        }
+        return {"nodes": nodes_payload}
 
     def path_str(self, key: str, sep: str = " > ") -> Optional[str]:
         node = self._nodes_by_key.get(key)

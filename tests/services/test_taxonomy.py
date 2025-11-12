@@ -73,21 +73,18 @@ def test_to_prompt_includes_requested_keys() -> None:
 
     expected_prompt = json.dumps(
         {
-            "include_rules": True,
             "nodes": [
                 {
                     "key": "food",
                     "name": "Food",
                     "description": "All food spend",
                     "parent_key": None,
-                    "rules": None,
                 },
                 {
                     "key": "food.groceries",
                     "name": "Groceries",
                     "description": None,
                     "parent_key": "food",
-                    "rules": ["grocery"],
                 },
             ],
         },
@@ -123,7 +120,7 @@ def test_from_db_converts_categories_to_nodes() -> None:
     nodes = {node.key: node for node in taxonomy.all_nodes()}
 
     assert nodes["food"].parent_key is None
-    assert nodes["food.groceries"].rules == ["grocery", "supermarket"]
+    assert nodes["food.groceries"].parent_key == "food"
 
 
 # Helpers (readable setup)
@@ -145,7 +142,6 @@ def build_sample_nodes() -> list[CategoryNode]:
                 name=category["name"],
                 description=category.get("description"),
                 parent_key=category.get("parent_key"),
-                rules=category.get("rules"),
             )
         )
 
@@ -176,21 +172,18 @@ class FakeDBForFromDB(FakeDB):
                 "name": "Food",
                 "description": "All food spend",
                 "parent_key": None,
-                "rules": None,
             },
             {
                 "key": "food.groceries",
                 "name": "Groceries",
                 "description": None,
                 "parent_key": "food",
-                "rules": ["grocery", "supermarket"],
             },
             {
                 "key": "travel",
                 "name": "Travel",
                 "description": None,
                 "parent_key": None,
-                "rules": None,
             },
         ]
 
