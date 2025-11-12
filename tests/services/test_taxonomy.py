@@ -1,11 +1,26 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict, cast
 
-from yaml import safe_load
+from yaml import safe_load  # type: ignore[import-untyped]
 
 from services.taxonomy import CategoryNode, Taxonomy
+
+if TYPE_CHECKING:
+    from services.db import DB
+
+
+class RawCategory(TypedDict):
+    key: str
+    name: str
+    description: str | None
+    parent_key: str | None
+
+
+class RawTaxonomy(TypedDict, total=False):
+    categories: list[RawCategory]
+
 
 SAMPLE_TAXONOMY_PATH = (
     Path(__file__).resolve().parent.parent / "fixtures" / "sample_taxonomy.yaml"
@@ -69,29 +84,25 @@ def test_to_prompt_includes_requested_keys() -> None:
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
     prompt = taxonomy.to_prompt(include_keys={"food", "food.groceries"})
-    prompt_json = json.dumps(prompt, sort_keys=True)
 
-    expected_prompt = json.dumps(
-        {
-            "nodes": [
-                {
-                    "key": "food",
-                    "name": "Food",
-                    "description": "All food spend",
-                    "parent_key": None,
-                },
-                {
-                    "key": "food.groceries",
-                    "name": "Groceries",
-                    "description": None,
-                    "parent_key": "food",
-                },
-            ],
-        },
-        sort_keys=True,
-    )
+    expected_prompt = {
+        "nodes": [
+            {
+                "key": "food",
+                "name": "Food",
+                "description": "All food spend",
+                "parent_key": None,
+            },
+            {
+                "key": "food.groceries",
+                "name": "Groceries",
+                "description": None,
+                "parent_key": "food",
+            },
+        ],
+    }
 
-    assert prompt_json == expected_prompt
+    assert prompt == expected_prompt
 
 
 def test_path_str_formats_two_level_hierarchy() -> None:
@@ -105,7 +116,7 @@ def test_path_str_formats_two_level_hierarchy() -> None:
 def test_category_id_for_key_uses_db_lookup() -> None:
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
-    fake_db = build_fake_db({"food.groceries": 10, "travel.flights": 20})
+    fake_db = cast("DB", build_fake_db({"food.groceries": 10, "travel.flights": 20}))
 
     groceries_id = taxonomy.category_id_for_key(fake_db, "food.groceries")
     missing_id = taxonomy.category_id_for_key(fake_db, "food.restaurants")
@@ -115,7 +126,7 @@ def test_category_id_for_key_uses_db_lookup() -> None:
 
 
 def test_from_db_converts_categories_to_nodes() -> None:
-    db = build_fake_db_for_from_db()
+    db = cast("DB", build_fake_db_for_from_db())
     taxonomy = Taxonomy.from_db(db)
     nodes = {node.key: node for node in taxonomy.all_nodes()}
 
@@ -128,14 +139,18 @@ def test_from_db_converts_categories_to_nodes() -> None:
 
 def build_sample_nodes() -> list[CategoryNode]:
     with SAMPLE_TAXONOMY_PATH.open("r", encoding="utf-8") as taxonomy_file:
-        payload = safe_load(taxonomy_file) or {}
+        raw_data = cast(RawTaxonomy | None, safe_load(taxonomy_file))
 
-    categories_data = payload.get("categories", [])
-    if not isinstance(categories_data, list):
-        raise ValueError("sample taxonomy fixture must define a categories list")
+    if raw_data is None:
+        payload: RawTaxonomy = {"categories": []}
+    else:
+        payload = raw_data
+
+    categories: list[RawCategory] = payload.get("categories", [])
+
     nodes: list[CategoryNode] = []
 
-    for category in categories_data:
+    for category in categories:
         nodes.append(
             CategoryNode(
                 key=category["key"],
@@ -166,7 +181,7 @@ def build_fake_db(mapping: dict[str, int]) -> FakeDB:
 class FakeDBForFromDB(FakeDB):
     def __init__(self) -> None:
         super().__init__({})
-        self._rows = [
+        self._rows: list[dict[str, object]] = [
             {
                 "key": "food",
                 "name": "Food",
