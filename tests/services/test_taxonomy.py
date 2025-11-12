@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+from yaml import safe_load
 
 from services.taxonomy import CategoryNode, Taxonomy
+
+SAMPLE_TAXONOMY_PATH = (
+    Path(__file__).resolve().parent.parent / "fixtures" / "sample_taxonomy.yaml"
+)
 
 
 def test_from_nodes_populates_maps() -> None:
@@ -62,6 +69,7 @@ def test_to_prompt_includes_requested_keys() -> None:
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
     prompt = taxonomy.to_prompt(include_keys={"food", "food.groceries"})
+    prompt_json = json.dumps(prompt, sort_keys=True)
 
     expected_prompt = json.dumps(
         {
@@ -86,7 +94,7 @@ def test_to_prompt_includes_requested_keys() -> None:
         sort_keys=True,
     )
 
-    assert prompt == expected_prompt
+    assert prompt_json == expected_prompt
 
 
 def test_path_str_formats_two_level_hierarchy() -> None:
@@ -120,14 +128,28 @@ def test_from_db_converts_categories_to_nodes() -> None:
 
 # Helpers (readable setup)
 
+
 def build_sample_nodes() -> list[CategoryNode]:
-    return [
-        CategoryNode(key="food", name="Food", description="All food spend", parent_key=None, rules=None),
-        CategoryNode(key="food.groceries", name="Groceries", description=None, parent_key="food", rules=["grocery"]),
-        CategoryNode(key="food.restaurants", name="Restaurants", description=None, parent_key="food", rules=["restaurant"]),
-        CategoryNode(key="travel", name="Travel", description=None, parent_key=None, rules=None),
-        CategoryNode(key="travel.flights", name="Flights", description=None, parent_key="travel", rules=["flight"]),
-    ]
+    with SAMPLE_TAXONOMY_PATH.open("r", encoding="utf-8") as taxonomy_file:
+        payload = safe_load(taxonomy_file) or {}
+
+    categories_data = payload.get("categories", [])
+    if not isinstance(categories_data, list):
+        raise ValueError("sample taxonomy fixture must define a categories list")
+    nodes: list[CategoryNode] = []
+
+    for category in categories_data:
+        nodes.append(
+            CategoryNode(
+                key=category["key"],
+                name=category["name"],
+                description=category.get("description"),
+                parent_key=category.get("parent_key"),
+                rules=category.get("rules"),
+            )
+        )
+
+    return nodes
 
 
 class FakeDB:
@@ -149,9 +171,27 @@ class FakeDBForFromDB(FakeDB):
     def __init__(self) -> None:
         super().__init__({})
         self._rows = [
-            {"key": "food", "name": "Food", "description": "All food spend", "parent_key": None, "rules": None},
-            {"key": "food.groceries", "name": "Groceries", "description": None, "parent_key": "food", "rules": ["grocery", "supermarket"]},
-            {"key": "travel", "name": "Travel", "description": None, "parent_key": None, "rules": None},
+            {
+                "key": "food",
+                "name": "Food",
+                "description": "All food spend",
+                "parent_key": None,
+                "rules": None,
+            },
+            {
+                "key": "food.groceries",
+                "name": "Groceries",
+                "description": None,
+                "parent_key": "food",
+                "rules": ["grocery", "supermarket"],
+            },
+            {
+                "key": "travel",
+                "name": "Travel",
+                "description": None,
+                "parent_key": None,
+                "rules": None,
+            },
         ]
 
     def fetch_categories(self) -> list[dict[str, object]]:
@@ -160,5 +200,3 @@ class FakeDBForFromDB(FakeDB):
 
 def build_fake_db_for_from_db() -> FakeDBForFromDB:
     return FakeDBForFromDB()
-
-

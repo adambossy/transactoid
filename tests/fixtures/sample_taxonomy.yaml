@@ -3,24 +3,32 @@ categories:
     name: Food
     description: All food spend
     parent_key: null
+    rules: null
 
   - key: food.groceries
     name: Groceries
     description: null
     parent_key: food
+    rules:
+      - grocery
 
   - key: food.restaurants
     name: Restaurants
     description: null
     parent_key: food
+    rules:
+      - restaurant
 
   - key: travel
     name: Travel
     description: null
     parent_key: null
+    rules: null
 
   - key: travel.flights
     name: Flights
     description: null
     parent_key: travel
+    rules:
+      - flight
 
