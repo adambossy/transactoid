@@ -35,7 +35,9 @@ DEFAULT_MERGED_TEMPLATE: str = dedent(
     ### Domain
     Personal Finance Transactions
 
-    ### Objectives
+    ---
+
+    ### Your Objectives
 
     **1. Analyze and interpret**
     - Infer what each category means and how it fits conceptually into the overall system.
@@ -69,9 +71,9 @@ DEFAULT_MERGED_TEMPLATE: str = dedent(
     For each top-level category:
     1. Provide a **definition** (one concise paragraph).
     2. Then enumerate all sub-categories in a nested section using this structure:
-       - **Name — short definition**
-       - **Examples:** several concrete examples illustrating inclusions.
-       - **Excludes:** common mistakes or near-misses; redirect them to the right category if possible.
+    - **Name — short definition**
+    - **Examples:** several concrete examples illustrating inclusions.
+    - **Excludes:** common mistakes or near-misses; redirect them to the right category if possible.
 
     Use Markdown `<details>` / `<summary>` blocks or similar formatting for collapsible sections.
 
