@@ -1,5 +1,2 @@
-"""
-Scripts package initializer.
-"""
-
+"""Utility scripts package for transactoid."""
 
