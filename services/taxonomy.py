@@ -1,93 +1,102 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence
+
+from services.db import DB
 
 
 @dataclass(frozen=True)
 class CategoryNode:
     key: str
     name: str
-    description: Optional[str]
-    parent_key: Optional[str]
-    rules: Optional[List[str]]
+    description: str | None
+    parent_key: str | None
 
 
 class Taxonomy:
+    @staticmethod
+    def _node_sort_key(node: CategoryNode) -> str:
+        return node.key
+
     def __init__(self, nodes: Sequence[CategoryNode]) -> None:
-        self._nodes_by_key: Dict[str, CategoryNode] = {n.key: n for n in nodes}
-        self._children: Dict[str, List[CategoryNode]] = {}
+        self._nodes_by_key: dict[str, CategoryNode] = {n.key: n for n in nodes}
+        self._children: dict[str, list[CategoryNode]] = {}
         for node in nodes:
             if node.parent_key:
                 self._children.setdefault(node.parent_key, []).append(node)
         # Ensure deterministic ordering
         for key in list(self._children.keys()):
-            self._children[key].sort(key=lambda n: n.key)
+            self._children[key].sort(key=self._node_sort_key)
 
     @classmethod
-    def from_db(cls, db: "DB") -> "Taxonomy":
-        rows: List[Dict[str, object]] = db.fetch_categories()
-        nodes: List[CategoryNode] = []
+    def from_db(cls, db: DB) -> Taxonomy:
+        rows: list[dict[str, object]] = db.fetch_categories()
+        nodes: list[CategoryNode] = []
         for row in rows:
             nodes.append(
                 CategoryNode(
                     key=str(row["key"]),
                     name=str(row["name"]),
-                    description=None if row.get("description") is None else str(row["description"]),
-                    parent_key=None if row.get("parent_key") is None else str(row["parent_key"]),
-                    rules=None
-                    if row.get("rules") is None
-                    else [str(r) for r in list(row["rules"])],  # type: ignore[call-overload]
+                    description=(
+                        None
+                        if row.get("description") is None
+                        else str(row["description"])
+                    ),
+                    parent_key=(
+                        None
+                        if row.get("parent_key") is None
+                        else str(row["parent_key"])
+                    ),
                 )
             )
         # Sort to keep stable order
-        nodes.sort(key=lambda n: n.key)
+        nodes.sort(key=cls._node_sort_key)
         return cls(nodes)
 
     @classmethod
-    def from_nodes(cls, nodes: Sequence[CategoryNode]) -> "Taxonomy":
+    def from_nodes(cls, nodes: Sequence[CategoryNode]) -> Taxonomy:
         # Sort incoming nodes to ensure deterministic behavior
-        return cls(sorted(list(nodes), key=lambda n: n.key))
+        return cls(sorted(nodes, key=cls._node_sort_key))
 
     def is_valid_key(self, key: str) -> bool:
         return key in self._nodes_by_key
 
-    def get(self, key: str) -> Optional[CategoryNode]:
+    def get(self, key: str) -> CategoryNode | None:
         return self._nodes_by_key.get(key)
 
-    def children(self, key: str) -> List[CategoryNode]:
+    def children(self, key: str) -> list[CategoryNode]:
         return list(self._children.get(key, []))
 
-    def parent(self, key: str) -> Optional[CategoryNode]:
+    def parent(self, key: str) -> CategoryNode | None:
         node = self._nodes_by_key.get(key)
         if node is None or node.parent_key is None:
             return None
         return self._nodes_by_key.get(node.parent_key)
 
-    def parents(self) -> List[CategoryNode]:
+    def parents(self) -> list[CategoryNode]:
         # Top-level nodes: those with parent_key is None
         roots = [n for n in self._nodes_by_key.values() if n.parent_key is None]
         roots.sort(key=lambda n: n.key)
         return roots
 
-    def all_nodes(self) -> List[CategoryNode]:
+    def all_nodes(self) -> list[CategoryNode]:
         return [self._nodes_by_key[k] for k in sorted(self._nodes_by_key.keys())]
 
-    def category_id_for_key(self, db: "DB", key: str) -> Optional[int]:
+    def category_id_for_key(self, db: DB, key: str) -> int | None:
         return db.get_category_id_by_key(key)
 
     def to_prompt(
         self,
         *,
-        include_keys: Optional[Iterable[str]] = None,
-        include_rules: bool = True,
-    ) -> Dict[str, object]:
+        include_keys: Iterable[str] | None = None,
+    ) -> dict[str, object]:
         if include_keys is None:
             selected = self.all_nodes()
         else:
             wanted = set(include_keys)
             selected = [n for n in self.all_nodes() if n.key in wanted]
-        nodes_payload: List[Dict[str, object]] = []
+        nodes_payload: list[dict[str, object]] = []
         for n in selected:
             nodes_payload.append(
                 {
@@ -95,22 +104,18 @@ class Taxonomy:
                     "name": n.name,
                     "description": n.description,
                     "parent_key": n.parent_key,
-                    "rules": n.rules if include_rules else None,
                 }
             )
         return {
-            "include_rules": include_rules,
             "nodes": nodes_payload,
         }
 
-    def path_str(self, key: str, sep: str = " > ") -> Optional[str]:
+    def path_str(self, key: str, sep: str = " > ") -> str | None:
         node = self._nodes_by_key.get(key)
         if node is None:
             return None
-        parts: List[str] = [node.name]
+        parts: list[str] = [node.name]
         parent = self.parent(key)
         if parent is not None:
             parts.insert(0, parent.name)
         return sep.join(parts)
-
-

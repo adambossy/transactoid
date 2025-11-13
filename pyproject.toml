@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["agents*", "configs*", "db*", "plans*", "prompts*", "services*", "tools*", "ui*"]
+include = ["agents*", "configs*", "db*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
 
 [tool.deadcode]
 exclude = [
