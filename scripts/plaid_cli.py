@@ -48,10 +48,11 @@ def plaid_secret() -> str:
     env = os.getenv("PLAID_ENV", "sandbox").lower()
     if env == "production":
         return getenv_or_die("PLAID_PRODUCTION_SECRET")
-    elif env == "sandbox":
+    if env == "development":
+        return getenv_or_die("PLAID_DEVELOPMENT_SECRET")
+    if env == "sandbox":
         return getenv_or_die("PLAID_SANDBOX_SECRET")
-    else:
-        raise ValueError(f"Invalid PLAID_ENV={env}")
+    raise ValueError(f"Invalid PLAID_ENV={env}")
 
 
 def plaid_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -145,6 +146,49 @@ def cmd_sandbox_link(args: argparse.Namespace) -> None:
     print(access_token)
 
 
+def cmd_exchange_public_token(args: argparse.Namespace) -> None:
+    """Exchange a Plaid Link public_token for an access_token."""
+    client_id = getenv_or_die("PLAID_CLIENT_ID")
+    secret = plaid_secret()
+    public_token = args.public_token
+
+    payload = {
+        "client_id": client_id,
+        "secret": secret,
+        "public_token": public_token,
+    }
+
+    resp = plaid_post("/item/public_token/exchange", payload)
+
+    access_token = resp.get("access_token")
+    item_id = resp.get("item_id")
+    if not access_token:
+        print(
+            f"Unexpected response from /item/public_token/exchange: {resp}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    result = {
+        "access_token": access_token,
+        "item_id": item_id,
+        "environment": os.getenv("PLAID_ENV", "sandbox").lower(),
+        "created_at": dt.datetime.utcnow().isoformat() + "Z",
+        "request_id": resp.get("request_id"),
+        "expiration": resp.get("expiration"),
+        "scope": resp.get("scope"),
+    }
+
+    output_path = args.output
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+        print(f"Wrote access token details to {output_path}")
+
+    print("Access token (copy this somewhere secure):")
+    print(access_token)
+
+
 def _parse_date(value: str) -> dt.date:
     try:
         return dt.datetime.strptime(value, "%Y-%m-%d").date()
@@ -214,6 +258,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="File path to write access token JSON (default: plaid_access_token.json)",
     )
     sandbox_parser.set_defaults(func=cmd_sandbox_link)
+
+    exchange_parser = subparsers.add_parser(
+        "exchange-public-token",
+        help="Exchange a Plaid Link public token for an access token.",
+    )
+    exchange_parser.add_argument(
+        "public_token",
+        help="public_token returned by Plaid Link",
+    )
+    exchange_parser.add_argument(
+        "--output",
+        help="Optional file path to write the resulting access token as JSON.",
+    )
+    exchange_parser.set_defaults(func=cmd_exchange_public_token)
 
     tx_parser = subparsers.add_parser(
         "transactions",

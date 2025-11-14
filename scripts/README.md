@@ -4,24 +4,28 @@ This directory contains small, focused command-line helpers for the project.
 
 ## Plaid CLI (`plaid_cli.py`)
 
-A standalone command-line tool for working with the Plaid API. It has **no dependencies on the rest of the project** and uses only the Python standard library.
+A standalone command-line tool for working with the Plaid API. It has **no dependencies on the rest of the project** and loads credentials from the repo’s `.env` file via [`python-dotenv`](https://pypi.org/project/python-dotenv/).
 
-It supports two main commands:
+It supports three main commands:
 
 - `sandbox-link`: create a **sandbox** Plaid item and write its `access_token` to a JSON file.
+- `exchange-public-token`: exchange a Plaid Link `public_token` (sandbox, development, or production) for an `access_token`.
 - `transactions`: fetch and print transaction history for an existing `access_token`.
 
 ### Requirements
 
 - Python 3.12+
 - A Plaid account and API keys
+- [`python-dotenv`](https://pypi.org/project/python-dotenv/) installed (`pip install python-dotenv` or `uv add python-dotenv`)
 
-Set the following environment variables before use:
+The script automatically loads environment variables from `.env` in the project root. Make sure that file (or your shell) defines:
 
 ```bash
 export PLAID_CLIENT_ID="your-client-id"
-export PLAID_SECRET="your-secret"
 export PLAID_ENV="sandbox"   # or development / production
+export PLAID_SANDBOX_SECRET="your-sandbox-secret"
+export PLAID_DEVELOPMENT_SECRET="your-development-secret"   # if you use development
+export PLAID_PRODUCTION_SECRET="your-production-secret"     # if you use production
 ```
 
 For fetching transactions, you can optionally set:
@@ -29,6 +33,8 @@ For fetching transactions, you can optionally set:
 ```bash
 export PLAID_ACCESS_TOKEN="your-access-token"
 ```
+
+> **Tip:** If you only work in one environment, you only need to set the matching secret.
 
 ### 1. Create a sandbox access token
 
@@ -51,6 +57,20 @@ After it runs, you can export the token for convenience (requires `jq`):
 ```bash
 export PLAID_ACCESS_TOKEN="$(jq -r .access_token plaid_access_token.json)"
 ```
+
+### 2. Exchange a Plaid `public_token`
+
+When you run Plaid Link (web, mobile, or sandbox), it returns a short-lived `public_token`. Convert it to a long-lived `access_token` with the new subcommand:
+
+```bash
+python scripts/plaid_cli.py exchange-public-token \
+  public-sandbox-1234-5678-90ab-cdef \
+  --output plaid_access_token.json
+```
+
+- Works with any `PLAID_ENV` (`sandbox`, `development`, or `production`).
+- `--output` is optional; if provided, the script saves token details (token, item_id, environment, timestamps) as JSON.
+- The access token is always printed to stdout so you can copy/paste it immediately.
 
 ### 2. Fetch transactions
 
