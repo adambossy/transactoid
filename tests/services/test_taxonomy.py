@@ -85,7 +85,6 @@ def test_to_prompt_includes_requested_keys() -> None:
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
     prompt = taxonomy.to_prompt(include_keys={"food", "food.groceries"})
-    prompt_json = json.dumps(prompt, sort_keys=True)
 
     expected_prompt = {
         "nodes": [
@@ -104,7 +103,7 @@ def test_to_prompt_includes_requested_keys() -> None:
         ],
     }
 
-    assert prompt_json == expected_prompt
+    assert prompt == expected_prompt
 
 
 def test_path_str_formats_two_level_hierarchy() -> None:
