@@ -5,10 +5,16 @@ import argparse
 import datetime as dt
 import json
 import os
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
 from typing import Any, Dict
+
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(PROJECT_ROOT / ".env")
 
 PLAID_ENV_MAP: Dict[str, str] = {
     "sandbox": "https://sandbox.plaid.com",
