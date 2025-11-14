@@ -54,8 +54,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--yaml",
         dest="yaml_path",
-        default="config/taxonomy.yaml",
-        help="Path to the input YAML file. Default: config/taxonomy.yaml",
+        default="configs/taxonomy.yaml",
+        help="Path to the input YAML file. Default: configs/taxonomy.yaml",
     )
     parser.add_argument(
         "--model",
