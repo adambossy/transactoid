@@ -10,12 +10,12 @@ Build and store a versioned Personal Finance taxonomy using a merged prompt temp
 Note: In this repository, Promptorium integration is left as stubs. Provide concrete implementations or mocks in your environment.
 
 ### Input YAML
-Default path: `config/taxonomy.yaml`. You can supply your own via `--yaml`.
+Default path: `configs/taxonomy.yaml`. You can supply your own via `--yaml`.
 
 ### Usage
 
 ```bash
-python -m scripts.build_taxonomy --yaml config/taxonomy.yaml --model gpt-4o
+python -m scripts.build_taxonomy --yaml configs/taxonomy.yaml --model gpt-4o
 ```
 
 Behavior:
