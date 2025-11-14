@@ -1,6 +1,24 @@
 ### Linting and verification
 
-Before completing your work, always run the linter, type-checker, code formatter and dead code deterctor.
+Before completing your work, always run the linter, type-checker, code formatter and dead code detector.
+
+Commands:
+```bash
+# Lint
+uvx ruff check .
+
+# Format (or check formatting)
+uvx ruff format .          # or: ruff format --check .
+
+# Type-check
+uvx mypy --config-file mypy.ini .
+
+# Dead code
+uvx deadcode .
+
+# Tests
+uvx pytest -q
+```
 
 ### Unit test structure rules
 
