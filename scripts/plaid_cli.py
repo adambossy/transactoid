@@ -44,6 +44,16 @@ def plaid_base_url() -> str:
     return base_url
 
 
+def plaid_secret() -> str:
+    env = os.getenv("PLAID_ENV", "sandbox").lower()
+    if env == "production":
+        return getenv_or_die("PLAID_PRODUCTION_SECRET")
+    elif env == "sandbox":
+        return getenv_or_die("PLAID_SANDBOX_SECRET")
+    else:
+        raise ValueError(f"Invalid PLAID_ENV={env}")
+
+
 def plaid_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     url = plaid_base_url().rstrip("/") + path
     data = json.dumps(payload).encode("utf-8")
@@ -85,14 +95,13 @@ def cmd_sandbox_link(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     client_id = getenv_or_die("PLAID_CLIENT_ID")
-    secret = getenv_or_die("PLAID_SECRET")
 
     institution_id = args.institution_id
     output_path = args.output
 
     create_payload: Dict[str, Any] = {
         "client_id": client_id,
-        "secret": secret,
+        "secret": plaid_secret(),
         "institution_id": institution_id,
         "initial_products": ["transactions"],
     }
@@ -107,7 +116,7 @@ def cmd_sandbox_link(args: argparse.Namespace) -> None:
 
     exchange_payload = {
         "client_id": client_id,
-        "secret": secret,
+        "secret": plaid_secret(),
         "public_token": public_token,
     }
     exchange_resp = plaid_post("/item/public_token/exchange", exchange_payload)
@@ -146,7 +155,7 @@ def _parse_date(value: str) -> dt.date:
 def cmd_transactions(args: argparse.Namespace) -> None:
     """Fetch transactions for an existing access token and print them as JSON."""
     client_id = getenv_or_die("PLAID_CLIENT_ID")
-    secret = getenv_or_die("PLAID_SECRET")
+    secret = plaid_secret()
 
     access_token = args.access_token or os.getenv("PLAID_ACCESS_TOKEN")
     if not access_token:
