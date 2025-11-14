@@ -12,6 +12,7 @@ dependencies = [
     "promptorium-python @ git+https://github.com/adambossy/promptorium-python@main",
     "openai>=1.0.0",
     "PyYAML>=6.0",
+    "python-dotenv>=1.2.1",
 ]
 
 [tool.setuptools.packages.find]
