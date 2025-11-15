@@ -8,11 +8,11 @@ A = TypeVar("A")
 S = TypeVar("S")
 
 
-class AnalyzerSQLRefused(Exception):
+class AnalyzeSQLRefused(Exception):
     pass
 
 
-class AnalyzerAnswer(TypedDict):
+class AnalyzeAnswer(TypedDict):
     """
     Minimal, non-generic TypedDict to satisfy strict typing without external models.
     """
@@ -22,7 +22,7 @@ class AnalyzerAnswer(TypedDict):
     rationales: List[str]
 
 
-class AnalyzerTool(Generic[A, S]):
+class AnalyzeTool(Generic[A, S]):
     def __init__(
         self,
         *,
@@ -41,7 +41,7 @@ class AnalyzerTool(Generic[A, S]):
         rationale_out: Optional[List[str]] = None,
     ) -> None:
         """
-        LLM second opinion on a SQL string; raises AnalyzerSQLRefused on rejection.
+        LLM second opinion on a SQL string; raises AnalyzeSQLRefused on rejection.
         Stub: always accepts.
         """
         if rationale_out is not None:
@@ -57,7 +57,7 @@ class AnalyzerTool(Generic[A, S]):
         sample_model: Type[S],
         sample_pk_column: str = "transaction_id",
         rationale_out: Optional[List[str]] = None,
-    ) -> AnalyzerAnswer:
+    ) -> AnalyzeAnswer:
         """
         NL→SQL pipeline. Stub returns empty aggregates and samples with a stub rationale.
         """
@@ -68,5 +68,3 @@ class AnalyzerTool(Generic[A, S]):
             "samples": [],
             "rationales": ["stub"],
         }
-
-
