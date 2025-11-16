@@ -1,9 +1,29 @@
-Here’s your final, consolidated project overview—directory tree + the public interfaces and types for every file, plus each file’s key dependencies. This version merges the analyzer and categorizer agents into a single agent at `agents/transactoid.py` and removes any requirement to create prompt files on disk (prompt keys remain referenced where applicable).
+# Transactoid Plan: Interfaces & Requirements
 
----
+This single plan merges the previous interface and requirement specs so each module’s surface area sits directly beside the rules it must honor.
 
-# Directory tree (updated)
+## 1. System Overview
 
+### Goal
+Ingest personal transactions (CSV or Plaid), normalize them, categorize with a taxonomy-aware LLM (single pass with optional self-revision), persist them with dedupe and verified-row immutability, then answer natural-language questions by generating and verifying SQL, executing it, and returning aggregates plus sample rows. The workflow is orchestrated entirely through CLI commands or scripts with no hidden handoffs.
+
+### Architecture & Ownership
+* **CLI / scripts** coordinate the full ingest → categorize → persist → analyze pipeline.
+* **Agents**
+  * `categorizer`: orchestrates ingest → categorize → persist.
+  * `analyzer_tool`: handles NL→SQL, verifies SQL with LLM, executes through the DB façade.
+* **Tools**
+  * Ingest providers emit `NormalizedTransaction` batches (CSV + Plaid).
+  * Categorizer returns `CategorizedTransaction` instances.
+  * Persist tool upserts with dedupe, enforces immutability, manages tagging and recategorization.
+  * Analytics tool verifies SQL only; DB performs execution.
+* **Services**
+  * DB façade (ORM models + `run_sql` returning model objects).
+  * Taxonomy (two-level, `key`-based, `rules` stored as `TEXT[]`).
+  * Plaid client wrapper.
+  * File cache with namespaced JSON storage and deterministic keys.
+
+### Directory Layout
 ```
 transactoid/
 ├─ agents/
@@ -42,14 +62,31 @@ transactoid/
 └─ README.md
 ```
 
----
+### Workflow Pillars
+1. Ingest transactions from CSV directories or Plaid.
+2. Normalize into `NormalizedTransaction` batches.
+3. Categorize each transaction with taxonomy validation and optional self-revision.
+4. Persist results (upsert, dedupe, tagging, immutability guarantees).
+5. Answer NL questions via NL→SQL generation, LLM verification, and DB execution.
 
-## File-by-file interfaces & dependencies
+## 2. Data Model (Key Fields)
+* **transactions**
+  * `merchant_descriptor` and `institution` fields.
+  * `(external_id, source)` uniqueness; derive canonical hash when the external ID is missing (hash over `posted_at`, `amount_cents`, `currency`, normalized `merchant_descriptor`, `account_id`, `institution`, `source`).
+  * `is_verified` rows are immutable (no category/merchant/amount changes).
+* **categories**
+  * `key` (two-level: parent and child) with `rules` stored as `TEXT[]`.
+  * `is_active` removed.
+* **merchants**
+  * Store `normalized_name` and `display_name`; omit `website_url`.
+* **tags** / **transaction_tags** remain standard for tagging support.
 
-### agents/transactoid.py
+## 3. Module-by-Module Interfaces & Requirements
 
-Role: Unified agent for ingest → categorize → persist. Exposes a single `run()` method.
+### Agents
 
+#### `agents/transactoid.py`
+**Interface**
 ```python
 from __future__ import annotations
 from typing import Optional
@@ -66,18 +103,15 @@ class TransactoidAgent:
     def run(self, *, batch_size: int = 25) -> None: ...
 ```
 
-Depends on:
-* `tools.categorize.categorizer_tool.Categorizer`
-* `tools.persist.persist_tool.PersistTool`
-* `services.taxonomy.Taxonomy` (injected into categorizer)
-* Promptorium prompt key: `categorize-transacations` (no prompt files required)
+**Requirements**
+* Use the categorizer to process ingest batches, then persist outcomes.
+* Inject `Taxonomy` into the categorizer.
+* Respect CLI-provided batch sizing and confidence threshold settings.
 
----
+### Tools — Ingest
 
-## tools/ingest/ingest_tool.py
-
-**Role:** Shared data shape + provider protocol.
-
+#### `tools/ingest/ingest_tool.py`
+**Interface**
 ```python
 from dataclasses import dataclass
 from datetime import date
@@ -87,30 +121,26 @@ Source = Literal["CSV", "PLAID"]
 
 @dataclass
 class NormalizedTransaction:
-    external_id: Optional[str]      # native id or canonical hash
+    external_id: Optional[str]
     account_id: str
     posted_at: date
     amount_cents: int
     currency: str
     merchant_descriptor: str
-    source: Source                  # "CSV" | "PLAID"
+    source: Source
     source_file: Optional[str] = None
-    institution: str = ""           # "Amex" | "Chase" | "Morgan Stanley" | ...
+    institution: str = ""
 
 class IngestTool(Protocol):
     def fetch_next_batch(self, batch_size: int) -> list[NormalizedTransaction]: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Future implementations may consult the DB to filter verified rows, but that remains an internal detail.
+* Normalize all providers into `NormalizedTransaction` with canonical hashing when IDs are absent.
 
-* `services.db.DB` (implementation may filter out verified in future—opaque here)
-
----
-
-## tools/ingest/csv.py
-
-**Role:** Recursively walk a CSV directory and yield normalized transactions.
-
+#### `tools/ingest/csv.py`
+**Interface**
 ```python
 from typing import List
 from .ingest_tool import IngestTool, NormalizedTransaction
@@ -120,17 +150,14 @@ class CSVIngest(IngestTool):
     def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Recursively walk a directory tree of CSVs.
+* Infer `institution` from filenames or headers.
+* Emit `source="CSV"` and include `source_file`.
+* Generate canonical hashes when CSVs omit stable IDs.
 
-* Infers `institution` from filename/header heuristics
-* Canonical `external_id` if missing (deterministic hash of stable fields)
-
----
-
-## tools/ingest/plaid.py
-
-**Role:** Pull transactions from Plaid.
-
+#### `tools/ingest/plaid.py`
+**Interface**
 ```python
 from typing import List, Optional
 from datetime import date
@@ -149,17 +176,15 @@ class PlaidIngest(IngestTool):
     def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Support optional `account_ids`, `start_date`, and `end_date` filters.
+* Use Plaid transaction IDs when present; otherwise derive the same canonical hash used in CSV ingestion.
+* Populate `source="PLAID"` and set `institution` from item metadata.
 
-* `services.plaid_client.PlaidClient`
-* Canonical `external_id` if missing (same rule as CSV)
+### Tools — Categorize
 
----
-
-## tools/categorize/categorizer_tool.py
-
-**Role:** Single concrete categorizer; **batch-only** API; single-pass (model may include `revised_*` in same response).
-
+#### `tools/categorize/categorizer_tool.py`
+**Interface**
 ```python
 from dataclasses import dataclass
 from typing import Iterable, Optional, List
@@ -188,17 +213,16 @@ class Categorizer:
     def categorize(self, txns: Iterable[NormalizedTransaction]) -> List[CategorizedTransaction]: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Provide a single concrete, batch-only API (wrap single transactions in a list).
+* Read from and write to the file cache around each LLM call; only one OpenAI/Responses call per transaction.
+* When model confidence falls below the threshold, allow the model to self-revise via web search, returning `revised_*` fields in the same response.
+* Validate category keys with `taxonomy.is_valid_key`; invalid keys are treated as errors to resolve upstream.
 
-* Promptorium key: **`categorize-transacations`** (single pass)
-* `services.taxonomy.Taxonomy.is_valid_key` (parents + children; no fallback key)
+### Tools — Persist
 
----
-
-## tools/persist/persist_tool.py
-
-**Role:** Upsert with dedupe; enforce immutability; tagging; bulk recategorization by merchant.
-
+#### `tools/persist/persist_tool.py`
+**Interface**
 ```python
 from dataclasses import dataclass
 from typing import Iterable, List
@@ -207,8 +231,8 @@ from tools.categorize.categorizer_tool import CategorizedTransaction
 @dataclass
 class SaveRowOutcome:
     external_id: str
-    source: str                      # "CSV" | "PLAID"
-    action: str                      # "inserted" | "updated" | "skipped-verified" | "skipped-duplicate"
+    source: str
+    action: str
     transaction_id: int | None = None
     reason: str | None = None
 
@@ -233,17 +257,17 @@ class PersistTool:
     def apply_tags(self, transaction_ids: list[int], tag_names: list[str]) -> ApplyTagsOutcome: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Upsert on `(external_id, source)`.
+* Skip updates to rows marked `is_verified = TRUE`, but continue to allow tagging.
+* Favor `revised_*` category fields when present; otherwise fall back to primary category values.
+* Resolve merchants by deterministic normalization of `merchant_descriptor` (lowercase, trim, collapse spaces, strip volatile digits, etc.) before find/create.
+* Support bulk operations for recategorization and tag application, returning counts/outcomes.
 
-* `services.db.DB` (ORM ops)
-* `services.taxonomy.Taxonomy` (validate key, map to `category_id`)
+### Tools — Analytics
 
----
-
-### tools/analytics/analyzer_tool.py
-
-Role: Public-facing NL→SQL helper. Verifies SQL via LLM, executes via DB, and returns aggregates + sample rows.
-
+#### `tools/analytics/analyzer_tool.py`
+**Interface**
 ```python
 from __future__ import annotations
 from typing import Any, Callable, Generic, List, Optional, Type, TypeVar, TypedDict
@@ -251,15 +275,15 @@ from sqlalchemy.engine import Row
 from services.db import DB, Transaction
 
 M = TypeVar("M")
-A = TypeVar("A")            # aggregate view-model type
+A = TypeVar("A")
 S = TypeVar("S", bound=Transaction)
 
 class AnalyzerSQLRefused(Exception): ...
 
 class AnalyzerAnswer(TypedDict, Generic[A, S]):
-    aggregates: List[A]     # caller-provided view-model via row factory
-    samples: List[S]        # ORM entities (default: Transaction)
-    rationales: List[str]   # optional verifier/model reasons
+    aggregates: List[A]
+    samples: List[S]
+    rationales: List[str]
 
 class AnalyzerTool(Generic[A, S]):
     def __init__(
@@ -276,9 +300,7 @@ class AnalyzerTool(Generic[A, S]):
         sql: str,
         *,
         rationale_out: Optional[List[str]] = None,
-    ) -> None:
-        """LLM second opinion on a SQL string; raises AnalyzerSQLRefused on rejection."""
-        ...
+    ) -> None: ...
 
     def answer(
         self,
@@ -292,17 +314,17 @@ class AnalyzerTool(Generic[A, S]):
     ) -> AnalyzerAnswer[A, S]: ...
 ```
 
-Depends on:
-* Promptorium keys: `nl-to-sql`, `verify-sql` (no prompt files required)
-* `services.db.DB.run_sql` (execution; DB does not verify SQL)
-* `services.db.DB.compact_schema_hint` (internal prompt context)
+**Requirements**
+* Call Promptorium `nl-to-sql` once per question to obtain both aggregate and sample SQL strings.
+* Run `verify_sql()` on each SQL string using the `verify-sql` prompt; raise `AnalyzerSQLRefused` if rejected.
+* Execute queries via `DB.run_sql` (the DB layer performs no verification or coercion).
+* Aggregates must be mapped via caller-supplied row factories or ORM models; samples must include the primary key so `DB` can refetch ORM entities in order.
+* Provide optional `max_rows` enforcement at the tool layer.
 
----
+### Services — Infrastructure
 
-## services/file_cache.py
-
-**Role:** Namespaced JSON file cache; stable keys.
-
+#### `services/file_cache.py`
+**Interface**
 ```python
 from typing import Any, Dict, List, Optional
 
@@ -318,19 +340,17 @@ class FileCache:
     def list_keys(self, namespace: str) -> List[str]: ...
     def path_for(self, namespace: str, key: str) -> str: ...
     def _atomic_writer(self, namespace: str, key: str): ...
+
 def stable_key(payload: Any) -> str: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Provide deterministic cache keys via `stable_key`.
+* Use atomic writes to avoid partial files.
+* Support being shared across all LLM call sites (categorizer, analyzer verifier, NL→SQL).
 
-* None (local FS only). Used implicitly by LLM call sites for caching.
-
----
-
-## services/plaid_client.py
-
-**Role:** Minimal Plaid wrapper.
-
+#### `services/plaid_client.py`
+**Interface**
 ```python
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 from datetime import date
@@ -364,22 +384,39 @@ class PlaidItemInfo(TypedDict):
     institution_name: Optional[str]
 
 class PlaidClient:
-    def __init__(self, *, client_id: str, secret: str, env: PlaidEnv = "sandbox", client_name: str = "transactoid", products: Optional[List[str]] = None) -> None: ...
+    def __init__(
+        self,
+        *,
+        client_id: str,
+        secret: str,
+        env: PlaidEnv = "sandbox",
+        client_name: str = "transactoid",
+        products: Optional[List[str]] = None,
+    ) -> None: ...
     def create_link_token(self, *, user_id: str, redirect_uri: Optional[str] = None) -> str: ...
     def exchange_public_token(self, public_token: str) -> Dict[str, str]: ...
     def get_accounts(self, access_token: str) -> List[PlaidAccount]: ...
     def get_item_info(self, access_token: str) -> PlaidItemInfo: ...
-    def list_transactions(self, access_token: str, *, start_date: date, end_date: date, account_ids: Optional[List[str]] = None, offset: int = 0, limit: int = 500) -> List[PlaidTransaction]: ...
+    def list_transactions(
+        self,
+        access_token: str,
+        *,
+        start_date: date,
+        end_date: date,
+        account_ids: Optional[List[str]] = None,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> List[PlaidTransaction]: ...
     def sync_transactions(self, access_token: str, *, cursor: Optional[str] = None, count: int = 500) -> Dict[str, Any]: ...
     def institution_name_for_item(self, access_token: str) -> Optional[str]: ...
 ```
 
----
+**Requirements**
+* Act as a thin wrapper over Plaid’s APIs; no LLM involvement.
+* Surface institution names for ingestion metadata population.
 
-## services/taxonomy.py
-
-**Role:** Two-level taxonomy in memory; parents & children; prompt helper.
-
+#### `services/taxonomy.py`
+**Interface**
 ```python
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -404,20 +441,21 @@ class Taxonomy:
     def parents(self) -> List[CategoryNode]: ...
     def all_nodes(self) -> List[CategoryNode]: ...
     def category_id_for_key(self, db: "DB", key: str) -> Optional[int]: ...
-    def to_prompt(self, *, include_keys: Optional[Iterable[str]] = None, include_rules: bool = True) -> Dict[str, object]: ...
+    def to_prompt(
+        self,
+        *,
+        include_keys: Optional[Iterable[str]] = None,
+        include_rules: bool = True,
+    ) -> Dict[str, object]: ...
     def path_str(self, key: str, sep: str = " > ") -> Optional[str]: ...
 ```
 
-**Depends on:**
+**Requirements**
+* Enforce a two-level taxonomy (parents and children only).
+* Provide prompt-friendly serializations and helper lookups used by categorizer and analyzer prompts.
 
-* `services.db.DB` (optional helper for id lookup)
-
----
-
-## services/db.py
-
-**Role:** ORM models + DB façade; **no SQL verification here**; model-only returns.
-
+#### `services/db.py`
+**Interface**
 ```python
 from typing import Any, ContextManager, Dict, List, Optional, Type, TypeVar
 from datetime import date, datetime
@@ -425,10 +463,8 @@ from datetime import date, datetime
 M = TypeVar("M")
 
 class Merchant: ...
-class Category:  # fields: category_id, parent_id, key, name, description, rules
-    ...
-class Transaction:  # includes merchant_descriptor, institution, is_verified, etc.
-    ...
+class Category: ...
+class Transaction: ...
 class Tag: ...
 class TransactionTag: ...
 
@@ -442,31 +478,51 @@ class DB:
         *,
         model: Type[M],
         pk_column: str,
-    ) -> List[M]:
-        """Execute a SELECT and return ORM instances of `model`. No verification here."""
-        ...
+    ) -> List[M]: ...
 
     def fetch_transactions_by_ids_preserving_order(self, ids: List[int]) -> List[Transaction]: ...
     def get_category_id_by_key(self, key: str) -> Optional[int]: ...
     def find_merchant_by_normalized_name(self, normalized_name: str) -> Optional[Merchant]: ...
-    def create_merchant(self, *, normalized_name: str, display_name: Optional[str]) -> Merchant: ...
-    def get_transaction_by_external(self, *, external_id: str, source: str) -> Optional[Transaction]: ...
+    def create_merchant(
+        self,
+        *,
+        normalized_name: str,
+        display_name: Optional[str],
+    ) -> Merchant: ...
+    def get_transaction_by_external(
+        self,
+        *,
+        external_id: str,
+        source: str,
+    ) -> Optional[Transaction]: ...
     def insert_transaction(self, data: Dict[str, Any]) -> Transaction: ...
     def update_transaction_mutable(self, transaction_id: int, data: Dict[str, Any]) -> Transaction: ...
-    def recategorize_unverified_by_merchant(self, merchant_id: int, category_id: int) -> int: ...
-    def upsert_tag(self, name: str, description: Optional[str] = None) -> Tag: ...
+    def recategorize_unverified_by_merchant(
+        self,
+        merchant_id: int,
+        category_id: int,
+    ) -> int: ...
+    def upsert_tag(
+        self,
+        name: str,
+        description: Optional[str] = None,
+    ) -> Tag: ...
     def attach_tags(self, transaction_ids: List[int], tag_ids: List[int]) -> int: ...
     def compact_schema_hint(self) -> Dict[str, Any]: ...
 ```
 
----
+**Requirements**
+* Do not perform SQL verification; trust upstream verification.
+* `run_sql` must execute raw SELECTs, collect primary keys, refetch ORM entities, and return them in order.
+* Provide helpers for category lookup, merchant normalization, transaction upsert/update (mutable only for unverified rows), recategorization, tag management, and prompt context (`compact_schema_hint`).
 
-## ui/cli.py
+### UI & CLI
 
-**Role:** `transactoid` CLI entrypoint and commands.
-
+#### `ui/cli.py`
+**Interface**
 ```python
 import typer
+
 app = typer.Typer(help="Transactoid — personal finance agent CLI.")
 
 @app.command("ingest")
@@ -493,26 +549,23 @@ def clear_cache(namespace: str = "default") -> None: ...
 def main() -> None: app()
 ```
 
-**Depends on:**
+**Requirements**
+* Provide CLI commands `ingest`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, and `clear-cache`.
+* Wire commands to orchestrator helpers without embedding business logic.
 
-* Agents & tools wired at runtime (no logic here)
+### Scripts
 
----
-
-## scripts/seed_taxonomy.py
-
-**Role:** Seed/refresh categories.
-
+#### `scripts/seed_taxonomy.py`
+**Interface**
 ```python
 def main(yaml_path: str = "configs/taxonomy.yaml") -> None: ...
 ```
 
----
+**Requirements**
+* Seed or refresh the taxonomy from a YAML file (default `configs/taxonomy.yaml`).
 
-## scripts/run.py
-
-**Role:** Orchestrators invoked by CLI or automation.
-
+#### `scripts/run.py`
+**Interface**
 ```python
 from typing import Optional, Sequence, List
 
@@ -545,20 +598,46 @@ def run_pipeline(
 ) -> None: ...
 ```
 
----
+**Requirements**
+* `run_categorizer` performs ingest → categorize → persist with explicit parameter control.
+* `run_analyzer` executes analyzer workflows; when given questions, seed the session with them otherwise run interactively.
+* `run_pipeline` always runs the analyzer after categorization, forwarding optional question seeds.
 
-## db/schema.sql, db/migrations/
+### Database Assets
 
-* Tables: `merchants`, `categories` (`key`, `rules` TEXT[]), `transactions` (`merchant_descriptor`, `institution`, `is_verified`), `tags`, `transaction_tags`
-* Constraints: `UNIQUE(external_id, source)`, verified immutability (trigger suggested)
-* Indexes on typical access paths (posted_at, merchant_id, category_id, is_verified)
+#### `db/schema.sql` & `db/migrations/`
+**Requirements**
+* Define tables `merchants`, `categories`, `transactions`, `tags`, and `transaction_tags`.
+* Enforce `(external_id, source)` uniqueness and immutability for verified rows (trigger recommended).
+* Index common access paths (posted date, merchant, category, verification status).
 
----
+### Supporting Config & Prompts
 
-## configs/, tests/, .env.example, pyproject.toml, README.md
+#### File Cache Usage
+* Apply the JSON file cache across categorizer, analyzer verification, and NL→SQL steps.
+* Provide namespace-aware CRUD plus `clear` and `list_keys` helpers for CLI tooling.
 
-* Standard scaffolding as previously outlined (no prompt files required).
+#### Promptorium Keys
+* `categorize-transacations` for transaction categorization (single pass + optional `revised_*`).
+* `nl-to-sql` for generating aggregate and sample SQL.
+* `verify-sql` for LLM safety/correctness checks using DB `compact_schema_hint` context.
 
----
+### Non-requirements & Constraints
+* CLI-only interface; no web UI.
+* No dedicated web-search tool files—LLM handles search internally when confidence is low.
+* No `OpenAIClient` wrapper; call Responses API adapters directly alongside `FileCache` integration.
+* No fallback “misc” category; the LLM must return valid taxonomy keys.
+* DB layer never performs SQL verification or enforces result limits.
 
-If you want, I can now generate stub files that match these interfaces, so you can start filling in implementations without chasing types/imports.
+### Dependency Layering (Build Order)
+1. `services/file_cache.py`
+2. `services/plaid_client.py`
+3. `services/db.py`
+4. `services/taxonomy.py`
+5. `tools/ingest/*`
+6. `tools/categorize/categorizer_tool.py`
+7. `tools/persist/persist_tool.py`
+8. `agents/analyzer_tool.py`
+9. `scripts/*` and `ui/cli.py`
+
+This ordering builds foundational services first, then upstream tools, and finally orchestration layers.
