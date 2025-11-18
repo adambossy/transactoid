@@ -19,8 +19,7 @@ Early groundwork is in place. The concrete requirements and interfaces are defin
 5) `tools/ingest/*` → `NormalizedTransaction`
 6) `tools/categorize/categorizer_tool.py` → `CategorizedTransaction`
 7) `tools/persist/persist_tool.py`
-8) `tools/analyze/analyze_tool.py`
-9) CLI and scripts
+8) CLI and scripts
 
 See: `plans/transactoid-requirements.md` and `plans/transactoid-interfaces.md`.
 
@@ -84,12 +83,10 @@ Until the CLI lands, use the underlying scripts as they are introduced in `scrip
 ## Architecture overview
 - **Agents**
   - `categorizer`: drive ingest → categorize → persist.
-  - `analyzer_tool`: answer questions (verify SQL, then delegate to DB).
 - **Tools**
   - `tools/ingest/*`: CSV/Plaid providers produce `NormalizedTransaction`.
   - `tools/categorize/categorizer_tool.py`: `Categorizer` produces `CategorizedTransaction`.
   - `tools/persist/persist_tool.py`: upsert + immutability + tags + bulk recats.
-  - `tools/analytics/analyzer_tool.py`: verifier-only helper.
 - **Services**
   - `services/db.py`: ORM models + façade (`run_sql`, lookups, helpers).
   - `services/taxonomy.py`: in-memory two-level taxonomy and prompt helpers.
@@ -162,7 +159,7 @@ Default cache directory is `.cache/`. Keys and namespaces are validated to preve
 - Land CLI (`ui/cli.py`) and scripts (`scripts/`).
 - Implement DB façade and taxonomy.
 - Wire up ingest, categorizer, and persist tool.
-- Add analyze tool and prompt sources.
+- Add analytics functionality to agent prompt.
 
 For the authoritative spec, consult:
 - `plans/transactoid-requirements.md`
