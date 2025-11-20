@@ -215,9 +215,6 @@ def run(
         ],
     )
 
-    # Create Runner instance
-    runner = Runner(agent=agent)
-
     # Interactive loop
     print("Transactoid Agent - Personal Finance Assistant")
     print("Type 'exit' or 'quit' to end the session.\n")
@@ -234,7 +231,7 @@ def run(
                 break
 
             # Run the agent with user input
-            result = runner.run_sync(user_input)
+            result = Runner.run_sync(agent, user_input)
 
             # Print agent response
             if result.final_output:
