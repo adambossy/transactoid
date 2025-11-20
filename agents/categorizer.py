@@ -9,7 +9,7 @@ def run(
     confidence_threshold: float = 0.70,
 ) -> None:
     """
-    Orchestrate ingest → categorize → persist in batches.
+    Orchestrate sync → categorize → persist in batches.
 
     Stub implementation: no-op.
     """

@@ -3,16 +3,20 @@ from __future__ import annotations
 from typing import List, Optional, Sequence
 
 
-def run_categorizer(
+def run_sync(
     *,
-    mode: str,
-    data_dir: Optional[str] = None,
-    account_ids: Optional[Sequence[str]] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    batch_size: int = 25,
-    confidence_threshold: float = 0.70,
+    access_token: str,
+    cursor: Optional[str] = None,
+    count: int = 500,
 ) -> None:
+    """
+    Sync transactions from Plaid and categorize them using an LLM.
+
+    Args:
+        access_token: Plaid access token for the item
+        cursor: Optional cursor for incremental sync (None for initial sync)
+        count: Maximum number of transactions to fetch per request
+    """
     return None
 
 
@@ -25,15 +29,20 @@ def run_analyzer(
 
 def run_pipeline(
     *,
-    mode: str,
-    data_dir: Optional[str] = None,
-    account_ids: Optional[Sequence[str]] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    batch_size: int = 25,
-    confidence_threshold: float = 0.70,
+    access_token: str,
+    cursor: Optional[str] = None,
+    count: int = 500,
     questions: Optional[List[str]] = None,
 ) -> None:
+    """
+    Run the full pipeline: sync → categorize → persist.
+
+    Args:
+        access_token: Plaid access token for the item
+        cursor: Optional cursor for incremental sync (None for initial sync)
+        count: Maximum number of transactions to fetch per request
+        questions: Optional questions for analytics
+    """
     return None
 
 

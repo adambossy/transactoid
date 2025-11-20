@@ -16,7 +16,7 @@ Early groundwork is in place. The concrete requirements and interfaces are defin
 2) `services/plaid_client.py`
 3) `services/db.py` (ORM + façade)
 4) `services/taxonomy.py`
-5) `tools/ingest/*` → `NormalizedTransaction`
+5) `tools/sync/sync_tool.py` → calls Plaid sync API and categorizes transactions
 6) `tools/categorize/categorizer_tool.py` → `CategorizedTransaction`
 7) `tools/persist/persist_tool.py`
 8) CLI and scripts
@@ -25,14 +25,14 @@ See: `plans/transactoid-requirements.md` and `plans/transactoid-interfaces.md`.
 
 
 ## Features (from the spec)
-- **Ingest**: CSV directory walker and Plaid provider converge on `NormalizedTransaction`.
+- **Sync**: Calls Plaid's transaction sync API and categorizes all results using an LLM.
 - **Categorization**: Single concrete `Categorizer` (batch-only), prompt key `categorize-transacations`.
 - **Taxonomy**: Two-level keys (e.g., `FOOD.GROCERIES`), validation via `taxonomy.is_valid_key(key)`.
 - **Persistence**: Upsert `(external_id, source)`; immutable `is_verified` rows; deterministic merchant normalization; tag and bulk recategorization helpers.
 - **Analytics**: NL→SQL tool returns two SQL strings (aggregates + sample rows), both LLM-verified before DB execution.
 - **Database façade**: `DB.run_sql(sql, model, pk_column)`; no SQL verification here (by design).
 - **File cache**: Namespaced JSON cache with atomic writes and deterministic keys.
-- **CLI**: `transactoid` with commands for `ingest`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, `clear-cache`.
+- **CLI**: `transactoid` with commands for `sync`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, `clear-cache`.
 
 Details and exact types live in the `plans/` docs.
 
@@ -69,7 +69,7 @@ uvx deadcode .
 
 ## CLI (planned)
 `transactoid` (Typer) will expose:
-- `ingest --mode csv|plaid [--data-dir ...] [--batch-size N]`
+- `sync --access-token <token> [--cursor <cursor>] [--count N]` — sync and categorize Plaid transactions
 - `ask "<question>"`
 - `recat --merchant-id <id> --to <CATEGORY_KEY>`
 - `tag --rows <ids> --tags "<names>"`
@@ -82,9 +82,9 @@ Until the CLI lands, use the underlying scripts as they are introduced in `scrip
 
 ## Architecture overview
 - **Agents**
-  - `categorizer`: drive ingest → categorize → persist.
+  - `categorizer`: drive sync → categorize → persist.
 - **Tools**
-  - `tools/ingest/*`: CSV/Plaid providers produce `NormalizedTransaction`.
+  - `tools/sync/sync_tool.py`: Calls Plaid sync API and categorizes transactions using LLM.
   - `tools/categorize/categorizer_tool.py`: `Categorizer` produces `CategorizedTransaction`.
   - `tools/persist/persist_tool.py`: upsert + immutability + tags + bulk recats.
 - **Services**
@@ -101,7 +101,7 @@ For full signatures and dependencies, see `plans/transactoid-interfaces.md`.
 ```
 transactoid/
   agents/         # Orchestration for categorization & analytics
-  tools/          # Ingest, categorize, persist, analytics helpers
+  tools/          # Sync, categorize, persist helpers
   services/       # DB, taxonomy, plaid client, file cache
   ui/             # CLI entrypoint
   scripts/        # Runnable orchestrators
@@ -158,7 +158,7 @@ Default cache directory is `.cache/`. Keys and namespaces are validated to preve
 ## Roadmap
 - Land CLI (`ui/cli.py`) and scripts (`scripts/`).
 - Implement DB façade and taxonomy.
-- Wire up ingest, categorizer, and persist tool.
+- Wire up sync, categorizer, and persist tool.
 - Add analytics functionality to agent prompt.
 
 For the authoritative spec, consult:

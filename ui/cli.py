@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import List, Optional
 
 
-def ingest(mode: str, data_dir: Optional[str] = None, batch_size: int = 25) -> None:
+def sync(access_token: str, cursor: Optional[str] = None, count: int = 500) -> None:
+    """
+    Sync transactions from Plaid and categorize them using an LLM.
+
+    Args:
+        access_token: Plaid access token for the item
+        cursor: Optional cursor for incremental sync (None for initial sync)
+        count: Maximum number of transactions to fetch per request
+    """
     return None
 
 
