@@ -5,15 +5,18 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from dotenv import load_dotenv
 from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
+from pydantic import BaseModel
 
 from agents import Agent, Runner, function_tool
 from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
+
+load_dotenv()
 
 
 class TransactionFilter(BaseModel):
@@ -199,15 +202,6 @@ def run(
             "message": "Tagging requires filter parsing",
         }
     
-=======
-
-    # Initialize tool dependencies and set module-level context
-    global _db, _taxonomy, _persist_tool
-    _db = db
-    _taxonomy = taxonomy
-    _persist_tool = PersistTool(db, taxonomy)
-
->>>>>>> 32125e6 (Formatting)
     # Create Agent instance
     agent = Agent(
         name="Transactoid",
