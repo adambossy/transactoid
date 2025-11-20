@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel
 from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
@@ -13,6 +14,16 @@ from agents import Agent, Runner, function_tool
 from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
+
+
+class TransactionFilter(BaseModel):
+    """Filter criteria for selecting transactions."""
+
+    date_range: str | None = None
+    category_prefix: str | None = None
+    merchant: str | None = None
+    amount_min: float | None = None
+    amount_max: float | None = None
 
 
 def _load_prompt_template() -> str:
@@ -134,7 +145,7 @@ def run(
     
     @function_tool
     def update_category_for_transaction_groups(
-        filter: dict[str, Any],
+        filter: TransactionFilter,
         new_category: str,
     ) -> dict[str, Any]:
         """
@@ -232,8 +243,4 @@ def run(
         except Exception as e:
             print(f"\nError: {e}\n")
             continue
-<<<<<<< HEAD
-=======
-
->>>>>>> c52bc7e (feat: Implement interactive Transactoid agent loop)
 
