@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from openai.agents import Agent, Runner, function_tool
 from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
 
+from agents import Agent, Runner, function_tool
 from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
