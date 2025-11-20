@@ -81,7 +81,7 @@ Until the CLI lands, use the underlying scripts as they are introduced in `scrip
 
 ## Architecture overview
 - **Agents**
-  - `categorizer`: drive sync → categorize → persist.
+  - `transactoid`: core agent loop
 - **Tools**
   - `tools/sync/sync_tool.py`: Calls Plaid sync API and categorizes transactions using LLM.
   - `tools/categorize/categorizer_tool.py`: `Categorizer` produces `CategorizedTransaction`.
