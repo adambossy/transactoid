@@ -48,11 +48,6 @@ def agent() -> None:
     transactoid_run()
 
 
-def _agent_main() -> None:
-    """CLI entry point for the agent command."""
-    agent()
-
-
 def main() -> None:
     # Minimal stub entrypoint
     return None
