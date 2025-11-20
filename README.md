@@ -58,12 +58,11 @@ python -m pip install ruff mypy deadcode
 pytest -q
 ```
 
-If you prefer ephemeral runners, you can also use `uvx` (when installed):
 ```bash
-uvx ruff check .
-uvx ruff format --check .
-uvx mypy --config-file mypy.ini .
-uvx deadcode .
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy --config-file mypy.ini .
+uv run deadcode .
 ```
 
 
@@ -123,7 +122,7 @@ The project ships docs for our tools and their rationale:
 - `docs/pre-commit-guide.md` — Suggested hooks and usage.
 - `docs/deadcode-guide.md` — How we detect unused code.
 
-Common commands (local installs or via `uvx`):
+Common commands (local installs or via `uv run`):
 ```bash
 # Lint
 ruff check .

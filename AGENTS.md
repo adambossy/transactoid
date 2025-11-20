@@ -5,19 +5,19 @@ Before completing your work, always run the linter, type-checker, code formatter
 Commands:
 ```bash
 # Lint
-uvx ruff check .
+uv run ruff check .
 
 # Format (or check formatting)
-uvx ruff format .          # or: ruff format --check .
+uv run ruff format .          # or: ruff format --check .
 
 # Type-check
-uvx mypy --config-file mypy.ini .
+uv run mypy --config-file mypy.ini .
 
 # Dead code
-uvx deadcode .
+uv run deadcode .
 
 # Tests
-uvx pytest -q
+uv run pytest -q
 ```
 
 ### Unit test structure rules
