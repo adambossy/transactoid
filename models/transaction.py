@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from typing import List, Optional, TypedDict
+from typing import TypedDict
+
+
+class PersonalFinanceCategory(TypedDict):
+    """Personal finance category information from Plaid."""
+    confidence_level: str  # e.g., "HIGH", "VERY_HIGH"
+    detailed: str  # e.g., "GENERAL_SERVICES_OTHER_GENERAL_SERVICES"
+    primary: str  # e.g., "GENERAL_SERVICES"
+    version: str  # e.g., "v1"
 
 
 class Transaction(TypedDict):
@@ -10,16 +18,17 @@ class Transaction(TypedDict):
     Note: This structure mirrors what Plaid's API returns and is subject to
     change as Plaid's API evolves. Fields match Plaid's transaction object.
     """
-    transaction_id: Optional[str]
+    transaction_id: str | None
     account_id: str
     amount: float
-    iso_currency_code: Optional[str]
+    iso_currency_code: str | None
     date: str
     name: str
-    merchant_name: Optional[str]
+    merchant_name: str | None
     pending: bool
-    payment_channel: Optional[str]
-    unofficial_currency_code: Optional[str]
-    category: Optional[List[str]]  # e.g., ["Food and Drink", "Groceries"]
-    category_id: Optional[str]  # Unique category identifier
+    payment_channel: str | None
+    unofficial_currency_code: str | None
+    category: list[str] | None  # e.g., ["Food and Drink", "Groceries"]
+    category_id: str | None  # Unique category identifier
+    personal_finance_category: PersonalFinanceCategory | None
 
