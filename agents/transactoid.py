@@ -50,14 +50,16 @@ def _render_prompt_template(
     """Replace placeholders in the prompt template with actual data."""
     # Format database schema as readable text
     schema_text = yaml.dump(database_schema, default_flow_style=False, sort_keys=False)
-    
+
     # Format taxonomy as readable text
-    taxonomy_text = yaml.dump(category_taxonomy, default_flow_style=False, sort_keys=False)
-    
+    taxonomy_text = yaml.dump(
+        category_taxonomy, default_flow_style=False, sort_keys=False
+    )
+
     # Replace placeholders
     rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
     rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
-    
+
     return rendered
 
 
@@ -68,7 +70,7 @@ def run(
 ) -> None:
     """
     Run the interactive agent loop using OpenAI Agents SDK.
-    
+
     The agent helps users understand and manage their personal finances
     through a conversational interface with access to transaction data.
     """
@@ -80,10 +82,10 @@ def run(
             or "sqlite:///:memory:"
         )
         db = DB(db_url)
-    
+
     if taxonomy is None:
         taxonomy = Taxonomy.from_db(db)
-    
+
     # Load and render prompt template
     template = _load_prompt_template()
     schema_hint = db.compact_schema_hint()
@@ -197,6 +199,15 @@ def run(
             "message": "Tagging requires filter parsing",
         }
     
+=======
+
+    # Initialize tool dependencies and set module-level context
+    global _db, _taxonomy, _persist_tool
+    _db = db
+    _taxonomy = taxonomy
+    _persist_tool = PersistTool(db, taxonomy)
+
+>>>>>>> 32125e6 (Formatting)
     # Create Agent instance
     agent = Agent(
         name="Transactoid",
@@ -209,34 +220,34 @@ def run(
             tag_transactions,
         ],
     )
-    
+
     # Create Runner instance
     runner = Runner(agent=agent)
-    
+
     # Interactive loop
     print("Transactoid Agent - Personal Finance Assistant")
     print("Type 'exit' or 'quit' to end the session.\n")
-    
+
     while True:
         try:
             user_input = input("You: ").strip()
-            
+
             if not user_input:
                 continue
-            
+
             if user_input.lower() in ("exit", "quit"):
                 print("Goodbye!")
                 break
-            
+
             # Run the agent with user input
             result = runner.run_sync(user_input)
-            
+
             # Print agent response
             if result.final_output:
                 print(f"\nAgent: {result.final_output}\n")
             else:
                 print("\nAgent: (No response generated)\n")
-                
+
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
             break
