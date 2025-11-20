@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from agents.transactoid import run as transactoid_run
+
 
 def sync(access_token: str, cursor: Optional[str] = None, count: int = 500) -> None:
     """
@@ -39,8 +41,13 @@ def clear_cache(namespace: str = "default") -> None:
     return None
 
 
+def agent() -> None:
+    """
+    Run the transactoid agent to orchestrate sync → categorize → persist in batches.
+    """
+    transactoid_run()
+
+
 def main() -> None:
     # Minimal stub entrypoint
     return None
-
-

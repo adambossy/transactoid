@@ -13,10 +13,14 @@ dependencies = [
     "openai>=1.0.0",
     "PyYAML>=6.0",
     "python-dotenv>=1.2.1",
+    "openai-agents>=0.5.1",
 ]
 
+[project.scripts]
+transactoid = "ui.cli:agent"
+
 [tool.setuptools.packages.find]
-include = ["agents*", "configs*", "db*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
+include = ["agents*", "configs*", "db*", "models*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
 
 [tool.deadcode]
 exclude = [
