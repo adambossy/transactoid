@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
-from tools.ingest.ingest_tool import NormalizedTransaction
+from models.transaction import Transaction
 
 
 @dataclass
 class CategorizedTransaction:
-    txn: NormalizedTransaction
+    txn: Transaction
     category_key: str
     category_confidence: float
     category_rationale: str
@@ -31,7 +31,7 @@ class Categorizer:
         self._model = model
         self._confidence_threshold = confidence_threshold
 
-    def categorize(self, txns: Iterable[NormalizedTransaction]) -> List[CategorizedTransaction]:
+    def categorize(self, txns: Iterable[Transaction]) -> list[CategorizedTransaction]:
         # Minimal stub: returns empty list
         return []
 

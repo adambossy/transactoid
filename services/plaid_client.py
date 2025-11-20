@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
+from models.transaction import Transaction
+
 PlaidEnv = Literal["sandbox", "development", "production"]
 
 
@@ -14,19 +16,6 @@ class PlaidAccount(TypedDict):
     subtype: Optional[str]
     type: Optional[str]
     institution: Optional[str]
-
-
-class PlaidTransaction(TypedDict):
-    transaction_id: Optional[str]
-    account_id: str
-    amount: float
-    iso_currency_code: Optional[str]
-    date: str
-    name: str
-    merchant_name: Optional[str]
-    pending: bool
-    payment_channel: Optional[str]
-    unofficial_currency_code: Optional[str]
 
 
 class PlaidItemInfo(TypedDict):
@@ -72,7 +61,7 @@ class PlaidClient:
         account_ids: Optional[List[str]] = None,
         offset: int = 0,
         limit: int = 500,
-    ) -> List[PlaidTransaction]:
+    ) -> List[Transaction]:
         return []
 
     def sync_transactions(
