@@ -1,5 +1,9 @@
+from agents.transactoid import run
+
+
 def main():
-    print("Hello from transactoid!")
+    """Run the Transactoid agent loop."""
+    run()
 
 
 if __name__ == "__main__":
