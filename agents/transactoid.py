@@ -14,138 +14,6 @@ from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
 
-# Module-level context for tool dependencies
-_db: DB | None = None
-_taxonomy: Taxonomy | None = None
-_persist_tool: PersistTool | None = None
-
-
-def _get_db() -> DB:
-    """Get the current DB instance from context."""
-    if _db is None:
-        raise RuntimeError("DB not initialized. Call run() first.")
-    return _db
-
-
-def _get_taxonomy() -> Taxonomy:
-    """Get the current Taxonomy instance from context."""
-    if _taxonomy is None:
-        raise RuntimeError("Taxonomy not initialized. Call run() first.")
-    return _taxonomy
-
-
-def _get_persist_tool() -> PersistTool:
-    """Get the current PersistTool instance from context."""
-    if _persist_tool is None:
-        raise RuntimeError("PersistTool not initialized. Call run() first.")
-    return _persist_tool
-
-
-@function_tool
-def run_sql(query: str) -> dict[str, Any]:
-    """
-    Execute SQL queries against the transaction database.
-    
-    Args:
-        query: SQL query string to execute
-        
-    Returns:
-        Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
-    """
-    # Note: db.run_sql requires model and pk_column, but for agent use
-    # we'll need a simpler interface. For now, return empty results.
-    # This should be enhanced to actually execute queries.
-    return {"rows": [], "count": 0}
-
-
-@function_tool
-def sync_transactions() -> dict[str, Any]:
-    """
-    Trigger synchronization with Plaid to fetch latest transactions.
-    
-    Returns:
-        Dictionary with sync status and summary
-    """
-    # Note: SyncTool requires PlaidClient, Categorizer, and access_token.
-    # For now, return a placeholder response.
-    # This should be enhanced to actually trigger sync.
-    return {
-        "status": "not_implemented",
-        "message": "Sync functionality requires Plaid configuration",
-    }
-
-
-@function_tool
-def connect_new_account() -> dict[str, Any]:
-    """
-    Trigger UI flow for connecting a new bank/institution via Plaid.
-    
-    Returns:
-        Dictionary with connection status
-    """
-    return {
-        "status": "not_implemented",
-        "message": "Account connection requires Plaid Link integration",
-    }
-
-
-@function_tool
-def update_category_for_transaction_groups(
-    filter: dict[str, Any],
-    new_category: str,
-) -> dict[str, Any]:
-    """
-    Update categories for groups of transactions matching specified criteria.
-    
-    Args:
-        filter: Dictionary with filter criteria (e.g., date_range, category_prefix)
-        new_category: Category key to apply (must be valid from taxonomy)
-        
-    Returns:
-        Dictionary with update summary
-    """
-    taxonomy = _get_taxonomy()
-    if not taxonomy.is_valid_key(new_category):
-        return {
-            "error": f"Invalid category key: {new_category}",
-            "updated": 0,
-        }
-    
-    # Note: This is a simplified implementation.
-    # The actual implementation should parse the filter and update transactions.
-    return {
-        "status": "not_implemented",
-        "message": "Bulk category update requires filter parsing",
-        "category": new_category,
-    }
-
-
-@function_tool
-def tag_transactions(
-    filter: dict[str, Any],
-    tag: str,
-) -> dict[str, Any]:
-    """
-    Apply user-defined tags to transactions matching specified criteria.
-    
-    Args:
-        filter: Dictionary with filter criteria
-        tag: Tag name to apply
-        
-    Returns:
-        Dictionary with tagging summary
-    """
-    persist_tool = _get_persist_tool()
-    # Note: This is a simplified implementation.
-    # The actual implementation should parse the filter and apply tags.
-    result = persist_tool.apply_tags([], [tag])
-    return {
-        "applied": result.applied,
-        "created_tags": result.created_tags,
-        "status": "not_implemented",
-        "message": "Tagging requires filter parsing",
-    }
-
 
 def _load_prompt_template() -> str:
     """Load the agent loop prompt template from Promptorium."""
@@ -215,11 +83,108 @@ def run(
         category_taxonomy=taxonomy_dict,
     )
     
-    # Initialize tool dependencies and set module-level context
-    global _db, _taxonomy, _persist_tool
-    _db = db
-    _taxonomy = taxonomy
-    _persist_tool = PersistTool(db, taxonomy)
+    # Initialize tool dependencies
+    persist_tool = PersistTool(db, taxonomy)
+    
+    # Create tool wrapper functions
+    @function_tool
+    def run_sql(query: str) -> dict[str, Any]:
+        """
+        Execute SQL queries against the transaction database.
+        
+        Args:
+            query: SQL query string to execute
+            
+        Returns:
+            Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
+        """
+        # Note: db.run_sql requires model and pk_column, but for agent use
+        # we'll need a simpler interface. For now, return empty results.
+        # This should be enhanced to actually execute queries.
+        return {"rows": [], "count": 0}
+    
+    @function_tool
+    def sync_transactions() -> dict[str, Any]:
+        """
+        Trigger synchronization with Plaid to fetch latest transactions.
+        
+        Returns:
+            Dictionary with sync status and summary
+        """
+        # Note: SyncTool requires PlaidClient, Categorizer, and access_token.
+        # For now, return a placeholder response.
+        # This should be enhanced to actually trigger sync.
+        return {
+            "status": "not_implemented",
+            "message": "Sync functionality requires Plaid configuration",
+        }
+    
+    @function_tool
+    def connect_new_account() -> dict[str, Any]:
+        """
+        Trigger UI flow for connecting a new bank/institution via Plaid.
+        
+        Returns:
+            Dictionary with connection status
+        """
+        return {
+            "status": "not_implemented",
+            "message": "Account connection requires Plaid Link integration",
+        }
+    
+    @function_tool
+    def update_category_for_transaction_groups(
+        filter: dict[str, Any],
+        new_category: str,
+    ) -> dict[str, Any]:
+        """
+        Update categories for groups of transactions matching specified criteria.
+        
+        Args:
+            filter: Dictionary with filter criteria (e.g., date_range, category_prefix)
+            new_category: Category key to apply (must be valid from taxonomy)
+            
+        Returns:
+            Dictionary with update summary
+        """
+        if not taxonomy.is_valid_key(new_category):
+            return {
+                "error": f"Invalid category key: {new_category}",
+                "updated": 0,
+            }
+        
+        # Note: This is a simplified implementation.
+        # The actual implementation should parse the filter and update transactions.
+        return {
+            "status": "not_implemented",
+            "message": "Bulk category update requires filter parsing",
+            "category": new_category,
+        }
+    
+    @function_tool
+    def tag_transactions(
+        filter: dict[str, Any],
+        tag: str,
+    ) -> dict[str, Any]:
+        """
+        Apply user-defined tags to transactions matching specified criteria.
+        
+        Args:
+            filter: Dictionary with filter criteria
+            tag: Tag name to apply
+            
+        Returns:
+            Dictionary with tagging summary
+        """
+        # Note: This is a simplified implementation.
+        # The actual implementation should parse the filter and apply tags.
+        result = persist_tool.apply_tags([], [tag])
+        return {
+            "applied": result.applied,
+            "created_tags": result.created_tags,
+            "status": "not_implemented",
+            "message": "Tagging requires filter parsing",
+        }
     
     # Create Agent instance
     agent = Agent(
@@ -267,4 +232,8 @@ def run(
         except Exception as e:
             print(f"\nError: {e}\n")
             continue
+<<<<<<< HEAD
+=======
+
+>>>>>>> c52bc7e (feat: Implement interactive Transactoid agent loop)
 
