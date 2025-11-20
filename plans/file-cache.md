@@ -212,5 +212,4 @@ Implement `services/file_cache.py` as a namespaced JSON cache with deterministic
 # Appendix
 
 - Spec reference: `plans/transactoid-requirements.md` §10 (File cache requirements).
-- Downstream dependencies: `agents/categorizer.py`, `agents/analyzer_tool.py`, CLI `clear-cache` command.
 

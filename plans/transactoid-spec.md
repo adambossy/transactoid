@@ -10,7 +10,7 @@ Ingest personal transactions (CSV or Plaid), normalize them, categorize with a t
 ### Architecture & Ownership
 * **CLI / scripts** coordinate the full ingest → categorize → persist → analyze pipeline.
 * **Agents**
-  * `categorizer`: orchestrates ingest → categorize → persist.
+  * `transactoid`: core agent loop
   * `analyzer_tool`: handles NL→SQL, verifies SQL with LLM, executes through the DB façade.
 * **Tools**
   * Ingest providers emit `NormalizedTransaction` batches (CSV + Plaid).
