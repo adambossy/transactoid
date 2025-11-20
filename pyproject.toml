@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-transactoid-agent = "ui.cli:_agent_main"
+transactoid = "ui.cli:_agent_main"
 
 [tool.setuptools.packages.find]
 include = ["agents*", "configs*", "db*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]

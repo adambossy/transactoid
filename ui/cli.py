@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from typing import List, Optional
 
 from agents.transactoid import run as transactoid_run
@@ -42,40 +41,16 @@ def clear_cache(namespace: str = "default") -> None:
     return None
 
 
-def agent(
-    *,
-    batch_size: int = 25,
-    confidence_threshold: float = 0.70,
-) -> None:
+def agent() -> None:
     """
     Run the transactoid agent to orchestrate sync → categorize → persist in batches.
-
-    Args:
-        batch_size: Number of transactions to process per batch
-        confidence_threshold: Minimum confidence score for categorization
     """
-    transactoid_run(batch_size=batch_size, confidence_threshold=confidence_threshold)
+    transactoid_run()
 
 
-def _agent_main(argv: list[str] | None = None) -> None:
+def _agent_main() -> None:
     """CLI entry point for the agent command."""
-    parser = argparse.ArgumentParser(
-        description="Run the transactoid agent to orchestrate sync → categorize → persist in batches.",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=25,
-        help="Number of transactions to process per batch (default: 25)",
-    )
-    parser.add_argument(
-        "--confidence-threshold",
-        type=float,
-        default=0.70,
-        help="Minimum confidence score for categorization (default: 0.70)",
-    )
-    args = parser.parse_args(argv)
-    agent(batch_size=args.batch_size, confidence_threshold=args.confidence_threshold)
+    agent()
 
 
 def main() -> None:
