@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "promptorium-python @ git+https://github.com/adambossy/promptorium-python@main",
     "openai>=1.0.0",
+    "openai-agents>=0.6.1",
     "PyYAML>=6.0",
     "python-dotenv>=1.2.1",
 ]
@@ -55,5 +56,6 @@ dev = [
     "mypy>=1.18.2",
     "pytest>=9.0.0",
     "ruff>=0.14.4",
+    "deadcode>=2.4.1",
 ]
 
