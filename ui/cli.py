@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from agents.transactoid import run as transactoid_run
+
 
 def sync(access_token: str, cursor: Optional[str] = None, count: int = 500) -> None:
     """
@@ -37,6 +39,21 @@ def seed_taxonomy(yaml_path: str = "configs/taxonomy.yaml") -> None:
 
 def clear_cache(namespace: str = "default") -> None:
     return None
+
+
+def agent(
+    *,
+    batch_size: int = 25,
+    confidence_threshold: float = 0.70,
+) -> None:
+    """
+    Run the transactoid agent to orchestrate sync → categorize → persist in batches.
+
+    Args:
+        batch_size: Number of transactions to process per batch
+        confidence_threshold: Minimum confidence score for categorization
+    """
+    transactoid_run(batch_size=batch_size, confidence_threshold=confidence_threshold)
 
 
 def main() -> None:
