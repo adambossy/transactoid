@@ -4,14 +4,20 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
 from dotenv import load_dotenv
 from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
 from pydantic import BaseModel
+import yaml
 
-from agents import Agent, Runner, function_tool
+from agents import Agent, ModelSettings, Runner, function_tool
+from agents.items import (
+    MessageOutputItem,
+    ToolCallItem,
+    ToolCallOutputItem,
+    ReasoningItem,
+)
 from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
@@ -206,6 +212,7 @@ def run(
     agent = Agent(
         name="Transactoid",
         instructions=instructions,
+        model="gpt-5",
         tools=[
             run_sql,
             sync_transactions,
@@ -213,6 +220,7 @@ def run(
             update_category_for_transaction_groups,
             tag_transactions,
         ],
+        model_settings=ModelSettings(reasoning_effort="medium", summary="detailed"),
     )
 
     # Interactive loop
@@ -231,17 +239,48 @@ def run(
                 break
 
             # Run the agent with user input
-            result = Runner.run_sync(agent, user_input)
+            result = Runner.run_sync(
+                agent,
+                user_input,
+            )
 
-            # Print agent response
-            if result.final_output:
-                print(f"\nAgent: {result.final_output}\n")
-            else:
-                print("\nAgent: (No response generated)\n")
+            print("\n=== STEP-BY-STEP TRACE ===")
+            for item in result.new_items:
+                # Reasoning tokens
+                if isinstance(item, ReasoningItem):
+                    # raw_item is an openai.types.responses.ResponseReasoningItem
+                    print("\n[REASONING]")
+                    # Depending on model/settings this may have summaries or segments:
+                    print(item.raw_item)
+
+                # Tool call (the model deciding to call a tool)
+                elif isinstance(item, ToolCallItem):
+                    print("\n[TOOL CALL]")
+                    rc = item.raw_item  # ResponseFunctionToolCall, etc.
+                    print(
+                        f"name={getattr(rc, 'name', None)} id={getattr(rc, 'call_id', None)}"
+                    )
+                    print(f"arguments={getattr(rc, 'arguments', None)}")
+
+                # Tool result
+                elif isinstance(item, ToolCallOutputItem):
+                    print("\n[TOOL RESULT]")
+                    print(f"output={item.output!r}")
+
+                # Assistant messages
+                elif isinstance(item, MessageOutputItem):
+                    print("\n[ASSISTANT MESSAGE]")
+                    # Helper if you just want the last text:
+                    print(item.raw_item)
+
+            print("\n=== FINAL OUTPUT ===")
+            print(result.final_output)
+
+            # You can also inspect model usage:
+            print("\n=== TOKEN USAGE ===")
+            for raw_response in result.raw_responses:
+                print(raw_response.usage)
 
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
             break
-        except Exception as e:
-            print(f"\nError: {e}\n")
-            continue
