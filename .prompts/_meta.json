@@ -1,6 +1,6 @@
 {
   "schema": 1,
   "custom_dirs": {
-    "agent-loop": "prompts"
+    "agent-loop": "prompts/agent-loop"
   }
 }
