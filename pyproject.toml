@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.0.0",
     "PyYAML>=6.0",
     "python-dotenv>=1.2.1",
+    "typer>=0.20.0",
     "openai-agents>=0.5.1",
 ]
 
