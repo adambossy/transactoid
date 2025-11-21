@@ -5,12 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent, ResponseTextDeltaEvent
 from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
 from agents import Agent, ModelSettings, Runner, function_tool
 from agents.items import (
+    ItemHelpers,
     MessageOutputItem,
     ToolCallItem,
     ToolCallOutputItem,
@@ -55,7 +57,7 @@ def _render_prompt_template(
     return rendered
 
 
-def run(
+async def run(
     *,
     db: DB | None = None,
     taxonomy: Taxonomy | None = None,
@@ -191,6 +193,8 @@ def run(
             "message": "Tagging requires filter parsing",
         }
 
+    # print("instructions:", instructions)
+
     # Create Agent instance
     agent = Agent(
         name="Transactoid",
@@ -221,48 +225,97 @@ def run(
                 print("Goodbye!")
                 break
 
-            # Run the agent with user input
-            result = Runner.run_sync(
+            # Run the agent with user input using the streaming API
+            stream = Runner.run_streamed(
                 agent,
                 user_input,
             )
 
             print("\n=== STEP-BY-STEP TRACE ===")
-            for item in result.new_items:
-                # Reasoning tokens
-                if isinstance(item, ReasoningItem):
-                    # raw_item is an openai.types.responses.ResponseReasoningItem
-                    print("\n[REASONING]")
-                    # Depending on model/settings this may have summaries or segments:
-                    print(item.raw_item)
 
-                # Tool call (the model deciding to call a tool)
-                elif isinstance(item, ToolCallItem):
-                    print("\n[TOOL CALL]")
-                    rc = item.raw_item  # ResponseFunctionToolCall, etc.
-                    print(
-                        f"name={getattr(rc, 'name', None)} id={getattr(rc, 'call_id', None)}"
-                    )
-                    print(f"arguments={getattr(rc, 'arguments', None)}")
+            # Track the last assistant message in case the streaming
+            # implementation does not expose a final aggregated result.
+            last_assistant_message: Any | None = None
+            function_calls: dict[Any, dict[str, Any]] = {}  # call_id -> {name, arguments}
 
-                # Tool result
-                elif isinstance(item, ToolCallOutputItem):
-                    print("\n[TOOL RESULT]")
-                    print(f"output={item.output!r}")
+            async for event in stream.stream_events():
+                # Raw text
+                if event.type == "raw_response_event" and not isinstance(event.data, ResponseTextDeltaEvent):
+                    # print(f"Raw response: {event.raw_item.content}")
+                    import pprint
+                    pprint.pprint(event.data.__dict__)
+                elif event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                    print(event.data.delta, end="", flush=True)
 
-                # Assistant messages
-                elif isinstance(item, MessageOutputItem):
-                    print("\n[ASSISTANT MESSAGE]")
-                    # Helper if you just want the last text:
-                    print(item.raw_item)
+                    # Function call started
+                    if event.data.type == "response.output_item.added":
+                        if getattr(event.data.item, "type", None) == "function_call":
+                            function_name = getattr(event.data.item, "name", "unknown")
+                            call_id = getattr(event.data.item, "call_id", "unknown")
 
-            print("\n=== FINAL OUTPUT ===")
-            print(result.final_output)
+                            function_calls[call_id] = {"name": function_name, "arguments": ""}
+                            current_active_call_id = call_id
+                            print(f"\n📞 Function call streaming started: {function_name}()")
+                            print("📝 Arguments building...")
 
-            # You can also inspect model usage:
-            print("\n=== TOKEN USAGE ===")
-            for raw_response in result.raw_responses:
-                print(raw_response.usage)
+                    # Real-time argument streaming
+                    elif isinstance(event.data, ResponseFunctionCallArgumentsDeltaEvent):
+                        if current_active_call_id and current_active_call_id in function_calls:
+                            function_calls[current_active_call_id]["arguments"] += event.data.delta
+                            print(event.data.delta, end="", flush=True)
+
+                    # Function call completed
+                    elif event.data.type == "response.output_item.done":
+                        if hasattr(event.data.item, "call_id"):
+                            call_id = getattr(event.data.item, "call_id", "unknown")
+                            if call_id in function_calls:
+                                function_info = function_calls[call_id]
+                                print(f"\n✅ Function call streaming completed: {function_info['name']}")
+                                print()
+                                if current_active_call_id == call_id:
+                                    current_active_call_id = None
+
+                elif event.type == "agent_updated_stream_event":
+                    print(f"Agent updated: {event.new_agent.name}")
+                    continue
+                elif event.type == "run_item_stream_event":
+                    if event.item.type == "tool_call_item":
+                        print("-- Tool was called")
+                    elif event.item.type == "tool_call_output_item":
+                        print(f"-- Tool output: {event.item.output}")
+                    elif event.item.type == "message_output_item":
+                        print(f"-- Message output:\n {ItemHelpers.text_message_output(event.item)}")
+                    elif event.item.type == "reasoning_item":
+                        print("\n[REASONING]")
+                        import pprint
+                        pprint.pprint(event.item.__dict__)
+                    else:
+                        print(f"Unknown event type: {event.item.type}")
+                        pass  # Ignore other event types
+
+            # Prefer a final aggregated result from the streaming object
+            # if it is available (mirrors the Agents SDK pattern); otherwise
+            # fall back to the last assistant message we observed.
+            # final_output: Any | None = None
+            # get_final_result = getattr(stream, "get_final_result", None)
+            # if callable(get_final_result):
+            #     result = get_final_result()
+            #     final_output = getattr(result, "final_output", None)
+
+            #     # If we have the full result, also surface token usage when present.
+            #     raw_responses = getattr(result, "raw_responses", None)
+            #     if raw_responses is not None:
+            #         print("\n=== TOKEN USAGE ===")
+            #         for raw_response in raw_responses:
+            #             usage = getattr(raw_response, "usage", None)
+            #             if usage is not None:
+            #                 print(usage)
+            # else:
+            #     final_output = last_assistant_message
+
+            # print("\n=== FINAL OUTPUT ===")
+            # if final_output is not None:
+            #     print(final_output)
 
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
