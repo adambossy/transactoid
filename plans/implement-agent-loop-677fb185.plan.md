@@ -21,7 +21,7 @@ Implement the core agent loop in `run()` using OpenAI Agents SDK primitives. The
 
 ### 2. Load and Render Prompt Template
 
-- Read `prompts/agent_loop_prompt.md` file content using `promptorium.load_prompt("agent-loop")`
+- Read `prompts/agent_loop/<version>.md` file content using `promptorium.load_prompt("agent-loop")`
 - Load database schema using `db.compact_schema_hint()`
 - Load taxonomy from DB using `Taxonomy.from_db(db)` and serialize using `to_prompt()` method
 - Replace `{{DATABASE_SCHEMA}}` and `{{CATEGORY_TAXONOMY}}` placeholders in template

@@ -5,9 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from promptorium.services import PromptService
-from promptorium.storage.fs import FileSystemPromptStorage
-from promptorium.util.repo_root import find_repo_root
+from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
@@ -33,21 +31,6 @@ class TransactionFilter(BaseModel):
     merchant: str | None = None
     amount_min: float | None = None
     amount_max: float | None = None
-
-
-def _load_prompt_template() -> str:
-    """Load the agent loop prompt template from Promptorium."""
-    repo_root = Path(find_repo_root())
-    try:
-        storage = FileSystemPromptStorage(repo_root)
-        svc = PromptService(storage)
-        return str(svc.load_prompt("agent-loop"))
-    except Exception:
-        # Fallback: read directly from prompts directory
-        prompt_path = repo_root / "prompts" / "agent_loop_prompt.md"
-        if prompt_path.exists():
-            return prompt_path.read_text()
-        raise RuntimeError("Could not load agent-loop prompt template")
 
 
 def _render_prompt_template(
@@ -96,7 +79,7 @@ def run(
         taxonomy = Taxonomy.from_db(db)
 
     # Load and render prompt template
-    template = _load_prompt_template()
+    template = load_prompt("agent-loop")
     schema_hint = db.compact_schema_hint()
     taxonomy_dict = taxonomy.to_prompt()
     instructions = _render_prompt_template(
