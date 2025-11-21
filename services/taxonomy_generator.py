@@ -663,5 +663,3 @@ __all__ = [
     "store_generated",
     "load_or_default_merged_template",
 ]
-
-

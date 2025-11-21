@@ -34,5 +34,3 @@ class Categorizer:
     def categorize(self, txns: Iterable[Transaction]) -> list[CategorizedTransaction]:
         # Minimal stub: returns empty list
         return []
-
-

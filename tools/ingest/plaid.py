@@ -23,5 +23,3 @@ class PlaidIngest(IngestTool):
     def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]:
         # Minimal stub: no data
         return []
-
-

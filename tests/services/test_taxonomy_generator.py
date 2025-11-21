@@ -76,7 +76,9 @@ def test_wrap_with_front_matter_contains_required_keys() -> None:
     assert "Some content." in wrapped
 
 
-def test_generation_flow_stores_when_changed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generation_flow_stores_when_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Prepare input YAML file
     yaml_path = tmp_path / "in.yaml"
     yaml_path.write_text(
@@ -85,8 +87,12 @@ def test_generation_flow_stores_when_changed(tmp_path: Path, monkeypatch: pytest
     )
 
     # Force a deterministic template and OpenAI result
-    monkeypatch.setattr(tg, "load_or_default_merged_template", lambda: "TEMPLATE\n{input_yaml}\nEND")
-    monkeypatch.setattr(tg, "call_openai", lambda markdown_prompt, model: "Generated Body")
+    monkeypatch.setattr(
+        tg, "load_or_default_merged_template", lambda: "TEMPLATE\n{input_yaml}\nEND"
+    )
+    monkeypatch.setattr(
+        tg, "call_openai", lambda markdown_prompt, model: "Generated Body"
+    )
 
     stored: List[str] = []
     monkeypatch.setattr(tg, "load_latest_generated_text", lambda: None)
@@ -103,7 +109,9 @@ def test_generation_flow_stores_when_changed(tmp_path: Path, monkeypatch: pytest
     assert re.search(r"prompt_sha256:\s*\"?[0-9a-f]{64}\"?", out) is not None
 
 
-def test_generation_flow_skips_when_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generation_flow_skips_when_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Prepare input YAML file
     yaml_path = tmp_path / "in.yaml"
     yaml_text = "parents:\n  - name: Test\n    children:\n      - X\n      - Y\n"
@@ -137,5 +145,3 @@ Body
 
     did_generate = run_build(str(yaml_path), model="gpt-4o")
     assert did_generate is False
-
-

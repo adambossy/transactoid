@@ -111,7 +111,12 @@ class FileCache:
     def _validate_namespace(namespace: str) -> None:
         if not isinstance(namespace, str) or not namespace or namespace.strip() == "":
             raise ValueError("namespace must be a non-empty string")
-        if ".." in namespace or os.sep in namespace or "/" in namespace or "\\" in namespace:
+        if (
+            ".." in namespace
+            or os.sep in namespace
+            or "/" in namespace
+            or "\\" in namespace
+        ):
             raise ValueError("namespace contains forbidden path components")
 
     @staticmethod
@@ -167,5 +172,3 @@ def stable_key(payload: Any) -> str:
     """
     data = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
-
-

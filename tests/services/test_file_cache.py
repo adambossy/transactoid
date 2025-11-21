@@ -13,7 +13,9 @@ def populate_namespace(cache: FileCache, namespace: str, values: Iterable[int]) 
         cache.set(namespace, f"key{idx}", value)
 
 
-def provoke_atomic_write_failure(cache: FileCache, namespace: str, key: str, payload: str) -> None:
+def provoke_atomic_write_failure(
+    cache: FileCache, namespace: str, key: str, payload: str
+) -> None:
     try:
         with cache._atomic_writer(namespace, key) as tmp_file:  # noqa: SLF001 (intentional private use)
             tmp_file.write(payload)
@@ -88,4 +90,3 @@ def test_invalid_namespace_or_key_raises(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         cache.set("ns", "bad/../key", 1)
-

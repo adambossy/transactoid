@@ -5,6 +5,7 @@ from typing import TypedDict
 
 class PersonalFinanceCategory(TypedDict):
     """Personal finance category information from Plaid."""
+
     confidence_level: str  # e.g., "HIGH", "VERY_HIGH"
     detailed: str  # e.g., "GENERAL_SERVICES_OTHER_GENERAL_SERVICES"
     primary: str  # e.g., "GENERAL_SERVICES"
@@ -18,6 +19,7 @@ class Transaction(TypedDict):
     Note: This structure mirrors what Plaid's API returns and is subject to
     change as Plaid's API evolves. Fields match Plaid's transaction object.
     """
+
     transaction_id: str | None
     account_id: str
     amount: float
@@ -31,4 +33,3 @@ class Transaction(TypedDict):
     category: list[str] | None  # e.g., ["Food and Drink", "Groceries"]
     category_id: str | None  # Unique category identifier
     personal_finance_category: PersonalFinanceCategory | None
-

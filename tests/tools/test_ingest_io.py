@@ -12,7 +12,9 @@ import pytest
 
 
 # Skip this whole module if ingest tools don't exist yet.
-ingest_tool_mod = pytest.importorskip("tools.ingest.ingest_tool", reason="ingest tools not stubbed/implemented yet")
+ingest_tool_mod = pytest.importorskip(
+    "tools.ingest.ingest_tool", reason="ingest tools not stubbed/implemented yet"
+)
 
 from tools.ingest.csv import CSVIngest
 from tools.ingest.plaid import PlaidIngest
@@ -45,6 +47,7 @@ from tools.ingest.ingest_tool import NormalizedTransaction
 # Helper functions
 # -----------------------------
 
+
 def _normalize_descriptor_for_hash(merchant_descriptor: str) -> str:
     lowered = merchant_descriptor.lower().strip()
     no_digits = re.sub(r"\d+", "", lowered)
@@ -66,7 +69,9 @@ def canonical_external_id_for(
         "posted_at": posted_at.isoformat(),
         "amount_cents": int(amount_cents),
         "currency": currency.upper(),
-        "normalized_merchant_descriptor": _normalize_descriptor_for_hash(merchant_descriptor),
+        "normalized_merchant_descriptor": _normalize_descriptor_for_hash(
+            merchant_descriptor
+        ),
         "account_id": account_id,
         "institution": institution,
         "source": source,
@@ -87,7 +92,9 @@ def build_csv_dir_with(
         fpath = tmp_path / filename
         fpath.parent.mkdir(parents=True, exist_ok=True)
         with fpath.open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["id", "account_id", "date", "amount", "currency", "name"])
+            writer = csv.DictWriter(
+                f, fieldnames=["id", "account_id", "date", "amount", "currency", "name"]
+            )
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
@@ -121,7 +128,9 @@ class _FakePlaidClient:
         return self._institution_name
 
 
-def assert_txn_matches_expected_dict(txn: NormalizedTransaction, expected: Dict[str, Any]) -> None:
+def assert_txn_matches_expected_dict(
+    txn: NormalizedTransaction, expected: Dict[str, Any]
+) -> None:
     assert txn.external_id == expected["external_id"]
     assert txn.account_id == expected["account_id"]
     assert txn.posted_at == expected["posted_at"]
@@ -146,13 +155,22 @@ def _txn_as_dict(txn: NormalizedTransaction) -> Dict[str, Any]:
         "institution": txn.institution,
     }
 
-def create_csv_ingest(tmp_path: Path, input_filename: str, input_rows: List[Dict[str, Any]]) -> CSVIngest:
+
+def create_csv_ingest(
+    tmp_path: Path, input_filename: str, input_rows: List[Dict[str, Any]]
+) -> CSVIngest:
     build_csv_dir_with(tmp_path, [(input_filename, input_rows)])
     return CSVIngest(data_dir=str(tmp_path))
 
-def create_plaid_ingest(input_transactions: List[Dict[str, Any]], institution_name: str) -> PlaidIngest:
-    client = _FakePlaidClient(transactions=input_transactions, institution_name=institution_name)
+
+def create_plaid_ingest(
+    input_transactions: List[Dict[str, Any]], institution_name: str
+) -> PlaidIngest:
+    client = _FakePlaidClient(
+        transactions=input_transactions, institution_name=institution_name
+    )
     return PlaidIngest(client)
+
 
 def _fetch_one_as_dict(ingest: Any, batch_size: int) -> Dict[str, Any]:
     output_list = ingest.fetch_next_batch(batch_size)
@@ -164,7 +182,10 @@ def _fetch_one_as_dict(ingest: Any, batch_size: int) -> Dict[str, Any]:
 # CSV ingest cases
 # -----------------------------
 
-def test_csv_ingest_maps_basic_fields_and_uses_native_id_when_present(tmp_path: Path) -> None:
+
+def test_csv_ingest_maps_basic_fields_and_uses_native_id_when_present(
+    tmp_path: Path,
+) -> None:
     input_rows = [
         {
             "id": "TXN-001",
@@ -246,6 +267,7 @@ def test_csv_ingest_computes_canonical_hash_when_id_missing(tmp_path: Path) -> N
 # Plaid ingest cases
 # -----------------------------
 
+
 def test_plaid_ingest_uses_plaid_id_and_sets_institution() -> None:
     input_transactions = [
         {
@@ -326,5 +348,3 @@ def test_plaid_ingest_computes_canonical_hash_when_id_missing() -> None:
     }
     assert len(expected_external_id) == 64
     assert output == expected_output
-
-

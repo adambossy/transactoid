@@ -107,4 +107,3 @@ def agent() -> None:
 
 def main() -> None:
     app()
-

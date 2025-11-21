@@ -210,7 +210,11 @@ def cmd_transactions(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     today = dt.date.today()
-    start_date = _parse_date(args.start_date) if args.start_date else today - dt.timedelta(days=30)
+    start_date = (
+        _parse_date(args.start_date)
+        if args.start_date
+        else today - dt.timedelta(days=30)
+    )
     end_date = _parse_date(args.end_date) if args.end_date else today
 
     payload: Dict[str, Any] = {

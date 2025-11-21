@@ -23,12 +23,16 @@ def _normalize_transaction_as_dict(txn: NormalizedTransaction) -> Dict[str, Any]
         "currency": txn.currency,
         "merchant_descriptor": txn.merchant_descriptor,
         "source": txn.source,
-        "source_file": str(Path(txn.source_file).name), # Normalize to just the filename
+        "source_file": str(
+            Path(txn.source_file).name
+        ),  # Normalize to just the filename
         "institution": txn.institution,
     }
 
 
-def _parse_and_get_first_transaction_dict(adapter: AmexAdapter, file_path: str) -> Dict[str, Any]:
+def _parse_and_get_first_transaction_dict(
+    adapter: AmexAdapter, file_path: str
+) -> Dict[str, Any]:
     """Parses the file and returns the first transaction as a dict."""
     transactions = adapter.parse(file_path)
     assert len(transactions) == 1, "Expected exactly one transaction"
@@ -57,11 +61,11 @@ def test_amex_adapter_parses_simple_csv_correctly(tmp_path: Path):
     expected_external_id = canonical_external_id_for(
         posted_at=posted_at,
         amount_cents=amount_cents,
-        currency='USD',
+        currency="USD",
         merchant_descriptor=merchant_descriptor,
         account_id=account_id,
-        institution='AMEX',
-        source='CSV'
+        institution="AMEX",
+        source="CSV",
     )
 
     expected_output = {
