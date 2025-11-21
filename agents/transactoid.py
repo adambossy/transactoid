@@ -179,14 +179,14 @@ def run(
 
     @function_tool
     def tag_transactions(
-        filter: dict[str, Any],
+        filter: TransactionFilter,
         tag: str,
     ) -> dict[str, Any]:
         """
         Apply user-defined tags to transactions matching specified criteria.
 
         Args:
-            filter: Dictionary with filter criteria
+            filter: Filter criteria for selecting transactions
             tag: Tag name to apply
 
         Returns:
