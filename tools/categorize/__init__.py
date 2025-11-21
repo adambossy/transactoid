@@ -1,5 +1,3 @@
 """
 Categorization tools package.
 """
-
-

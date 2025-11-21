@@ -1,5 +1,3 @@
 """
 Tools package initializer.
 """
-
-

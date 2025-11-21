@@ -44,5 +44,3 @@ def run_pipeline(
         questions: Optional questions for analytics
     """
     return None
-
-

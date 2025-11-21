@@ -98,19 +98,19 @@ def run(
         database_schema=schema_hint,
         category_taxonomy=taxonomy_dict,
     )
-    
+
     # Initialize tool dependencies
     persist_tool = PersistTool(db, taxonomy)
-    
+
     # Create tool wrapper functions
     @function_tool
     def run_sql(query: str) -> dict[str, Any]:
         """
         Execute SQL queries against the transaction database.
-        
+
         Args:
             query: SQL query string to execute
-            
+
         Returns:
             Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
         """
@@ -118,12 +118,12 @@ def run(
         # we'll need a simpler interface. For now, return empty results.
         # This should be enhanced to actually execute queries.
         return {"rows": [], "count": 0}
-    
+
     @function_tool
     def sync_transactions() -> dict[str, Any]:
         """
         Trigger synchronization with Plaid to fetch latest transactions.
-        
+
         Returns:
             Dictionary with sync status and summary
         """
@@ -134,12 +134,12 @@ def run(
             "status": "not_implemented",
             "message": "Sync functionality requires Plaid configuration",
         }
-    
+
     @function_tool
     def connect_new_account() -> dict[str, Any]:
         """
         Trigger UI flow for connecting a new bank/institution via Plaid.
-        
+
         Returns:
             Dictionary with connection status
         """
@@ -147,7 +147,7 @@ def run(
             "status": "not_implemented",
             "message": "Account connection requires Plaid Link integration",
         }
-    
+
     @function_tool
     def update_category_for_transaction_groups(
         filter: TransactionFilter,
@@ -155,11 +155,11 @@ def run(
     ) -> dict[str, Any]:
         """
         Update categories for groups of transactions matching specified criteria.
-        
+
         Args:
             filter: Dictionary with filter criteria (e.g., date_range, category_prefix)
             new_category: Category key to apply (must be valid from taxonomy)
-            
+
         Returns:
             Dictionary with update summary
         """
@@ -168,7 +168,7 @@ def run(
                 "error": f"Invalid category key: {new_category}",
                 "updated": 0,
             }
-        
+
         # Note: This is a simplified implementation.
         # The actual implementation should parse the filter and update transactions.
         return {
@@ -176,7 +176,7 @@ def run(
             "message": "Bulk category update requires filter parsing",
             "category": new_category,
         }
-    
+
     @function_tool
     def tag_transactions(
         filter: dict[str, Any],
@@ -184,11 +184,11 @@ def run(
     ) -> dict[str, Any]:
         """
         Apply user-defined tags to transactions matching specified criteria.
-        
+
         Args:
             filter: Dictionary with filter criteria
             tag: Tag name to apply
-            
+
         Returns:
             Dictionary with tagging summary
         """
@@ -201,7 +201,7 @@ def run(
             "status": "not_implemented",
             "message": "Tagging requires filter parsing",
         }
-    
+
     # Create Agent instance
     agent = Agent(
         name="Transactoid",
@@ -245,4 +245,3 @@ def run(
         except Exception as e:
             print(f"\nError: {e}\n")
             continue
-

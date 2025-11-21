@@ -66,4 +66,3 @@ class SyncTool:
         categorized_txns = self._categorizer.categorize(all_txns)
 
         return categorized_txns, next_cursor
-

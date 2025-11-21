@@ -23,12 +23,16 @@ def _normalize_transaction_as_dict(txn: NormalizedTransaction) -> Dict[str, Any]
         "currency": txn.currency,
         "merchant_descriptor": txn.merchant_descriptor,
         "source": txn.source,
-        "source_file": str(Path(txn.source_file).name), # Normalize to just the filename
+        "source_file": str(
+            Path(txn.source_file).name
+        ),  # Normalize to just the filename
         "institution": txn.institution,
     }
 
 
-def _parse_and_get_first_transaction_dict(adapter: AmexEnhancedAdapter, file_path: str) -> Dict[str, Any]:
+def _parse_and_get_first_transaction_dict(
+    adapter: AmexEnhancedAdapter, file_path: str
+) -> Dict[str, Any]:
     """Parses the file and returns the first transaction as a dict."""
     transactions = adapter.parse(file_path)
     assert len(transactions) == 1, "Expected exactly one transaction"

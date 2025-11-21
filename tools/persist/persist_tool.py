@@ -55,8 +55,8 @@ class PersistTool:
         # Minimal stub: no rows affected
         return 0
 
-    def apply_tags(self, transaction_ids: list[int], tag_names: list[str]) -> ApplyTagsOutcome:
+    def apply_tags(
+        self, transaction_ids: list[int], tag_names: list[str]
+    ) -> ApplyTagsOutcome:
         # Minimal stub: nothing applied, echo requested tags as created for visibility
         return ApplyTagsOutcome(applied=0, created_tags=list(tag_names))
-
-
