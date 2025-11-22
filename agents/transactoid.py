@@ -97,6 +97,79 @@ def pretty_print_event(event: Any) -> None:
     pprint.pprint(data, sort_dicts=False)
 
 
+def concisely_print_event(event):
+    event = to_recursive_dict(event)
+    event_type = event["type"]
+
+    # Default values
+    seq = None
+    content = None
+
+    # Raw response events wrap another event
+    if event_type == "raw_response_event":
+        inner = event["data"]
+        inner_type = inner["type"]
+        seq = inner.get("sequence_number")
+
+        # ----- CONTENT DECODING -----
+
+        if inner_type == "response.function_call_arguments.delta":
+            content = inner["delta"]
+
+        elif inner_type == "response.function_call_arguments.done":
+            content = inner["arguments"]
+
+        elif inner_type == "response.output_text.delta":
+            content = inner["delta"]
+
+        elif inner_type == "response.output_text.done":
+            content = inner["text"]
+
+        elif inner_type == "response.content_part.done":
+            content = inner["part"]["text"]
+
+        elif inner_type == "response.completed":
+            # gather all final message text segments
+            outputs = inner["response"]["output"]
+            content = []
+            for out in outputs:
+                if out["type"] == "message":
+                    for part in out["content"]:
+                        if "text" in part:
+                            content.append(part["text"])
+
+        # print result
+        print(f"{inner_type} seq={seq} content={content}")
+
+    # -------- RUN ITEM EVENTS --------
+
+    elif event_type == "run_item_stream_event":
+        name = event["name"]
+        item = event["item"]
+
+        if name == "tool_output":
+            raw_output = item["raw_item"]["output"]
+            content = raw_output
+
+        elif name == "message_output_created":
+            # final assistant message
+            text_parts = []
+            for part in item["raw_item"]["content"]:
+                if "text" in part:
+                    text_parts.append(part["text"])
+            content = text_parts
+
+        print(f"{name} content={content}")
+
+    # -------- AGENT EVENTS --------
+
+    elif event_type == "agent_updated_stream_event":
+        print("agent_updated_stream_event")
+
+    else:
+        print(event_type)
+
+
 async def run(
     *,
     db: DB | None = None,
@@ -278,7 +351,7 @@ async def run(
             last_assistant_message: Any | None = None
 
             async for event in stream.stream_events():
-                pretty_print_event(event)
+                concisely_print_event(event)
 
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
