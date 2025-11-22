@@ -11,16 +11,10 @@ from pydantic import BaseModel
 import yaml
 
 from agents import Agent, ModelSettings, Runner, function_tool
-from agents.items import (
-    ItemHelpers,
-    MessageOutputItem,
-    ToolCallItem,
-    ToolCallOutputItem,
-    ReasoningItem,
-)
 from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
+import pprint
 
 load_dotenv()
 
@@ -55,6 +49,52 @@ def _render_prompt_template(
     rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
 
     return rendered
+
+
+def to_recursive_dict(obj: Any, _seen: set[int] | None = None) -> Any:
+    """
+    Convert an object (and its attributes) into a structure of
+    dicts/lists/primitives, following __dict__ recursively.
+    """
+    if _seen is None:
+        _seen = set()
+
+    obj_id = id(obj)
+    if obj_id in _seen:
+        # Prevent infinite recursion on cycles
+        return f"<recursion: {type(obj).__name__}>"
+    _seen.add(obj_id)
+
+    # Primitives / already-serializable types
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+
+    # Mapping types
+    if isinstance(obj, dict):
+        return {to_recursive_dict(k, _seen): to_recursive_dict(v, _seen) for k, v in obj.items()}
+
+    # Iterable containers
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        converted = [to_recursive_dict(item, _seen) for item in obj]
+        return type(obj)(converted) if not isinstance(obj, set) else set(converted)
+
+    # Objects with __dict__
+    if hasattr(obj, "__dict__"):
+        result = {"__class__": type(obj).__name__}
+        for attr_name, value in vars(obj).items():
+            result[attr_name] = to_recursive_dict(value, _seen)
+        return result
+
+    # Fallback: just use repr
+    return repr(obj)
+
+
+def pretty_print_event(event: Any) -> None:
+    """
+    Pretty-print an event object by recursively expanding its attributes.
+    """
+    data = to_recursive_dict(event)
+    pprint.pprint(data, sort_dicts=False)
 
 
 async def run(
@@ -236,86 +276,9 @@ async def run(
             # Track the last assistant message in case the streaming
             # implementation does not expose a final aggregated result.
             last_assistant_message: Any | None = None
-            function_calls: dict[Any, dict[str, Any]] = {}  # call_id -> {name, arguments}
 
             async for event in stream.stream_events():
-                # Raw text
-                if event.type == "raw_response_event" and not isinstance(event.data, ResponseTextDeltaEvent):
-                    # print(f"Raw response: {event.raw_item.content}")
-                    import pprint
-                    pprint.pprint(event.data.__dict__)
-                elif event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
-                    print(event.data.delta, end="", flush=True)
-
-                    # Function call started
-                    if event.data.type == "response.output_item.added":
-                        if getattr(event.data.item, "type", None) == "function_call":
-                            function_name = getattr(event.data.item, "name", "unknown")
-                            call_id = getattr(event.data.item, "call_id", "unknown")
-
-                            function_calls[call_id] = {"name": function_name, "arguments": ""}
-                            current_active_call_id = call_id
-                            print(f"\n📞 Function call streaming started: {function_name}()")
-                            print("📝 Arguments building...")
-
-                    # Real-time argument streaming
-                    elif isinstance(event.data, ResponseFunctionCallArgumentsDeltaEvent):
-                        if current_active_call_id and current_active_call_id in function_calls:
-                            function_calls[current_active_call_id]["arguments"] += event.data.delta
-                            print(event.data.delta, end="", flush=True)
-
-                    # Function call completed
-                    elif event.data.type == "response.output_item.done":
-                        if hasattr(event.data.item, "call_id"):
-                            call_id = getattr(event.data.item, "call_id", "unknown")
-                            if call_id in function_calls:
-                                function_info = function_calls[call_id]
-                                print(f"\n✅ Function call streaming completed: {function_info['name']}")
-                                print()
-                                if current_active_call_id == call_id:
-                                    current_active_call_id = None
-
-                elif event.type == "agent_updated_stream_event":
-                    print(f"Agent updated: {event.new_agent.name}")
-                    continue
-                elif event.type == "run_item_stream_event":
-                    if event.item.type == "tool_call_item":
-                        print("-- Tool was called")
-                    elif event.item.type == "tool_call_output_item":
-                        print(f"-- Tool output: {event.item.output}")
-                    elif event.item.type == "message_output_item":
-                        print(f"-- Message output:\n {ItemHelpers.text_message_output(event.item)}")
-                    elif event.item.type == "reasoning_item":
-                        print("\n[REASONING]")
-                        import pprint
-                        pprint.pprint(event.item.__dict__)
-                    else:
-                        print(f"Unknown event type: {event.item.type}")
-                        pass  # Ignore other event types
-
-            # Prefer a final aggregated result from the streaming object
-            # if it is available (mirrors the Agents SDK pattern); otherwise
-            # fall back to the last assistant message we observed.
-            # final_output: Any | None = None
-            # get_final_result = getattr(stream, "get_final_result", None)
-            # if callable(get_final_result):
-            #     result = get_final_result()
-            #     final_output = getattr(result, "final_output", None)
-
-            #     # If we have the full result, also surface token usage when present.
-            #     raw_responses = getattr(result, "raw_responses", None)
-            #     if raw_responses is not None:
-            #         print("\n=== TOKEN USAGE ===")
-            #         for raw_response in raw_responses:
-            #             usage = getattr(raw_response, "usage", None)
-            #             if usage is not None:
-            #                 print(usage)
-            # else:
-            #     final_output = last_assistant_message
-
-            # print("\n=== FINAL OUTPUT ===")
-            # if final_output is not None:
-            #     print(final_output)
+                pretty_print_event(event)
 
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
