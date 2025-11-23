@@ -80,7 +80,7 @@ class StreamRenderer:
 
     def begin_turn(self, user_input: str) -> None:
         """Start a new turn with user input."""
-        print("\n")
+        print("")
         self._show_thinking()
 
     def _show_thinking(self) -> None:
@@ -175,23 +175,32 @@ class EventRouter:
     def handle(self, event: Any) -> None:
         """Process a single streaming event."""
         et = getattr(event, "type", "")
-        edt = getattr(getattr(event, "data", None), "type", "")
 
         # Update spinner animation on each event while thinking
         if self.r._thinking_shown:
             self.r._show_thinking()
 
-        # 1) High-level deltas for model output
-        if edt == "response.reasoning_summary_text.delta":
-            delta = event.data.delta
-            if delta:
-                self.r.on_reasoning(delta)
-            return
-        if edt == "response.output_text.delta":
-            delta = event.data.delta
-            if delta:
-                self.r.on_output_text(delta)
-            return
+        # 1) Raw response events (reasoning, output text, function calls)
+        if et == "raw_response_event":
+            data = getattr(event, "data", None)
+            if data is None:
+                return
+            
+            dt = getattr(data, "type", "")
+            
+            # Reasoning summary text
+            if dt == "response.reasoning_summary_text.delta":
+                delta = getattr(data, "delta", None)
+                if delta:
+                    self.r.on_reasoning(delta)
+                return
+            
+            # Output text
+            if dt == "response.output_text.delta":
+                delta = getattr(data, "delta", None)
+                if delta:
+                    self.r.on_output_text(delta)
+                return
 
         # 2) Raw response sub-events for function calls
         if et == "raw_response_event":
