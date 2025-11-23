@@ -80,8 +80,7 @@ class StreamRenderer:
 
     def begin_turn(self, user_input: str) -> None:
         """Start a new turn with user input."""
-        print("\n=== STEP-BY-STEP TRACE ===")
-        print(colorize(f"User: {user_input}", "faint"))
+        print("\n")
         self._show_thinking()
 
     def _show_thinking(self) -> None:
@@ -153,6 +152,7 @@ class StreamRenderer:
 
     def end_turn(self, result: Any | None) -> None:
         """Complete the turn and optionally show token usage."""
+        self._clear_thinking()
         if result is not None:
             raw_responses = getattr(result, "raw_responses", None)
             if raw_responses:
@@ -175,17 +175,22 @@ class EventRouter:
     def handle(self, event: Any) -> None:
         """Process a single streaming event."""
         et = getattr(event, "type", "")
+        edt = getattr(getattr(event, "data", None), "type", "")
 
         # Update spinner animation on each event while thinking
         if self.r._thinking_shown:
             self.r._show_thinking()
 
         # 1) High-level deltas for model output
-        if et == "response.reasoning_summary_text.delta":
-            self.r.on_reasoning(getattr(event, "delta", ""))
+        if edt == "response.reasoning_summary_text.delta":
+            delta = event.data.delta
+            if delta:
+                self.r.on_reasoning(delta)
             return
-        if et == "response.output_text.delta":
-            self.r.on_output_text(getattr(event, "delta", ""))
+        if edt == "response.output_text.delta":
+            delta = event.data.delta
+            if delta:
+                self.r.on_output_text(delta)
             return
 
         # 2) Raw response sub-events for function calls
