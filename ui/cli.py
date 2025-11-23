@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 
 import typer
 
@@ -102,7 +103,7 @@ def agent() -> None:
     """
     Run the transactoid agent to orchestrate sync → categorize → persist in batches.
     """
-    transactoid_run()
+    asyncio.run(transactoid_run())
 
 
 def main() -> None:
