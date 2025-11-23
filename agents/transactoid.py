@@ -1,26 +1,258 @@
 from __future__ import annotations
 
+import json
 import os
-from pathlib import Path
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
+from openai.types.responses import (
+    ResponseFunctionCallArgumentsDeltaEvent,
+)
 from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
 from agents import Agent, ModelSettings, Runner, function_tool
 from agents.items import (
+    ItemHelpers,
     MessageOutputItem,
-    ToolCallItem,
     ToolCallOutputItem,
-    ReasoningItem,
 )
 from services.db import DB
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
 
 load_dotenv()
+
+
+# Color and streaming helpers
+
+
+def _use_color() -> bool:
+    """Check if terminal supports color output."""
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+COLORS = {
+    "reason": "33",  # yellow
+    "text": "32",  # green
+    "tool": "36",  # cyan
+    "args": "35",  # magenta
+    "out": "34",  # blue
+    "error": "31",  # red
+    "faint": "90",
+}
+
+
+def colorize(text: str, key: str) -> str:
+    """Apply ANSI color codes to text if terminal supports it."""
+    if not _use_color():
+        return text
+    code = COLORS.get(key, "0")
+    return f"\033[{code}m{text}\033[0m"
+
+
+class ToolCallState:
+    """Track state for a streaming tool call."""
+
+    def __init__(self, call_id: str, name: str) -> None:
+        self.call_id = call_id
+        self.name = name
+        self.args_chunks: list[str] = []
+
+    def args_text(self) -> str:
+        """Get accumulated arguments as a single string."""
+        return "".join(self.args_chunks)
+
+
+class StreamRenderer:
+    """Handle rendering of streaming events to the console."""
+
+    def __init__(self) -> None:
+        self.tool_calls: dict[str, ToolCallState] = {}
+        self._spinner_chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self._spinner_index = 0
+        self._thinking_shown = False
+
+    def begin_turn(self, user_input: str) -> None:
+        """Start a new turn with user input."""
+        print("")
+        self._show_thinking()
+
+    def _show_thinking(self) -> None:
+        """Display thinking indicator."""
+        char = self._spinner_chars[self._spinner_index % len(self._spinner_chars)]
+        print(f"\r{colorize(f'{char} Thinking...', 'faint')}", end="", flush=True)
+        self._thinking_shown = True
+        self._spinner_index += 1
+
+    def _clear_thinking(self) -> None:
+        """Clear the thinking indicator."""
+        if self._thinking_shown:
+            print("\r" + " " * 20 + "\r", end="", flush=True)
+            self._thinking_shown = False
+
+    def on_reasoning(self, delta: str) -> None:
+        """Stream reasoning text in yellow."""
+        self._clear_thinking()
+        print(colorize(delta, "reason"), end="", flush=True)
+
+    def on_output_text(self, delta: str) -> None:
+        """Stream output text in green."""
+        self._clear_thinking()
+        print(colorize(delta, "text"), end="", flush=True)
+
+    def on_tool_call_started(self, call_id: str, name: str) -> None:
+        """Begin a new tool call."""
+        self.tool_calls[call_id] = ToolCallState(call_id, name)
+        print()
+        print(colorize(f"📞 Function call started: {name}()", "tool"))
+        print(colorize("📝 Arguments: ", "args"), end="", flush=True)
+
+    def on_tool_arguments_delta(self, call_id: str, delta: str) -> None:
+        """Stream tool call arguments in magenta."""
+        state = self.tool_calls.get(call_id)
+        if not state:
+            # Fallback: create if SDK omits start event before args stream
+            state = ToolCallState(call_id, "unknown")
+            self.tool_calls[call_id] = state
+        state.args_chunks.append(delta)
+        print(colorize(delta, "args"), end="", flush=True)
+
+    def on_tool_call_completed(self, call_id: str) -> None:
+        """Mark tool call as completed."""
+        state = self.tool_calls.get(call_id)
+        if state:
+            self._clear_thinking()
+            print()
+            print(colorize(f"✅ Function call completed: {state.name}", "tool"))
+
+    def on_tool_result(self, output: Any) -> None:
+        """Display tool execution result in blue."""
+        try:
+            # Print compact, readable structure
+            text = json.dumps(output, indent=2, ensure_ascii=False)
+        except Exception:
+            text = str(output)
+        print(colorize("🡒 Tool result:\n", "out") + colorize(text, "out"))
+
+    def on_message_output(self, item: MessageOutputItem) -> None:
+        """Display final message output if needed."""
+        msg = ItemHelpers.text_message_output(item)
+        if msg:
+            print(colorize(msg, "text"))
+
+    def on_unknown(self, _event: Any) -> None:
+        """Handle unknown events safely."""
+        pass
+
+    def end_turn(self, result: Any | None) -> None:
+        """Complete the turn and optionally show token usage."""
+        self._clear_thinking()
+        if result is not None:
+            raw_responses = getattr(result, "raw_responses", None)
+            if raw_responses:
+                print("\n=== TOKEN USAGE ===")
+                for raw in raw_responses:
+                    usage = getattr(raw, "usage", None)
+                    if usage:
+                        print(usage)
+        print()
+
+
+class EventRouter:
+    """Route SDK streaming events to appropriate renderer handlers."""
+
+    def __init__(self, renderer: StreamRenderer) -> None:
+        self.r = renderer
+        # Track the latest call_id for SDKs that don't provide it on every args delta
+        self._last_call_id: str | None = None
+
+    def handle(self, event: Any) -> None:
+        """Process a single streaming event."""
+        et = getattr(event, "type", "")
+
+        # Update spinner animation on each event while thinking
+        if self.r._thinking_shown:
+            self.r._show_thinking()
+
+        # 1) Raw response events (reasoning, output text, function calls)
+        if et == "raw_response_event":
+            data = getattr(event, "data", None)
+            if data is None:
+                return
+
+            dt = getattr(data, "type", "")
+
+            # Reasoning summary text
+            if dt == "response.reasoning_summary_text.delta":
+                delta = getattr(data, "delta", None)
+                if delta:
+                    self.r.on_reasoning(delta)
+                return
+
+            # Output text
+            if dt == "response.output_text.delta":
+                delta = getattr(data, "delta", None)
+                if delta:
+                    self.r.on_output_text(delta)
+                return
+
+        # 2) Raw response sub-events for function calls
+        if et == "raw_response_event":
+            data = getattr(event, "data", None)
+            if isinstance(data, ResponseFunctionCallArgumentsDeltaEvent):
+                call_id = (
+                    getattr(data, "call_id", None) or self._last_call_id or "unknown"
+                )
+                self.r.on_tool_arguments_delta(call_id, data.delta or "")
+                return
+
+            # Detect start/end of function call output items
+            dt = getattr(data, "type", "")
+            item = getattr(data, "item", None)
+
+            if (
+                dt == "response.output_item.added"
+                and getattr(item, "type", "") == "function_call"
+            ):
+                name = getattr(item, "name", "unknown")
+                call_id = getattr(item, "call_id", "unknown")
+                self._last_call_id = call_id
+                self.r.on_tool_call_started(call_id, name)
+                return
+
+            if dt == "response.output_item.done":
+                call_id = getattr(item, "call_id", None)
+                if call_id:
+                    self.r.on_tool_call_completed(call_id)
+                    if self._last_call_id == call_id:
+                        self._last_call_id = None
+                return
+
+        # 3) Runner item events (tool call exec + outputs)
+        if et == "run_item_stream_event":
+            item = getattr(event, "item", None)
+            # ToolCallOutputItem: the tool procedure finished and returned output
+            if isinstance(item, ToolCallOutputItem):
+                self.r.on_tool_result(item.output)
+                return
+            # MessageOutputItem: optional final assistant message object
+            if isinstance(item, MessageOutputItem):
+                # Only use if you're not already printing output_text.delta
+                # self.r.on_message_output(item)
+                return
+
+        # Ignore cosmetic updates
+        if et == "agent_updated_stream_event":
+            return
+
+        # Unknown/unhandled
+        self.r.on_unknown(event)
 
 
 class TransactionFilter(BaseModel):
@@ -55,7 +287,7 @@ def _render_prompt_template(
     return rendered
 
 
-def run(
+async def run(
     *,
     db: DB | None = None,
     taxonomy: Taxonomy | None = None,
@@ -191,6 +423,8 @@ def run(
             "message": "Tagging requires filter parsing",
         }
 
+    # print("instructions:", instructions)
+
     # Create Agent instance
     agent = Agent(
         name="Transactoid",
@@ -221,48 +455,28 @@ def run(
                 print("Goodbye!")
                 break
 
-            # Run the agent with user input
-            result = Runner.run_sync(
+            # Run the agent with user input using the streaming API
+            stream = Runner.run_streamed(
                 agent,
                 user_input,
             )
 
-            print("\n=== STEP-BY-STEP TRACE ===")
-            for item in result.new_items:
-                # Reasoning tokens
-                if isinstance(item, ReasoningItem):
-                    # raw_item is an openai.types.responses.ResponseReasoningItem
-                    print("\n[REASONING]")
-                    # Depending on model/settings this may have summaries or segments:
-                    print(item.raw_item)
+            # Use the orchestrator pattern with renderer and router
+            renderer = StreamRenderer()
+            router = EventRouter(renderer)
 
-                # Tool call (the model deciding to call a tool)
-                elif isinstance(item, ToolCallItem):
-                    print("\n[TOOL CALL]")
-                    rc = item.raw_item  # ResponseFunctionToolCall, etc.
-                    print(
-                        f"name={getattr(rc, 'name', None)} id={getattr(rc, 'call_id', None)}"
-                    )
-                    print(f"arguments={getattr(rc, 'arguments', None)}")
+            renderer.begin_turn(user_input)
 
-                # Tool result
-                elif isinstance(item, ToolCallOutputItem):
-                    print("\n[TOOL RESULT]")
-                    print(f"output={item.output!r}")
+            async for event in stream.stream_events():
+                router.handle(event)
 
-                # Assistant messages
-                elif isinstance(item, MessageOutputItem):
-                    print("\n[ASSISTANT MESSAGE]")
-                    # Helper if you just want the last text:
-                    print(item.raw_item)
+            # Get final result if available
+            final_result = None
+            get_final_result = getattr(stream, "get_final_result", None)
+            if callable(get_final_result):
+                final_result = get_final_result()
 
-            print("\n=== FINAL OUTPUT ===")
-            print(result.final_output)
-
-            # You can also inspect model usage:
-            print("\n=== TOKEN USAGE ===")
-            for raw_response in result.raw_responses:
-                print(raw_response.usage)
+            renderer.end_turn(final_result)
 
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
