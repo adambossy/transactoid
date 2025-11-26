@@ -2,30 +2,32 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 import datetime as dt
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import ipaddress
 import json
 import os
+from pathlib import Path
 import queue
 import ssl
 import sys
 import tempfile
 import threading
+from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
-PLAID_ENV_MAP: Dict[str, str] = {
+PLAID_ENV_MAP: dict[str, str] = {
     "sandbox": "https://sandbox.plaid.com",
     "development": "https://development.plaid.com",
     "production": "https://production.plaid.com",
@@ -39,7 +41,12 @@ REDIRECT_SUCCESS_HTML = """\
   <title>Plaid Link Complete</title>
   <style>
     body { font-family: sans-serif; margin: 3rem; }
-    .card { max-width: 32rem; padding: 2rem; border: 1px solid #ccc; border-radius: 0.5rem; }
+    .card {
+      max-width: 32rem;
+      padding: 2rem;
+      border: 1px solid #ccc;
+      border-radius: 0.5rem;
+    }
   </style>
 </head>
 <body>
@@ -59,16 +66,74 @@ REDIRECT_ERROR_HTML = """\
   <title>Plaid Link Error</title>
   <style>
     body { font-family: sans-serif; margin: 3rem; color: #941a1d; }
-    .card { max-width: 32rem; padding: 2rem; border: 1px solid #f5a9ab; border-radius: 0.5rem; background: #fff5f5; }
+    .card {
+      max-width: 32rem;
+      padding: 2rem;
+      border: 1px solid #f5a9ab;
+      border-radius: 0.5rem;
+      background: #fff5f5;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Link failed</h1>
-    <p>The CLI did not receive a Plaid public_token. Please review the terminal output.</p>
+    <p>The CLI did not receive a Plaid public_token.</p>
+    <p>Please review the terminal output.</p>
   </div>
 </body>
 </html>
+"""
+
+LOCALHOST_CERT_PEM = """\
+-----BEGIN CERTIFICATE-----
+MIICpDCCAYwCCQDeylxbozqsWDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
+b2NhbGhvc3QwHhcNMjUxMTI2MDIwODI4WhcNMzUxMTI0MDIwODI4WjAUMRIwEAYD
+VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDZ
+9suqHgb2P7Q7+tEjjQuhel7MaVp/RLM2j4QfRs46CJguZtiim2h/BI0OpYx8r7Km
+i2uTZqjpHa8iU5vwBAz90X6Q4ACZm50opKBDxHyP/Hyy4JKMvr0iqy5n1IOQamtQ
+BctJA69jAoHKgTL+Ciz2Ul0vcYjTaUX+9jizoatYJbbA+uM/SgFGBhOmcefo11QE
+Fv74PbVy3QQwJu3QTbPVQkDud0X8wi8q0jDbGQw3gwuolHgGmZ4/44D1X6d1O2Z/
+78JJ/ZyaCcsU2lzUSXcY/+wVVsXJJEkl/u/S4GED7bVy3xrHqksrALfE+v6H/rq8
+hj1sWlLAxPc3M7BC7AGNAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAFTrs/cT4hQA
+noCiQmUTTJSpz5+ZUYTcffJoueGUnbtPJJdO3s8va6GtOaYR3Vx2jwfWShUBJWbS
+mANm21wWIN0pD8VCB6W18C4F704hOJk2nJn7tY+d1jsEQxkCVeaaHwWXlslzwbRV
+vzNmQCWuwp0hzWYjQmXS94iV3oD2dXS6J+CaMMBcsVaxAWYx99wzJ06DefNPzqSC
+RchRcw+hrXLzOl0Faim2s1eMm2HG+RPVwfOP4FLvFlnNVva/qP60j7X9krzNRY3f
+cxVGVeJQy6yb7uMBGjAqXlDDQITuO7nPjHjnNJHrthk0wcYXPplD2DYp6akF4+El
+wP9ZmW2p9Ww=
+-----END CERTIFICATE-----
+"""
+
+LOCALHOST_KEY_PEM = """\
+-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDZ9suqHgb2P7Q7
++tEjjQuhel7MaVp/RLM2j4QfRs46CJguZtiim2h/BI0OpYx8r7Kmi2uTZqjpHa8i
+U5vwBAz90X6Q4ACZm50opKBDxHyP/Hyy4JKMvr0iqy5n1IOQamtQBctJA69jAoHK
+gTL+Ciz2Ul0vcYjTaUX+9jizoatYJbbA+uM/SgFGBhOmcefo11QEFv74PbVy3QQw
+Ju3QTbPVQkDud0X8wi8q0jDbGQw3gwuolHgGmZ4/44D1X6d1O2Z/78JJ/ZyaCcsU
+2lzUSXcY/+wVVsXJJEkl/u/S4GED7bVy3xrHqksrALfE+v6H/rq8hj1sWlLAxPc3
+M7BC7AGNAgMBAAECggEBAJhK30zSxCyEoEsUWdKMN2cxWFFc/1VTTCDAMCGmWGum
+G6a4R39+NIojROfJ9hocrSe+3IBWR4jyK69BWgBe5DDokpVpXiH1395JAI25GQuF
+8B8P2HWsw/wYPUlg7DgYkziLg9lVUNNOKh+zHEzyES5eqCuBGYgV00ltAntIZ68j
+CKvG8bBB7wgl5Gfy6ZWTatgyqbMZqrS9w/drga3JbmG5yOv6dahqtBxZdpe2eoxn
+uTlaCnEscTkpXe6+Tga2rkTnCpu5G/CVdyPIR9AIUunvzBR7/JSbJLBfLD+ZO6bi
+H1Een1YpifZsGEB9hozBZO7jDEOlFUUfEF+2McPsgGUCgYEA7q1pj23hMz+Tqvk/
+21CA2McLJ146CWJyHxzQyZlYaDPSYSHuXninY3LvBwF+reJiR8cbMxQGEDHL1VWP
+41TlNCNm1ahKGc0gdiE3xHPzKHbNFgEG40t7d+3Jaj9DEf+PUdmYR7dfTUCs7WNz
+lSBp0jxRVnJ0eq/rIKa0sQrK+bMCgYEA6ciIVcjnD8ryRkAanxx7tmrUoTvzPJ5T
+wcOfcIOIQrq+q5yjSG4ag2dDCB7ujl+Ut3astbKtH8m0aJBuMy8QZHHOMHJ5JwET
+Q1WTJ/yCoq513h9nSWTgteruRBEpCgc3MS5iZoMGOJEVfZLjx5rezRgR/8n+1xM8
+e1li3L8w978CgYEAn+k1sXA4EwMEp+epPgJ44USyl2TNU55OwcOnq3p/PgmCaau3
+Ljp+Q+YsebAptMzZdifTdGx1B4Klg8B40CIAEuepLXs8cn75wcvNtmTNRI4cKCL1
+/3GCPr7lVLcf874awwcbvOkCBBtSARbByOdXnxDkmhvDKLQWv+CRbZDCn3sCgYBY
+ZSaHqSsU4ZuxzFNEjjSIyOQVAuH5rbPls935YQKImKu3n8ZtgJQt00GZNHjnBGTq
+6chr+19SgaXhU5sXZ1g/YnigAOimQtXRw+2cVPHgKS8QCbe4HJiKsIXe3s4xqIDJ
+68vxDuGvScxiasQNmRVdXxiPKwVctT1NNoMXDIOraQKBgAncmTe110ZLbwcmr7hy
+2G/p3enMQ3j9a+m19bfApBX7k6TvqjNpCWgsMApDYJ3JnfaO/uo97Q3kFCIq85RD
+stvFJgSsRGtjLwDOP6YRycOZV2iheMtx8nuV47nASY+YQSdo82xffssULgb6O71r
+8ouYXQsQ+s7TxA+Io2km671D
+-----END PRIVATE KEY-----
 """
 
 
@@ -104,10 +169,10 @@ def plaid_secret() -> str:
     raise ValueError(f"Invalid PLAID_ENV={env}")
 
 
-def plaid_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def plaid_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     url = plaid_base_url().rstrip("/") + path
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310 - Plaid API URL constructed above.
         url,
         data=data,
         headers={"Content-Type": "application/json"},
@@ -115,7 +180,7 @@ def plaid_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req) as resp:  # noqa: S310 - Outbound HTTPS request.
             body = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", "ignore")
@@ -137,16 +202,16 @@ def plaid_create_link_token(
     *,
     user_id: str,
     redirect_uri: str,
-    products: List[str],
+    products: list[str],
     client_name: str = "transactoid",
     language: str = "en",
-    country_codes: Optional[List[str]] = None,
+    country_codes: list[str] | None = None,
 ) -> str:
     """Create a Plaid Link token and return it."""
     client_id = getenv_or_die("PLAID_CLIENT_ID")
     secret = plaid_secret()
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "client_id": client_id,
         "secret": secret,
         "client_name": client_name,
@@ -169,7 +234,7 @@ def plaid_create_link_token(
 
 
 def _build_redirect_handler(
-    token_queue: "queue.Queue[str]",
+    token_queue: queue.Queue[str],
     expected_path: str,
 ):
     class RedirectHandler(BaseHTTPRequestHandler):
@@ -204,15 +269,38 @@ def _build_redirect_handler(
     return RedirectHandler
 
 
+def _create_ssl_context() -> ssl.SSLContext:
+    cert_file = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
+    key_file = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
+    try:
+        cert_file.write(LOCALHOST_CERT_PEM)
+        cert_file.flush()
+        key_file.write(LOCALHOST_KEY_PEM)
+        key_file.flush()
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=cert_file.name, keyfile=key_file.name)
+        return context
+    finally:
+        cert_file.close()
+        key_file.close()
+        with suppress(FileNotFoundError):
+            os.unlink(cert_file.name)
+        with suppress(FileNotFoundError):
+            os.unlink(key_file.name)
+
+
 def _start_redirect_server(
     *,
     host: str,
     port: int,
     path: str,
-    token_queue: "queue.Queue[str]",
+    token_queue: queue.Queue[str],
 ) -> tuple[ThreadingHTTPServer, threading.Thread, str, int]:
     handler_cls = _build_redirect_handler(token_queue, path)
     server = ThreadingHTTPServer((host, port), handler_cls)
+    ssl_context = _create_ssl_context()
+    server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
 
     thread = threading.Thread(
         target=server.serve_forever,
@@ -241,7 +329,7 @@ def cmd_sandbox_link(args: argparse.Namespace) -> None:
     institution_id = args.institution_id
     output_path = args.output
 
-    create_payload: Dict[str, Any] = {
+    create_payload: dict[str, Any] = {
         "client_id": client_id,
         "secret": plaid_secret(),
         "institution_id": institution_id,
@@ -358,7 +446,7 @@ def cmd_transactions(args: argparse.Namespace) -> None:
     )
     end_date = _parse_date(args.end_date) if args.end_date else today
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "client_id": client_id,
         "secret": secret,
         "access_token": access_token,
@@ -398,10 +486,10 @@ def cmd_link_production(args: argparse.Namespace) -> None:
         )
 
     redirect_path = "/plaid-link-complete"
-    token_queue: "queue.Queue[str]" = queue.Queue()
+    token_queue: queue.Queue[str] = queue.Queue()
 
     try:
-        server, server_thread, _, bound_port = _start_redirect_server(
+        server, server_thread, bound_host, bound_port = _start_redirect_server(
             host=args.host,
             port=args.port,
             path=redirect_path,
@@ -409,13 +497,24 @@ def cmd_link_production(args: argparse.Namespace) -> None:
         )
     except OSError as e:
         print(
-            f"Failed to start the local redirect server on {args.host}:{args.port}: {e}",
+            "Failed to start the local redirect server on "
+            f"{args.host}:{args.port}: {e}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    redirect_host = args.host if args.host not in ("0.0.0.0", "") else "127.0.0.1"
-    redirect_uri = f"http://{redirect_host}:{bound_port}{redirect_path}"
+    redirect_host = args.host or bound_host
+    try:
+        host_is_unspecified = ipaddress.ip_address(redirect_host).is_unspecified
+    except ValueError:
+        host_is_unspecified = redirect_host == ""
+    if host_is_unspecified:
+        redirect_host = "localhost"
+    redirect_uri = f"https://{redirect_host}:{bound_port}{redirect_path}"
+    print(
+        "Ensure this redirect URI is allow-listed in Plaid dashboard settings:\n"
+        f"  {redirect_uri}"
+    )
     user_id = args.user_id or f"cli-user-{uuid.uuid4()}"
     products = args.products or ["transactions"]
     country_codes = args.country_codes or ["US"]
@@ -440,6 +539,10 @@ def cmd_link_production(args: argparse.Namespace) -> None:
         )
 
         print(f"Listening for Plaid redirect on {redirect_uri}")
+        print(
+            "Your browser may warn about a self-signed certificate; "
+            "bypass it once to continue."
+        )
         print("Opening Plaid Link in your default browser...")
         opened = webbrowser.open(link_url, new=1)
         if not opened:
@@ -560,8 +663,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prod_link_parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host interface for the local redirect server (default: 127.0.0.1).",
+        default="localhost",
+        help=(
+            "Host interface for the local HTTPS redirect server (default: localhost). "
+            "Must match a redirect URI registered in Plaid."
+        ),
     )
     prod_link_parser.add_argument(
         "--port",
