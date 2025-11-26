@@ -5,11 +5,20 @@ import argparse
 import datetime as dt
 import json
 import os
-from pathlib import Path
+import queue
+import ssl
 import sys
+import tempfile
+import threading
 import urllib.error
+import urllib.parse
 import urllib.request
-from typing import Any, Dict
+import uuid
+import webbrowser
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -21,6 +30,46 @@ PLAID_ENV_MAP: Dict[str, str] = {
     "development": "https://development.plaid.com",
     "production": "https://production.plaid.com",
 }
+
+REDIRECT_SUCCESS_HTML = """\
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Plaid Link Complete</title>
+  <style>
+    body { font-family: sans-serif; margin: 3rem; }
+    .card { max-width: 32rem; padding: 2rem; border: 1px solid #ccc; border-radius: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Link successful</h1>
+    <p>You can return to the terminal. This window can be closed.</p>
+  </div>
+</body>
+</html>
+"""
+
+REDIRECT_ERROR_HTML = """\
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Plaid Link Error</title>
+  <style>
+    body { font-family: sans-serif; margin: 3rem; color: #941a1d; }
+    .card { max-width: 32rem; padding: 2rem; border: 1px solid #f5a9ab; border-radius: 0.5rem; background: #fff5f5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Link failed</h1>
+    <p>The CLI did not receive a Plaid public_token. Please review the terminal output.</p>
+  </div>
+</body>
+</html>
+"""
 
 
 def getenv_or_die(name: str) -> str:
@@ -82,6 +131,98 @@ def plaid_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         print(f"Failed to parse Plaid response as JSON: {e}", file=sys.stderr)
         print(f"Raw response: {body}", file=sys.stderr)
         sys.exit(1)
+
+
+def plaid_create_link_token(
+    *,
+    user_id: str,
+    redirect_uri: str,
+    products: List[str],
+    client_name: str = "transactoid",
+    language: str = "en",
+    country_codes: Optional[List[str]] = None,
+) -> str:
+    """Create a Plaid Link token and return it."""
+    client_id = getenv_or_die("PLAID_CLIENT_ID")
+    secret = plaid_secret()
+
+    payload: Dict[str, Any] = {
+        "client_id": client_id,
+        "secret": secret,
+        "client_name": client_name,
+        "language": language,
+        "country_codes": country_codes or ["US"],
+        "user": {"client_user_id": user_id},
+        "products": products,
+        "redirect_uri": redirect_uri,
+    }
+
+    resp = plaid_post("/link/token/create", payload)
+    link_token = resp.get("link_token")
+    if not link_token:
+        print(
+            f"Unexpected response from /link/token/create: {resp}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return link_token
+
+
+def _build_redirect_handler(
+    token_queue: "queue.Queue[str]",
+    expected_path: str,
+):
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path != expected_path:
+                self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+                return
+
+            params = urllib.parse.parse_qs(parsed.query)
+            public_token = params.get("public_token", [None])[0]
+
+            if public_token:
+                token_queue.put(public_token)
+                body = REDIRECT_SUCCESS_HTML
+                status = HTTPStatus.OK
+            else:
+                body = REDIRECT_ERROR_HTML
+                status = HTTPStatus.BAD_REQUEST
+
+            body_bytes = body.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+            # Silence default stdout logging to keep CLI output clean.
+            return
+
+    return RedirectHandler
+
+
+def _start_redirect_server(
+    *,
+    host: str,
+    port: int,
+    path: str,
+    token_queue: "queue.Queue[str]",
+) -> tuple[ThreadingHTTPServer, threading.Thread, str, int]:
+    handler_cls = _build_redirect_handler(token_queue, path)
+    server = ThreadingHTTPServer((host, port), handler_cls)
+
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="PlaidRedirectServer",
+        daemon=True,
+    )
+    thread.start()
+
+    actual_host, actual_port = server.server_address
+    return server, thread, actual_host, actual_port
 
 
 def cmd_sandbox_link(args: argparse.Namespace) -> None:
@@ -241,6 +382,110 @@ def cmd_transactions(args: argparse.Namespace) -> None:
     print(f"\nTotal transactions returned: {len(transactions)}")
 
 
+def cmd_link_production(args: argparse.Namespace) -> None:
+    """Drive a production Plaid Link flow via the hosted web experience."""
+    env = os.getenv("PLAID_ENV")
+    if env is None:
+        env = "production"
+        os.environ["PLAID_ENV"] = env
+    env = env.lower()
+
+    if env != "production":
+        print(
+            f"Warning: PLAID_ENV is set to {env!r}. This command is intended for "
+            "production credentials.",
+            file=sys.stderr,
+        )
+
+    redirect_path = "/plaid-link-complete"
+    token_queue: "queue.Queue[str]" = queue.Queue()
+
+    try:
+        server, server_thread, _, bound_port = _start_redirect_server(
+            host=args.host,
+            port=args.port,
+            path=redirect_path,
+            token_queue=token_queue,
+        )
+    except OSError as e:
+        print(
+            f"Failed to start the local redirect server on {args.host}:{args.port}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    redirect_host = args.host if args.host not in ("0.0.0.0", "") else "127.0.0.1"
+    redirect_uri = f"http://{redirect_host}:{bound_port}{redirect_path}"
+    user_id = args.user_id or f"cli-user-{uuid.uuid4()}"
+    products = args.products or ["transactions"]
+    country_codes = args.country_codes or ["US"]
+
+    print(
+        f"Creating Plaid Link token for user {user_id!r} in PLAID_ENV={env}.",
+    )
+
+    try:
+        link_token = plaid_create_link_token(
+            user_id=user_id,
+            redirect_uri=redirect_uri,
+            products=products,
+            client_name=args.client_name,
+            language=args.language,
+            country_codes=country_codes,
+        )
+
+        link_url = (
+            "https://cdn.plaid.com/link/v2/stable/link.html?token="
+            + urllib.parse.quote(link_token, safe="")
+        )
+
+        print(f"Listening for Plaid redirect on {redirect_uri}")
+        print("Opening Plaid Link in your default browser...")
+        opened = webbrowser.open(link_url, new=1)
+        if not opened:
+            print(
+                "Unable to automatically open the browser. "
+                "Open the following URL manually:",
+                file=sys.stderr,
+            )
+            print(link_url)
+
+        print(
+            f"Waiting for Plaid Link to complete. Timeout: {args.timeout} seconds.",
+        )
+        public_token = token_queue.get(timeout=args.timeout)
+    except queue.Empty:
+        print(
+            "Timed out waiting for Plaid to redirect with a public_token. "
+            "Restart the command to try again.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInterrupted before Plaid Link completed.", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=1)
+
+    result = {
+        "public_token": public_token,
+        "environment": env,
+        "received_at": dt.datetime.utcnow().isoformat() + "Z",
+    }
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+        print(f"Wrote public token details to {args.output}")
+
+    print("Plaid public_token received. You can now exchange it for an access token:")
+    print("  scripts/plaid_cli.py exchange-public-token <public_token>")
+    print("\nPublic token (copy securely):")
+    print(public_token)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Simple Plaid CLI: sandbox link + transactions fetch.",
@@ -276,6 +521,68 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional file path to write the resulting access token as JSON.",
     )
     exchange_parser.set_defaults(func=cmd_exchange_public_token)
+
+    prod_link_parser = subparsers.add_parser(
+        "link-production",
+        help=(
+            "Launch Plaid Link in production using the hosted web flow and capture the "
+            "public_token via a browser redirect."
+        ),
+    )
+    prod_link_parser.add_argument(
+        "--user-id",
+        help="Value for Plaid client_user_id. Defaults to a random UUID.",
+    )
+    prod_link_parser.add_argument(
+        "--client-name",
+        default="transactoid",
+        help="Label shown inside Plaid Link (default: transactoid).",
+    )
+    prod_link_parser.add_argument(
+        "--language",
+        default="en",
+        help="Plaid Link language code (default: en).",
+    )
+    prod_link_parser.add_argument(
+        "--product",
+        dest="products",
+        action="append",
+        help=(
+            "Plaid product to request (e.g., transactions). "
+            "Repeat to request multiple products. Default: transactions."
+        ),
+    )
+    prod_link_parser.add_argument(
+        "--country-code",
+        dest="country_codes",
+        action="append",
+        help="Country code to include (default: US). Repeat for multiple countries.",
+    )
+    prod_link_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host interface for the local redirect server (default: 127.0.0.1).",
+    )
+    prod_link_parser.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help=(
+            "Port for the redirect server. Use 0 to choose a random open port "
+            "(default: 0)."
+        ),
+    )
+    prod_link_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Seconds to wait for Plaid Link to complete (default: 300).",
+    )
+    prod_link_parser.add_argument(
+        "--output",
+        help="Optional path to save the received public_token JSON payload.",
+    )
+    prod_link_parser.set_defaults(func=cmd_link_production)
 
     tx_parser = subparsers.add_parser(
         "transactions",
