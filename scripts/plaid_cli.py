@@ -136,6 +136,19 @@ OAUTH_REDIRECT_HTML_TEMPLATE = """\
 </html>
 """
 
+
+class PlaidCliError(Exception):
+    """Base error for Plaid CLI failures."""
+
+
+class RedirectServerError(PlaidCliError):
+    """Raised when the local redirect server cannot be started."""
+
+
+class PublicTokenTimeoutError(PlaidCliError):
+    """Raised when we time out waiting for a Plaid public_token."""
+
+
 LOCALHOST_CERT_PEM = """\
 -----BEGIN CERTIFICATE-----
 MIICpDCCAYwCCQDeylxbozqsWDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
@@ -569,19 +582,15 @@ def cmd_transactions(args: argparse.Namespace) -> None:
 
 
 def _ensure_production_env() -> str:
-    """Ensure PLAID_ENV is set to production and return its value."""
+    """Ensure PLAID_ENV is set and return its value (lowercased).
+
+    This helper is business logic only; it does not print or exit.
+    """
     env = os.getenv("PLAID_ENV")
     if env is None:
         env = "production"
         os.environ["PLAID_ENV"] = env
     env = env.lower()
-
-    if env != "production":
-        print(
-            f"Warning: PLAID_ENV is set to {env!r}. This command is intended for "
-            "production credentials.",
-            file=sys.stderr,
-        )
     return env
 
 
@@ -602,12 +611,9 @@ def _create_redirect_server_and_uri(
             state=state,
         )
     except OSError as e:
-        print(
-            "Failed to start the local redirect server on "
-            f"{args.host}:{args.port}: {e}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise RedirectServerError(
+            f"Failed to start the local redirect server on {args.host}:{args.port}: {e}"
+        ) from e
 
     redirect_host = args.host or bound_host
     try:
@@ -618,10 +624,6 @@ def _create_redirect_server_and_uri(
         redirect_host = "localhost"
 
     redirect_uri = f"https://{redirect_host}:{bound_port}{redirect_path}"
-    print(
-        "Ensure this redirect URI is allow-listed in Plaid dashboard settings:\n"
-        f"  {redirect_uri}"
-    )
     return server, server_thread, redirect_uri
 
 
@@ -637,10 +639,6 @@ def _create_link_url(
     state: dict[str, Any],
 ) -> str:
     """Create a Link token and return the hosted Link URL."""
-    print(
-        f"Creating Plaid Link token for user {user_id!r} in PLAID_ENV={env}.",
-    )
-
     link_token = plaid_create_link_token(
         user_id=user_id,
         redirect_uri=redirect_uri,
@@ -656,21 +654,9 @@ def _create_link_url(
     )
 
 
-def _open_link_in_browser(link_url: str, redirect_uri: str) -> None:
-    print(f"Listening for Plaid redirect on {redirect_uri}")
-    print(
-        "Your browser may warn about a self-signed certificate; "
-        "bypass it once to continue."
-    )
-    print("Opening Plaid Link in your default browser...")
-    opened = webbrowser.open(link_url, new=1)
-    if not opened:
-        print(
-            "Unable to automatically open the browser. "
-            "Open the following URL manually:",
-            file=sys.stderr,
-        )
-        print(link_url)
+def _open_link_in_browser(link_url: str) -> bool:
+    """Open the Plaid Link URL in the user's browser."""
+    return webbrowser.open(link_url, new=1)
 
 
 def _wait_for_public_token(
@@ -678,21 +664,14 @@ def _wait_for_public_token(
     *,
     timeout_seconds: int,
 ) -> str:
-    print(
-        f"Waiting for Plaid Link to complete. Timeout: {timeout_seconds} seconds.",
-    )
     try:
         return token_queue.get(timeout=timeout_seconds)
     except queue.Empty:
-        print(
-            "Timed out waiting for Plaid to redirect with a public_token. "
-            "Restart the command to try again.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise PublicTokenTimeoutError(
+            "Timed out waiting for Plaid to redirect with a public_token."
+        ) from None
     except KeyboardInterrupt:
-        print("\nInterrupted before Plaid Link completed.", file=sys.stderr)
-        sys.exit(1)
+        raise
 
 
 def _shutdown_redirect_server(
@@ -758,11 +737,38 @@ def cmd_link_production(args: argparse.Namespace) -> None:
             state=state,
         )
 
-        _open_link_in_browser(link_url, redirect_uri)
+        print(f"Listening for Plaid redirect on {redirect_uri}")
+        print(
+            "Your browser may warn about a self-signed certificate; "
+            "bypass it once to continue."
+        )
+        print("Opening Plaid Link in your default browser...")
+        opened = _open_link_in_browser(link_url)
+        if not opened:
+            print(
+                "Unable to automatically open the browser. "
+                "Open the following URL manually:",
+                file=sys.stderr,
+            )
+            print(link_url)
+
+        print(
+            f"Waiting for Plaid Link to complete. Timeout: {args.timeout} seconds.",
+        )
         public_token = _wait_for_public_token(
             token_queue,
             timeout_seconds=args.timeout,
         )
+    except RedirectServerError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except PublicTokenTimeoutError as e:
+        print(str(e), file=sys.stderr)
+        print("Restart the command to try again.", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInterrupted before Plaid Link completed.", file=sys.stderr)
+        sys.exit(1)
     finally:
         _shutdown_redirect_server(server, server_thread)
 
