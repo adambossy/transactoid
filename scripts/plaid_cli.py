@@ -568,8 +568,8 @@ def cmd_transactions(args: argparse.Namespace) -> None:
     print(f"\nTotal transactions returned: {len(transactions)}")
 
 
-def cmd_link_production(args: argparse.Namespace) -> None:
-    """Drive a production Plaid Link flow via the hosted web experience."""
+def _ensure_production_env() -> str:
+    """Ensure PLAID_ENV is set to production and return its value."""
     env = os.getenv("PLAID_ENV")
     if env is None:
         env = "production"
@@ -582,11 +582,17 @@ def cmd_link_production(args: argparse.Namespace) -> None:
             "production credentials.",
             file=sys.stderr,
         )
+    return env
 
-    redirect_path = "/plaid-link-complete"
-    token_queue: queue.Queue[str] = queue.Queue()
-    state: dict[str, Any] = {}
 
+def _create_redirect_server_and_uri(
+    args: argparse.Namespace,
+    *,
+    redirect_path: str,
+    token_queue: queue.Queue[str],
+    state: dict[str, Any],
+) -> tuple[ThreadingHTTPServer, threading.Thread, str]:
+    """Start the local HTTPS redirect server and return its URI."""
     try:
         server, server_thread, bound_host, bound_port = _start_redirect_server(
             host=args.host,
@@ -610,54 +616,73 @@ def cmd_link_production(args: argparse.Namespace) -> None:
         host_is_unspecified = redirect_host == ""
     if host_is_unspecified:
         redirect_host = "localhost"
+
     redirect_uri = f"https://{redirect_host}:{bound_port}{redirect_path}"
     print(
         "Ensure this redirect URI is allow-listed in Plaid dashboard settings:\n"
         f"  {redirect_uri}"
     )
-    user_id = args.user_id or f"cli-user-{uuid.uuid4()}"
-    products = args.products or ["transactions"]
-    country_codes = args.country_codes or ["US"]
+    return server, server_thread, redirect_uri
 
+
+def _create_link_url(
+    *,
+    env: str,
+    user_id: str,
+    redirect_uri: str,
+    products: list[str],
+    country_codes: list[str],
+    client_name: str,
+    language: str,
+    state: dict[str, Any],
+) -> str:
+    """Create a Link token and return the hosted Link URL."""
     print(
         f"Creating Plaid Link token for user {user_id!r} in PLAID_ENV={env}.",
     )
 
+    link_token = plaid_create_link_token(
+        user_id=user_id,
+        redirect_uri=redirect_uri,
+        products=products,
+        client_name=client_name,
+        language=language,
+        country_codes=country_codes,
+    )
+    state["link_token"] = link_token
+
+    return "https://cdn.plaid.com/link/v2/stable/link.html?token=" + urllib.parse.quote(
+        link_token, safe=""
+    )
+
+
+def _open_link_in_browser(link_url: str, redirect_uri: str) -> None:
+    print(f"Listening for Plaid redirect on {redirect_uri}")
+    print(
+        "Your browser may warn about a self-signed certificate; "
+        "bypass it once to continue."
+    )
+    print("Opening Plaid Link in your default browser...")
+    opened = webbrowser.open(link_url, new=1)
+    if not opened:
+        print(
+            "Unable to automatically open the browser. "
+            "Open the following URL manually:",
+            file=sys.stderr,
+        )
+        print(link_url)
+
+
+def _wait_for_public_token(
+    token_queue: queue.Queue[str],
+    *,
+    timeout_seconds: int,
+) -> str:
+    print(
+        f"Waiting for Plaid Link to complete. Timeout: {timeout_seconds} seconds.",
+    )
     try:
-        link_token = plaid_create_link_token(
-            user_id=user_id,
-            redirect_uri=redirect_uri,
-            products=products,
-            client_name=args.client_name,
-            language=args.language,
-            country_codes=country_codes,
-        )
-        state["link_token"] = link_token
-
-        link_url = (
-            "https://cdn.plaid.com/link/v2/stable/link.html?token="
-            + urllib.parse.quote(link_token, safe="")
-        )
-
-        print(f"Listening for Plaid redirect on {redirect_uri}")
-        print(
-            "Your browser may warn about a self-signed certificate; "
-            "bypass it once to continue."
-        )
-        print("Opening Plaid Link in your default browser...")
-        opened = webbrowser.open(link_url, new=1)
-        if not opened:
-            print(
-                "Unable to automatically open the browser. "
-                "Open the following URL manually:",
-                file=sys.stderr,
-            )
-            print(link_url)
-
-        print(
-            f"Waiting for Plaid Link to complete. Timeout: {args.timeout} seconds.",
-        )
-        public_token = token_queue.get(timeout=args.timeout)
+        return token_queue.get(timeout=timeout_seconds)
     except queue.Empty:
         print(
             "Timed out waiting for Plaid to redirect with a public_token. "
@@ -668,26 +693,84 @@ def cmd_link_production(args: argparse.Namespace) -> None:
     except KeyboardInterrupt:
         print("\nInterrupted before Plaid Link completed.", file=sys.stderr)
         sys.exit(1)
-    finally:
-        server.shutdown()
-        server.server_close()
-        server_thread.join(timeout=1)
 
+
+def _shutdown_redirect_server(
+    server: ThreadingHTTPServer,
+    server_thread: threading.Thread,
+) -> None:
+    server.shutdown()
+    server.server_close()
+    server_thread.join(timeout=1)
+
+
+def _emit_public_token_result(
+    *,
+    public_token: str,
+    env: str,
+    output_path: str | None,
+) -> None:
     result = {
         "public_token": public_token,
         "environment": env,
         "received_at": dt.datetime.utcnow().isoformat() + "Z",
     }
 
-    if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2)
-        print(f"Wrote public token details to {args.output}")
+        print(f"Wrote public token details to {output_path}")
 
     print("Plaid public_token received. You can now exchange it for an access token:")
     print("  scripts/plaid_cli.py exchange-public-token <public_token>")
     print("\nPublic token (copy securely):")
     print(public_token)
+
+
+def cmd_link_production(args: argparse.Namespace) -> None:
+    """Drive a production Plaid Link flow via the hosted web experience."""
+    env = _ensure_production_env()
+
+    redirect_path = "/plaid-link-complete"
+    token_queue: queue.Queue[str] = queue.Queue()
+    state: dict[str, Any] = {}
+
+    server, server_thread, redirect_uri = _create_redirect_server_and_uri(
+        args,
+        redirect_path=redirect_path,
+        token_queue=token_queue,
+        state=state,
+    )
+
+    user_id = args.user_id or f"cli-user-{uuid.uuid4()}"
+    products = args.products or ["transactions"]
+    country_codes = args.country_codes or ["US"]
+
+    try:
+        link_url = _create_link_url(
+            env=env,
+            user_id=user_id,
+            redirect_uri=redirect_uri,
+            products=products,
+            country_codes=country_codes,
+            client_name=args.client_name,
+            language=args.language,
+            state=state,
+        )
+
+        _open_link_in_browser(link_url, redirect_uri)
+        public_token = _wait_for_public_token(
+            token_queue,
+            timeout_seconds=args.timeout,
+        )
+    finally:
+        _shutdown_redirect_server(server, server_thread)
+
+    _emit_public_token_result(
+        public_token=public_token,
+        env=env,
+        output_path=args.output,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
