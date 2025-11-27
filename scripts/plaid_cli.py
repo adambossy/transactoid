@@ -2,28 +2,28 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import suppress
 import datetime as dt
-from html import escape as html_escape
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import json
 import os
 from pathlib import Path
 import queue
-import ssl
 import sys
-import tempfile
 import threading
 from typing import Any
-import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 import webbrowser
 
 from dotenv import load_dotenv
+from services.plaid_client import PlaidClient, PlaidClientError
+from services.plaid_link_flow import (
+    PublicTokenTimeoutError,
+    RedirectServerError,
+    shutdown_redirect_server,
+    start_redirect_server,
+    wait_for_public_token,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
