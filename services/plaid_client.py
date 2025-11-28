@@ -102,7 +102,9 @@ class PlaidClient:
         try:
             return PLAID_ENV_MAP[self._env]
         except KeyError as e:
-            raise PlaidClientError(f"Unsupported Plaid environment: {self._env!r}") from e
+            raise PlaidClientError(
+                f"Unsupported Plaid environment: {self._env!r}"
+            ) from e
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = self._base_url().rstrip("/") + path
