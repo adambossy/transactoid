@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from models.transaction import Transaction
+from pydantic import BaseModel, Field
 
 PlaidEnv = Literal["sandbox", "development", "production"]
 
@@ -37,6 +38,157 @@ class PlaidItemInfo(TypedDict):
     item_id: str
     institution_id: Optional[str]
     institution_name: Optional[str]
+
+
+def _map_plaid_transaction(raw: Dict[str, Any]) -> Transaction:
+    """Convert a raw Plaid transaction dict into a strongly-typed Transaction.
+
+    This keeps the public API returning Transaction while allowing us to:
+    - Tolerate extra Plaid fields.
+    - Validate that required fields are present.
+    """
+    try:
+        transaction_id = raw.get("transaction_id")
+        account_id = raw["account_id"]
+        amount = float(raw["amount"])
+        iso_currency_code = raw.get("iso_currency_code")
+        date_str = raw["date"]
+        name = raw["name"]
+        merchant_name = raw.get("merchant_name")
+        pending = bool(raw.get("pending", False))
+        payment_channel = raw.get("payment_channel")
+        unofficial_currency_code = raw.get("unofficial_currency_code")
+        category = raw.get("category")
+        category_id = raw.get("category_id")
+        personal_finance_category = raw.get("personal_finance_category")
+    except KeyError as e:
+        raise PlaidClientError(
+            f"Missing expected transaction field {e!r} in Plaid response: {raw!r}"
+        ) from e
+
+    txn: Transaction = {
+        "transaction_id": transaction_id,
+        "account_id": account_id,
+        "amount": amount,
+        "iso_currency_code": iso_currency_code,
+        "date": date_str,
+        "name": name,
+        "merchant_name": merchant_name,
+        "pending": pending,
+        "payment_channel": payment_channel,
+        "unofficial_currency_code": unofficial_currency_code,
+        "category": category,
+        "category_id": category_id,
+        "personal_finance_category": personal_finance_category,
+    }
+    return txn
+
+
+class PlaidBaseModel(BaseModel):
+    """Shared base for Plaid response models with a short parse alias."""
+
+    @classmethod
+    def parse(cls, data: Any) -> "PlaidBaseModel":
+        return cls.model_validate(data)
+
+
+class LinkTokenCreateResponse(PlaidBaseModel):
+    link_token: str
+
+
+class AccountsGetAccount(PlaidBaseModel):
+    account_id: str
+    name: str
+    official_name: Optional[str] = None
+    mask: Optional[str] = None
+    subtype: Optional[str] = None
+    type: Optional[str] = None
+
+    def to_typed(self) -> PlaidAccount:
+        return {
+            "account_id": self.account_id,
+            "name": self.name,
+            "official_name": self.official_name,
+            "mask": self.mask,
+            "subtype": self.subtype,
+            "type": self.type,
+            # Institution name can be resolved separately via get_item_info().
+            "institution": None,
+        }
+
+
+class AccountsGetResponse(PlaidBaseModel):
+    accounts: List[AccountsGetAccount]
+
+
+class ItemModel(PlaidBaseModel):
+    item_id: str
+    institution_id: Optional[str] = None
+
+
+class ItemGetResponse(PlaidBaseModel):
+    item: ItemModel
+
+
+class InstitutionModel(PlaidBaseModel):
+    name: Optional[str] = None
+
+
+class InstitutionGetByIdResponse(PlaidBaseModel):
+    institution: Optional[InstitutionModel] = None
+
+
+class PlaidTransactionModel(PlaidBaseModel):
+    transaction_id: Optional[str] = None
+    account_id: str
+    amount: float
+    iso_currency_code: Optional[str] = None
+    date: str
+    name: str
+    merchant_name: Optional[str] = None
+    pending: bool = False
+    payment_channel: Optional[str] = None
+    unofficial_currency_code: Optional[str] = None
+    category: Optional[List[str]] = None
+    category_id: Optional[str] = None
+    personal_finance_category: Optional[Dict[str, Any]] = None
+
+    def to_typed(self) -> Transaction:
+        txn: Transaction = {
+            "transaction_id": self.transaction_id,
+            "account_id": self.account_id,
+            "amount": self.amount,
+            "iso_currency_code": self.iso_currency_code,
+            "date": self.date,
+            "name": self.name,
+            "merchant_name": self.merchant_name,
+            "pending": self.pending,
+            "payment_channel": self.payment_channel,
+            "unofficial_currency_code": self.unofficial_currency_code,
+            "category": self.category,
+            "category_id": self.category_id,
+            "personal_finance_category": self.personal_finance_category,
+        }
+        return txn
+
+
+class TransactionsGetResponse(PlaidBaseModel):
+    transactions: List[PlaidTransactionModel] = Field(default_factory=list)
+
+
+class TransactionsSyncResponse(PlaidBaseModel):
+    added: List[PlaidTransactionModel] = Field(default_factory=list)
+    modified: List[PlaidTransactionModel] = Field(default_factory=list)
+    removed: List[Dict[str, Any]] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+
+    def to_sync_result(self, *, fallback_cursor: Optional[str]) -> Dict[str, Any]:
+        return {
+            "added": [txn.to_typed() for txn in self.added],
+            "modified": [txn.to_typed() for txn in self.modified],
+            "removed": self.removed,
+            "next_cursor": self.next_cursor or (fallback_cursor or ""),
+        }
 
 
 class PlaidClient:
@@ -157,13 +309,8 @@ class PlaidClient:
         if redirect_uri is not None:
             payload["redirect_uri"] = redirect_uri
 
-        resp = self._post("/link/token/create", payload)
-        link_token = resp.get("link_token")
-        if not link_token:
-            raise PlaidClientError(
-                f"Unexpected response from /link/token/create: {resp}"
-            )
-        return link_token
+        resp = LinkTokenCreateResponse.parse(self._post("/link/token/create", payload))
+        return resp.link_token
 
     def exchange_public_token(self, public_token: str) -> Dict[str, Any]:
         """Exchange a Link public_token for an access_token."""
@@ -197,14 +344,47 @@ class PlaidClient:
         return self._post("/transactions/get", payload)
 
     def get_accounts(self, access_token: str) -> List[PlaidAccount]:
-        return []
+        """Return accounts for an item using Plaid's /accounts/get endpoint."""
+        payload: Dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
+        }
+        resp = AccountsGetResponse.parse(self._post("/accounts/get", payload))
+        return [account.to_typed() for account in resp.accounts]
 
     def get_item_info(self, access_token: str) -> PlaidItemInfo:
-        return {
-            "item_id": "stub-item",
-            "institution_id": None,
-            "institution_name": None,
+        """Return item and institution information for an access token."""
+        payload: Dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
         }
+        item_resp = ItemGetResponse.parse(self._post("/item/get", payload))
+
+        item_id = item_resp.item.item_id
+        institution_id = item_resp.item.institution_id
+        institution_name: Optional[str] = None
+
+        if institution_id:
+            inst_payload: Dict[str, Any] = {
+                "client_id": self._client_id,
+                "secret": self._secret,
+                "institution_id": institution_id,
+                "country_codes": ["US"],
+            }
+            inst_resp = InstitutionGetByIdResponse.parse(
+                self._post("/institutions/get_by_id", inst_payload)
+            )
+            if inst_resp.institution and inst_resp.institution.name:
+                institution_name = inst_resp.institution.name
+
+        info: PlaidItemInfo = {
+            "item_id": item_id,
+            "institution_id": institution_id,
+            "institution_name": institution_name,
+        }
+        return info
 
     def list_transactions(
         self,
@@ -216,15 +396,27 @@ class PlaidClient:
         offset: int = 0,
         limit: int = 500,
     ) -> List[Transaction]:
-        # Minimal implementation based on /transactions/get; ignores account_ids/offset.
-        resp = self.get_transactions_raw(
-            access_token,
-            start_date=start_date,
-            end_date=end_date,
-            count=limit,
+        """Return a page of transactions using Plaid's /transactions/get."""
+        options: Dict[str, Any] = {
+            "count": limit,
+            "offset": offset,
+        }
+        if account_ids:
+            options["account_ids"] = account_ids
+
+        payload: Dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "options": options,
+        }
+
+        resp = TransactionsGetResponse.parse(
+            self._post("/transactions/get", payload)
         )
-        txs = resp.get("transactions", [])
-        return txs  # type: ignore[return-value]
+        return [txn.to_typed() for txn in resp.transactions]
 
     def sync_transactions(
         self,
@@ -233,7 +425,22 @@ class PlaidClient:
         cursor: Optional[str] = None,
         count: int = 500,
     ) -> Dict[str, Any]:
-        return {"added": [], "modified": [], "removed": [], "next_cursor": cursor or ""}
+        """Thin wrapper around Plaid's /transactions/sync endpoint."""
+        payload: Dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
+            "count": count,
+        }
+        if cursor is not None:
+            payload["cursor"] = cursor
+
+        resp = TransactionsSyncResponse.parse(
+            self._post("/transactions/sync", payload)
+        )
+        return resp.to_sync_result(fallback_cursor=cursor)
 
     def institution_name_for_item(self, access_token: str) -> Optional[str]:
-        return None
+        """Convenience helper that returns only the institution name for an item."""
+        info = self.get_item_info(access_token)
+        return info.get("institution_name")
