@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import ssl
 import tempfile
@@ -329,5 +330,3 @@ def shutdown_redirect_server(
     server.shutdown()
     server.server_close()
     server_thread.join(timeout=1)
-
-
