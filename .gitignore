@@ -216,6 +216,9 @@ __marimo__/
 # Local SSL key for Plaid redirect server (certificate is tracked, key is not)
 configs/plaid_redirect_localhost.key
 
+# Local SSL key for Plaid redirect server (certificate is tracked, key is not)
+configs/plaid_redirect_localhost.key
+
 # macOS
 .DS_Store
 .eval_results/
