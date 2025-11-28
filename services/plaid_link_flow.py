@@ -4,13 +4,12 @@ import json
 import os
 import queue
 import ssl
-import tempfile
 import threading
 import urllib.parse
-from contextlib import suppress
 from html import escape as html_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 
@@ -128,77 +127,33 @@ OAUTH_REDIRECT_HTML_TEMPLATE = """\
 </html>
 """
 
-LOCALHOST_CERT_PEM = """\
------BEGIN CERTIFICATE-----
-MIICpDCCAYwCCQDeylxbozqsWDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
-b2NhbGhvc3QwHhcNMjUxMTI2MDIwODI4WhcNMzUxMTI0MDIwODI4WjAUMRIwEAYD
-VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDZ
-9suqHgb2P7Q7+tEjjQuhel7MaVp/RLM2j4QfRs46CJguZtiim2h/BI0OpYx8r7Km
-i2uTZqjpHa8iU5vwBAz90X6Q4ACZm50opKBDxHyP/Hyy4JKMvr0iqy5n1IOQamtQ
-BctJA69jAoHKgTL+Ciz2Ul0vcYjTaUX+9jizoatYJbbA+uM/SgFGBhOmcefo11QE
-Fv74PbVy3QQwJu3QTbPVQkDud0X8wi8q0jDbGQw3gwuolHgGmZ4/44D1X6d1O2Z/
-78JJ/ZyaCcsU2lzUSXcY/+wVVsXJJEkl/u/S4GED7bVy3xrHqksrALfE+v6H/rq8
-hj1sWlLAxPc3M7BC7AGNAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAFTrs/cT4hQA
-noCiQmUTTJSpz5+ZUYTcffJoueGUnbtPJJdO3s8va6GtOaYR3Vx2jwfWShUBJWbS
-mANm21wWIN0pD8VCB6W18C4F704hOJk2nJn7tY+d1jsEQxkCVeaaHwWXlslzwbRV
-vzNmQCWuwp0hzWYjQmXS94iV3oD2dXS6J+CaMMBcsVaxAWYx99wzJ06DefNPzqSC
-RchRcw+hrXLzOl0Faim2s1eMm2HG+RPVwfOP4FLvFlnNVva/qP60j7X9krzNRY3f
-cxVGVeJQy6yb7uMBGjAqXlDDQITuO7nPjHjnNJHrthk0wcYXPplD2DYp6akF4+El
-wP9ZmW2p9Ww=
------END CERTIFICATE-----
-"""
-
-LOCALHOST_KEY_PEM = """\
------BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDZ9suqHgb2P7Q7
-+tEjjQuhel7MaVp/RLM2j4QfRs46CJguZtiim2h/BI0OpYx8r7Kmi2uTZqjpHa8i
-U5vwBAz90X6Q4ACZm50opKBDxHyP/Hyy4JKMvr0iqy5n1IOQamtQBctJA69jAoHK
-gTL+Ciz2Ul0vcYjTaUX+9jizoatYJbbA+uM/SgFGBhOmcefo11QEFv74PbVy3QQw
-Ju3QTbPVQkDud0X8wi8q0jDbGQw3gwuolHgGmZ4/44D1X6d1O2Z/78JJ/ZyaCcsU
-2lzUSXcY/+wVVsXJJEkl/u/S4GED7bVy3xrHqksrALfE+v6H/rq8hj1sWlLAxPc3
-M7BC7AGNAgMBAAECggEBAJhK30zSxCyEoEsUWdKMN2cxWFFc/1VTTCDAMCGmWGum
-G6a4R39+NIojROfJ9hocrSe+3IBWR4jyK69BWgBe5DDokpVpXiH1395JAI25GQuF
-8B8P2HWsw/wYPUlg7DgYkziLg9lVUNNOKh+zHEzyES5eqCuBGYgV00ltAntIZ68j
-CKvG8bBB7wgl5Gfy6ZWTatgyqbMZqrS9w/drga3JbmG5yOv6dahqtBxZdpe2eoxn
-uTlaCnEscTkpXe6+Tga2rkTnCpu5G/CVdyPIR9AIUunvzBR7/JSbJLBfLD+ZO6bi
-H1Een1YpifZsGEB9hozBZO7jDEOlFUUfEF+2McPsgGUCgYEA7q1pj23hMz+Tqvk/
-21CA2McLJ146CWJyHxzQyZlYaDPSYSHuXninY3LvBwF+reJiR8cbMxQGEDHL1VWP
-41TlNCNm1ahKGc0gdiE3xHPzKHbNFgEG40t7d+3Jaj9DEf+PUdmYR7dfTUCs7WNz
-lSBp0jxRVnJ0eq/rIKa0sQrK+bMCgYEA6ciIVcjnD8ryRkAanxx7tmrUoTvzPJ5T
-wcOfcIOIQrq+q5yjSG4ag2dDCB7ujl+Ut3astbKtH8m0aJBuMy8QZHHOMHJ5JwET
-Q1WTJ/yCoq513h9nSWTgteruRBEpCgc3MS5iZoMGOJEVfZLjx5rezRgR/8n+1xM8
-e1li3L8w978CgYEAn+k1sXA4EwMEp+epPgJ44USyl2TNU55OwcOnq3p/PgmCaau3
-Ljp+Q+YsebAptMzZdifTdGx1B4Klg8B40CIAEuepLXs8cn75wcvNtmTNRI4cKCL1
-/3GCPr7lVLcf874awwcbvOkCBBtSARbByOdXnxDkmhvDKLQWv+CRbZDCn3sCgYBY
-ZSaHqSsU4ZuxzFNEjjSIyOQVAuH5rbPls935YQKImKu3n8ZtgJQt00GZNHjnBGTq
-6chr+19SgaXhU5sXZ1g/YnigAOimQtXRw+2cVPHgKS8QCbe4HJiKsIXe3s4xqIDJ
-68vxDuGvScxiasQNmRVdXxiPKwVctT1NNoMXDIOraQKBgAncmTe110ZLbwcmr7hy
-2G/p3enMQ3j9a+m19bfApBX7k6TvqjNpCWgsMApDYJ3JnfaO/uo97Q3kFCIq85RD
-stvFJgSsRGtjLwDOP6YRycOZV2iheMtx8nuV47nASY+YQSdo82xffssULgb6O71r
-8ouYXQsQ+s7TxA+Io2km671D
------END PRIVATE KEY-----
-"""
-
 
 def _create_ssl_context() -> ssl.SSLContext:
-    cert_file = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
-    key_file = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
-    try:
-        cert_file.write(LOCALHOST_CERT_PEM)
-        cert_file.flush()
-        key_file.write(LOCALHOST_KEY_PEM)
-        key_file.flush()
+    """Create an SSL context for the local Plaid redirect HTTPS server.
 
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(certfile=cert_file.name, keyfile=key_file.name)
-        return context
-    finally:
-        cert_file.close()
-        key_file.close()
-        with suppress(FileNotFoundError):
-            os.unlink(cert_file.name)
-        with suppress(FileNotFoundError):
-            os.unlink(key_file.name)
+    The certificate is checked into source control; the private key is expected
+    to exist only on the local filesystem and should not be committed.
+    """
+    project_root = Path(__file__).resolve().parents[1]
+    cert_path = project_root / "configs" / "plaid_redirect_localhost.crt"
+    default_key_path = project_root / "configs" / "plaid_redirect_localhost.key"
+    key_path = Path(os.getenv("PLAID_REDIRECT_SSL_KEY_PATH", str(default_key_path)))
+
+    if not cert_path.is_file():
+        raise RedirectServerError(
+            f"Missing SSL certificate file for Plaid redirect server: {cert_path}"
+        )
+    if not key_path.is_file():
+        raise RedirectServerError(
+            "Missing SSL private key for Plaid redirect server. "
+            f"Expected key at: {key_path}. "
+            "Generate a private key that matches the checked-in certificate "
+            "and ensure it remains untracked (see .gitignore)."
+        )
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return context
 
 
 def _build_redirect_handler(
