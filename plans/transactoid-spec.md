@@ -13,7 +13,7 @@ Ingest personal transactions (CSV or Plaid), normalize them, categorize with a t
   * `transactoid`: core agent loop
   * `analyzer_tool`: handles NL→SQL, verifies SQL with LLM, executes through the DB façade.
 * **Tools**
-  * Ingest providers emit `NormalizedTransaction` batches (CSV + Plaid).
+  * Ingest providers emit `Transaction` batches (CSV + Plaid).
   * Categorizer returns `CategorizedTransaction` instances.
   * Persist tool upserts with dedupe, enforces immutability, manages tagging and recategorization.
   * Analytics tool verifies SQL only; DB performs execution.
@@ -64,7 +64,7 @@ transactoid/
 
 ### Workflow Pillars
 1. Ingest transactions from CSV directories or Plaid.
-2. Normalize into `NormalizedTransaction` batches.
+2. Normalize into `Transaction` batches.
 3. Categorize each transaction with taxonomy validation and optional self-revision.
 4. Persist results (upsert, dedupe, tagging, immutability guarantees).
 5. Answer NL questions via NL→SQL generation, LLM verification, and DB execution.
@@ -120,7 +120,7 @@ from typing import Optional, Protocol, Literal
 Source = Literal["CSV", "PLAID"]
 
 @dataclass
-class NormalizedTransaction:
+class Transaction:
     external_id: Optional[str]
     account_id: str
     posted_at: date
@@ -132,22 +132,22 @@ class NormalizedTransaction:
     institution: str = ""
 
 class IngestTool(Protocol):
-    def fetch_next_batch(self, batch_size: int) -> list[NormalizedTransaction]: ...
+    def fetch_next_batch(self, batch_size: int) -> list[Transaction]: ...
 ```
 
 **Requirements**
 * Future implementations may consult the DB to filter verified rows, but that remains an internal detail.
-* Normalize all providers into `NormalizedTransaction` with canonical hashing when IDs are absent.
+* Normalize all providers into `Transaction` with canonical hashing when IDs are absent.
 
 #### `tools/ingest/csv.py`
 **Interface**
 ```python
 from typing import List
-from .ingest_tool import IngestTool, NormalizedTransaction
+from .ingest_tool import IngestTool, Transaction
 
 class CSVIngest(IngestTool):
     def __init__(self, data_dir: str) -> None: ...
-    def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]: ...
+    def fetch_next_batch(self, batch_size: int) -> List[Transaction]: ...
 ```
 
 **Requirements**
@@ -161,7 +161,7 @@ class CSVIngest(IngestTool):
 ```python
 from typing import List, Optional
 from datetime import date
-from .ingest_tool import IngestTool, NormalizedTransaction
+from .ingest_tool import IngestTool, Transaction
 
 class PlaidIngest(IngestTool):
     def __init__(
@@ -173,7 +173,7 @@ class PlaidIngest(IngestTool):
         end_date: Optional[date] = None,
     ) -> None: ...
 
-    def fetch_next_batch(self, batch_size: int) -> List[NormalizedTransaction]: ...
+    def fetch_next_batch(self, batch_size: int) -> List[Transaction]: ...
 ```
 
 **Requirements**
@@ -188,11 +188,11 @@ class PlaidIngest(IngestTool):
 ```python
 from dataclasses import dataclass
 from typing import Iterable, Optional, List
-from tools.ingest.ingest_tool import NormalizedTransaction
+from tools.ingest.ingest_tool import Transaction
 
 @dataclass
 class CategorizedTransaction:
-    txn: NormalizedTransaction
+    txn: Transaction
     category_key: str
     category_confidence: float
     category_rationale: str
@@ -210,7 +210,7 @@ class Categorizer:
         confidence_threshold: float = 0.70,
     ) -> None: ...
 
-    def categorize(self, txns: Iterable[NormalizedTransaction]) -> List[CategorizedTransaction]: ...
+    def categorize(self, txns: Iterable[Transaction]) -> List[CategorizedTransaction]: ...
 ```
 
 **Requirements**
