@@ -40,50 +40,6 @@ class PlaidItemInfo(TypedDict):
     institution_name: Optional[str]
 
 
-def _map_plaid_transaction(raw: Dict[str, Any]) -> Transaction:
-    """Convert a raw Plaid transaction dict into a strongly-typed Transaction.
-
-    This keeps the public API returning Transaction while allowing us to:
-    - Tolerate extra Plaid fields.
-    - Validate that required fields are present.
-    """
-    try:
-        transaction_id = raw.get("transaction_id")
-        account_id = raw["account_id"]
-        amount = float(raw["amount"])
-        iso_currency_code = raw.get("iso_currency_code")
-        date_str = raw["date"]
-        name = raw["name"]
-        merchant_name = raw.get("merchant_name")
-        pending = bool(raw.get("pending", False))
-        payment_channel = raw.get("payment_channel")
-        unofficial_currency_code = raw.get("unofficial_currency_code")
-        category = raw.get("category")
-        category_id = raw.get("category_id")
-        personal_finance_category = raw.get("personal_finance_category")
-    except KeyError as e:
-        raise PlaidClientError(
-            f"Missing expected transaction field {e!r} in Plaid response: {raw!r}"
-        ) from e
-
-    txn: Transaction = {
-        "transaction_id": transaction_id,
-        "account_id": account_id,
-        "amount": amount,
-        "iso_currency_code": iso_currency_code,
-        "date": date_str,
-        "name": name,
-        "merchant_name": merchant_name,
-        "pending": pending,
-        "payment_channel": payment_channel,
-        "unofficial_currency_code": unofficial_currency_code,
-        "category": category,
-        "category_id": category_id,
-        "personal_finance_category": personal_finance_category,
-    }
-    return txn
-
-
 class PlaidBaseModel(BaseModel):
     """Shared base for Plaid response models with a short parse alias."""
 
