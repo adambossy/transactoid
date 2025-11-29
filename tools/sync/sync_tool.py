@@ -54,6 +54,76 @@ class SyncTool:
         self._access_token = access_token
         self._cursor = cursor
 
+    async def _categorize_batch_with_retry(
+        self,
+        batch: list[Transaction],
+        max_retries: int = 2,
+    ) -> list[CategorizedTransaction] | None:
+        """
+        Categorize a batch with exponential backoff retry.
+
+        Args:
+            batch: Transactions to categorize
+            max_retries: Maximum number of retry attempts (default 2)
+
+        Returns:
+            Categorized transactions if successful, None if all retries failed
+        """
+        for attempt in range(max_retries + 1):  # 0, 1, 2 = initial + 2 retries
+            try:
+                return await self._categorizer.categorize(batch)
+            except Exception:
+                if attempt < max_retries:
+                    # Exponential backoff: 1s, 2s
+                    delay = 2**attempt
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # All retries exhausted
+                    return None
+
+        return None
+
+    async def _process_batch(
+        self,
+        batch: list[Transaction],
+        page_cursor: str,
+        *,
+        max_retries: int = 2,
+    ) -> tuple[int, int, SaveOutcome | None]:
+        """
+        Process a single batch: categorize and persist.
+
+        Args:
+            batch: Transactions to process
+            page_cursor: Cursor associated with this batch
+            max_retries: Maximum categorization retry attempts
+
+        Returns:
+            Tuple of (categorized_count, persisted_count, outcome)
+            If categorization fails: (0, 0, None)
+            If persistence fails: (categorized_count, 0, None)
+            If success: (categorized_count, persisted_count, SaveOutcome)
+        """
+        # Categorize with retry
+        categorized = await self._categorize_batch_with_retry(
+            batch, max_retries=max_retries
+        )
+        if categorized is None:
+            # Categorization failed after all retries
+            return (0, 0, None)
+
+        categorized_count = len(categorized)
+
+        # Persist categorized transactions (inlined)
+        try:
+            outcome = await self._persist_tool.save_transactions(categorized)
+            persisted_count = len(categorized)
+            return (categorized_count, persisted_count, outcome)
+        except Exception:
+            # Persistence failed
+            return (categorized_count, 0, None)
+
     async def sync(
         self,
         *,
@@ -179,74 +249,6 @@ class SyncTool:
             finally:
                 sync_done.set()
 
-        async def _categorize_batch_with_retry(
-            batch: list[Transaction],
-            max_retries: int = 2,
-        ) -> list[CategorizedTransaction] | None:
-            """
-            Categorize a batch with exponential backoff retry.
-
-            Args:
-                batch: Transactions to categorize
-                max_retries: Maximum number of retry attempts (default 2)
-
-            Returns:
-                Categorized transactions if successful, None if all retries failed
-            """
-            for attempt in range(max_retries + 1):  # 0, 1, 2 = initial + 2 retries
-                try:
-                    return await self._categorizer.categorize(batch)
-                except Exception:
-                    if attempt < max_retries:
-                        # Exponential backoff: 1s, 2s
-                        delay = 2**attempt
-                        await asyncio.sleep(delay)
-                        continue
-                    else:
-                        # All retries exhausted
-                        return None
-
-            return None
-
-        async def _process_batch(
-            batch: list[Transaction],
-            page_cursor: str,
-            *,
-            max_retries: int = 2,
-        ) -> tuple[int, int, SaveOutcome | None]:
-            """
-            Process a single batch: categorize and persist.
-
-            Args:
-                batch: Transactions to process
-                page_cursor: Cursor associated with this batch
-                max_retries: Maximum categorization retry attempts
-
-            Returns:
-                Tuple of (categorized_count, persisted_count, outcome)
-                If categorization fails: (0, 0, None)
-                If persistence fails: (categorized_count, 0, None)
-                If success: (categorized_count, persisted_count, SaveOutcome)
-            """
-            # Categorize with retry
-            categorized = await _categorize_batch_with_retry(
-                batch, max_retries=max_retries
-            )
-            if categorized is None:
-                # Categorization failed after all retries
-                return (0, 0, None)
-
-            categorized_count = len(categorized)
-
-            # Persist categorized transactions (inlined)
-            try:
-                outcome = await self._persist_tool.save_transactions(categorized)
-                persisted_count = len(categorized)
-                return (categorized_count, persisted_count, outcome)
-            except Exception:
-                # Persistence failed
-                return (categorized_count, 0, None)
-
         async def categorize_and_persist_worker(worker_id: int) -> None:
             """Worker: Categorize batches and immediately persist them."""
             nonlocal total_categorized, total_persisted
@@ -263,9 +265,11 @@ class SyncTool:
                     batch, page_cursor = item
 
                     # Process batch: categorize and persist
-                    categorized_count, persisted_count, outcome = await _process_batch(
-                        batch, page_cursor, max_retries=2
-                    )
+                    (
+                        categorized_count,
+                        persisted_count,
+                        outcome,
+                    ) = await self._process_batch(batch, page_cursor, max_retries=2)
 
                     if categorized_count == 0:
                         # Categorization failed - batch is still in DB as raw
@@ -316,6 +320,17 @@ class SyncTool:
         # Wait for categorize workers to finish
         await asyncio.gather(*categorize_workers, return_exceptions=True)
 
+        # Retry any transactions that still failed after in-memory retries
+        retry_summary = await self.retry_pending(
+            batch_size=batch_size,
+            max_parallel_categorize=max_parallel_categorize,
+        )
+
+        # Combine results
+        total_categorized += retry_summary.total_categorized
+        total_persisted += retry_summary.total_persisted
+        persist_outcomes.extend(retry_summary.persist_outcomes)
+
         # Only advance cursor if all batches for all cursors were processed
         # For now, we'll use the final_cursor from the last successful sync
         # In a more sophisticated implementation, we'd track which cursors
@@ -328,5 +343,123 @@ class SyncTool:
             total_categorized=total_categorized,
             total_persisted=total_persisted,
             final_cursor=final_cursor,
+            persist_outcomes=persist_outcomes,
+        )
+
+    async def retry_pending(
+        self,
+        *,
+        batch_size: int = 25,
+        max_parallel_categorize: int = 4,
+    ) -> SyncSummary:
+        """
+        Retry categorization for transactions stored as raw (pending_categorization).
+
+        This reads from the database and retries any transactions that failed
+        categorization during sync. Should be called after sync() completes.
+
+        Args:
+            batch_size: Number of transactions per categorize batch (default 25)
+            max_parallel_categorize: Maximum concurrent categorize calls (default 4)
+
+        Returns:
+            SyncSummary with counts of retried transactions
+        """
+        # Fetch pending transactions from database
+        pending_txns = (
+            await self._persist_tool.fetch_pending_categorization_transactions()
+        )
+
+        if not pending_txns:
+            # No pending transactions to retry
+            return SyncSummary(
+                total_added=0,
+                total_modified=0,
+                total_removed=0,
+                total_categorized=0,
+                total_persisted=0,
+                final_cursor="",
+                persist_outcomes=[],
+            )
+
+        # Queue for categorization pipeline
+        categorize_queue: asyncio.Queue[list[Transaction] | None] = asyncio.Queue()
+
+        # Accumulators
+        total_categorized = 0
+        total_persisted = 0
+        persist_outcomes: list[SaveOutcome] = []
+        outcomes_lock = asyncio.Lock()
+
+        # Batch pending transactions
+        for i in range(0, len(pending_txns), batch_size):
+            batch = pending_txns[i : i + batch_size]
+            await categorize_queue.put(batch)
+
+        # Signal workers to exit
+        for _ in range(max_parallel_categorize):
+            await categorize_queue.put(None)
+
+        async def retry_worker(worker_id: int) -> None:
+            """Worker: Categorize and persist pending transactions."""
+            nonlocal total_categorized, total_persisted
+
+            while True:
+                try:
+                    batch = await categorize_queue.get()
+                    if batch is None:
+                        # Sentinel received - no more work
+                        categorize_queue.task_done()
+                        break
+
+                    # Process batch: categorize and persist
+                    # No retries in retry_pending - already retried during sync
+                    (
+                        categorized_count,
+                        persisted_count,
+                        outcome,
+                    ) = await self._process_batch(batch, "", max_retries=0)
+
+                    if categorized_count == 0:
+                        # Categorization failed - transactions remain in DB as raw
+                        categorize_queue.task_done()
+                        continue
+
+                    # Update shared state
+                    total_categorized += categorized_count
+
+                    if persisted_count > 0:
+                        total_persisted += persisted_count
+
+                        # Store outcome
+                        if outcome is not None:
+                            async with outcomes_lock:
+                                persist_outcomes.append(outcome)
+
+                    categorize_queue.task_done()
+
+                except Exception:
+                    # Log error but continue processing other batches
+                    categorize_queue.task_done()
+                    continue
+
+        # Start workers
+        retry_workers = [
+            asyncio.create_task(retry_worker(i)) for i in range(max_parallel_categorize)
+        ]
+
+        # Wait for queue to drain
+        await categorize_queue.join()
+
+        # Wait for workers to finish
+        await asyncio.gather(*retry_workers, return_exceptions=True)
+
+        return SyncSummary(
+            total_added=0,
+            total_modified=0,
+            total_removed=0,
+            total_categorized=total_categorized,
+            total_persisted=total_persisted,
+            final_cursor="",
             persist_outcomes=persist_outcomes,
         )

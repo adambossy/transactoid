@@ -87,3 +87,17 @@ class PersistTool:
     ) -> ApplyTagsOutcome:
         # Minimal stub: nothing applied, echo requested tags as created for visibility
         return ApplyTagsOutcome(applied=0, created_tags=list(tag_names))
+
+    async def fetch_pending_categorization_transactions(
+        self,
+    ) -> list[Transaction]:
+        """
+        Fetch transactions with status='pending_categorization' from database.
+
+        Returns:
+            List of raw transactions that need categorization retry
+        """
+        # Minimal stub: returns empty list
+        # In full implementation, would query DB for transactions with
+        # status='pending_categorization'
+        return []
