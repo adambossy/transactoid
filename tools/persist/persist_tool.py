@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List
 
+from models.transaction import Transaction
 from tools.categorize.categorizer_tool import CategorizedTransaction
 
 
@@ -21,19 +22,45 @@ class SaveOutcome:
     updated: int
     skipped_verified: int
     skipped_duplicate: int
-    rows: List[SaveRowOutcome]
+    rows: list[SaveRowOutcome]
 
 
 @dataclass
 class ApplyTagsOutcome:
     applied: int
-    created_tags: List[str]
+    created_tags: list[str]
 
 
 class PersistTool:
     def __init__(self, db: "DB", taxonomy: "Taxonomy") -> None:
         self._db = db
         self._taxonomy = taxonomy
+
+    def save_raw_transactions(
+        self,
+        txns: Iterable[Transaction],
+        *,
+        cursor: str,
+    ) -> int:
+        """
+        Store raw transactions before categorization.
+
+        This ensures transactions are persisted even if categorization fails.
+        Transactions are stored with status 'pending_categorization' and can be
+        retried later.
+
+        Args:
+            txns: Raw transactions to store
+            cursor: Cursor associated with these transactions
+
+        Returns:
+            Number of transactions stored
+        """
+        # Minimal stub: store raw transactions for retry capability
+        # In full implementation, this would insert transactions with
+        # status='pending_categorization' and store the cursor
+        count = sum(1 for _ in txns)
+        return count
 
     def save_transactions(self, txns: Iterable[CategorizedTransaction]) -> SaveOutcome:
         # Minimal stub: no inserts/updates
