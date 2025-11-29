@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass
 from typing import Any
 
@@ -112,12 +113,21 @@ class SyncTool:
             try:
                 while True:
                     # Fetch page from Plaid (sequential)
-                    sync_result = await asyncio.to_thread(
-                        self._plaid_client.sync_transactions,
-                        self._access_token,
-                        cursor=cursor,
-                        count=count,
-                    )
+                    # Use direct await if async, otherwise use to_thread
+                    sync_method = self._plaid_client.sync_transactions
+                    if inspect.iscoroutinefunction(sync_method):
+                        sync_result = await sync_method(
+                            self._access_token,
+                            cursor=cursor,
+                            count=count,
+                        )
+                    else:
+                        sync_result = await asyncio.to_thread(
+                            sync_method,
+                            self._access_token,
+                            cursor=cursor,
+                            count=count,
+                        )
 
                     # Store the cursor used for this sync call
                     page_cursor = cursor
@@ -134,11 +144,18 @@ class SyncTool:
                     # CRITICAL: Store raw transactions immediately before categorization
                     # This ensures we don't lose them if categorization fails
                     if all_to_categorize:
-                        await asyncio.to_thread(
-                            self._persist_tool.save_raw_transactions,
-                            all_to_categorize,
-                            cursor=page_cursor,
-                        )
+                        save_raw_method = self._persist_tool.save_raw_transactions
+                        if inspect.iscoroutinefunction(save_raw_method):
+                            await save_raw_method(
+                                all_to_categorize,
+                                cursor=page_cursor,
+                            )
+                        else:
+                            await asyncio.to_thread(
+                                save_raw_method,
+                                all_to_categorize,
+                                cursor=page_cursor,
+                            )
 
                         # Track this cursor and its batches
                         async with cursor_lock:
@@ -198,10 +215,14 @@ class SyncTool:
 
                     # Categorize batch (this is the slow LLM call)
                     try:
-                        categorized = await asyncio.to_thread(
-                            self._categorizer.categorize,
-                            batch,
-                        )
+                        categorize_method = self._categorizer.categorize
+                        if inspect.iscoroutinefunction(categorize_method):
+                            categorized = await categorize_method(batch)
+                        else:
+                            categorized = await asyncio.to_thread(
+                                categorize_method,
+                                batch,
+                            )
                     except Exception:
                         # Categorization failed - batch is still in DB as raw
                         # Don't mark cursor as processed
@@ -212,10 +233,14 @@ class SyncTool:
 
                     # Immediately persist categorized transactions
                     try:
-                        outcome = await asyncio.to_thread(
-                            self._persist_tool.save_transactions,
-                            categorized,
-                        )
+                        save_method = self._persist_tool.save_transactions
+                        if inspect.iscoroutinefunction(save_method):
+                            outcome = await save_method(categorized)
+                        else:
+                            outcome = await asyncio.to_thread(
+                                save_method,
+                                categorized,
+                            )
 
                         total_persisted += len(categorized)
 

@@ -63,7 +63,7 @@ class MockPlaidClient:
         self._call_count = 0
         self._cursors_used: list[str | None] = []
 
-    def sync_transactions(
+    async def sync_transactions(
         self,
         access_token: str,
         *,
@@ -99,7 +99,9 @@ class MockCategorizer:
         self._call_count = 0
         self._calls: list[list[Transaction]] = []
 
-    def categorize(self, txns: Iterable[Transaction]) -> list[CategorizedTransaction]:
+    async def categorize(
+        self, txns: Iterable[Transaction]
+    ) -> list[CategorizedTransaction]:
         """Mock categorize that can succeed or fail."""
         txn_list = list(txns)
         self._calls.append(txn_list)
@@ -138,7 +140,7 @@ class MockPersistTool:
         self._save_raw_count = 0
         self._save_count = 0
 
-    def save_raw_transactions(
+    async def save_raw_transactions(
         self,
         txns: Iterable[Transaction],
         *,
