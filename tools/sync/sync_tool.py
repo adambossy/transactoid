@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from dataclasses import dataclass
+import inspect
 from typing import Any
 
 from models.transaction import Transaction
@@ -77,7 +77,10 @@ class SyncTool:
             SyncSummary with counts and final cursor
         """
         # Queue for categorization pipeline
-        categorize_queue: asyncio.Queue[tuple[list[Transaction], str]] = asyncio.Queue()
+        # Use None as sentinel value to signal workers to exit
+        categorize_queue: asyncio.Queue[tuple[list[Transaction], str] | None] = (
+            asyncio.Queue()
+        )
 
         # Tracking variables
         sync_done = asyncio.Event()
@@ -201,17 +204,14 @@ class SyncTool:
 
             while True:
                 try:
-                    # Get batch from queue (with timeout to check if sync is done)
-                    try:
-                        batch, page_cursor = await asyncio.wait_for(
-                            categorize_queue.get(),
-                            timeout=1.0,
-                        )
-                    except TimeoutError:
-                        # Check if sync is done and queue is empty
-                        if sync_done.is_set() and categorize_queue.empty():
-                            break
-                        continue
+                    # Get batch from queue (None sentinel signals exit)
+                    item = await categorize_queue.get()
+                    if item is None:
+                        # Sentinel received - no more work
+                        categorize_queue.task_done()
+                        break
+
+                    batch, page_cursor = item
 
                     # Categorize batch (this is the slow LLM call)
                     try:
@@ -275,6 +275,10 @@ class SyncTool:
 
         # Wait for sync to complete
         await sync_task
+
+        # Signal all workers to exit by putting sentinel values
+        for _ in range(max_parallel_categorize):
+            await categorize_queue.put(None)
 
         # Wait for categorize queue to drain
         await categorize_queue.join()
