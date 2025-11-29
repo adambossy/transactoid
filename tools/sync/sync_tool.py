@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-import inspect
 from typing import Any
 
 from models.transaction import Transaction
 from services.plaid_client import PlaidClient
-from tools.categorize.categorizer_tool import Categorizer
+from tools.categorize.categorizer_tool import CategorizedTransaction, Categorizer
 from tools.persist.persist_tool import PersistTool, SaveOutcome
 
 
@@ -116,21 +115,11 @@ class SyncTool:
             try:
                 while True:
                     # Fetch page from Plaid (sequential)
-                    # Use direct await if async, otherwise use to_thread
-                    sync_method = self._plaid_client.sync_transactions
-                    if inspect.iscoroutinefunction(sync_method):
-                        sync_result = await sync_method(
-                            self._access_token,
-                            cursor=cursor,
-                            count=count,
-                        )
-                    else:
-                        sync_result = await asyncio.to_thread(
-                            sync_method,
-                            self._access_token,
-                            cursor=cursor,
-                            count=count,
-                        )
+                    sync_result = await self._plaid_client.sync_transactions(
+                        self._access_token,
+                        cursor=cursor,
+                        count=count,
+                    )
 
                     # Store the cursor used for this sync call
                     page_cursor = cursor
@@ -147,18 +136,10 @@ class SyncTool:
                     # CRITICAL: Store raw transactions immediately before categorization
                     # This ensures we don't lose them if categorization fails
                     if all_to_categorize:
-                        save_raw_method = self._persist_tool.save_raw_transactions
-                        if inspect.iscoroutinefunction(save_raw_method):
-                            await save_raw_method(
-                                all_to_categorize,
-                                cursor=page_cursor,
-                            )
-                        else:
-                            await asyncio.to_thread(
-                                save_raw_method,
-                                all_to_categorize,
-                                cursor=page_cursor,
-                            )
+                        await self._persist_tool.save_raw_transactions(
+                            all_to_categorize,
+                            cursor=page_cursor,
+                        )
 
                         # Track this cursor and its batches
                         async with cursor_lock:
@@ -198,6 +179,74 @@ class SyncTool:
             finally:
                 sync_done.set()
 
+        async def _categorize_batch_with_retry(
+            batch: list[Transaction],
+            max_retries: int = 2,
+        ) -> list[CategorizedTransaction] | None:
+            """
+            Categorize a batch with exponential backoff retry.
+
+            Args:
+                batch: Transactions to categorize
+                max_retries: Maximum number of retry attempts (default 2)
+
+            Returns:
+                Categorized transactions if successful, None if all retries failed
+            """
+            for attempt in range(max_retries + 1):  # 0, 1, 2 = initial + 2 retries
+                try:
+                    return await self._categorizer.categorize(batch)
+                except Exception:
+                    if attempt < max_retries:
+                        # Exponential backoff: 1s, 2s
+                        delay = 2**attempt
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # All retries exhausted
+                        return None
+
+            return None
+
+        async def _process_batch(
+            batch: list[Transaction],
+            page_cursor: str,
+            *,
+            max_retries: int = 2,
+        ) -> tuple[int, int, SaveOutcome | None]:
+            """
+            Process a single batch: categorize and persist.
+
+            Args:
+                batch: Transactions to process
+                page_cursor: Cursor associated with this batch
+                max_retries: Maximum categorization retry attempts
+
+            Returns:
+                Tuple of (categorized_count, persisted_count, outcome)
+                If categorization fails: (0, 0, None)
+                If persistence fails: (categorized_count, 0, None)
+                If success: (categorized_count, persisted_count, SaveOutcome)
+            """
+            # Categorize with retry
+            categorized = await _categorize_batch_with_retry(
+                batch, max_retries=max_retries
+            )
+            if categorized is None:
+                # Categorization failed after all retries
+                return (0, 0, None)
+
+            categorized_count = len(categorized)
+
+            # Persist categorized transactions (inlined)
+            try:
+                outcome = await self._persist_tool.save_transactions(categorized)
+                persisted_count = len(categorized)
+                return (categorized_count, persisted_count, outcome)
+            except Exception:
+                # Persistence failed
+                return (categorized_count, 0, None)
+
         async def categorize_and_persist_worker(worker_id: int) -> None:
             """Worker: Categorize batches and immediately persist them."""
             nonlocal total_categorized, total_persisted
@@ -213,50 +262,31 @@ class SyncTool:
 
                     batch, page_cursor = item
 
-                    # Categorize batch (this is the slow LLM call)
-                    try:
-                        categorize_method = self._categorizer.categorize
-                        if inspect.iscoroutinefunction(categorize_method):
-                            categorized = await categorize_method(batch)
-                        else:
-                            categorized = await asyncio.to_thread(
-                                categorize_method,
-                                batch,
-                            )
-                    except Exception:
+                    # Process batch: categorize and persist
+                    categorized_count, persisted_count, outcome = await _process_batch(
+                        batch, page_cursor, max_retries=2
+                    )
+
+                    if categorized_count == 0:
                         # Categorization failed - batch is still in DB as raw
                         # Don't mark cursor as processed
                         categorize_queue.task_done()
                         continue
 
-                    total_categorized += len(categorized)
+                    # Update shared state
+                    total_categorized += categorized_count
 
-                    # Immediately persist categorized transactions
-                    try:
-                        save_method = self._persist_tool.save_transactions
-                        if inspect.iscoroutinefunction(save_method):
-                            outcome = await save_method(categorized)
-                        else:
-                            outcome = await asyncio.to_thread(
-                                save_method,
-                                categorized,
-                            )
-
-                        total_persisted += len(categorized)
+                    if persisted_count > 0:
+                        total_persisted += persisted_count
 
                         # Mark cursor as successfully processed
                         async with cursor_lock:
                             processed_cursors.add(page_cursor)
 
                         # Store outcome
-                        async with outcomes_lock:
-                            persist_outcomes.append(outcome)
-
-                    except Exception:
-                        # Persistence failed - but raw transactions are still in DB
-                        # Can retry categorization later
-                        categorize_queue.task_done()
-                        continue
+                        if outcome is not None:
+                            async with outcomes_lock:
+                                persist_outcomes.append(outcome)
 
                     categorize_queue.task_done()
 

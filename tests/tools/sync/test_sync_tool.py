@@ -157,7 +157,9 @@ class MockPersistTool:
 
         return len(txn_list)
 
-    def save_transactions(self, txns: Iterable[CategorizedTransaction]) -> SaveOutcome:
+    async def save_transactions(
+        self, txns: Iterable[CategorizedTransaction]
+    ) -> SaveOutcome:
         """Mock save_transactions."""
         txn_list = list(txns)
         self._save_calls.append(txn_list)
@@ -1135,7 +1137,9 @@ def test_sync_multiple_pages_with_categorization_failure() -> None:
     assert result.total_persisted == expected_summary.total_persisted
     assert plaid_client._call_count == 3  # All 3 pages fetched
     assert len(categorizer._calls) == 3  # All 3 batches attempted
-    assert len(persist_tool._save_calls) == 2  # Page 1 and page 3 persisted (page 2 failed)
+    assert (
+        len(persist_tool._save_calls) == 2
+    )  # Page 1 and page 3 persisted (page 2 failed)
 
 
 def test_sync_multiple_pages_with_persistence_failure() -> None:
