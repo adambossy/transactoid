@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from models.transaction import Transaction
 from services.plaid_client import PlaidClient
 from tools.categorize.categorizer_tool import Categorizer
-
-if TYPE_CHECKING:
-    from tools.persist.persist_tool import PersistTool, SaveOutcome
+from tools.persist.persist_tool import PersistTool, SaveOutcome
 
 
 @dataclass
