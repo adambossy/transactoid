@@ -1067,8 +1067,8 @@ def test_sync_multiple_pages_with_categorization_failure() -> None:
 
     3 pages fetched sequentially.
     Page 2 batch categorization fails.
-    Verify: page 1 persisted, page 2 stored as raw, page 3 not fetched
-    (cursor not advanced).
+    Verify: page 1 persisted, page 2 stored as raw, page 3 fetched and persisted.
+    All pages should be fetched regardless of categorization failures.
     """
     # input
     page1_txns = create_test_transactions(25)
@@ -1113,16 +1113,19 @@ def test_sync_multiple_pages_with_categorization_failure() -> None:
 
     # expected
     expected_summary = SyncSummary(
-        total_added=50,  # Only page1 and page2 fetched
+        total_added=75,  # All 3 pages fetched
         total_modified=0,
         total_removed=0,
-        total_categorized=25,
-        total_persisted=25,
-        final_cursor="cursor_page3",
+        total_categorized=50,  # Page 1 and page 3 categorized (page 2 failed)
+        total_persisted=50,  # Page 1 and page 3 persisted
+        final_cursor="cursor_final",
         persist_outcomes=[
             SaveOutcome(
                 inserted=25, updated=0, skipped_verified=0, skipped_duplicate=0, rows=[]
-            )
+            ),
+            SaveOutcome(
+                inserted=25, updated=0, skipped_verified=0, skipped_duplicate=0, rows=[]
+            ),
         ],
     )
 
@@ -1130,9 +1133,9 @@ def test_sync_multiple_pages_with_categorization_failure() -> None:
     assert result.total_added == expected_summary.total_added
     assert result.total_categorized == expected_summary.total_categorized
     assert result.total_persisted == expected_summary.total_persisted
-    assert plaid_client._call_count == 2  # Only 2 pages fetched
-    assert len(categorizer._calls) == 2
-    assert len(persist_tool._save_calls) == 1
+    assert plaid_client._call_count == 3  # All 3 pages fetched
+    assert len(categorizer._calls) == 3  # All 3 batches attempted
+    assert len(persist_tool._save_calls) == 2  # Page 1 and page 3 persisted (page 2 failed)
 
 
 def test_sync_multiple_pages_with_persistence_failure() -> None:
