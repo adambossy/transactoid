@@ -177,6 +177,14 @@ class MockPersistTool:
             rows=[],
         )
 
+    async def fetch_pending_categorization_transactions(
+        self,
+    ) -> list[Transaction]:
+        """Mock fetch_pending_categorization_transactions."""
+        # Return empty list by default - tests can override by setting
+        # _pending_transactions attribute
+        return getattr(self, "_pending_transactions", [])
+
 
 def create_sync_tool(
     *,
