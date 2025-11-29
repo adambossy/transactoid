@@ -137,6 +137,7 @@ class TransactionsSyncResponse(PlaidBaseModel):
     modified: List[PlaidTransactionModel] = Field(default_factory=list)
     removed: List[Dict[str, Any]] = Field(default_factory=list)
     next_cursor: Optional[str] = None
+    has_more: bool = False
 
     def to_sync_result(self, *, fallback_cursor: Optional[str]) -> Dict[str, Any]:
         return {
@@ -144,6 +145,7 @@ class TransactionsSyncResponse(PlaidBaseModel):
             "modified": [txn.to_typed() for txn in self.modified],
             "removed": self.removed,
             "next_cursor": self.next_cursor or (fallback_cursor or ""),
+            "has_more": self.has_more,
         }
 
 
@@ -369,9 +371,7 @@ class PlaidClient:
             "options": options,
         }
 
-        resp = TransactionsGetResponse.parse(
-            self._post("/transactions/get", payload)
-        )
+        resp = TransactionsGetResponse.parse(self._post("/transactions/get", payload))
         return [txn.to_typed() for txn in resp.transactions]
 
     def sync_transactions(
@@ -391,9 +391,7 @@ class PlaidClient:
         if cursor is not None:
             payload["cursor"] = cursor
 
-        resp = TransactionsSyncResponse.parse(
-            self._post("/transactions/sync", payload)
-        )
+        resp = TransactionsSyncResponse.parse(self._post("/transactions/sync", payload))
         return resp.to_sync_result(fallback_cursor=cursor)
 
     def institution_name_for_item(self, access_token: str) -> Optional[str]:
