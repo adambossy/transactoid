@@ -371,9 +371,7 @@ class PlaidClient:
             "options": options,
         }
 
-        resp = TransactionsGetResponse.parse(
-            self._post("/transactions/get", payload)
-        )
+        resp = TransactionsGetResponse.parse(self._post("/transactions/get", payload))
         return [txn.to_typed() for txn in resp.transactions]
 
     def sync_transactions(
@@ -393,9 +391,7 @@ class PlaidClient:
         if cursor is not None:
             payload["cursor"] = cursor
 
-        resp = TransactionsSyncResponse.parse(
-            self._post("/transactions/sync", payload)
-        )
+        resp = TransactionsSyncResponse.parse(self._post("/transactions/sync", payload))
         return resp.to_sync_result(fallback_cursor=cursor)
 
     def institution_name_for_item(self, access_token: str) -> Optional[str]:
