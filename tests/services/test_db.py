@@ -685,10 +685,11 @@ def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
     # Use f-string for SQL (acceptable in tests with controlled integer values)
     id1 = txn1.transaction_id
     id2 = txn2.transaction_id
+    # ruff: noqa: S608
     sql = f"""
     SELECT transaction_id, external_id, amount_cents
     FROM transactions
-    WHERE transaction_id IN ({id1}, {id2})  # noqa: S608
+    WHERE transaction_id IN ({id1}, {id2})
     ORDER BY amount_cents DESC
     """
 
