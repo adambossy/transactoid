@@ -16,6 +16,7 @@ dependencies = [
     "typer>=0.20.0",
     "openai-agents>=0.5.1",
     "pydantic>=2.8",
+    "sqlalchemy>=2.0",
 ]
 
 [project.scripts]
