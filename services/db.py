@@ -436,9 +436,11 @@ class DB:
                 and data["merchant_descriptor"]
             ):
                 normalized_name = _normalize_merchant_name(data["merchant_descriptor"])
-                merchant = session.query(Merchant).filter(
-                    Merchant.normalized_name == normalized_name
-                ).first()
+                merchant = (
+                    session.query(Merchant)
+                    .filter(Merchant.normalized_name == normalized_name)
+                    .first()
+                )
                 if merchant is None:
                     merchant = Merchant(
                         normalized_name=normalized_name,
@@ -503,9 +505,11 @@ class DB:
             # Resolve merchant if merchant_descriptor is provided
             if "merchant_descriptor" in data and data["merchant_descriptor"]:
                 normalized_name = _normalize_merchant_name(data["merchant_descriptor"])
-                merchant = session.query(Merchant).filter(
-                    Merchant.normalized_name == normalized_name
-                ).first()
+                merchant = (
+                    session.query(Merchant)
+                    .filter(Merchant.normalized_name == normalized_name)
+                    .first()
+                )
                 if merchant is None:
                     merchant = Merchant(
                         normalized_name=normalized_name,
