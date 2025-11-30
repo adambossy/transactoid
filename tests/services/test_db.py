@@ -68,16 +68,26 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
 
 def create_sample_transaction(
     *,
-    transaction_id: str = "txn_123",
+    external_id: str = "txn_123",
     account_id: str = "acc_456",
     amount: float = 50.00,
     date_str: str = "2024-01-15",
     name: str = "Whole Foods",
     merchant_name: str | None = None,
 ) -> Transaction:
-    """Create sample Transaction TypedDict."""
+    """Create sample Transaction TypedDict.
+
+    Args:
+        external_id: External transaction ID (e.g., Plaid's transaction_id)
+            This will be stored as external_id in the database.
+        account_id: Account ID
+        amount: Transaction amount
+        date_str: Transaction date in YYYY-MM-DD format
+        name: Transaction name
+        merchant_name: Merchant name (optional)
+    """
     return Transaction(
-        transaction_id=transaction_id,
+        transaction_id=external_id,  # Plaid's transaction_id maps to DB external_id
         account_id=account_id,
         amount=amount,
         iso_currency_code="USD",
@@ -352,7 +362,7 @@ def test_save_transactions_inserts_new_transaction() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
 
-    txn = create_sample_transaction(transaction_id="plaid_txn_123")
+    txn = create_sample_transaction(external_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(txn, category_key="food.groceries")
 
     outcome = db.save_transactions(taxonomy, [cat_txn])
@@ -384,7 +394,7 @@ def test_save_transactions_skips_verified_transaction() -> None:
     existing = db.insert_transaction(txn_data)
 
     # Try to save same transaction
-    txn = create_sample_transaction(transaction_id="plaid_txn_123")
+    txn = create_sample_transaction(external_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(txn, category_key="food.groceries")
 
     outcome = db.save_transactions(taxonomy, [cat_txn])
@@ -414,7 +424,7 @@ def test_save_transactions_updates_unverified_transaction() -> None:
     existing = db.insert_transaction(txn_data)
 
     # Update with new category
-    txn = create_sample_transaction(transaction_id="plaid_txn_123", amount=60.00)
+    txn = create_sample_transaction(external_id="plaid_txn_123", amount=60.00)
     cat_txn = create_categorized_transaction(txn, category_key="food.restaurants")
 
     outcome = db.save_transactions(taxonomy, [cat_txn])
@@ -439,7 +449,7 @@ def test_save_transactions_prefers_revised_category_key() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
 
-    txn = create_sample_transaction(transaction_id="plaid_txn_123")
+    txn = create_sample_transaction(external_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(
         txn,
         category_key="food.groceries",
@@ -462,10 +472,10 @@ def test_save_transactions_merchant_normalization_deduplication() -> None:
     taxonomy = create_sample_taxonomy(db)
 
     txn1 = create_sample_transaction(
-        transaction_id="txn_1", merchant_name="Whole Foods Market 123"
+        external_id="txn_1", merchant_name="Whole Foods Market 123"
     )
     txn2 = create_sample_transaction(
-        transaction_id="txn_2", merchant_name="WHOLE FOODS MARKET"
+        external_id="txn_2", merchant_name="WHOLE FOODS MARKET"
     )
     cat_txn1 = create_categorized_transaction(txn1)
     cat_txn2 = create_categorized_transaction(txn2)
