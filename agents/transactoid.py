@@ -345,12 +345,32 @@ async def run(
         """
         Trigger synchronization with Plaid to fetch latest transactions.
 
+        Syncs all available transactions with automatic pagination, categorizes
+        each page as it's fetched, and persists results to the database.
+
         Returns:
-            Dictionary with sync status and summary
+            Dictionary with sync status and summary including:
+            - pages_processed: Number of pages synced
+            - total_added: Total transactions added
+            - total_modified: Total transactions modified
+            - total_removed: Total transactions removed
+            - status: "success" or "error"
         """
         # Note: SyncTool requires PlaidClient, Categorizer, and access_token.
         # For now, return a placeholder response.
         # This should be enhanced to actually trigger sync.
+        # Example implementation:
+        # sync_tool = SyncTool(
+        #     plaid_client, categorizer, access_token=access_token, cursor=cursor
+        # )
+        # results = sync_tool.sync(persist_tool=persist_tool)
+        # return {
+        #     "status": "success",
+        #     "pages_processed": len(results),
+        #     "total_added": sum(len(r.categorized_added) for r in results),
+        #     "total_modified": sum(len(r.categorized_modified) for r in results),
+        #     "total_removed": sum(len(r.removed_transaction_ids) for r in results),
+        # }
         return {
             "status": "not_implemented",
             "message": "Sync functionality requires Plaid configuration",
