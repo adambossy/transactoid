@@ -137,6 +137,7 @@ class TransactionsSyncResponse(PlaidBaseModel):
     modified: List[PlaidTransactionModel] = Field(default_factory=list)
     removed: List[Dict[str, Any]] = Field(default_factory=list)
     next_cursor: Optional[str] = None
+    has_more: bool = False
 
     def to_sync_result(self, *, fallback_cursor: Optional[str]) -> Dict[str, Any]:
         return {
@@ -144,6 +145,7 @@ class TransactionsSyncResponse(PlaidBaseModel):
             "modified": [txn.to_typed() for txn in self.modified],
             "removed": self.removed,
             "next_cursor": self.next_cursor or (fallback_cursor or ""),
+            "has_more": self.has_more,
         }
 
 

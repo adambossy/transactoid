@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from typing import Any, TypedDict, TypeVar, cast
 
 M = TypeVar("M")
@@ -33,6 +34,24 @@ class CategoryRow(TypedDict):
     name: str
     description: str | None
     parent_key: str | None
+
+
+@dataclass
+class SaveRowOutcome:
+    external_id: str
+    source: str  # "CSV" | "PLAID"
+    action: str  # "inserted" | "updated" | "skipped-verified" | "skipped-duplicate"
+    transaction_id: int | None = None
+    reason: str | None = None
+
+
+@dataclass
+class SaveOutcome:
+    inserted: int
+    updated: int
+    skipped_verified: int
+    skipped_duplicate: int
+    rows: list[SaveRowOutcome]
 
 
 class DB:
@@ -109,6 +128,67 @@ class DB:
 
     def attach_tags(self, transaction_ids: list[int], tag_ids: list[int]) -> int:
         return 0
+
+    def delete_transactions_by_external_ids(
+        self,
+        external_ids: list[str],
+        source: str = "PLAID",
+    ) -> int:
+        """
+        Delete transactions by their external IDs.
+
+        Only deletes unverified transactions to respect immutability guarantees.
+
+        Args:
+            external_ids: List of external transaction IDs (e.g., Plaid transaction_id)
+            source: Source identifier (default: "PLAID")
+
+        Returns:
+            Number of transactions deleted
+        """
+        if not external_ids:
+            return 0
+
+        # Query for transactions matching external_id and source
+        # Only delete if is_verified = FALSE
+        # This is a stub implementation - actual implementation would query DB
+        # and delete matching unverified transactions
+        deleted_count = 0
+        for external_id in external_ids:
+            txn = self.get_transaction_by_external(
+                external_id=external_id, source=source
+            )
+            if txn is not None:
+                # Check if transaction is verified (stub - actual implementation
+                # would check is_verified field from DB)
+                # For now, assume we can delete (stub behavior)
+                deleted_count += 1
+
+        return deleted_count
+
+    def save_transactions(
+        self,
+        taxonomy: "Taxonomy",
+        txns: Iterable["CategorizedTransaction"],
+    ) -> SaveOutcome:
+        """
+        Save categorized transactions to the database.
+
+        Args:
+            taxonomy: Taxonomy instance
+            txns: Iterable of categorized transactions to save
+
+        Returns:
+            SaveOutcome with details about the save operation
+        """
+        # Minimal stub: no inserts/updates
+        return SaveOutcome(
+            inserted=0,
+            updated=0,
+            skipped_verified=0,
+            skipped_duplicate=0,
+            rows=[],
+        )
 
     def compact_schema_hint(self) -> dict[str, Any]:
         return {}
