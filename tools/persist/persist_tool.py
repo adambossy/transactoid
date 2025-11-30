@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from services.db import DB
+from services.taxonomy import Taxonomy
+
 
 @dataclass
 class ApplyTagsOutcome:
@@ -21,8 +24,42 @@ class PersistTool:
         *,
         only_unverified: bool = True,
     ) -> int:
-        # Minimal stub: no rows affected
-        return 0
+        """
+        Bulk recategorize transactions for a given merchant.
+
+        Args:
+            merchant_id: ID of the merchant whose transactions will be updated.
+            category_key: Taxonomy key for the new category.
+            only_unverified: When True, only unverified transactions are
+                updated. Verified transactions are always immutable and will
+                never be changed, so setting this to False is not supported.
+
+        Returns:
+            Number of transactions updated.
+
+        Raises:
+            ValueError: If the category_key is invalid or only_unverified is
+                set to False.
+        """
+        if not self._taxonomy.is_valid_key(category_key):
+            raise ValueError(f"Invalid category_key: {category_key!r}")
+
+        category_id = self._taxonomy.category_id_for_key(self._db, category_key)
+        if category_id is None:
+            # Defensive guard; should not happen if is_valid_key is True but
+            # keeps behavior explicit.
+            raise ValueError(f"Category ID not found for key: {category_key!r}")
+
+        if not only_unverified:
+            # The system guarantees immutability for verified rows; do not
+            # provide an escape hatch here so callers cannot accidentally
+            # violate that invariant.
+            raise ValueError(
+                "Recategorization of verified transactions is not supported; "
+                "only_unverified must be True."
+            )
+
+        return self._db.recategorize_unverified_by_merchant(merchant_id, category_id)
 
     def apply_tags(
         self, transaction_ids: list[int], tag_names: list[str]
