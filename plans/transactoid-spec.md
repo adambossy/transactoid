@@ -5,15 +5,15 @@ This single plan merges the previous interface and requirement specs so each mod
 ## 1. System Overview
 
 ### Goal
-Ingest personal transactions (CSV or Plaid), normalize them, categorize with a taxonomy-aware LLM (single pass with optional self-revision), persist them with dedupe and verified-row immutability, then answer natural-language questions by generating and verifying SQL, executing it, and returning aggregates plus sample rows. The workflow is orchestrated entirely through CLI commands or scripts with no hidden handoffs.
+Sync personal transactions from Plaid, categorize them with a taxonomy-aware LLM (single pass with optional self-revision), persist them with dedupe and verified-row immutability, then answer natural-language questions by generating and verifying SQL, executing it, and returning aggregates plus sample rows. The workflow is orchestrated entirely through CLI commands or scripts with no hidden handoffs.
 
 ### Architecture & Ownership
-* **CLI / scripts** coordinate the full ingest → categorize → persist → analyze pipeline.
+* **CLI / scripts** coordinate the full sync → categorize → persist → analyze pipeline.
 * **Agents**
   * `transactoid`: core agent loop
   * `analyzer_tool`: handles NL→SQL, verifies SQL with LLM, executes through the DB façade.
 * **Tools**
-  * Ingest providers emit `Transaction` batches (CSV + Plaid).
+  * Sync tool fetches transactions from Plaid and emits `Transaction` batches.
   * Categorizer returns `CategorizedTransaction` instances.
   * Persist tool upserts with dedupe, enforces immutability, manages tagging and recategorization.
   * Analytics tool verifies SQL only; DB performs execution.
@@ -29,10 +29,8 @@ transactoid/
 ├─ agents/
 │  └─ transactoid.py
 ├─ tools/
-│  ├─ ingest/
-│  │  ├─ ingest_tool.py
-│  │  ├─ csv.py
-│  │  └─ plaid.py
+│  ├─ sync/
+│  │  └─ sync_tool.py
 │  ├─ categorize/
 │  │  └─ categorizer_tool.py
 │  ├─ persist/
@@ -63,11 +61,10 @@ transactoid/
 ```
 
 ### Workflow Pillars
-1. Ingest transactions from CSV directories or Plaid.
-2. Normalize into `Transaction` batches.
-3. Categorize each transaction with taxonomy validation and optional self-revision.
-4. Persist results (upsert, dedupe, tagging, immutability guarantees).
-5. Answer NL questions via NL→SQL generation, LLM verification, and DB execution.
+1. Sync transactions from Plaid.
+2. Categorize each transaction with taxonomy validation and optional self-revision.
+3. Persist results (upsert, dedupe, tagging, immutability guarantees).
+4. Answer NL questions via NL→SQL generation, LLM verification, and DB execution.
 
 ## 2. Data Model (Key Fields)
 * **transactions**
@@ -104,82 +101,46 @@ class TransactoidAgent:
 ```
 
 **Requirements**
-* Use the categorizer to process ingest batches, then persist outcomes.
+* Use the categorizer to process transaction batches, then persist outcomes.
 * Inject `Taxonomy` into the categorizer.
 * Respect CLI-provided batch sizing and confidence threshold settings.
 
-### Tools — Ingest
+### Tools — Sync
 
-#### `tools/ingest/ingest_tool.py`
+#### `tools/sync/sync_tool.py`
 **Interface**
 ```python
 from dataclasses import dataclass
-from datetime import date
-from typing import Optional, Protocol, Literal
-
-Source = Literal["CSV", "PLAID"]
+from typing import List
 
 @dataclass
-class Transaction:
-    external_id: Optional[str]
-    account_id: str
-    posted_at: date
-    amount_cents: int
-    currency: str
-    merchant_descriptor: str
-    source: Source
-    source_file: Optional[str] = None
-    institution: str = ""
+class SyncResult:
+    categorized_added: list[CategorizedTransaction]
+    categorized_modified: list[CategorizedTransaction]
+    removed_transaction_ids: list[str]
+    next_cursor: str
+    has_more: bool
 
-class IngestTool(Protocol):
-    def fetch_next_batch(self, batch_size: int) -> list[Transaction]: ...
-```
-
-**Requirements**
-* Future implementations may consult the DB to filter verified rows, but that remains an internal detail.
-* Normalize all providers into `Transaction` with canonical hashing when IDs are absent.
-
-#### `tools/ingest/csv.py`
-**Interface**
-```python
-from typing import List
-from .ingest_tool import IngestTool, Transaction
-
-class CSVIngest(IngestTool):
-    def __init__(self, data_dir: str) -> None: ...
-    def fetch_next_batch(self, batch_size: int) -> List[Transaction]: ...
-```
-
-**Requirements**
-* Recursively walk a directory tree of CSVs.
-* Infer `institution` from filenames or headers.
-* Emit `source="CSV"` and include `source_file`.
-* Generate canonical hashes when CSVs omit stable IDs.
-
-#### `tools/ingest/plaid.py`
-**Interface**
-```python
-from typing import List, Optional
-from datetime import date
-from .ingest_tool import IngestTool, Transaction
-
-class PlaidIngest(IngestTool):
+class SyncTool:
     def __init__(
         self,
-        plaid_client: "PlaidClient",
+        plaid_client: PlaidClient,
+        categorizer: Categorizer,
+        db: DB,
+        taxonomy: Taxonomy,
         *,
-        account_ids: Optional[list[str]] = None,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        access_token: str,
+        cursor: str | None = None,
     ) -> None: ...
 
-    def fetch_next_batch(self, batch_size: int) -> List[Transaction]: ...
+    def sync(self, *, count: int = 25) -> list[SyncResult]: ...
 ```
 
 **Requirements**
-* Support optional `account_ids`, `start_date`, and `end_date` filters.
-* Use Plaid transaction IDs when present; otherwise derive the same canonical hash used in CSV ingestion.
-* Populate `source="PLAID"` and set `institution` from item metadata.
+* Call Plaid's transaction sync API with automatic pagination.
+* Categorize each page of transactions as it's fetched.
+* Persist categorized transactions to the database.
+* Handle Plaid's `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` error with retries.
 
 ### Tools — Categorize
 
@@ -188,7 +149,7 @@ class PlaidIngest(IngestTool):
 ```python
 from dataclasses import dataclass
 from typing import Iterable, Optional, List
-from tools.ingest.ingest_tool import Transaction
+from models.transaction import Transaction
 
 @dataclass
 class CategorizedTransaction:
@@ -413,7 +374,7 @@ class PlaidClient:
 
 **Requirements**
 * Act as a thin wrapper over Plaid’s APIs; no LLM involvement.
-* Surface institution names for ingestion metadata population.
+* Surface institution names for transaction metadata population.
 
 #### `services/taxonomy.py`
 **Interface**
@@ -525,8 +486,8 @@ import typer
 
 app = typer.Typer(help="Transactoid — personal finance agent CLI.")
 
-@app.command("ingest")
-def ingest(mode: str, data_dir: Optional[str] = None, batch_size: int = 25) -> None: ...
+@app.command("sync")
+def sync(access_token: str, cursor: Optional[str] = None, count: int = 500) -> None: ...
 
 @app.command("ask")
 def ask(question: str) -> None: ...
@@ -550,7 +511,7 @@ def main() -> None: app()
 ```
 
 **Requirements**
-* Provide CLI commands `ingest`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, and `clear-cache`.
+* Provide CLI commands `sync`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, and `clear-cache`.
 * Wire commands to orchestrator helpers without embedding business logic.
 
 ### Scripts
@@ -571,8 +532,8 @@ from typing import Optional, Sequence, List
 
 def run_categorizer(
     *,
-    mode: str,
-    data_dir: Optional[str] = None,
+    access_token: str,
+    cursor: Optional[str] = None,
     account_ids: Optional[Sequence[str]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -587,8 +548,8 @@ def run_analyzer(
 
 def run_pipeline(
     *,
-    mode: str,
-    data_dir: Optional[str] = None,
+    access_token: str,
+    cursor: Optional[str] = None,
     account_ids: Optional[Sequence[str]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -599,7 +560,7 @@ def run_pipeline(
 ```
 
 **Requirements**
-* `run_categorizer` performs ingest → categorize → persist with explicit parameter control.
+* `run_categorizer` performs sync → categorize → persist with explicit parameter control.
 * `run_analyzer` executes analyzer workflows; when given questions, seed the session with them otherwise run interactively.
 * `run_pipeline` always runs the analyzer after categorization, forwarding optional question seeds.
 
@@ -634,7 +595,7 @@ def run_pipeline(
 2. `services/plaid_client.py`
 3. `services/db.py`
 4. `services/taxonomy.py`
-5. `tools/ingest/*`
+5. `tools/sync/sync_tool.py`
 6. `tools/categorize/categorizer_tool.py`
 7. `tools/persist/persist_tool.py`
 8. `agents/analyzer_tool.py`

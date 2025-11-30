@@ -1,6 +1,6 @@
 ## Transactoid — personal finance agent (CLI-first)
 
-Transactoid ingests your transactions (CSV or Plaid), normalizes them, categorizes each with a taxonomy-aware LLM (single pass with optional self-revision), persists them with dedupe and verified-row immutability, and answers natural-language questions by generating and verifying SQL before execution. The workflow is intentionally CLI/script-driven—no hidden handoffs.
+Transactoid syncs your transactions from Plaid, categorizes each with a taxonomy-aware LLM (single pass with optional self-revision), persists them with dedupe and verified-row immutability, and answers natural-language questions by generating and verifying SQL before execution. The workflow is intentionally CLI/script-driven—no hidden handoffs.
 
 
 ### Why this exists
