@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import json
-import os
-import queue
-import ssl
-import threading
-import urllib.parse
+from collections.abc import Callable
 from html import escape as html_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
 from pathlib import Path
+import queue
+import ssl
+import threading
 from typing import Any
+import urllib.parse
+import uuid
+import webbrowser
 
 
 class PlaidLinkError(Exception):
@@ -285,3 +288,191 @@ def shutdown_redirect_server(
     server.shutdown()
     server.server_close()
     server_thread.join(timeout=1)
+
+
+def setup_redirect_server(
+    *,
+    token_queue: queue.Queue[str],
+    state: dict[str, Any],
+) -> tuple[ThreadingHTTPServer, threading.Thread, str] | None:
+    """Set up the HTTPS redirect server for Plaid Link.
+
+    Returns:
+        Tuple of (server, server_thread, redirect_uri) on success, None on error.
+    """
+    redirect_path = "/plaid-link-complete"
+    try:
+        server, server_thread, actual_host, actual_port = start_redirect_server(
+            host="localhost",
+            port=0,  # Auto-select port
+            path=redirect_path,
+            token_queue=token_queue,
+            state=state,
+        )
+        redirect_uri = f"https://{actual_host}:{actual_port}{redirect_path}"
+        return server, server_thread, redirect_uri
+    except (RedirectServerError, OSError):
+        return None
+
+
+def create_link_token_and_url(
+    *,
+    redirect_uri: str,
+    state: dict[str, Any],
+    create_link_token_fn: Callable[[str, str, list[str], list[str], str], str],
+    client_name: str,
+) -> str:
+    """Create a Plaid Link token and build the Link URL.
+
+    Args:
+        redirect_uri: Redirect URI for Plaid Link
+        state: State dict to store link_token
+        create_link_token_fn: Function to create link token
+        client_name: Client name for Plaid Link
+
+    Returns:
+        Link URL string
+    """
+    user_id = f"transactoid-user-{uuid.uuid4()}"
+    link_token = create_link_token_fn(
+        user_id=user_id,
+        redirect_uri=redirect_uri,
+        products=["transactions"],
+        country_codes=["US"],
+        client_name=client_name,
+    )
+    state["link_token"] = link_token
+
+    link_url = (
+        "https://cdn.plaid.com/link/v2/stable/link.html?token="
+        + urllib.parse.quote(link_token, safe="")
+    )
+    return link_url
+
+
+def open_link_in_browser(link_url: str) -> dict[str, Any] | None:
+    """Open Plaid Link URL in the user's browser.
+
+    Returns:
+        Error dict if browser couldn't be opened, None on success.
+    """
+    opened = webbrowser.open(link_url, new=1)
+    if not opened:
+        return {
+            "status": "error",
+            "message": (
+                "Unable to open browser automatically. "
+                f"Please open this URL manually: {link_url}"
+            ),
+        }
+    return None
+
+
+def wait_for_public_token_safe(
+    *,
+    token_queue: queue.Queue[str],
+    timeout_seconds: int,
+) -> str | None:
+    """Wait for public token from Plaid Link.
+
+    Returns:
+        Public token string on success, None on timeout.
+    """
+    try:
+        return wait_for_public_token(
+            token_queue,
+            timeout_seconds=timeout_seconds,
+        )
+    except PublicTokenTimeoutError:
+        return None
+
+
+def exchange_token_and_get_item_info(
+    *,
+    public_token: str,
+    exchange_public_token_fn: Callable[[str], dict[str, Any]],
+    get_item_info_fn: Callable[[str], dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Exchange public token for access token and get item info.
+
+    Args:
+        public_token: Public token from Plaid Link
+        exchange_public_token_fn: Function to exchange public token
+        get_item_info_fn: Function to get item info
+
+    Returns:
+        Dict with access_token, item_id, institution_name, institution_id
+        on success, None on error.
+    """
+    try:
+        exchange_response = exchange_public_token_fn(public_token)
+        access_token = exchange_response.get("access_token")
+        item_id = exchange_response.get("item_id")
+
+        if not access_token or not item_id:
+            return None
+
+        institution_name: str | None = None
+        institution_id: str | None = None
+
+        try:
+            item_info = get_item_info_fn(access_token)
+            institution_name = item_info.get("institution_name")
+            institution_id = item_info.get("institution_id")
+        except Exception:
+            # Non-fatal: continue without institution info
+            pass
+
+        return {
+            "access_token": access_token,
+            "item_id": item_id,
+            "institution_name": institution_name,
+            "institution_id": institution_id,
+        }
+    except Exception:
+        return None
+
+
+def save_item_to_database(
+    *,
+    db: Any,
+    item_id: str,
+    access_token: str,
+    institution_id: str | None,
+    institution_name: str | None,
+) -> dict[str, Any] | None:
+    """Save Plaid item to database.
+
+    Returns:
+        Error dict on failure, None on success.
+    """
+    try:
+        db.save_plaid_item(
+            item_id=item_id,
+            access_token=access_token,
+            institution_id=institution_id,
+            institution_name=institution_name,
+        )
+        return None
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Failed to save Plaid item to database: {e}",
+            "item_id": item_id,
+        }
+
+
+def build_success_message(
+    *,
+    item_id: str,
+    institution_name: str | None,
+) -> str:
+    """Build success message for account connection.
+
+    Returns:
+        Human-readable success message string.
+    """
+    base_msg = "Successfully connected account"
+    institution_part = f" from {institution_name}" if institution_name else ""
+    item_part = f" (item_id={item_id[:8]}...)."
+    return base_msg + institution_part + item_part

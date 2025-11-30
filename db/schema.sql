@@ -1,5 +1,5 @@
 -- Database schema for transactoid
--- Tables: merchants, categories, transactions, tags, transaction_tags
+-- Tables: merchants, categories, transactions, tags, transaction_tags, plaid_items
 
 -- Merchants table
 CREATE TABLE IF NOT EXISTS merchants (
@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS transaction_tags (
     PRIMARY KEY (transaction_id, tag_id),
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id),
     FOREIGN KEY (tag_id) REFERENCES tags(tag_id)
+);
+
+-- Plaid items table
+CREATE TABLE IF NOT EXISTS plaid_items (
+    item_id TEXT PRIMARY KEY,
+    access_token TEXT NOT NULL,
+    institution_id TEXT,
+    institution_name TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indexes for performance

@@ -182,6 +182,23 @@ class TransactionTag(Base):
     )
 
 
+class PlaidItem(Base):
+    """Plaid Item model for storing access tokens and item information."""
+
+    __tablename__ = "plaid_items"
+
+    item_id: Mapped[str] = mapped_column(String, primary_key=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    institution_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    institution_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
 class CategoryRow(TypedDict):
     category_id: int
     parent_id: int | None
@@ -923,3 +940,69 @@ class DB:
                 session.add(category)
 
             session.flush()
+
+    def save_plaid_item(
+        self,
+        *,
+        item_id: str,
+        access_token: str,
+        institution_id: str | None = None,
+        institution_name: str | None = None,
+    ) -> PlaidItem:
+        """Save or update a Plaid item.
+
+        Args:
+            item_id: Plaid item ID (primary key)
+            access_token: Plaid access token
+            institution_id: Optional institution ID
+            institution_name: Optional institution name
+
+        Returns:
+            Created or updated PlaidItem instance
+        """
+        with self.session() as session:
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            if item is None:
+                item = PlaidItem(
+                    item_id=item_id,
+                    access_token=access_token,
+                    institution_id=institution_id,
+                    institution_name=institution_name,
+                )
+                session.add(item)
+            else:
+                item.access_token = access_token
+                item.institution_id = institution_id
+                item.institution_name = institution_name
+                item.updated_at = datetime.now()
+            session.flush()
+            session.refresh(item)
+            session.expunge(item)
+            return item
+
+    def get_plaid_item(self, item_id: str) -> PlaidItem | None:
+        """Retrieve a Plaid item by item_id.
+
+        Args:
+            item_id: Plaid item ID
+
+        Returns:
+            PlaidItem instance or None if not found
+        """
+        with self.session() as session:
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            if item:
+                session.expunge(item)
+            return item
+
+    def list_plaid_items(self) -> list[PlaidItem]:
+        """List all Plaid items.
+
+        Returns:
+            List of all PlaidItem instances
+        """
+        with self.session() as session:
+            items = session.query(PlaidItem).all()
+            for item in items:
+                session.expunge(item)
+            return items
