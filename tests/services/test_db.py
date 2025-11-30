@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 import pytest
 
 from models.transaction import Transaction
 from services.db import (
-    Category,
-    CategoryRow,
     DB,
+    CategoryRow,
     Merchant,
-    SaveOutcome,
-    SaveRowOutcome,
-    Tag,
     Transaction as DBTransaction,
 )
-from services.taxonomy import CategoryNode, Taxonomy
+from services.taxonomy import Taxonomy
 from tools.categorize.categorizer_tool import CategorizedTransaction
 
 
@@ -301,9 +297,7 @@ def test_update_transaction_mutable_raises_for_verified_transaction() -> None:
     transaction = db.insert_transaction(txn_data)
 
     with pytest.raises(ValueError, match="verified and cannot be updated"):
-        db.update_transaction_mutable(
-            transaction.transaction_id, {"category_id": 1}
-        )
+        db.update_transaction_mutable(transaction.transaction_id, {"category_id": 1})
 
 
 def test_fetch_transactions_by_ids_preserves_order() -> None:
@@ -420,9 +414,7 @@ def test_save_transactions_updates_unverified_transaction() -> None:
     existing = db.insert_transaction(txn_data)
 
     # Update with new category
-    txn = create_sample_transaction(
-        transaction_id="plaid_txn_123", amount=60.00
-    )
+    txn = create_sample_transaction(transaction_id="plaid_txn_123", amount=60.00)
     cat_txn = create_categorized_transaction(txn, category_key="food.restaurants")
 
     outcome = db.save_transactions(taxonomy, [cat_txn])
@@ -565,9 +557,7 @@ def test_recategorize_unverified_by_merchant() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
 
-    merchant = db.create_merchant(
-        normalized_name="test_merchant", display_name="Test"
-    )
+    merchant = db.create_merchant(normalized_name="test_merchant", display_name="Test")
 
     txn1 = db.insert_transaction(
         {
@@ -641,9 +631,7 @@ def test_delete_transactions_by_external_ids_deletes_unverified_only() -> None:
     assert count == 1
 
     deleted_txn1 = db.get_transaction_by_external(external_id="ext_1", source="PLAID")
-    remaining_txn2 = db.get_transaction_by_external(
-        external_id="ext_2", source="PLAID"
-    )
+    remaining_txn2 = db.get_transaction_by_external(external_id="ext_2", source="PLAID")
 
     assert deleted_txn1 is None
     assert remaining_txn2 is not None
@@ -719,4 +707,3 @@ def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
     # Should be in SQL order (DESC by amount_cents)
     assert results[0].transaction_id == txn2.transaction_id
     assert results[1].transaction_id == txn1.transaction_id
-
