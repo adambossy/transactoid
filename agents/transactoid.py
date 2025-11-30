@@ -20,6 +20,7 @@ from agents.items import (
     ToolCallOutputItem,
 )
 from services.db import DB
+from services.plaid_client import PlaidClient, PlaidClientError
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool
 
@@ -381,13 +382,26 @@ async def run(
         """
         Trigger UI flow for connecting a new bank/institution via Plaid.
 
+        Opens a browser window for the user to link their bank account via Plaid Link.
+        The function handles the full OAuth flow, exchanges the public token for an
+        access token, and stores the connection in the database.
+
         Returns:
-            Dictionary with connection status
+            Dictionary with connection status including:
+            - status: "success" or "error"
+            - item_id: Plaid item ID if successful
+            - institution_name: Institution name if available
+            - message: Human-readable status message
         """
-        return {
-            "status": "not_implemented",
-            "message": "Account connection requires Plaid Link integration",
-        }
+        try:
+            client = PlaidClient.from_env()
+        except PlaidClientError as e:
+            return {
+                "status": "error",
+                "message": f"Failed to initialize Plaid client: {e}",
+            }
+
+        return client.connect_new_account(db=db)
 
     @function_tool
     def update_category_for_transaction_groups(

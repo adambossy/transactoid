@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+from datetime import date
+from http.server import ThreadingHTTPServer
 import json
 import os
+import queue
+import threading
+from typing import Any, Literal, TypedDict
 import urllib.error
+import urllib.parse
 import urllib.request
-from datetime import date
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+
+from pydantic import BaseModel, Field
 
 from models.transaction import Transaction
-from pydantic import BaseModel, Field
+from services.plaid_link_flow import (
+    build_success_message,
+    create_link_token_and_url,
+    exchange_token_and_get_item_info,
+    open_link_in_browser,
+    save_item_to_database,
+    setup_redirect_server,
+    shutdown_redirect_server,
+    wait_for_public_token_safe,
+)
 
 PlaidEnv = Literal["sandbox", "development", "production"]
 
@@ -17,7 +32,7 @@ class PlaidClientError(Exception):
     """Base error for Plaid client failures."""
 
 
-PLAID_ENV_MAP: Dict[PlaidEnv, str] = {
+PLAID_ENV_MAP: dict[PlaidEnv, str] = {
     "sandbox": "https://sandbox.plaid.com",
     "development": "https://development.plaid.com",
     "production": "https://production.plaid.com",
@@ -27,24 +42,24 @@ PLAID_ENV_MAP: Dict[PlaidEnv, str] = {
 class PlaidAccount(TypedDict):
     account_id: str
     name: str
-    official_name: Optional[str]
-    mask: Optional[str]
-    subtype: Optional[str]
-    type: Optional[str]
-    institution: Optional[str]
+    official_name: str | None
+    mask: str | None
+    subtype: str | None
+    type: str | None
+    institution: str | None
 
 
 class PlaidItemInfo(TypedDict):
     item_id: str
-    institution_id: Optional[str]
-    institution_name: Optional[str]
+    institution_id: str | None
+    institution_name: str | None
 
 
 class PlaidBaseModel(BaseModel):
     """Shared base for Plaid response models with a short parse alias."""
 
     @classmethod
-    def parse(cls, data: Any) -> "PlaidBaseModel":
+    def parse(cls, data: Any) -> PlaidBaseModel:
         return cls.model_validate(data)
 
 
@@ -55,10 +70,10 @@ class LinkTokenCreateResponse(PlaidBaseModel):
 class AccountsGetAccount(PlaidBaseModel):
     account_id: str
     name: str
-    official_name: Optional[str] = None
-    mask: Optional[str] = None
-    subtype: Optional[str] = None
-    type: Optional[str] = None
+    official_name: str | None = None
+    mask: str | None = None
+    subtype: str | None = None
+    type: str | None = None
 
     def to_typed(self) -> PlaidAccount:
         return {
@@ -74,12 +89,12 @@ class AccountsGetAccount(PlaidBaseModel):
 
 
 class AccountsGetResponse(PlaidBaseModel):
-    accounts: List[AccountsGetAccount]
+    accounts: list[AccountsGetAccount]
 
 
 class ItemModel(PlaidBaseModel):
     item_id: str
-    institution_id: Optional[str] = None
+    institution_id: str | None = None
 
 
 class ItemGetResponse(PlaidBaseModel):
@@ -87,27 +102,27 @@ class ItemGetResponse(PlaidBaseModel):
 
 
 class InstitutionModel(PlaidBaseModel):
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class InstitutionGetByIdResponse(PlaidBaseModel):
-    institution: Optional[InstitutionModel] = None
+    institution: InstitutionModel | None = None
 
 
 class PlaidTransactionModel(PlaidBaseModel):
-    transaction_id: Optional[str] = None
+    transaction_id: str | None = None
     account_id: str
     amount: float
-    iso_currency_code: Optional[str] = None
+    iso_currency_code: str | None = None
     date: str
     name: str
-    merchant_name: Optional[str] = None
+    merchant_name: str | None = None
     pending: bool = False
-    payment_channel: Optional[str] = None
-    unofficial_currency_code: Optional[str] = None
-    category: Optional[List[str]] = None
-    category_id: Optional[str] = None
-    personal_finance_category: Optional[Dict[str, Any]] = None
+    payment_channel: str | None = None
+    unofficial_currency_code: str | None = None
+    category: list[str] | None = None
+    category_id: str | None = None
+    personal_finance_category: dict[str, Any] | None = None
 
     def to_typed(self) -> Transaction:
         txn: Transaction = {
@@ -129,17 +144,17 @@ class PlaidTransactionModel(PlaidBaseModel):
 
 
 class TransactionsGetResponse(PlaidBaseModel):
-    transactions: List[PlaidTransactionModel] = Field(default_factory=list)
+    transactions: list[PlaidTransactionModel] = Field(default_factory=list)
 
 
 class TransactionsSyncResponse(PlaidBaseModel):
-    added: List[PlaidTransactionModel] = Field(default_factory=list)
-    modified: List[PlaidTransactionModel] = Field(default_factory=list)
-    removed: List[Dict[str, Any]] = Field(default_factory=list)
-    next_cursor: Optional[str] = None
+    added: list[PlaidTransactionModel] = Field(default_factory=list)
+    modified: list[PlaidTransactionModel] = Field(default_factory=list)
+    removed: list[dict[str, Any]] = Field(default_factory=list)
+    next_cursor: str | None = None
     has_more: bool = False
 
-    def to_sync_result(self, *, fallback_cursor: Optional[str]) -> Dict[str, Any]:
+    def to_sync_result(self, *, fallback_cursor: str | None) -> dict[str, Any]:
         return {
             "added": [txn.to_typed() for txn in self.added],
             "modified": [txn.to_typed() for txn in self.modified],
@@ -157,7 +172,7 @@ class PlaidClient:
         secret: str,
         env: PlaidEnv = "sandbox",
         client_name: str = "transactoid",
-        products: Optional[List[str]] = None,
+        products: list[str] | None = None,
     ) -> None:
         self._client_id = client_id
         self._secret = secret
@@ -170,7 +185,7 @@ class PlaidClient:
         return self._env
 
     @classmethod
-    def from_env(cls) -> "PlaidClient":
+    def from_env(cls) -> PlaidClient:
         """Construct a PlaidClient from environment variables.
 
         Required:
@@ -216,7 +231,7 @@ class PlaidClient:
                 f"Unsupported Plaid environment: {self._env!r}"
             ) from e
 
-    def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = self._base_url().rstrip("/") + path
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -248,14 +263,14 @@ class PlaidClient:
         self,
         *,
         user_id: str,
-        redirect_uri: Optional[str] = None,
-        products: Optional[List[str]] = None,
-        country_codes: Optional[List[str]] = None,
+        redirect_uri: str | None = None,
+        products: list[str] | None = None,
+        country_codes: list[str] | None = None,
         language: str = "en",
-        client_name: Optional[str] = None,
+        client_name: str | None = None,
     ) -> str:
         """Create a Plaid Link token and return it."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
             "client_name": client_name or self._client_name,
@@ -270,7 +285,7 @@ class PlaidClient:
         resp = LinkTokenCreateResponse.parse(self._post("/link/token/create", payload))
         return resp.link_token
 
-    def exchange_public_token(self, public_token: str) -> Dict[str, Any]:
+    def exchange_public_token(self, public_token: str) -> dict[str, Any]:
         """Exchange a Link public_token for an access_token."""
         payload = {
             "client_id": self._client_id,
@@ -286,9 +301,9 @@ class PlaidClient:
         start_date: date,
         end_date: date,
         count: int = 100,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Call /transactions/get and return the raw Plaid response."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
             "access_token": access_token,
@@ -301,9 +316,9 @@ class PlaidClient:
         }
         return self._post("/transactions/get", payload)
 
-    def get_accounts(self, access_token: str) -> List[PlaidAccount]:
+    def get_accounts(self, access_token: str) -> list[PlaidAccount]:
         """Return accounts for an item using Plaid's /accounts/get endpoint."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
             "access_token": access_token,
@@ -313,7 +328,7 @@ class PlaidClient:
 
     def get_item_info(self, access_token: str) -> PlaidItemInfo:
         """Return item and institution information for an access token."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
             "access_token": access_token,
@@ -322,10 +337,10 @@ class PlaidClient:
 
         item_id = item_resp.item.item_id
         institution_id = item_resp.item.institution_id
-        institution_name: Optional[str] = None
+        institution_name: str | None = None
 
         if institution_id:
-            inst_payload: Dict[str, Any] = {
+            inst_payload: dict[str, Any] = {
                 "client_id": self._client_id,
                 "secret": self._secret,
                 "institution_id": institution_id,
@@ -350,19 +365,19 @@ class PlaidClient:
         *,
         start_date: date,
         end_date: date,
-        account_ids: Optional[List[str]] = None,
+        account_ids: list[str] | None = None,
         offset: int = 0,
         limit: int = 500,
-    ) -> List[Transaction]:
+    ) -> list[Transaction]:
         """Return a page of transactions using Plaid's /transactions/get."""
-        options: Dict[str, Any] = {
+        options: dict[str, Any] = {
             "count": limit,
             "offset": offset,
         }
         if account_ids:
             options["account_ids"] = account_ids
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
             "access_token": access_token,
@@ -378,11 +393,11 @@ class PlaidClient:
         self,
         access_token: str,
         *,
-        cursor: Optional[str] = None,
+        cursor: str | None = None,
         count: int = 500,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Thin wrapper around Plaid's /transactions/sync endpoint."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
             "access_token": access_token,
@@ -394,7 +409,123 @@ class PlaidClient:
         resp = TransactionsSyncResponse.parse(self._post("/transactions/sync", payload))
         return resp.to_sync_result(fallback_cursor=cursor)
 
-    def institution_name_for_item(self, access_token: str) -> Optional[str]:
+    def institution_name_for_item(self, access_token: str) -> str | None:
         """Convenience helper that returns only the institution name for an item."""
         info = self.get_item_info(access_token)
         return info.get("institution_name")
+
+    def connect_new_account(
+        self,
+        *,
+        db: Any,  # DB type from services.db, avoiding circular import
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Connect a new bank account via Plaid Link.
+
+        Opens a browser window for the user to link their bank account via Plaid Link.
+        The function handles the full OAuth flow, exchanges the public token for an
+        access token, and stores the connection in the database.
+
+        Args:
+            db: Database instance with save_plaid_item method
+            timeout_seconds: Timeout for waiting for Plaid Link completion
+                (default: 300)
+
+        Returns:
+            Dictionary with connection status including:
+            - status: "success" or "error"
+            - item_id: Plaid item ID if successful
+            - institution_name: Institution name if available
+            - message: Human-readable status message
+        """
+        token_queue: queue.Queue[str] = queue.Queue()
+        state: dict[str, Any] = {}
+        server: ThreadingHTTPServer | None = None
+        server_thread: threading.Thread | None = None
+
+        # Set up redirect server
+        server_result = setup_redirect_server(
+            token_queue=token_queue,
+            state=state,
+        )
+        if server_result is None:
+            return {
+                "status": "error",
+                "message": "Failed to start redirect server",
+            }
+        server, server_thread, redirect_uri = server_result
+
+        try:
+            # Create Link token and URL
+            link_url = create_link_token_and_url(
+                redirect_uri=redirect_uri,
+                state=state,
+                create_link_token_fn=self.create_link_token,
+                client_name=self._client_name,
+            )
+
+            # Open browser
+            browser_error = open_link_in_browser(link_url)
+            if browser_error:
+                return browser_error
+
+            # Wait for public token
+            public_token = wait_for_public_token_safe(
+                token_queue=token_queue,
+                timeout_seconds=timeout_seconds,
+            )
+            if public_token is None:
+                return {
+                    "status": "error",
+                    "message": (
+                        "Timed out waiting for Plaid Link to complete. "
+                        "Please try again."
+                    ),
+                }
+
+            # Exchange token and get item info
+            item_data = exchange_token_and_get_item_info(
+                public_token=public_token,
+                exchange_public_token_fn=self.exchange_public_token,
+                get_item_info_fn=self.get_item_info,
+            )
+            if item_data is None:
+                return {
+                    "status": "error",
+                    "message": "Failed to exchange public token",
+                }
+
+            access_token = item_data["access_token"]
+            item_id = item_data["item_id"]
+            institution_name = item_data["institution_name"]
+            institution_id = item_data["institution_id"]
+
+            # Save to database
+            db_error = save_item_to_database(
+                db=db,
+                item_id=item_id,
+                access_token=access_token,
+                institution_id=institution_id,
+                institution_name=institution_name,
+            )
+            if db_error:
+                return db_error
+
+            return {
+                "status": "success",
+                "item_id": item_id,
+                "institution_name": institution_name,
+                "message": build_success_message(
+                    item_id=item_id,
+                    institution_name=institution_name,
+                ),
+            }
+
+        except KeyboardInterrupt:
+            return {
+                "status": "error",
+                "message": "Connection cancelled by user.",
+            }
+        finally:
+            if server is not None and server_thread is not None:
+                shutdown_redirect_server(server, server_thread)
