@@ -128,7 +128,7 @@ def test_db_session_context_manager() -> None:
 def test_fetch_categories_returns_all_categories() -> None:
     """Test fetch_categories returns all categories as CategoryRow."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     categories = db.fetch_categories()
 
@@ -209,7 +209,7 @@ def test_create_merchant_creates_new_merchant() -> None:
 def test_get_transaction_by_external_finds_transaction() -> None:
     """Test get_transaction_by_external finds transaction by external_id and source."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn_data = {
         "external_id": "ext_123",
@@ -233,7 +233,7 @@ def test_get_transaction_by_external_finds_transaction() -> None:
 def test_insert_transaction_creates_transaction_with_merchant() -> None:
     """Test insert_transaction creates transaction and resolves merchant."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn_data = {
         "external_id": "ext_123",
@@ -259,7 +259,7 @@ def test_insert_transaction_creates_transaction_with_merchant() -> None:
 def test_update_transaction_mutable_updates_unverified_transaction() -> None:
     """Test update_transaction_mutable updates unverified transaction."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn_data = {
         "external_id": "ext_123",
@@ -283,7 +283,7 @@ def test_update_transaction_mutable_updates_unverified_transaction() -> None:
 def test_update_transaction_mutable_raises_for_verified_transaction() -> None:
     """Test update_transaction_mutable raises error for verified transaction."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn_data = {
         "external_id": "ext_123",
@@ -303,9 +303,9 @@ def test_update_transaction_mutable_raises_for_verified_transaction() -> None:
 def test_fetch_transactions_by_ids_preserves_order() -> None:
     """Test fetch_transactions_by_ids_preserving_order returns in input order."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
-    txn1 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_1",
             "source": "PLAID",
@@ -315,7 +315,7 @@ def test_fetch_transactions_by_ids_preserves_order() -> None:
             "currency": "USD",
         }
     )
-    txn2 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_2",
             "source": "PLAID",
@@ -348,9 +348,9 @@ def test_fetch_transactions_by_ids_preserves_order() -> None:
 
 
 def test_save_transactions_inserts_new_transaction() -> None:
-    """Test save_transactions inserts new transaction (Plaid Added + DB doesn't exist)."""
+    """Test save_transactions inserts new transaction."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn = create_sample_transaction(transaction_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(txn, category_key="food.groceries")
@@ -369,7 +369,7 @@ def test_save_transactions_inserts_new_transaction() -> None:
 def test_save_transactions_skips_verified_transaction() -> None:
     """Test save_transactions skips verified transaction (Plaid Added + DB Verified)."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     # Insert verified transaction first
     txn_data = {
@@ -397,9 +397,9 @@ def test_save_transactions_skips_verified_transaction() -> None:
 
 
 def test_save_transactions_updates_unverified_transaction() -> None:
-    """Test save_transactions updates unverified transaction (Plaid Modified + DB Unverified)."""
+    """Test save_transactions updates unverified transaction."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     # Insert unverified transaction first
     txn_data = {
@@ -437,7 +437,7 @@ def test_save_transactions_updates_unverified_transaction() -> None:
 def test_save_transactions_prefers_revised_category_key() -> None:
     """Test save_transactions prefers revised_category_key over category_key."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn = create_sample_transaction(transaction_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(
@@ -459,7 +459,7 @@ def test_save_transactions_prefers_revised_category_key() -> None:
 def test_save_transactions_merchant_normalization_deduplication() -> None:
     """Test save_transactions normalizes merchant names and deduplicates merchants."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn1 = create_sample_transaction(
         transaction_id="txn_1", merchant_name="Whole Foods Market 123"
@@ -508,7 +508,7 @@ def test_upsert_tag_updates_existing_tag() -> None:
 def test_attach_tags_creates_relationships() -> None:
     """Test attach_tags creates transaction-tag relationships."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn = db.insert_transaction(
         {
@@ -531,7 +531,7 @@ def test_attach_tags_creates_relationships() -> None:
 def test_attach_tags_skips_duplicates() -> None:
     """Test attach_tags skips existing relationships."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     txn = db.insert_transaction(
         {
@@ -555,11 +555,11 @@ def test_attach_tags_skips_duplicates() -> None:
 def test_recategorize_unverified_by_merchant() -> None:
     """Test recategorize_unverified_by_merchant updates unverified transactions."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
     merchant = db.create_merchant(normalized_name="test_merchant", display_name="Test")
 
-    txn1 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_1",
             "source": "PLAID",
@@ -571,7 +571,7 @@ def test_recategorize_unverified_by_merchant() -> None:
             "is_verified": False,
         }
     )
-    txn2 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_2",
             "source": "PLAID",
@@ -601,9 +601,9 @@ def test_recategorize_unverified_by_merchant() -> None:
 def test_delete_transactions_by_external_ids_deletes_unverified_only() -> None:
     """Test delete_transactions_by_external_ids only deletes unverified transactions."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
-    txn1 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_1",
             "source": "PLAID",
@@ -614,7 +614,7 @@ def test_delete_transactions_by_external_ids_deletes_unverified_only() -> None:
             "is_verified": False,
         }
     )
-    txn2 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_2",
             "source": "PLAID",
@@ -659,9 +659,9 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
 def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
     """Test run_sql executes raw SQL and returns ORM models in order."""
     db = create_db()
-    taxonomy = create_sample_taxonomy(db)
+    create_sample_taxonomy(db)
 
-    txn1 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_1",
             "source": "PLAID",
@@ -671,7 +671,7 @@ def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
             "currency": "USD",
         }
     )
-    txn2 = db.insert_transaction(
+    _ = db.insert_transaction(
         {
             "external_id": "ext_2",
             "source": "PLAID",
@@ -690,10 +690,7 @@ def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
     """
     # SQLite uses ? placeholders, but we need to use named parameters or format
     # For simplicity, use string formatting (in production, use parameterized queries)
-    sql_formatted = sql.replace("?", str(txn2.transaction_id)).replace(
-        "?", str(txn1.transaction_id)
-    )
-    # Actually, let's use a simpler approach with IN clause
+    # Use f-string for SQL (acceptable in tests with controlled integer values)
     sql = f"""
     SELECT transaction_id, external_id, amount_cents
     FROM transactions
