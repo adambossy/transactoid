@@ -273,12 +273,20 @@ class DB:
             if not rows:
                 return []
 
+            # Get column index for primary key
+            keys = list(result.keys())
+            pk_index = keys.index(pk_column)
+
             # Extract primary key values
-            pk_values = [row[pk_column] for row in rows]
+            pk_values = [row[pk_index] for row in rows]
 
             # Query ORM models by primary keys
             pk_attr = getattr(model, pk_column)
             orm_instances = session.query(model).filter(pk_attr.in_(pk_values)).all()
+
+            # Expunge all instances before returning
+            for instance in orm_instances:
+                session.expunge(instance)
 
             # Create mapping for quick lookup
             instance_map = {getattr(inst, pk_column): inst for inst in orm_instances}
@@ -316,6 +324,9 @@ class DB:
                 .all()
             )
 
+            # Expunge all transactions before returning
+            for txn in transactions:
+                session.expunge(txn)
             # Create mapping and return in input order
             txn_map = {txn.transaction_id: txn for txn in transactions}
             return [txn_map[tid] for tid in ids if tid in txn_map]
@@ -343,11 +354,14 @@ class DB:
             Merchant instance or None if not found
         """
         with self.session() as session:
-            return (
+            merchant = (
                 session.query(Merchant)
                 .filter(Merchant.normalized_name == normalized_name)
                 .first()
             )
+            if merchant:
+                session.expunge(merchant)
+            return merchant
 
     def create_merchant(
         self,
@@ -371,6 +385,7 @@ class DB:
             session.add(merchant)
             session.flush()
             session.refresh(merchant)
+            session.expunge(merchant)
             return merchant
 
     def get_transaction_by_external(
@@ -389,13 +404,16 @@ class DB:
             Transaction instance or None if not found
         """
         with self.session() as session:
-            return (
+            transaction = (
                 session.query(Transaction)
                 .filter(
                     Transaction.external_id == external_id, Transaction.source == source
                 )
                 .first()
             )
+            if transaction:
+                session.expunge(transaction)
+            return transaction
 
     def insert_transaction(self, data: dict[str, Any]) -> Transaction:
         """Insert a new transaction.
@@ -418,12 +436,16 @@ class DB:
                 and data["merchant_descriptor"]
             ):
                 normalized_name = _normalize_merchant_name(data["merchant_descriptor"])
-                merchant = self.find_merchant_by_normalized_name(normalized_name)
+                merchant = session.query(Merchant).filter(
+                    Merchant.normalized_name == normalized_name
+                ).first()
                 if merchant is None:
-                    merchant = self.create_merchant(
+                    merchant = Merchant(
                         normalized_name=normalized_name,
                         display_name=data["merchant_descriptor"],
                     )
+                    session.add(merchant)
+                    session.flush()
                 merchant_id = merchant.merchant_id
 
             transaction = Transaction(
@@ -442,6 +464,7 @@ class DB:
             session.add(transaction)
             session.flush()
             session.refresh(transaction)
+            session.expunge(transaction)
             return transaction
 
     def update_transaction_mutable(
@@ -480,12 +503,16 @@ class DB:
             # Resolve merchant if merchant_descriptor is provided
             if "merchant_descriptor" in data and data["merchant_descriptor"]:
                 normalized_name = _normalize_merchant_name(data["merchant_descriptor"])
-                merchant = self.find_merchant_by_normalized_name(normalized_name)
+                merchant = session.query(Merchant).filter(
+                    Merchant.normalized_name == normalized_name
+                ).first()
                 if merchant is None:
-                    merchant = self.create_merchant(
+                    merchant = Merchant(
                         normalized_name=normalized_name,
                         display_name=data["merchant_descriptor"],
                     )
+                    session.add(merchant)
+                    session.flush()
                 data["merchant_id"] = merchant.merchant_id
 
             # Update mutable fields
@@ -500,6 +527,7 @@ class DB:
 
             session.flush()
             session.refresh(transaction)
+            session.expunge(transaction)
             return transaction
 
     def recategorize_unverified_by_merchant(
@@ -547,6 +575,7 @@ class DB:
                     tag.description = description
             session.flush()
             session.refresh(tag)
+            session.expunge(tag)
             return tag
 
     def attach_tags(self, transaction_ids: list[int], tag_ids: list[int]) -> int:
@@ -688,13 +717,15 @@ class DB:
             )
 
             if existing:
-                if existing.is_verified:
+                is_verified = existing.is_verified
+                existing_id = existing.transaction_id
+                if is_verified:
                     rows.append(
                         SaveRowOutcome(
                             external_id=external_id,
                             source=source,
                             action="skipped-verified",
-                            transaction_id=existing.transaction_id,
+                            transaction_id=existing_id,
                             reason="Transaction is verified and cannot be updated",
                         )
                     )
@@ -709,7 +740,7 @@ class DB:
                 }
                 try:
                     updated_txn = self.update_transaction_mutable(
-                        existing.transaction_id, update_data
+                        existing_id, update_data
                     )
                     rows.append(
                         SaveRowOutcome(
@@ -726,7 +757,7 @@ class DB:
                             external_id=external_id,
                             source=source,
                             action="skipped-verified",
-                            transaction_id=existing.transaction_id,
+                            transaction_id=existing_id,
                             reason=str(e),
                         )
                     )
