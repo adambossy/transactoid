@@ -22,7 +22,9 @@ from agents.items import (
 from services.db import DB
 from services.plaid_client import PlaidClient, PlaidClientError
 from services.taxonomy import Taxonomy
+from tools.categorize.categorizer_tool import Categorizer
 from tools.persist.persist_tool import PersistTool
+from tools.sync.sync_tool import SyncTool
 
 load_dotenv()
 
@@ -357,24 +359,70 @@ async def run(
             - total_removed: Total transactions removed
             - status: "success" or "error"
         """
-        # Note: SyncTool requires PlaidClient, Categorizer, and access_token.
-        # For now, return a placeholder response.
-        # This should be enhanced to actually trigger sync.
-        # Example implementation:
-        # sync_tool = SyncTool(
-        #     plaid_client, categorizer, access_token=access_token, cursor=cursor
-        # )
-        # results = sync_tool.sync(persist_tool=persist_tool)
-        # return {
-        #     "status": "success",
-        #     "pages_processed": len(results),
-        #     "total_added": sum(len(r.categorized_added) for r in results),
-        #     "total_modified": sum(len(r.categorized_modified) for r in results),
-        #     "total_removed": sum(len(r.removed_transaction_ids) for r in results),
-        # }
+        try:
+            plaid_client = PlaidClient.from_env()
+        except PlaidClientError as e:
+            return {
+                "status": "error",
+                "message": f"Failed to initialize Plaid client: {e}",
+                "pages_processed": 0,
+                "total_added": 0,
+                "total_modified": 0,
+                "total_removed": 0,
+            }
+
+        # Check if at least one account is connected
+        plaid_items = db.list_plaid_items()
+        if not plaid_items:
+            # No accounts connected, trigger connection flow
+            connection_result = plaid_client.connect_new_account(db=db)
+            if connection_result.get("status") != "success":
+                return {
+                    "status": "error",
+                    "message": (
+                        "No accounts connected and failed to connect new account: "
+                        f"{connection_result.get('message', 'Unknown error')}"
+                    ),
+                    "pages_processed": 0,
+                    "total_added": 0,
+                    "total_modified": 0,
+                    "total_removed": 0,
+                }
+            # Refresh the list after connection
+            plaid_items = db.list_plaid_items()
+
+        # Get the first Plaid item's access token
+        # For now, sync the first item. In the future, could sync all items.
+        plaid_item = plaid_items[0]
+        access_token = plaid_item.access_token
+
+        # Create categorizer
+        categorizer = Categorizer(taxonomy)
+
+        # Create sync tool
+        sync_tool = SyncTool(
+            plaid_client=plaid_client,
+            categorizer=categorizer,
+            db=db,
+            taxonomy=taxonomy,
+            access_token=access_token,
+            cursor=None,  # Start fresh sync
+        )
+
+        # Execute sync
+        results = sync_tool.sync()
+
+        # Aggregate results
+        total_added = sum(len(r.categorized_added) for r in results)
+        total_modified = sum(len(r.categorized_modified) for r in results)
+        total_removed = sum(len(r.removed_transaction_ids) for r in results)
+
         return {
-            "status": "not_implemented",
-            "message": "Sync functionality requires Plaid configuration",
+            "status": "success",
+            "pages_processed": len(results),
+            "total_added": total_added,
+            "total_modified": total_modified,
+            "total_removed": total_removed,
         }
 
     @function_tool
