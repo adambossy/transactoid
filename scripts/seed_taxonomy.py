@@ -220,14 +220,12 @@ def main(yaml_path: str = "configs/taxonomy.yaml") -> None:
     """
     CLI entrypoint for seeding taxonomy categories.
 
-    The database URL is read from ``TRANSACTOID_DATABASE_URL`` or
-    ``DATABASE_URL``. If neither is provided, an in-memory SQLite URL is used
-    as a placeholder.
+    The database URL is read from ``DATABASE_URL``. If not provided, an
+    in-memory SQLite URL is used as a placeholder.
     """
 
     db_url = (
-        os.environ.get("TRANSACTOID_DATABASE_URL")
-        or os.environ.get("DATABASE_URL")
+        os.environ.get("DATABASE_URL")
         or "sqlite:///:memory:"
     )
     db = DB(db_url)
