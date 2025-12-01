@@ -290,276 +290,279 @@ def _render_prompt_template(
     return rendered
 
 
-async def run(
-    *,
-    db: DB | None = None,
-    taxonomy: Taxonomy | None = None,
-) -> None:
-    """
-    Run the interactive agent loop using OpenAI Agents SDK.
+class Transactoid:
+    """Agent for helping users understand and manage their personal finances."""
 
-    The agent helps users understand and manage their personal finances
-    through a conversational interface with access to transaction data.
-    """
-    # Initialize services
-    if db is None:
-        db_url = (
-            os.environ.get("TRANSACTOID_DATABASE_URL")
-            or os.environ.get("DATABASE_URL")
-            or "sqlite:///:memory:"
-        )
-        db = DB(db_url)
-
-    if taxonomy is None:
-        taxonomy = Taxonomy.from_db(db)
-
-    # Load and render prompt template
-    template = load_prompt("agent-loop")
-    schema_hint = db.compact_schema_hint()
-    taxonomy_dict = taxonomy.to_prompt()
-    instructions = _render_prompt_template(
-        template,
-        database_schema=schema_hint,
-        category_taxonomy=taxonomy_dict,
-    )
-
-    # Initialize tool dependencies
-    persist_tool = PersistTool(db, taxonomy)
-
-    # Create tool wrapper functions
-    @function_tool
-    def run_sql(query: str) -> dict[str, Any]:
-        """
-        Execute SQL queries against the transaction database.
+    def __init__(
+        self,
+        *,
+        db: DB,
+        taxonomy: Taxonomy,
+        plaid_client: PlaidClient | None = None,
+    ) -> None:
+        """Initialize the Transactoid agent.
 
         Args:
-            query: SQL query string to execute
-
-        Returns:
-            Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
+            db: Database instance
+            taxonomy: Taxonomy instance for categorization
+            plaid_client: Optional PlaidClient instance. If None, will be created from env when needed.
         """
-        # Note: db.run_sql requires model and pk_column, but for agent use
-        # we'll need a simpler interface. For now, return empty results.
-        # This should be enhanced to actually execute queries.
-        return {"rows": [], "count": 0}
+        self._db = db
+        self._taxonomy = taxonomy
+        self._categorizer = Categorizer(taxonomy)
+        self._persist_tool = PersistTool(db, taxonomy)
+        self._plaid_client = plaid_client
 
-    @function_tool
-    def sync_transactions() -> dict[str, Any]:
+    async def run(self) -> None:
         """
-        Trigger synchronization with Plaid to fetch latest transactions.
+        Run the interactive agent loop using OpenAI Agents SDK.
 
-        Syncs all available transactions with automatic pagination, categorizes
-        each page as it's fetched, and persists results to the database.
-
-        Returns:
-            Dictionary with sync status and summary including:
-            - pages_processed: Number of pages synced
-            - total_added: Total transactions added
-            - total_modified: Total transactions modified
-            - total_removed: Total transactions removed
-            - status: "success" or "error"
+        The agent helps users understand and manage their personal finances
+        through a conversational interface with access to transaction data.
         """
-        try:
-            plaid_client = PlaidClient.from_env()
-        except PlaidClientError as e:
-            return {
-                "status": "error",
-                "message": f"Failed to initialize Plaid client: {e}",
-                "pages_processed": 0,
-                "total_added": 0,
-                "total_modified": 0,
-                "total_removed": 0,
-            }
-
-        # Check if at least one account is connected
-        plaid_items = db.list_plaid_items()
-        if not plaid_items:
-            # No accounts connected, trigger connection flow
-            connection_result = plaid_client.connect_new_account(db=db)
-            if connection_result.get("status") != "success":
-                return {
-                    "status": "error",
-                    "message": (
-                        "No accounts connected and failed to connect new account: "
-                        f"{connection_result.get('message', 'Unknown error')}"
-                    ),
-                    "pages_processed": 0,
-                    "total_added": 0,
-                    "total_modified": 0,
-                    "total_removed": 0,
-                }
-            # Refresh the list after connection
-            plaid_items = db.list_plaid_items()
-
-        # Get the first Plaid item's access token
-        # For now, sync the first item. In the future, could sync all items.
-        plaid_item = plaid_items[0]
-        access_token = plaid_item.access_token
-
-        # Create categorizer
-        categorizer = Categorizer(taxonomy)
-
-        # Create sync tool
-        sync_tool = SyncTool(
-            plaid_client=plaid_client,
-            categorizer=categorizer,
-            db=db,
-            taxonomy=taxonomy,
-            access_token=access_token,
-            cursor=None,  # Start fresh sync
+        # Load and render prompt template
+        template = load_prompt("agent-loop")
+        schema_hint = self._db.compact_schema_hint()
+        taxonomy_dict = self._taxonomy.to_prompt()
+        instructions = _render_prompt_template(
+            template,
+            database_schema=schema_hint,
+            category_taxonomy=taxonomy_dict,
         )
 
-        # Execute sync
-        results = sync_tool.sync()
+        # Create tool wrapper functions
+        @function_tool
+        def run_sql(query: str) -> dict[str, Any]:
+            """
+            Execute SQL queries against the transaction database.
 
-        # Aggregate results
-        total_added = sum(len(r.categorized_added) for r in results)
-        total_modified = sum(len(r.categorized_modified) for r in results)
-        total_removed = sum(len(r.removed_transaction_ids) for r in results)
+            Args:
+                query: SQL query string to execute
 
-        return {
-            "status": "success",
-            "pages_processed": len(results),
-            "total_added": total_added,
-            "total_modified": total_modified,
-            "total_removed": total_removed,
-        }
+            Returns:
+                Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
+            """
+            # Note: db.run_sql requires model and pk_column, but for agent use
+            # we'll need a simpler interface. For now, return empty results.
+            # This should be enhanced to actually execute queries.
+            return {"rows": [], "count": 0}
 
-    @function_tool
-    def connect_new_account() -> dict[str, Any]:
-        """
-        Trigger UI flow for connecting a new bank/institution via Plaid.
+        @function_tool
+        def sync_transactions() -> dict[str, Any]:
+            """
+            Trigger synchronization with Plaid to fetch latest transactions.
 
-        Opens a browser window for the user to link their bank account via Plaid Link.
-        The function handles the full OAuth flow, exchanges the public token for an
-        access token, and stores the connection in the database.
+            Syncs all available transactions with automatic pagination, categorizes
+            each page as it's fetched, and persists results to the database.
 
-        Returns:
-            Dictionary with connection status including:
-            - status: "success" or "error"
-            - item_id: Plaid item ID if successful
-            - institution_name: Institution name if available
-            - message: Human-readable status message
-        """
-        try:
-            client = PlaidClient.from_env()
-        except PlaidClientError as e:
-            return {
-                "status": "error",
-                "message": f"Failed to initialize Plaid client: {e}",
-            }
+            Returns:
+                Dictionary with sync status and summary including:
+                - pages_processed: Number of pages synced
+                - total_added: Total transactions added
+                - total_modified: Total transactions modified
+                - total_removed: Total transactions removed
+                - status: "success" or "error"
+            """
+            # Get or create PlaidClient
+            if self._plaid_client is None:
+                try:
+                    self._plaid_client = PlaidClient.from_env()
+                except PlaidClientError as e:
+                    return {
+                        "status": "error",
+                        "message": f"Failed to initialize Plaid client: {e}",
+                        "pages_processed": 0,
+                        "total_added": 0,
+                        "total_modified": 0,
+                        "total_removed": 0,
+                    }
 
-        return client.connect_new_account(db=db)
+            # Check if at least one account is connected
+            plaid_items = self._db.list_plaid_items()
+            if not plaid_items:
+                # No accounts connected, trigger connection flow
+                connection_result = self._plaid_client.connect_new_account(db=self._db)
+                if connection_result.get("status") != "success":
+                    return {
+                        "status": "error",
+                        "message": (
+                            "No accounts connected and failed to connect new account: "
+                            f"{connection_result.get('message', 'Unknown error')}"
+                        ),
+                        "pages_processed": 0,
+                        "total_added": 0,
+                        "total_modified": 0,
+                        "total_removed": 0,
+                    }
+                # Refresh the list after connection
+                plaid_items = self._db.list_plaid_items()
 
-    @function_tool
-    def update_category_for_transaction_groups(
-        filter: TransactionFilter,
-        new_category: str,
-    ) -> dict[str, Any]:
-        """
-        Update categories for groups of transactions matching specified criteria.
+            # Get the first Plaid item's access token
+            # For now, sync the first item. In the future, could sync all items.
+            plaid_item = plaid_items[0]
+            access_token = plaid_item.access_token
 
-        Args:
-            filter: Dictionary with filter criteria (e.g., date_range, category_prefix)
-            new_category: Category key to apply (must be valid from taxonomy)
-
-        Returns:
-            Dictionary with update summary
-        """
-        if not taxonomy.is_valid_key(new_category):
-            return {
-                "error": f"Invalid category key: {new_category}",
-                "updated": 0,
-            }
-
-        # Note: This is a simplified implementation.
-        # The actual implementation should parse the filter and update transactions.
-        return {
-            "status": "not_implemented",
-            "message": "Bulk category update requires filter parsing",
-            "category": new_category,
-        }
-
-    @function_tool
-    def tag_transactions(
-        filter: TransactionFilter,
-        tag: str,
-    ) -> dict[str, Any]:
-        """
-        Apply user-defined tags to transactions matching specified criteria.
-
-        Args:
-            filter: Filter criteria for selecting transactions
-            tag: Tag name to apply
-
-        Returns:
-            Dictionary with tagging summary
-        """
-        # Note: This is a simplified implementation.
-        # The actual implementation should parse the filter and apply tags.
-        result = persist_tool.apply_tags([], [tag])
-        return {
-            "applied": result.applied,
-            "created_tags": result.created_tags,
-            "status": "not_implemented",
-            "message": "Tagging requires filter parsing",
-        }
-
-    # print("instructions:", instructions)
-
-    # Create Agent instance
-    agent = Agent(
-        name="Transactoid",
-        instructions=instructions,
-        model="gpt-5",
-        tools=[
-            run_sql,
-            sync_transactions,
-            connect_new_account,
-            update_category_for_transaction_groups,
-            tag_transactions,
-        ],
-        model_settings=ModelSettings(reasoning_effort="medium", summary="detailed"),
-    )
-
-    # Interactive loop
-    print("Transactoid Agent - Personal Finance Assistant")
-    print("Type 'exit' or 'quit' to end the session.\n")
-
-    while True:
-        try:
-            user_input = input("You: ").strip()
-
-            if not user_input:
-                continue
-
-            if user_input.lower() in ("exit", "quit"):
-                print("Goodbye!")
-                break
-
-            # Run the agent with user input using the streaming API
-            stream = Runner.run_streamed(
-                agent,
-                user_input,
+            # Create sync tool using instance variables
+            sync_tool = SyncTool(
+                plaid_client=self._plaid_client,
+                categorizer=self._categorizer,
+                db=self._db,
+                taxonomy=self._taxonomy,
+                access_token=access_token,
+                cursor=None,  # Start fresh sync
             )
 
-            # Use the orchestrator pattern with renderer and router
-            renderer = StreamRenderer()
-            router = EventRouter(renderer)
+            # Execute sync
+            results = sync_tool.sync()
 
-            renderer.begin_turn(user_input)
+            # Aggregate results
+            total_added = sum(len(r.categorized_added) for r in results)
+            total_modified = sum(len(r.categorized_modified) for r in results)
+            total_removed = sum(len(r.removed_transaction_ids) for r in results)
 
-            async for event in stream.stream_events():
-                router.handle(event)
+            return {
+                "status": "success",
+                "pages_processed": len(results),
+                "total_added": total_added,
+                "total_modified": total_modified,
+                "total_removed": total_removed,
+            }
 
-            # Get final result if available
-            final_result = None
-            get_final_result = getattr(stream, "get_final_result", None)
-            if callable(get_final_result):
-                final_result = get_final_result()
+        @function_tool
+        def connect_new_account() -> dict[str, Any]:
+            """
+            Trigger UI flow for connecting a new bank/institution via Plaid.
 
-            renderer.end_turn(final_result)
+            Opens a browser window for the user to link their bank account via Plaid Link.
+            The function handles the full OAuth flow, exchanges the public token for an
+            access token, and stores the connection in the database.
 
-        except KeyboardInterrupt:
-            print("\n\nGoodbye!")
-            break
+            Returns:
+                Dictionary with connection status including:
+                - status: "success" or "error"
+                - item_id: Plaid item ID if successful
+                - institution_name: Institution name if available
+                - message: Human-readable status message
+            """
+            # Get or create PlaidClient
+            if self._plaid_client is None:
+                try:
+                    self._plaid_client = PlaidClient.from_env()
+                except PlaidClientError as e:
+                    return {
+                        "status": "error",
+                        "message": f"Failed to initialize Plaid client: {e}",
+                    }
+
+            return self._plaid_client.connect_new_account(db=self._db)
+
+        @function_tool
+        def update_category_for_transaction_groups(
+            filter: TransactionFilter,
+            new_category: str,
+        ) -> dict[str, Any]:
+            """
+            Update categories for groups of transactions matching specified criteria.
+
+            Args:
+                filter: Dictionary with filter criteria (e.g., date_range, category_prefix)
+                new_category: Category key to apply (must be valid from taxonomy)
+
+            Returns:
+                Dictionary with update summary
+            """
+            if not self._taxonomy.is_valid_key(new_category):
+                return {
+                    "error": f"Invalid category key: {new_category}",
+                    "updated": 0,
+                }
+
+            # Note: This is a simplified implementation.
+            # The actual implementation should parse the filter and update transactions.
+            return {
+                "status": "not_implemented",
+                "message": "Bulk category update requires filter parsing",
+                "category": new_category,
+            }
+
+        @function_tool
+        def tag_transactions(
+            filter: TransactionFilter,
+            tag: str,
+        ) -> dict[str, Any]:
+            """
+            Apply user-defined tags to transactions matching specified criteria.
+
+            Args:
+                filter: Filter criteria for selecting transactions
+                tag: Tag name to apply
+
+            Returns:
+                Dictionary with tagging summary
+            """
+            # Note: This is a simplified implementation.
+            # The actual implementation should parse the filter and apply tags.
+            result = self._persist_tool.apply_tags([], [tag])
+            return {
+                "applied": result.applied,
+                "created_tags": result.created_tags,
+                "status": "not_implemented",
+                "message": "Tagging requires filter parsing",
+            }
+
+        # Create Agent instance
+        agent = Agent(
+            name="Transactoid",
+            instructions=instructions,
+            model="gpt-5",
+            tools=[
+                run_sql,
+                sync_transactions,
+                connect_new_account,
+                update_category_for_transaction_groups,
+                tag_transactions,
+            ],
+            model_settings=ModelSettings(reasoning_effort="medium", summary="detailed"),
+        )
+
+        # Interactive loop
+        print("Transactoid Agent - Personal Finance Assistant")
+        print("Type 'exit' or 'quit' to end the session.\n")
+
+        while True:
+            try:
+                user_input = input("You: ").strip()
+
+                if not user_input:
+                    continue
+
+                if user_input.lower() in ("exit", "quit"):
+                    print("Goodbye!")
+                    break
+
+                # Run the agent with user input using the streaming API
+                stream = Runner.run_streamed(
+                    agent,
+                    user_input,
+                )
+
+                # Use the orchestrator pattern with renderer and router
+                renderer = StreamRenderer()
+                router = EventRouter(renderer)
+
+                renderer.begin_turn(user_input)
+
+                async for event in stream.stream_events():
+                    router.handle(event)
+
+                # Get final result if available
+                final_result = None
+                get_final_result = getattr(stream, "get_final_result", None)
+                if callable(get_final_result):
+                    final_result = get_final_result()
+
+                renderer.end_turn(final_result)
+
+            except KeyboardInterrupt:
+                print("\n\nGoodbye!")
+                break

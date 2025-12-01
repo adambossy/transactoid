@@ -1,16 +1,18 @@
 from __future__ import annotations
 import asyncio
+import os
 
 import typer
 
 from scripts import run
+from services.db import DB
+from services.taxonomy import Taxonomy
+from agents.transactoid import Transactoid
 
 app = typer.Typer(help="Transactoid — personal finance agent CLI.")
 
 run_app = typer.Typer(help="Run pipeline workflows.")
 app.add_typer(run_app, name="run")
-
-from agents.transactoid import run as transactoid_run
 
 
 @run_app.command("sync")  # type: ignore[misc]
@@ -99,11 +101,38 @@ def clear_cache(namespace: str = "default") -> None:
     return None
 
 
+async def _agent_impl(
+    *,
+    db: DB | None = None,
+    taxonomy: Taxonomy | None = None,
+) -> None:
+    """
+    Run the interactive agent loop using OpenAI Agents SDK.
+
+    The agent helps users understand and manage their personal finances
+    through a conversational interface with access to transaction data.
+    """
+    # Initialize services
+    if db is None:
+        db_url = (
+            os.environ.get("TRANSACTOID_DATABASE_URL")
+            or os.environ.get("DATABASE_URL")
+            or "sqlite:///:memory:"
+        )
+        db = DB(db_url)
+
+    if taxonomy is None:
+        taxonomy = Taxonomy.from_db(db)
+
+    agent_instance = Transactoid(db=db, taxonomy=taxonomy)
+    await agent_instance.run()
+
+
 def agent() -> None:
     """
     Run the transactoid agent to orchestrate sync → categorize → persist in batches.
     """
-    asyncio.run(transactoid_run())
+    asyncio.run(_agent_impl())
 
 
 def main() -> None:
