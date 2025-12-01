@@ -6,18 +6,18 @@ This directory contains Alembic configuration for database migrations in the tra
 
 - **Migration scripts location**: `alembic/` (this directory)
 - **Migration versions location**: `db/migrations/`
-- **Database URL**: Read from `TRANSACTOID_DATABASE_URL` or `DATABASE_URL` environment variables
+- **Database URL**: Read from `DATABASE_URL` environment variable (loaded from `.env` file in project root)
 
 ## Usage
 
 ### Setting the Database URL
 
-Set the database URL using one of these environment variables:
+The database URL is automatically loaded from the `.env` file in the project root. You can also set it as an environment variable:
 
 ```bash
-export TRANSACTOID_DATABASE_URL="sqlite:///./transactoid.db"
-# or
 export DATABASE_URL="postgresql://user:password@localhost/transactoid"
+# or for SQLite:
+export DATABASE_URL="sqlite:///./transactoid.db"
 ```
 
 ### Applying Migrations
@@ -93,12 +93,12 @@ uv run alembic downgrade base
 1. Make changes to SQLAlchemy models in `services/db.py`
 2. Generate a migration:
    ```bash
-   TRANSACTOID_DATABASE_URL=sqlite:///./transactoid.db uv run alembic revision --autogenerate -m "Add new column to transactions"
+   uv run alembic revision --autogenerate -m "Add new column to transactions"
    ```
 3. Review the generated migration file in `db/migrations/`
 4. Apply the migration:
    ```bash
-   TRANSACTOID_DATABASE_URL=sqlite:///./transactoid.db uv run alembic upgrade head
+   uv run alembic upgrade head
    ```
 
 ## Notes

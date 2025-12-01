@@ -1,10 +1,14 @@
 import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import the Base and all models for autogenerate support
 from services.db import Base
@@ -30,8 +34,7 @@ if config.config_file_name is not None:
 
 # Get database URL from environment variables
 database_url = (
-    os.environ.get("TRANSACTOID_DATABASE_URL")
-    or os.environ.get("DATABASE_URL")
+    os.environ.get("DATABASE_URL")
     or config.get_main_option("sqlalchemy.url")
 )
 

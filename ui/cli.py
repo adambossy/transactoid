@@ -115,8 +115,7 @@ async def _agent_impl(
     # Initialize services
     if db is None:
         db_url = (
-            os.environ.get("TRANSACTOID_DATABASE_URL")
-            or os.environ.get("DATABASE_URL")
+            os.environ.get("DATABASE_URL")
             or "sqlite:///:memory:"
         )
         db = DB(db_url)
