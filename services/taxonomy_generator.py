@@ -32,7 +32,8 @@ def store_generated(markdown: str) -> None:
         try:
             storage.add_prompt(key, custom_dir=None)
         except Exception:
-            # If add_prompt fails because it already exists or any race, ignore and retry update.
+            # If add_prompt fails because it already exists or any race,
+            # ignore and retry update.
             pass
         svc.update_prompt(key, markdown)
 
@@ -53,7 +54,8 @@ def _normalize_yaml_for_hash(yaml_text: str) -> str:
     Normalize YAML text for hashing.
     - Prefer canonicalization via PyYAML if available (sorted keys, stable dump)
     - Fallback to whitespace-trimmed text, which is stable but not key-sorted
-    - Goal: semantically equivalent YAML yields identical hashes; whitespace-only diffs ignored
+    - Goal: semantically equivalent YAML yields identical hashes;
+      whitespace-only diffs ignored
     """
     try:
         data = yaml.safe_load(yaml_text)
@@ -203,7 +205,8 @@ def _yaml_dump_front_matter(meta: Dict[str, Any]) -> str:
 
 def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
     """
-    Wrap the given Markdown body with YAML front matter. The front matter should include:
+    Wrap the given Markdown body with YAML front matter.
+    The front matter should include:
       - taxonomy_version: str (set to a placeholder before storage)
       - input_yaml_sha256: str
       - prompt_sha256: str
