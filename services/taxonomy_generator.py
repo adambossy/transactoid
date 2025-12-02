@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import yaml
 from openai import OpenAI
+from promptorium import load_prompt
 from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
@@ -411,16 +412,6 @@ DEFAULT_MERGED_TEMPLATE: str = dedent(
 # ----------------------------
 # Promptorium integration (library-based)
 # ----------------------------
-def load_prompt_text(key: str) -> str:
-    """
-    Load the latest prompt text by key from Promptorium.
-    Uses the Promptorium library with filesystem storage rooted at the repository.
-    """
-    storage = FileSystemPromptStorage(find_repo_root())
-    svc = PromptService(storage)
-    return str(svc.load_prompt(key))
-
-
 def store_generated(markdown: str) -> None:
     """
     Store generated taxonomy markdown to Promptorium under key `taxonomy-rules`.
@@ -448,9 +439,7 @@ def load_latest_generated_text() -> Optional[str]:
     Returns None if no prior version exists.
     """
     key = "taxonomy-rules"
-    storage = FileSystemPromptStorage(find_repo_root())
-    svc = PromptService(storage)
-    text = svc.load_prompt(key)
+    text = load_prompt(key)
     return str(text) if str(text).strip() else None
 
 
@@ -637,7 +626,6 @@ def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
 
 __all__ = [
     "DEFAULT_MERGED_TEMPLATE",
-    "load_prompt_text",
     "load_latest_generated_text",
     "read_yaml_text",
     "_normalize_yaml_for_hash",
