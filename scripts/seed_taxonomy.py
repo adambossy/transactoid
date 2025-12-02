@@ -224,10 +224,7 @@ def main(yaml_path: str = "configs/taxonomy.yaml") -> None:
     in-memory SQLite URL is used as a placeholder.
     """
 
-    db_url = (
-        os.environ.get("DATABASE_URL")
-        or "sqlite:///:memory:"
-    )
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
     db = DB(db_url)
     categories = seed_taxonomy_from_yaml(db, yaml_path)
     print(f"Seeded {len(categories)} categories from {yaml_path} into {db_url}")

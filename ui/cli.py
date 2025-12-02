@@ -114,10 +114,7 @@ async def _agent_impl(
     """
     # Initialize services
     if db is None:
-        db_url = (
-            os.environ.get("DATABASE_URL")
-            or "sqlite:///:memory:"
-        )
+        db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
         db = DB(db_url)
 
     if taxonomy is None:

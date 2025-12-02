@@ -6,6 +6,7 @@ from services.db import DB, CategoryRow, _normalize_merchant_name
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import ApplyTagsOutcome, PersistTool
 
+
 def create_db() -> DB:
     """Create in-memory database instance."""
     db = DB("sqlite:///:memory:")
