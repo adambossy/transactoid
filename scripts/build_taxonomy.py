@@ -73,9 +73,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except KeyboardInterrupt:
         return 130
-    except Exception as exc:  # pragma: no cover - surfaced for CLI usage
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
 
 
 if __name__ == "__main__":

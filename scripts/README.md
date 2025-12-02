@@ -2,6 +2,34 @@
 
 This directory contains small, focused command-line helpers for the project.
 
+## Legacy Category Migration (`migrate_legacy_categories.py`)
+
+Convert the exported `fa_categories_rows.csv` file from the legacy Fire Ant
+deployment into the current two-level taxonomy schema.
+
+Key behaviors:
+
+- Normalizes every legacy `code` into deterministic taxonomy keys using a
+  slugified parent/child pattern (e.g., `Food & Dining` → `food_dining`,
+  `Groceries` → `food_dining.groceries`).
+- Preserves the legacy `sort_order` to keep parents and children ordered.
+- Emits an optional taxonomy YAML file (`--output-yaml`) for use with the
+  existing `seed_taxonomy` flow.
+- Can directly replace the records in the configured database when `--apply`
+  is supplied.
+
+Run it from the repository root:
+
+```bash
+uv run python -m scripts.migrate_legacy_categories migrate \
+  --input fa_categories_rows.csv \
+  --output-yaml configs/taxonomy.generated.yaml \
+  --apply
+```
+
+Use `--database-url` to override `DATABASE_URL`, or omit `--apply` for a
+dry-run preview.
+
 ## Plaid CLI (`plaid_cli.py`)
 
 A standalone command-line tool for working with the Plaid API. It has **no dependencies on the rest of the project** and loads credentials from the repo’s `.env` file via [`python-dotenv`](https://pypi.org/project/python-dotenv/).
