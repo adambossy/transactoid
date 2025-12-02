@@ -11,7 +11,7 @@ def run_build(yaml_path: str, model: str) -> bool:
     Execute the taxonomy generation flow.
     Returns True if a new taxonomy was generated and stored, False if skipped.
     """
-    merged_template = tg.load_or_default_merged_template()
+    merged_template = tg.load_prompt_text("taxonomy-generator")
     input_yaml = tg.read_yaml_text(yaml_path)
 
     input_hash = tg.compute_sha256(tg._normalize_yaml_for_hash(input_yaml))

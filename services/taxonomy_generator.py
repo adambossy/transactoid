@@ -635,20 +635,6 @@ def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
     return f"---\n{fm}\n---\n\n{body_md.strip()}\n"
 
 
-# ----------------------------
-# Orchestration helpers
-# ----------------------------
-def load_or_default_merged_template() -> str:
-    """
-    Try to load the merged prompt template from Promptorium key `taxonomy-generator`.
-    Fallback to DEFAULT_MERGED_TEMPLATE if not available.
-    """
-    try:
-        return load_prompt_text("taxonomy-generator")
-    except Exception:
-        return DEFAULT_MERGED_TEMPLATE
-
-
 __all__ = [
     "DEFAULT_MERGED_TEMPLATE",
     "load_prompt_text",
@@ -661,5 +647,4 @@ __all__ = [
     "call_openai",
     "wrap_with_front_matter",
     "store_generated",
-    "load_or_default_merged_template",
 ]
