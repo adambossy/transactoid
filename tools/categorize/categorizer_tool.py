@@ -69,7 +69,7 @@ class Categorizer:
         self,
         taxonomy: "Taxonomy",
         *,
-        prompt_key: str = "categorize-transacations",
+        prompt_key: str = "categorize-transactions",
         model: str = "gpt-5.1",
         confidence_threshold: float = 0.70,
         file_cache: Optional[FileCache] = None,

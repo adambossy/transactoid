@@ -26,7 +26,7 @@ See: `plans/transactoid-requirements.md` and `plans/transactoid-interfaces.md`.
 
 ## Features (from the spec)
 - **Sync**: Calls Plaid's transaction sync API and categorizes all results using an LLM.
-- **Categorization**: Single concrete `Categorizer` (batch-only), prompt key `categorize-transacations`.
+- **Categorization**: Single concrete `Categorizer` (batch-only), prompt key `categorize-transactions`.
 - **Taxonomy**: Two-level keys (e.g., `FOOD.GROCERIES`), validation via `taxonomy.is_valid_key(key)`.
 - **Persistence**: Upsert `(external_id, source)`; immutable `is_verified` rows; deterministic merchant normalization; tag and bulk recategorization helpers.
 - **Analytics**: NL→SQL tool returns two SQL strings (aggregates + sample rows), both LLM-verified before DB execution.
