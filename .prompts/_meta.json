@@ -3,6 +3,6 @@
   "custom_dirs": {
     "agent-loop": "prompts/agent-loop",
     "categorize-transactions": "prompts/categorize-transactions",
-    "taxonomy-personal-finance": "prompts/taxonomy-personal-finance"
+    "taxonomy-rules": "prompts/taxonomy-rules"
   }
 }

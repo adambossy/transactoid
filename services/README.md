@@ -22,7 +22,7 @@ Behavior:
 - Loads merged template from Promptorium key `taxonomy-generator` (falls back to an internal default if unavailable)
 - Computes `input_yaml_sha256` and `prompt_sha256`
 - Skips regeneration if the latest stored document’s front matter matches both hashes
-- Otherwise, calls OpenAI to generate Markdown and stores the result under Promptorium key `taxonomy-personal-finance`
+- Otherwise, calls OpenAI to generate Markdown and stores the result under Promptorium key `taxonomy-rules`
 
 ### Development
 - Linting: Ruff (see `ruff.toml` and `docs/ruff-guide.md`)

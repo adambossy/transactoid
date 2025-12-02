@@ -423,10 +423,10 @@ def load_prompt_text(key: str) -> str:
 
 def store_generated(markdown: str) -> None:
     """
-    Store generated taxonomy markdown to Promptorium under key `taxonomy-personal-finance`.
+    Store generated taxonomy markdown to Promptorium under key `taxonomy-rules`.
     Uses the Promptorium library and creates the key if it does not exist.
     """
-    key = "taxonomy-personal-finance"
+    key = "taxonomy-rules"
     storage = FileSystemPromptStorage(find_repo_root())
     svc = PromptService(storage)
     # Try updating directly; if key doesn't exist, add then retry.
@@ -447,7 +447,7 @@ def load_latest_generated_text() -> Optional[str]:
     Load the latest stored taxonomy markdown for comparison (front matter read).
     Returns None if no prior version exists.
     """
-    key = "taxonomy-personal-finance"
+    key = "taxonomy-rules"
     storage = FileSystemPromptStorage(find_repo_root())
     svc = PromptService(storage)
     text = svc.load_prompt(key)

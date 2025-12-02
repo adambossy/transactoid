@@ -13,7 +13,7 @@ Build a small generator that:
 ### Key Decisions
 
 - Single prompt key: `taxonomy-generator` (merged template).
-- Single official version number: `taxonomy-personal-finance` (generated taxonomy). Only this key’s version is considered the taxonomy version.
+- Single official version number: `taxonomy-rules` (generated taxonomy). Only this key’s version is considered the taxonomy version.
 - Metadata location: YAML front matter in the generated Markdown.
 - Input YAML: `config/taxonomy.yaml`.
 - OpenAI model: configurable via CLI flag or env; default `gpt-4o` (override as needed).
@@ -58,7 +58,7 @@ Personal Finance Transactions
 - Load merged template text from Promptorium key `taxonomy-generator`.
 - Read YAML from `config/taxonomy.yaml` and compute `input_yaml_sha256` over a normalized serialization (sorted keys, trimmed whitespace).
 - Compute `prompt_sha256` over the merged template.
-- Load the latest `taxonomy-personal-finance` content (if any); parse its front matter (`---` fenced YAML) for `input_yaml_sha256` and `prompt_sha256`.
+- Load the latest `taxonomy-rules` content (if any); parse its front matter (`---` fenced YAML) for `input_yaml_sha256` and `prompt_sha256`.
 - If both hashes match current values, exit with a no-op.
 - Otherwise, call OpenAI with the merged prompt (substitute `{input_yaml}`), capture Markdown output, and wrap it with front matter:
   ```yaml
@@ -74,7 +74,7 @@ Personal Finance Transactions
 
 followed by the generated Markdown.
 
-- Store via Promptorium under key `taxonomy-personal-finance` (this increments the single official version number).
+- Store via Promptorium under key `taxonomy-rules` (this increments the single official version number).
 
 ### CLI Usage
 
@@ -85,7 +85,7 @@ followed by the generated Markdown.
 
 - On bootstrap, ensure `taxonomy-generator` contains the merged template using Promptorium’s write/update function. If library write API is unavailable, call the CLI `prompts update taxonomy-generator --file <template.md>` programmatically.
 - Use `load_prompt(key)` to retrieve latest content when generating.
-- Use the write/update function to store `taxonomy-personal-finance` output (no manual versioning—Promptorium increments automatically).
+- Use the write/update function to store `taxonomy-rules` output (no manual versioning—Promptorium increments automatically).
 
 ### Tests
 
@@ -126,7 +126,7 @@ followed by the generated Markdown.
 
 - [ ] Create merged prompt template and store under Promptorium key taxonomy-generator
 - [ ] Implement library functions in services/taxonomy_generator.py
-- [ ] Use Promptorium API to write taxonomy-personal-finance output
+- [ ] Use Promptorium API to write taxonomy-rules output
 - [ ] Implement hash-based no-op skip logic via front matter metadata
 - [ ] Add scripts/build_taxonomy.py CLI to run generation
 - [ ] Add unit tests for hashing, skip logic, Promptorium/OpenAI mocks
