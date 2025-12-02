@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from typing import Any
 
@@ -283,9 +282,13 @@ def _render_prompt_template(
         category_taxonomy, default_flow_style=False, sort_keys=False
     )
 
+    # Load taxonomy rules prompt
+    taxonomy_rules = load_prompt("taxonomy-rules")
+
     # Replace placeholders
     rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
     rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
+    rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
 
     return rendered
 
