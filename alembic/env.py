@@ -33,9 +33,8 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Get database URL from environment variables
-database_url = (
-    os.environ.get("DATABASE_URL")
-    or config.get_main_option("sqlalchemy.url")
+database_url = os.environ.get("DATABASE_URL") or config.get_main_option(
+    "sqlalchemy.url"
 )
 
 if database_url:
@@ -89,9 +88,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

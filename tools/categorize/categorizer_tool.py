@@ -30,12 +30,22 @@ class CategorizationResult(BaseModel):
 
     idx: int = Field(..., description="Index matching the input transaction")
     category: str = Field(..., description="Initial category key")
-    score: float = Field(..., ge=0.0, le=1.0, description="Initial confidence before search")
+    score: float = Field(
+        ..., ge=0.0, le=1.0, description="Initial confidence before search"
+    )
     rationale: str = Field(..., description="Initial rationale")
-    revised_category: Optional[str] = Field(None, description="Category after web search")
-    revised_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Confidence after web search")
-    revised_rationale: Optional[str] = Field(None, description="Rationale after web search")
-    citations: Optional[list[str]] = Field(None, description="Web pages used for revision")
+    revised_category: Optional[str] = Field(
+        None, description="Category after web search"
+    )
+    revised_score: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Confidence after web search"
+    )
+    revised_rationale: Optional[str] = Field(
+        None, description="Rationale after web search"
+    )
+    citations: Optional[list[str]] = Field(
+        None, description="Web pages used for revision"
+    )
 
 
 class CategorizationResponse(BaseModel):
@@ -48,7 +58,9 @@ class CategorizationResponse(BaseModel):
         """Parse JSON string into CategorizationResponse."""
         data = json.loads(json_str)
         if isinstance(data, list):
-            return cls(results=[CategorizationResult.model_validate(item) for item in data])
+            return cls(
+                results=[CategorizationResult.model_validate(item) for item in data]
+            )
         raise ValueError(f"Expected JSON array, got {type(data)}")
 
 
@@ -115,9 +127,8 @@ class Categorizer:
         template = load_prompt(self._prompt_key)
         taxonomy_text = self._serialize_taxonomy(taxonomy_dict)
         txn_json_str = json.dumps(txn_json_list, ensure_ascii=False, indent=2)
-        return (
-            template.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text)
-            .replace("{{CTV_JSON}}", txn_json_str)
+        return template.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text).replace(
+            "{{CTV_JSON}}", txn_json_str
         )
 
     def _create_cache_key(
