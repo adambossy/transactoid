@@ -20,7 +20,8 @@ def run_build(yaml_path: str, model: str) -> bool:
 
     latest_doc: str | None
     try:
-        latest_doc = tg.load_latest_generated_text()
+        text = load_prompt("taxonomy-rules")
+        latest_doc = str(text) if str(text).strip() else None
     except Exception:
         # If integration isn't configured, treat as if no prior version exists.
         latest_doc = None

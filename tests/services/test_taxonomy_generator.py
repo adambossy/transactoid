@@ -7,6 +7,7 @@ from typing import List
 import pytest
 
 from services import taxonomy_generator as tg
+from scripts import build_taxonomy
 from scripts.build_taxonomy import run_build
 
 
@@ -87,15 +88,19 @@ def test_generation_flow_stores_when_changed(
     )
 
     # Force a deterministic template and OpenAI result
-    monkeypatch.setattr(
-        tg, "load_prompt_text", lambda key: "TEMPLATE\n{input_yaml}\nEND" if key == "taxonomy-generator" else ""
-    )
+    def mock_load_prompt(key: str) -> str:
+        if key == "taxonomy-generator":
+            return "TEMPLATE\n{input_yaml}\nEND"
+        elif key == "taxonomy-rules":
+            raise Exception("No prior version")
+        return ""
+
+    monkeypatch.setattr(build_taxonomy, "load_prompt", mock_load_prompt)
     monkeypatch.setattr(
         tg, "call_openai", lambda markdown_prompt, model: "Generated Body"
     )
 
     stored: List[str] = []
-    monkeypatch.setattr(tg, "load_latest_generated_text", lambda: None)
     monkeypatch.setattr(tg, "store_generated", lambda md: stored.append(md))
 
     did_generate = run_build(str(yaml_path), model="gpt-4o")
@@ -119,8 +124,6 @@ def test_generation_flow_skips_when_unchanged(
 
     # Deterministic template
     template = "TEMPLATE\n{input_yaml}\nEND"
-    monkeypatch.setattr(tg, "load_prompt_text", lambda key: template if key == "taxonomy-generator" else "")
-
     inp_hash = tg.compute_sha256(tg._normalize_yaml_for_hash(yaml_text))
     prm_hash = tg.compute_sha256(template)
     latest_doc = f"""---
@@ -134,7 +137,14 @@ created_at: "2025-01-01T00:00:00Z"
 Body
 """
 
-    monkeypatch.setattr(tg, "load_latest_generated_text", lambda: latest_doc)
+    def mock_load_prompt(key: str) -> str:
+        if key == "taxonomy-generator":
+            return template
+        elif key == "taxonomy-rules":
+            return latest_doc
+        return ""
+
+    monkeypatch.setattr(build_taxonomy, "load_prompt", mock_load_prompt)
 
     def _fail_on_store(_: str) -> None:
         raise AssertionError("store_generated should not be called when unchanged")
