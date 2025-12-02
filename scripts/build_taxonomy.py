@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from promptorium import load_prompt
 from services import taxonomy_generator as tg
 
 
@@ -11,7 +12,7 @@ def run_build(yaml_path: str, model: str) -> bool:
     Execute the taxonomy generation flow.
     Returns True if a new taxonomy was generated and stored, False if skipped.
     """
-    merged_template = tg.load_prompt_text("taxonomy-generator")
+    merged_template = load_prompt("taxonomy-generator")
     input_yaml = tg.read_yaml_text(yaml_path)
 
     input_hash = tg.compute_sha256(tg._normalize_yaml_for_hash(input_yaml))
