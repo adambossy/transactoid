@@ -88,7 +88,7 @@ def test_generation_flow_stores_when_changed(
 
     # Force a deterministic template and OpenAI result
     monkeypatch.setattr(
-        tg, "load_or_default_merged_template", lambda: "TEMPLATE\n{input_yaml}\nEND"
+        tg, "load_prompt_text", lambda key: "TEMPLATE\n{input_yaml}\nEND" if key == "taxonomy-generator" else ""
     )
     monkeypatch.setattr(
         tg, "call_openai", lambda markdown_prompt, model: "Generated Body"
@@ -119,7 +119,7 @@ def test_generation_flow_skips_when_unchanged(
 
     # Deterministic template
     template = "TEMPLATE\n{input_yaml}\nEND"
-    monkeypatch.setattr(tg, "load_or_default_merged_template", lambda: template)
+    monkeypatch.setattr(tg, "load_prompt_text", lambda key: template if key == "taxonomy-generator" else "")
 
     inp_hash = tg.compute_sha256(tg._normalize_yaml_for_hash(yaml_text))
     prm_hash = tg.compute_sha256(template)
