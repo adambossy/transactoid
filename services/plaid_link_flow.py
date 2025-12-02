@@ -304,7 +304,7 @@ def setup_redirect_server(
     try:
         server, server_thread, actual_host, actual_port = start_redirect_server(
             host="localhost",
-            port=0,  # Auto-select port
+            port=8443,
             path=redirect_path,
             token_queue=token_queue,
             state=state,
