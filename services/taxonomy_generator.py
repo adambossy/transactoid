@@ -433,16 +433,6 @@ def store_generated(markdown: str) -> None:
         svc.update_prompt(key, markdown)
 
 
-def load_latest_generated_text() -> Optional[str]:
-    """
-    Load the latest stored taxonomy markdown for comparison (front matter read).
-    Returns None if no prior version exists.
-    """
-    key = "taxonomy-rules"
-    text = load_prompt(key)
-    return str(text) if str(text).strip() else None
-
-
 # ----------------------------
 # Core helpers
 # ----------------------------
@@ -626,7 +616,6 @@ def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
 
 __all__ = [
     "DEFAULT_MERGED_TEMPLATE",
-    "load_latest_generated_text",
     "read_yaml_text",
     "_normalize_yaml_for_hash",
     "compute_sha256",
