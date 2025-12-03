@@ -10,6 +10,7 @@ from openai.types.responses import (
 )
 from promptorium import load_prompt
 from pydantic import BaseModel
+from sqlalchemy import text
 import yaml
 
 from agents import Agent, ModelSettings, Runner, function_tool
@@ -345,10 +346,33 @@ class Transactoid:
             Returns:
                 Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
             """
-            # Note: db.run_sql requires model and pk_column, but for agent use
-            # we'll need a simpler interface. For now, return empty results.
-            # This should be enhanced to actually execute queries.
-            return {"rows": [], "count": 0}
+            try:
+                with self._db.session() as session:
+                    result = session.execute(text(query))
+
+                    if result.returns_rows:
+                        # Convert Row objects to dicts
+                        rows = [dict(row._mapping) for row in result.fetchall()]
+                        # Convert date/datetime objects to strings for JSON serialization
+                        for row in rows:
+                            for key, value in row.items():
+                                if hasattr(value, "isoformat"):
+                                    row[key] = value.isoformat()
+                        return {
+                            "rows": rows,
+                            "count": len(rows)
+                        }
+                    else:
+                        return {
+                            "rows": [],
+                            "count": result.rowcount
+                        }
+            except Exception as e:
+                return {
+                    "rows": [],
+                    "count": 0,
+                    "error": str(e)
+                }
 
         @function_tool
         def sync_transactions() -> dict[str, Any]:
