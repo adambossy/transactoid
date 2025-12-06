@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, Callable
 
 from dotenv import load_dotenv
 from openai.types.responses import (
@@ -317,6 +317,24 @@ class Transactoid:
         self._persist_tool = PersistTool(db, taxonomy)
         self._plaid_client = plaid_client
 
+    def _ensure_plaid_client(
+        self, *, error_factory: Callable[[PlaidClientError], dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Ensure PlaidClient is initialized, returning error dict on failure.
+
+        Args:
+            error_factory: Callable that takes an exception and returns error dict
+
+        Returns:
+            None on success, error dict on failure
+        """
+        if self._plaid_client is None:
+            try:
+                self._plaid_client = PlaidClient.from_env()
+            except PlaidClientError as e:
+                return error_factory(e)
+        return None
+
     async def run(self) -> None:
         """
         Run the interactive agent loop using OpenAI Agents SDK.
@@ -391,18 +409,18 @@ class Transactoid:
                 - status: "success" or "error"
             """
             # Get or create PlaidClient
-            if self._plaid_client is None:
-                try:
-                    self._plaid_client = PlaidClient.from_env()
-                except PlaidClientError as e:
-                    return {
-                        "status": "error",
-                        "message": f"Failed to initialize Plaid client: {e}",
-                        "pages_processed": 0,
-                        "total_added": 0,
-                        "total_modified": 0,
-                        "total_removed": 0,
-                    }
+            error = self._ensure_plaid_client(
+                error_factory=lambda e: {
+                    "status": "error",
+                    "message": f"Failed to initialize Plaid client: {e}",
+                    "pages_processed": 0,
+                    "total_added": 0,
+                    "total_modified": 0,
+                    "total_removed": 0,
+                }
+            )
+            if error is not None:
+                return error
 
             # Check if at least one account is connected
             plaid_items = self._db.list_plaid_items()
@@ -472,16 +490,43 @@ class Transactoid:
                 - message: Human-readable status message
             """
             # Get or create PlaidClient
-            if self._plaid_client is None:
-                try:
-                    self._plaid_client = PlaidClient.from_env()
-                except PlaidClientError as e:
-                    return {
-                        "status": "error",
-                        "message": f"Failed to initialize Plaid client: {e}",
-                    }
+            error = self._ensure_plaid_client(
+                error_factory=lambda e: {
+                    "status": "error",
+                    "message": f"Failed to initialize Plaid client: {e}",
+                }
+            )
+            if error is not None:
+                return error
 
             return self._plaid_client.connect_new_account(db=self._db)
+
+        @function_tool
+        def list_accounts() -> dict[str, Any]:
+            """
+            List all connected bank accounts from Plaid items.
+
+            Returns account details for all connected institutions, including
+            account names, types, and institution information.
+
+            Returns:
+                Dictionary with account listing status including:
+                - status: "success" or "error"
+                - accounts: List of account dictionaries with account and institution details
+                - message: Human-readable status message
+            """
+            # Get or create PlaidClient
+            error = self._ensure_plaid_client(
+                error_factory=lambda e: {
+                    "status": "error",
+                    "accounts": [],
+                    "message": f"Failed to initialize Plaid client: {e}",
+                }
+            )
+            if error is not None:
+                return error
+
+            return self._plaid_client.list_accounts(db=self._db)
 
         @function_tool
         def update_category_for_transaction_groups(
@@ -541,11 +586,12 @@ class Transactoid:
         agent = Agent(
             name="Transactoid",
             instructions=instructions,
-            model="gpt-5",
+            model="gpt-5.1",
             tools=[
                 run_sql,
                 sync_transactions,
                 connect_new_account,
+                list_accounts,
                 update_category_for_transaction_groups,
                 tag_transactions,
             ],

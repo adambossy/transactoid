@@ -133,6 +133,9 @@ class SyncTool:
                 # If no more pages, break
                 if not has_more:
                     break
+                
+                # Stop after one page for testing
+                break
 
                 # Update cursor for next iteration
                 current_cursor = next_cursor
