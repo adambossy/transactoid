@@ -109,6 +109,20 @@ class InstitutionGetByIdResponse(PlaidBaseModel):
     institution: InstitutionModel | None = None
 
 
+class AccountWithInstitution(PlaidBaseModel):
+    """Account information combined with institution and item details."""
+
+    account_id: str
+    name: str
+    official_name: str | None = None
+    mask: str | None = None
+    subtype: str | None = None
+    type: str | None = None
+    institution_name: str | None = None
+    institution_id: str | None = None
+    item_id: str
+
+
 class PlaidTransactionModel(PlaidBaseModel):
     transaction_id: str | None = None
     account_id: str
@@ -529,3 +543,73 @@ class PlaidClient:
         finally:
             if server is not None and server_thread is not None:
                 shutdown_redirect_server(server, server_thread)
+
+    def list_accounts(
+        self,
+        *,
+        db: Any,  # DB type from services.db, avoiding circular import
+    ) -> dict[str, Any]:
+        """List all connected bank accounts from Plaid items.
+
+        Queries the database for all Plaid items and fetches account details
+        from Plaid for each item.
+
+        Args:
+            db: Database instance with list_plaid_items method
+
+        Returns:
+            Dictionary with account listing status including:
+            - status: "success" or "error"
+            - accounts: List of account dictionaries, each containing:
+              - Account details (account_id, name, official_name, mask, subtype, type)
+              - Institution information (institution_name, institution_id, item_id)
+            - message: Human-readable status message
+        """
+        plaid_items = db.list_plaid_items()
+        if not plaid_items:
+            return {
+                "status": "success",
+                "accounts": [],
+                "message": "No connected accounts found.",
+            }
+
+        all_accounts: list[dict[str, Any]] = []
+        errors: list[str] = []
+
+        for item in plaid_items:
+            try:
+                accounts = self.get_accounts(item.access_token)
+                item_info = self.get_item_info(item.access_token)
+
+                for account in accounts:
+                    account_data: dict[str, Any] = {
+                        **account,
+                        "institution_name": item_info.get("institution_name")
+                        or item.institution_name,
+                        "institution_id": item_info.get("institution_id")
+                        or item.institution_id,
+                        "item_id": item.item_id,
+                    }
+                    account_with_institution = AccountWithInstitution.parse(account_data)
+                    all_accounts.append(account_with_institution.model_dump())
+            except Exception as e:
+                errors.append(
+                    f"Failed to fetch accounts for item {item.item_id}: {str(e)}"
+                )
+
+        if errors and not all_accounts:
+            return {
+                "status": "error",
+                "accounts": [],
+                "message": f"Failed to fetch accounts: {'; '.join(errors)}",
+            }
+
+        message = f"Found {len(all_accounts)} account(s) across {len(plaid_items)} institution(s)."
+        if errors:
+            message += f" Note: {len(errors)} error(s) occurred while fetching some accounts."
+
+        return {
+            "status": "success",
+            "accounts": all_accounts,
+            "message": message,
+        }
