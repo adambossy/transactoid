@@ -112,27 +112,37 @@ class StreamRenderer:
     def on_tool_call_started(self, call_id: str, name: str) -> None:
         """Begin a new tool call."""
         self.tool_calls[call_id] = ToolCallState(call_id, name)
-        print()
-        print(colorize(f"📞 Function call started: {name}()", "tool"))
-        print(colorize("📝 Arguments: ", "args"), end="", flush=True)
 
     def on_tool_arguments_delta(self, call_id: str, delta: str) -> None:
-        """Stream tool call arguments in magenta."""
+        """Accumulate tool call arguments (printed on completion)."""
         state = self.tool_calls.get(call_id)
         if not state:
-            # Fallback: create if SDK omits start event before args stream
             state = ToolCallState(call_id, "unknown")
             self.tool_calls[call_id] = state
         state.args_chunks.append(delta)
-        print(colorize(delta, "args"), end="", flush=True)
 
     def on_tool_call_completed(self, call_id: str) -> None:
-        """Mark tool call as completed."""
+        """Print tool call with pretty-printed arguments."""
         state = self.tool_calls.get(call_id)
-        if state:
-            self._clear_thinking()
-            print()
-            print(colorize(f"✅ Function call completed: {state.name}", "tool"))
+        if not state:
+            return
+        self._clear_thinking()
+        print()
+        print(colorize(f"📞 {state.name}()", "tool"))
+        args_text = state.args_text()
+        if args_text:
+            try:
+                args = json.loads(args_text)
+                if state.name == "run_sql" and "query" in args:
+                    query = args.pop("query")
+                    if args:
+                        print(colorize(json.dumps(args, indent=2), "args"))
+                    print(colorize("SQL:", "args"))
+                    print(colorize(query, "args"))
+                else:
+                    print(colorize(json.dumps(args, indent=2), "args"))
+            except json.JSONDecodeError:
+                print(colorize(args_text, "args"))
 
     def on_tool_result(self, output: Any) -> None:
         """Display tool execution result in blue."""
