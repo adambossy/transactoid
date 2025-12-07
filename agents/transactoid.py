@@ -137,7 +137,6 @@ class StreamRenderer:
         if not state:
             return
         self._clear_thinking()
-        print()
         args_text = state.args_text()
         if not args_text:
             print(colorize(f"📞 {state.name}()", "tool"))
@@ -163,7 +162,8 @@ class StreamRenderer:
             text = json.dumps(output, indent=2, ensure_ascii=False, cls=_JsonEncoder)
         except Exception:
             text = str(output)
-        print(colorize("↩️ Tool result:\n", "out") + colorize(text, "out"))
+        print(colorize("↩️ Tool result:", "out"))
+        print(colorize(text, "out"))
         print()
 
     def on_message_output(self, item: MessageOutputItem) -> None:
@@ -181,15 +181,15 @@ class StreamRenderer:
         """Complete the turn and optionally show token usage."""
         self._clear_thinking()
         print()
+        print()
         if result is not None:
             raw_responses = getattr(result, "raw_responses", None)
             if raw_responses:
-                print("\n=== TOKEN USAGE ===")
+                print("=== TOKEN USAGE ===")
                 for raw in raw_responses:
                     usage = getattr(raw, "usage", None)
                     if usage:
                         print(usage)
-        print()
 
 
 class EventRouter:
