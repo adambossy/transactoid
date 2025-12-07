@@ -153,6 +153,7 @@ class StreamRenderer:
                     print(colorize(json.dumps(args, indent=2), "args"))
             except json.JSONDecodeError:
                 print(colorize(args_text, "args"))
+        print()
 
     def on_tool_result(self, output: Any) -> None:
         """Display tool execution result in blue."""
@@ -160,13 +161,15 @@ class StreamRenderer:
             text = json.dumps(output, indent=2, ensure_ascii=False, cls=_JsonEncoder)
         except Exception:
             text = str(output)
-        print(colorize("🡒 Tool result:\n", "out") + colorize(text, "out"))
+        print(colorize("↩️ Tool result:\n", "out") + colorize(text, "out"))
+        print()
 
     def on_message_output(self, item: MessageOutputItem) -> None:
         """Display final message output if needed."""
         msg = ItemHelpers.text_message_output(item)
         if msg:
             print(colorize(msg, "text"))
+            print()
 
     def on_unknown(self, _event: Any) -> None:
         """Handle unknown events safely."""
@@ -175,6 +178,7 @@ class StreamRenderer:
     def end_turn(self, result: Any | None) -> None:
         """Complete the turn and optionally show token usage."""
         self._clear_thinking()
+        print()
         if result is not None:
             raw_responses = getattr(result, "raw_responses", None)
             if raw_responses:
