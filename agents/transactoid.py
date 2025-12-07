@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 import yaml
 
-from agents import Agent, ModelSettings, Runner, function_tool
+from agents import Agent, ModelSettings, Runner, SQLiteSession, function_tool
 from agents.items import (
     ItemHelpers,
     MessageOutputItem,
@@ -256,6 +256,41 @@ class EventRouter:
 
         # Unknown/unhandled
         self.r.on_unknown(event)
+
+
+class TransactoidSession:
+    """In-memory session for a Transactoid agent conversation."""
+
+    def __init__(self, agent: Agent, session_id: str | None = None) -> None:
+        sid = session_id or "transactoid_cli"
+        self._agent = agent
+        self._session_id = sid
+        self._session = SQLiteSession(sid)
+
+    async def run_turn(
+        self,
+        user_input: str,
+        renderer: StreamRenderer,
+        router: EventRouter,
+    ) -> None:
+        """Run a single streamed turn, reusing the same session for memory."""
+        stream = Runner.run_streamed(
+            self._agent,
+            user_input,
+            session=self._session,
+        )
+
+        renderer.begin_turn(user_input)
+
+        async for event in stream.stream_events():
+            router.handle(event)
+
+        final_result = None
+        get_final_result = getattr(stream, "get_final_result", None)
+        if callable(get_final_result):
+            final_result = get_final_result()
+
+        renderer.end_turn(final_result)
 
 
 class TransactionFilter(BaseModel):
@@ -598,6 +633,9 @@ class Transactoid:
             model_settings=ModelSettings(reasoning_effort="medium", summary="detailed"),
         )
 
+        # Create session for conversation memory
+        session = TransactoidSession(agent)
+
         # Interactive loop
         print("Transactoid Agent - Personal Finance Assistant")
         print("Type 'exit' or 'quit' to end the session.\n")
@@ -613,28 +651,10 @@ class Transactoid:
                     print("Goodbye!")
                     break
 
-                # Run the agent with user input using the streaming API
-                stream = Runner.run_streamed(
-                    agent,
-                    user_input,
-                )
-
-                # Use the orchestrator pattern with renderer and router
                 renderer = StreamRenderer()
                 router = EventRouter(renderer)
 
-                renderer.begin_turn(user_input)
-
-                async for event in stream.stream_events():
-                    router.handle(event)
-
-                # Get final result if available
-                final_result = None
-                get_final_result = getattr(stream, "get_final_result", None)
-                if callable(get_final_result):
-                    final_result = get_final_result()
-
-                renderer.end_turn(final_result)
+                await session.run_turn(user_input, renderer, router)
 
             except KeyboardInterrupt:
                 print("\n\nGoodbye!")
