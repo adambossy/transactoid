@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 import yaml
 
-from agents import Agent, ModelSettings, Runner, SQLiteSession, function_tool
+from agents import Agent, ModelSettings, Runner, SQLiteSession, WebSearchTool, function_tool
 from agents.items import (
     ItemHelpers,
     MessageOutputItem,
@@ -629,6 +629,7 @@ class Transactoid:
                 list_accounts,
                 update_category_for_transaction_groups,
                 tag_transactions,
+                WebSearchTool(),
             ],
             model_settings=ModelSettings(reasoning_effort="medium", summary="detailed"),
         )
