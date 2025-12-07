@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from decimal import Decimal
 from typing import Any, Callable
 
 from dotenv import load_dotenv
@@ -57,6 +58,15 @@ def colorize(text: str, key: str) -> str:
         return text
     code = COLORS.get(key, "0")
     return f"\033[{code}m{text}\033[0m"
+
+
+class _JsonEncoder(json.JSONEncoder):
+    """JSON encoder that handles Decimal and other non-serializable types."""
+
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
 
 
 class ToolCallState:
@@ -147,8 +157,7 @@ class StreamRenderer:
     def on_tool_result(self, output: Any) -> None:
         """Display tool execution result in blue."""
         try:
-            # Print compact, readable structure
-            text = json.dumps(output, indent=2, ensure_ascii=False)
+            text = json.dumps(output, indent=2, ensure_ascii=False, cls=_JsonEncoder)
         except Exception:
             text = str(output)
         print(colorize("🡒 Tool result:\n", "out") + colorize(text, "out"))
