@@ -138,21 +138,23 @@ class StreamRenderer:
             return
         self._clear_thinking()
         print()
-        print(colorize(f"📞 {state.name}()", "tool"))
         args_text = state.args_text()
-        if args_text:
+        if not args_text:
+            print(colorize(f"📞 {state.name}()", "tool"))
+        else:
             try:
                 args = json.loads(args_text)
                 if state.name == "run_sql" and "query" in args:
                     query = args.pop("query")
-                    if args:
-                        print(colorize(json.dumps(args, indent=2), "args"))
+                    args_str = json.dumps(args) if args else "{}"
+                    print(colorize(f"📞 {state.name}({args_str})", "tool"))
                     print(colorize("SQL:", "args"))
                     print(colorize(query, "args"))
                 else:
-                    print(colorize(json.dumps(args, indent=2), "args"))
+                    args_str = json.dumps(args)
+                    print(colorize(f"📞 {state.name}({args_str})", "tool"))
             except json.JSONDecodeError:
-                print(colorize(args_text, "args"))
+                print(colorize(f"📞 {state.name}({args_text})", "tool"))
         print()
 
     def on_tool_result(self, output: Any) -> None:
