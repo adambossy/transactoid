@@ -10,13 +10,11 @@ Ingest personal transactions (CSV or Plaid), normalize them, categorize with a t
 ### Architecture & Ownership
 * **CLI / scripts** coordinate the full sync → categorize → persist → analyze pipeline.
 * **Agents**
-  * `transactoid`: core agent loop
-  * `analyzer_tool`: handles NL→SQL, executes through the DB façade.
+  * `transactoid`: core agent loop with natural language analytics via prompt.
 * **Tools**
   * Sync tool fetches transactions from Plaid and emits `Transaction` batches.
   * Categorizer returns `CategorizedTransaction` instances.
   * Persist tool upserts with dedupe, enforces immutability, manages tagging and recategorization.
-  * Analytics tool generates SQL; DB performs execution.
 * **Services**
   * DB façade (ORM models + `run_sql` returning model objects).
   * Taxonomy (two-level, `key`-based, `rules` stored as `TEXT[]`).
@@ -33,10 +31,8 @@ transactoid/
 │  │  └─ sync_tool.py
 │  ├─ categorize/
 │  │  └─ categorizer_tool.py
-│  ├─ persist/
-│  │  └─ persist_tool.py
-│  └─ analytics/
-│     └─ analyzer_tool.py
+│  └─ persist/
+│     └─ persist_tool.py
 ├─ services/
 │  ├─ file_cache.py
 │  ├─ plaid_client.py
@@ -65,7 +61,7 @@ transactoid/
 2. Normalize into `NormalizedTransaction` batches.
 3. Categorize each transaction with taxonomy validation and optional self-revision.
 4. Persist results (upsert, dedupe, tagging, immutability guarantees).
-5. Answer NL questions via NL→SQL generation and DB execution.
+5. Answer natural language questions using `DB.run_sql`.
 
 ## 2. Data Model (Key Fields)
 * **transactions**
@@ -226,54 +222,6 @@ class PersistTool:
 * Resolve merchants by deterministic normalization of `merchant_descriptor` (lowercase, trim, collapse spaces, strip volatile digits, etc.) before find/create.
 * Support bulk operations for recategorization and tag application, returning counts/outcomes.
 
-### Tools — Analytics
-
-#### `tools/analytics/analyzer_tool.py`
-**Interface**
-```python
-from __future__ import annotations
-from typing import Any, Callable, Generic, List, Optional, Type, TypeVar, TypedDict
-from sqlalchemy.engine import Row
-from services.db import DB, Transaction
-
-M = TypeVar("M")
-A = TypeVar("A")
-S = TypeVar("S", bound=Transaction)
-
-class AnalyzerSQLRefused(Exception): ...
-
-class AnalyzerAnswer(TypedDict, Generic[A, S]):
-    aggregates: List[A]
-    samples: List[S]
-    rationales: List[str]
-
-class AnalyzerTool(Generic[A, S]):
-    def __init__(
-        self,
-        db: DB,
-        *,
-        prompt_key_nl2sql: str = "nl-to-sql",
-        max_rows: Optional[int] = None,
-    ) -> None: ...
-
-    def answer(
-        self,
-        question: str,
-        *,
-        aggregate_model: Type[A],
-        aggregate_row_factory: Callable[[Row[Any]], A],
-        sample_model: Type[S] = Transaction,
-        sample_pk_column: str = "transaction_id",
-        rationale_out: Optional[List[str]] = None,
-    ) -> AnalyzerAnswer[A, S]: ...
-```
-
-**Requirements**
-* Call Promptorium `nl-to-sql` once per question to obtain both aggregate and sample SQL strings.
-* Execute queries via `DB.run_sql`.
-* Aggregates must be mapped via caller-supplied row factories or ORM models; samples must include the primary key so `DB` can refetch ORM entities in order.
-* Provide optional `max_rows` enforcement at the tool layer.
-
 ### Services — Infrastructure
 
 #### `services/file_cache.py`
@@ -300,7 +248,7 @@ def stable_key(payload: Any) -> str: ...
 **Requirements**
 * Provide deterministic cache keys via `stable_key`.
 * Use atomic writes to avoid partial files.
-* Support being shared across all LLM call sites (categorizer, NL→SQL).
+* Support being shared across all LLM call sites (categorizer, agent).
 
 #### `services/plaid_client.py`
 **Interface**
@@ -405,7 +353,7 @@ class Taxonomy:
 
 **Requirements**
 * Enforce a two-level taxonomy (parents and children only).
-* Provide prompt-friendly serializations and helper lookups used by categorizer and analyzer prompts.
+* Provide prompt-friendly serializations and helper lookups used by categorizer and `DB.run_sql`.
 
 #### `services/db.py`
 **Interface**
@@ -532,11 +480,6 @@ def run_categorizer(
     confidence_threshold: float = 0.70,
 ) -> None: ...
 
-def run_analyzer(
-    *,
-    questions: Optional[List[str]] = None,
-) -> None: ...
-
 def run_pipeline(
     *,
     access_token: str,
@@ -551,9 +494,8 @@ def run_pipeline(
 ```
 
 **Requirements**
-* `run_categorizer` performs sync → categorize → persist with explicit parameter control.
-* `run_analyzer` executes analyzer workflows; when given questions, seed the session with them otherwise run interactively.
-* `run_pipeline` always runs the analyzer after categorization, forwarding optional question seeds.
+* `run_categorizer` performs ingest → categorize → persist with explicit parameter control.
+* `run_pipeline` runs categorization and then launches the agent, forwarding optional question seeds.
 
 ### Database Assets
 
@@ -566,12 +508,11 @@ def run_pipeline(
 ### Supporting Config & Prompts
 
 #### File Cache Usage
-* Apply the JSON file cache across categorizer and NL→SQL steps.
+* Apply the JSON file cache across categorizer and agent LLM calls.
 * Provide namespace-aware CRUD plus `clear` and `list_keys` helpers for CLI tooling.
 
 #### Promptorium Keys
 * `categorize-transacations` for transaction categorization (single pass + optional `revised_*`).
-* `nl-to-sql` for generating aggregate and sample SQL.
 
 ### Non-requirements & Constraints
 * CLI-only interface; no web UI.
@@ -587,7 +528,7 @@ def run_pipeline(
 5. `tools/sync/sync_tool.py`
 6. `tools/categorize/categorizer_tool.py`
 7. `tools/persist/persist_tool.py`
-8. `agents/analyzer_tool.py`
+8. `agents/transactoid.py`
 9. `scripts/*` and `ui/cli.py`
 
 This ordering builds foundational services first, then upstream tools, and finally orchestration layers.

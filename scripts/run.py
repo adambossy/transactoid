@@ -20,13 +20,6 @@ def run_sync(
     return None
 
 
-def run_analyzer(
-    *,
-    questions: Optional[List[str]] = None,
-) -> None:
-    return None
-
-
 def run_pipeline(
     *,
     access_token: str,

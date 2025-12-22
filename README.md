@@ -28,7 +28,7 @@ See: `plans/transactoid-requirements.md` and `plans/transactoid-interfaces.md`.
 - **Categorization**: Single concrete `Categorizer` (batch-only), prompt key `categorize-transactions`.
 - **Taxonomy**: Two-level keys (e.g., `FOOD.GROCERIES`), validation via `taxonomy.is_valid_key(key)`.
 - **Persistence**: Upsert `(external_id, source)`; immutable `is_verified` rows; deterministic merchant normalization; tag and bulk recategorization helpers.
-- **Analytics**: NL→SQL tool returns two SQL strings (aggregates + sample rows) for DB execution.
+- **Analytics**: Natural language questions answered by generating SQL queries for `DB.run_sql`.
 - **Database façade**: `DB.run_sql(sql, model, pk_column)` executes SQL queries.
 - **File cache**: Namespaced JSON cache with atomic writes and deterministic keys.
 - **CLI**: `transactoid` with commands for `sync`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, `clear-cache`.
@@ -151,13 +151,6 @@ assert cache.get("llm", key) == {"result": "ok"}
 ```
 
 Default cache directory is `.cache/`. Keys and namespaces are validated to prevent path traversal.
-
-
-## Roadmap
-- Land CLI (`ui/cli.py`) and scripts (`scripts/`).
-- Implement DB façade and taxonomy.
-- Wire up sync, categorizer, and persist tool.
-- Add analytics functionality to agent prompt.
 
 For the authoritative spec, consult:
 - `plans/transactoid-requirements.md`
