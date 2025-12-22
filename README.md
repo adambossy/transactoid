@@ -1,11 +1,10 @@
 ## Transactoid — personal finance agent (CLI-first)
 
-Transactoid syncs your transactions from Plaid, categorizes each with a taxonomy-aware LLM (single pass with optional self-revision), persists them with dedupe and verified-row immutability, and answers natural-language questions by generating and verifying SQL before execution. The workflow is intentionally CLI/script-driven—no hidden handoffs.
+Transactoid ingests your transactions (CSV or Plaid), normalizes them, categorizes each with a taxonomy-aware LLM (single pass with optional self-revision), persists them with dedupe and verified-row immutability, and answers natural-language questions by generating SQL queries. The workflow is intentionally CLI/script-driven—no hidden handoffs.
 
 
 ### Why this exists
 - **LLM-assisted categorization**: High-quality categories via a compact two-level taxonomy and explicit prompt keys.
-- **Trust-by-design analytics**: NL→SQL is always verified by a second LLM step before the DB runs anything.
 - **Deterministic persistence**: Verified rows are immutable; duplicates are de-duplicated by `(external_id, source)`.
 - **Developer ergonomics**: Local JSON file cache for LLM calls; clean interfaces for agents, tools, and services.
 
@@ -29,8 +28,8 @@ See: `plans/transactoid-requirements.md` and `plans/transactoid-interfaces.md`.
 - **Categorization**: Single concrete `Categorizer` (batch-only), prompt key `categorize-transactions`.
 - **Taxonomy**: Two-level keys (e.g., `FOOD.GROCERIES`), validation via `taxonomy.is_valid_key(key)`.
 - **Persistence**: Upsert `(external_id, source)`; immutable `is_verified` rows; deterministic merchant normalization; tag and bulk recategorization helpers.
-- **Analytics**: NL→SQL tool returns two SQL strings (aggregates + sample rows), both LLM-verified before DB execution.
-- **Database façade**: `DB.run_sql(sql, model, pk_column)`; no SQL verification here (by design).
+- **Analytics**: NL→SQL tool returns two SQL strings (aggregates + sample rows) for DB execution.
+- **Database façade**: `DB.run_sql(sql, model, pk_column)` executes SQL queries.
 - **File cache**: Namespaced JSON cache with atomic writes and deterministic keys.
 - **CLI**: `transactoid` with commands for `sync`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, `clear-cache`.
 

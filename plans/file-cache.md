@@ -7,7 +7,7 @@ owner: services
 
 # Overview
 
-Implement `services/file_cache.py` as a namespaced JSON cache with deterministic keys and atomic writes. The cache underpins LLM interactions (categorizer, analyzer verifier, NL→SQL) and must be robust against process interruptions and unsafe key inputs.
+Implement `services/file_cache.py` as a namespaced JSON cache with deterministic keys and atomic writes. The cache underpins LLM interactions (categorizer, NL→SQL) and must be robust against process interruptions and unsafe key inputs.
 
 # Goals
 
