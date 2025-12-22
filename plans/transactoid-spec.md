@@ -5,18 +5,18 @@ This single plan merges the previous interface and requirement specs so each mod
 ## 1. System Overview
 
 ### Goal
-Sync personal transactions from Plaid, categorize them with a taxonomy-aware LLM (single pass with optional self-revision), persist them with dedupe and verified-row immutability, then answer natural-language questions by generating and verifying SQL, executing it, and returning aggregates plus sample rows. The workflow is orchestrated entirely through CLI commands or scripts with no hidden handoffs.
+Ingest personal transactions (CSV or Plaid), normalize them, categorize with a taxonomy-aware LLM (single pass with optional self-revision), persist them with dedupe and verified-row immutability, then answer natural-language questions by generating SQL, executing it, and returning aggregates plus sample rows. The workflow is orchestrated entirely through CLI commands or scripts with no hidden handoffs.
 
 ### Architecture & Ownership
 * **CLI / scripts** coordinate the full sync → categorize → persist → analyze pipeline.
 * **Agents**
   * `transactoid`: core agent loop
-  * `analyzer_tool`: handles NL→SQL, verifies SQL with LLM, executes through the DB façade.
+  * `analyzer_tool`: handles NL→SQL, executes through the DB façade.
 * **Tools**
   * Sync tool fetches transactions from Plaid and emits `Transaction` batches.
   * Categorizer returns `CategorizedTransaction` instances.
   * Persist tool upserts with dedupe, enforces immutability, manages tagging and recategorization.
-  * Analytics tool verifies SQL only; DB performs execution.
+  * Analytics tool generates SQL; DB performs execution.
 * **Services**
   * DB façade (ORM models + `run_sql` returning model objects).
   * Taxonomy (two-level, `key`-based, `rules` stored as `TEXT[]`).
@@ -61,10 +61,11 @@ transactoid/
 ```
 
 ### Workflow Pillars
-1. Sync transactions from Plaid.
-2. Categorize each transaction with taxonomy validation and optional self-revision.
-3. Persist results (upsert, dedupe, tagging, immutability guarantees).
-4. Answer NL questions via NL→SQL generation, LLM verification, and DB execution.
+1. Ingest transactions from CSV directories or Plaid.
+2. Normalize into `NormalizedTransaction` batches.
+3. Categorize each transaction with taxonomy validation and optional self-revision.
+4. Persist results (upsert, dedupe, tagging, immutability guarantees).
+5. Answer NL questions via NL→SQL generation and DB execution.
 
 ## 2. Data Model (Key Fields)
 * **transactions**
@@ -251,16 +252,8 @@ class AnalyzerTool(Generic[A, S]):
         self,
         db: DB,
         *,
-        prompt_key_verify: str = "verify-sql",
         prompt_key_nl2sql: str = "nl-to-sql",
         max_rows: Optional[int] = None,
-    ) -> None: ...
-
-    def verify_sql(
-        self,
-        sql: str,
-        *,
-        rationale_out: Optional[List[str]] = None,
     ) -> None: ...
 
     def answer(
@@ -277,8 +270,7 @@ class AnalyzerTool(Generic[A, S]):
 
 **Requirements**
 * Call Promptorium `nl-to-sql` once per question to obtain both aggregate and sample SQL strings.
-* Run `verify_sql()` on each SQL string using the `verify-sql` prompt; raise `AnalyzerSQLRefused` if rejected.
-* Execute queries via `DB.run_sql` (the DB layer performs no verification or coercion).
+* Execute queries via `DB.run_sql`.
 * Aggregates must be mapped via caller-supplied row factories or ORM models; samples must include the primary key so `DB` can refetch ORM entities in order.
 * Provide optional `max_rows` enforcement at the tool layer.
 
@@ -308,7 +300,7 @@ def stable_key(payload: Any) -> str: ...
 **Requirements**
 * Provide deterministic cache keys via `stable_key`.
 * Use atomic writes to avoid partial files.
-* Support being shared across all LLM call sites (categorizer, analyzer verifier, NL→SQL).
+* Support being shared across all LLM call sites (categorizer, NL→SQL).
 
 #### `services/plaid_client.py`
 **Interface**
@@ -473,7 +465,6 @@ class DB:
 ```
 
 **Requirements**
-* Do not perform SQL verification; trust upstream verification.
 * `run_sql` must execute raw SELECTs, collect primary keys, refetch ORM entities, and return them in order.
 * Provide helpers for category lookup, merchant normalization, transaction upsert/update (mutable only for unverified rows), recategorization, tag management, and prompt context (`compact_schema_hint`).
 
@@ -575,20 +566,18 @@ def run_pipeline(
 ### Supporting Config & Prompts
 
 #### File Cache Usage
-* Apply the JSON file cache across categorizer, analyzer verification, and NL→SQL steps.
+* Apply the JSON file cache across categorizer and NL→SQL steps.
 * Provide namespace-aware CRUD plus `clear` and `list_keys` helpers for CLI tooling.
 
 #### Promptorium Keys
 * `categorize-transacations` for transaction categorization (single pass + optional `revised_*`).
 * `nl-to-sql` for generating aggregate and sample SQL.
-* `verify-sql` for LLM safety/correctness checks using DB `compact_schema_hint` context.
 
 ### Non-requirements & Constraints
 * CLI-only interface; no web UI.
 * No dedicated web-search tool files—LLM handles search internally when confidence is low.
 * No `OpenAIClient` wrapper; call Responses API adapters directly alongside `FileCache` integration.
-* No fallback “misc” category; the LLM must return valid taxonomy keys.
-* DB layer never performs SQL verification or enforces result limits.
+* No fallback "misc" category; the LLM must return valid taxonomy keys.
 
 ### Dependency Layering (Build Order)
 1. `services/file_cache.py`
