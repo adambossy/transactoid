@@ -156,14 +156,34 @@ class StreamRenderer:
                 print(colorize(f"📞 {state.name}({args_text})", "tool"))
         print()
 
-    def on_tool_result(self, output: Any) -> None:
-        """Display tool execution result in blue."""
-        try:
-            text = json.dumps(output, indent=2, ensure_ascii=False, cls=_JsonEncoder)
-        except Exception:
+    def _summarize_tool_result(self, output: Any) -> str:
+        """Generate a brief summary of a tool result."""
+        if not isinstance(output, dict):
             text = str(output)
-        print(colorize("↩️ Tool result:", "out"))
-        print(colorize(text, "out"))
+            return text[:60] + "..." if len(text) > 60 else text
+
+        parts = []
+        if "status" in output:
+            parts.append(output["status"])
+        if "error" in output:
+            error_text = str(output["error"])[:40]
+            parts.append(f"error: {error_text}...")
+        if "accounts" in output:
+            parts.append(f"{len(output['accounts'])} accounts")
+        if "count" in output:
+            parts.append(f"{output['count']} rows")
+        if "total_added" in output:
+            parts.append(f"+{output['total_added']} txns")
+        if "message" in output and "status" not in output:
+            msg = output["message"][:40]
+            parts.append(msg)
+
+        return ", ".join(parts) if parts else "{...}"
+
+    def on_tool_result(self, output: Any) -> None:
+        """Display tool execution result in collapsed format with summary."""
+        summary = self._summarize_tool_result(output)
+        print(colorize(f"↩️ Tool result ▶ {summary}", "out"))
         print()
 
     def on_message_output(self, item: MessageOutputItem) -> None:
