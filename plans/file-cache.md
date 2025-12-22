@@ -7,7 +7,7 @@ owner: services
 
 # Overview
 
-Implement `services/file_cache.py` as a namespaced JSON cache with deterministic keys and atomic writes. The cache underpins LLM interactions (categorizer, NL→SQL) and must be robust against process interruptions and unsafe key inputs.
+Implement `services/file_cache.py` as a namespaced JSON cache with deterministic keys and atomic writes. The cache underpins LLM interactions (categorizer, agent) and must be robust against process interruptions and unsafe key inputs.
 
 # Goals
 
@@ -194,7 +194,7 @@ Implement `services/file_cache.py` as a namespaced JSON cache with deterministic
 
 9. **Integration pointers**
    - Document CLI (`clear-cache`) expectation: instantiate `FileCache` and call `clear_namespace`.
-   - Highlight LLM call-sites (categorizer, analyzer) as primary consumers; encourage reuse via dependency injection.
+   - Highlight LLM call-sites (categorizer, agent) as primary consumers; encourage reuse via dependency injection.
 
 # Risks & Mitigations
 

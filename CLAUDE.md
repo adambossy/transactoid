@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Transactoid is a personal finance agent that ingests transactions (CSV or Plaid), categorizes them using LLM-based categorization with a two-level taxonomy, and enables natural-language analytics through SQL generation. The project is CLI-first with no hidden handoffs.
+Transactoid is a personal finance agent that ingests transactions (CSV or Plaid), categorizes them using LLM-based categorization with a two-level taxonomy, and answers natural-language questions about your personal finances. The project is CLI-first with no hidden handoffs.
 
 **Core Principles:**
 - LLM-assisted categorization with compact two-level taxonomy
@@ -96,8 +96,8 @@ transactoid
 - Support for tags and bulk recategorization
 
 **Analytics:**
-- NL→SQL tool generates two queries: aggregates + sample rows
 - DB façade runs SQL via `DB.run_sql(sql, model, pk_column)`
+- Natural language questions are answered by the agent constructing SQL with which to call `DB.run_sql`
 
 ## File Cache
 
