@@ -16,7 +16,7 @@ run_app = typer.Typer(help="Run pipeline workflows.")
 app.add_typer(run_app, name="run")
 
 
-@run_app.command("sync")  # type: ignore[misc]
+@run_app.command("sync")
 def run_sync_cmd(
     access_token: str = typer.Option(..., help="Plaid access token for the item"),
     cursor: str | None = typer.Option(
@@ -30,7 +30,7 @@ def run_sync_cmd(
     run.run_sync(access_token=access_token, cursor=cursor, count=count)
 
 
-@run_app.command("pipeline")  # type: ignore[misc]
+@run_app.command("pipeline")
 def run_pipeline_cmd(
     access_token: str = typer.Option(..., help="Plaid access token for the item"),
     cursor: str | None = typer.Option(
@@ -49,7 +49,7 @@ def run_pipeline_cmd(
     )
 
 
-@app.command("sync")  # type: ignore[misc]
+@app.command("sync")
 def sync(access_token: str, cursor: str | None = None, count: int = 500) -> None:
     """
     Sync transactions from Plaid and categorize them using an LLM.
@@ -62,32 +62,32 @@ def sync(access_token: str, cursor: str | None = None, count: int = 500) -> None
     return None
 
 
-@app.command("ask")  # type: ignore[misc]
+@app.command("ask")
 def ask(question: str) -> None:
     return None
 
 
-@app.command("recat")  # type: ignore[misc]
+@app.command("recat")
 def recat(merchant_id: int, to: str) -> None:
     return None
 
 
-@app.command("tag")  # type: ignore[misc]
+@app.command("tag")
 def tag(rows: list[int], tags: list[str]) -> None:
     return None
 
 
-@app.command("init-db")  # type: ignore[misc]
+@app.command("init-db")
 def init_db(url: str | None = None) -> None:
     return None
 
 
-@app.command("seed-taxonomy")  # type: ignore[misc]
+@app.command("seed-taxonomy")
 def seed_taxonomy(yaml_path: str = "configs/taxonomy.yaml") -> None:
     return None
 
 
-@app.command("clear-cache")  # type: ignore[misc]
+@app.command("clear-cache")
 def clear_cache(namespace: str = "default") -> None:
     return None
 
