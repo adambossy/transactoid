@@ -163,7 +163,7 @@ def _build_redirect_handler(
     token_queue: queue.Queue[str],
     expected_path: str,
     state: dict[str, Any],
-):
+) -> type[BaseHTTPRequestHandler]:
     class RedirectHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
