@@ -34,7 +34,7 @@ def plaid_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Legacy helper retained for compatibility; delegates to PlaidClient."""
     client = PlaidClient.from_env()
     try:
-        return client._post(  # type: ignore[attr-defined]
+        return client._post(
             path,
             payload,
         )
