@@ -4,14 +4,13 @@ import datetime as _dt
 import hashlib
 import os
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-import yaml
 from openai import OpenAI
-from promptorium import load_prompt
 from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
+import yaml
 
 
 # ----------------------------
@@ -46,7 +45,7 @@ def read_yaml_text(path: str) -> str:
     """
     Read the YAML file content as text.
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -86,7 +85,7 @@ def compute_sha256(text: str) -> str:
     return sha.hexdigest()
 
 
-def _extract_front_matter(md: str) -> Tuple[Dict[str, Any], int]:
+def _extract_front_matter(md: str) -> tuple[dict[str, Any], int]:
     """
     Extract YAML front matter from the top of a Markdown string.
     Returns (front_matter_dict, end_index_of_front_matter_block).
@@ -121,7 +120,7 @@ def _extract_front_matter(md: str) -> Tuple[Dict[str, Any], int]:
 
 
 def should_regenerate(
-    latest_doc: Optional[str],
+    latest_doc: str | None,
     input_hash: str,
     prompt_hash: str,
 ) -> bool:
@@ -174,7 +173,7 @@ def call_openai(markdown_prompt: str, model: str) -> str:
         )
         # The text can be located in multiple places; normalize to a single string.
         # Prefer output_text if present; otherwise join all text segments.
-        text: Optional[str] = getattr(resp, "output_text", None)
+        text: str | None = getattr(resp, "output_text", None)
         if text is None:
             # Fallback: try flattening content if output_text isn't available
             text = str(resp)
@@ -190,7 +189,7 @@ def call_openai(markdown_prompt: str, model: str) -> str:
         return ""
 
 
-def _yaml_dump_front_matter(meta: Dict[str, Any]) -> str:
+def _yaml_dump_front_matter(meta: dict[str, Any]) -> str:
     """
     Serialize a small dict to YAML front matter text.
     - Prefer PyYAML if available
@@ -204,7 +203,7 @@ def _yaml_dump_front_matter(meta: Dict[str, Any]) -> str:
     ).strip()
 
 
-def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
+def wrap_with_front_matter(body_md: str, meta: dict[str, Any]) -> str:
     """
     Wrap the given Markdown body with YAML front matter.
     The front matter should include:
@@ -215,7 +214,7 @@ def wrap_with_front_matter(body_md: str, meta: Dict[str, Any]) -> str:
       - created_at: iso8601
     """
     if "created_at" not in meta:
-        meta["created_at"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat()
+        meta["created_at"] = _dt.datetime.now(tz=_dt.UTC).isoformat()
     if "taxonomy_version" not in meta:
         meta["taxonomy_version"] = "TBD"
     fm = _yaml_dump_front_matter(meta)

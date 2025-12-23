@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import List
+import re
 
 import pytest
 
-from services import taxonomy_generator as tg
 from scripts import build_taxonomy
 from scripts.build_taxonomy import run_build
+from services import taxonomy_generator as tg
 
 
 def test_normalized_yaml_hash_is_stable_for_whitespace() -> None:
@@ -100,7 +99,7 @@ def test_generation_flow_stores_when_changed(
         tg, "call_openai", lambda markdown_prompt, model: "Generated Body"
     )
 
-    stored: List[str] = []
+    stored: list[str] = []
     monkeypatch.setattr(tg, "store_generated", lambda md: stored.append(md))
 
     did_generate = run_build(str(yaml_path), model="gpt-4o")

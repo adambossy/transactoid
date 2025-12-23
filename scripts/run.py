@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
-
 
 def run_sync(
     *,
     access_token: str,
-    cursor: Optional[str] = None,
+    cursor: str | None = None,
     count: int = 500,
 ) -> None:
     """
@@ -23,9 +21,9 @@ def run_sync(
 def run_pipeline(
     *,
     access_token: str,
-    cursor: Optional[str] = None,
+    cursor: str | None = None,
     count: int = 500,
-    questions: Optional[List[str]] = None,
+    questions: list[str] | None = None,
 ) -> None:
     """
     Run the full pipeline: sync → categorize → persist.

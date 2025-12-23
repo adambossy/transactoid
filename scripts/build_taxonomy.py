@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from promptorium import load_prompt
+
 from services import taxonomy_generator as tg
 
 
