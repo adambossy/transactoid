@@ -94,9 +94,13 @@ class Categorizer:
         if cached_result is not None:
             return self._parse_response(cached_result, txn_list)
 
+        print(f"Categorizing {len(txn_list)} transactions with LLM...")
         response_text = self._call_openai_api(prompt)
         self._file_cache.set("categorize", cache_key, response_text)
-        return self._parse_response(response_text, txn_list)
+
+        categorized = self._parse_response(response_text, txn_list)
+        self._print_categorization_summary(categorized)
+        return categorized
 
     def _format_transactions_for_prompt(
         self, txns: list[Transaction]
@@ -232,3 +236,15 @@ class Categorizer:
         if revised_category and not self._taxonomy.is_valid_key(revised_category):
             return None
         return revised_category
+
+    def _print_categorization_summary(
+        self, categorized: list[CategorizedTransaction]
+    ) -> None:
+        """Print summary of categorization results."""
+        recategorized_count = sum(
+            1 for c in categorized if c.revised_category_key is not None
+        )
+        print(
+            f"LLM categorization complete: {len(categorized)} categorized, "
+            f"{recategorized_count} recategorized"
+        )
