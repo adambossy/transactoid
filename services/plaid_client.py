@@ -590,7 +590,9 @@ class PlaidClient:
                         or item.institution_id,
                         "item_id": item.item_id,
                     }
-                    account_with_institution = AccountWithInstitution.parse(account_data)
+                    account_with_institution = AccountWithInstitution.parse(
+                        account_data
+                    )
                     all_accounts.append(account_with_institution.model_dump())
             except Exception as e:
                 errors.append(
@@ -606,7 +608,9 @@ class PlaidClient:
 
         message = f"Found {len(all_accounts)} account(s) across {len(plaid_items)} institution(s)."
         if errors:
-            message += f" Note: {len(errors)} error(s) occurred while fetching some accounts."
+            message += (
+                f" Note: {len(errors)} error(s) occurred while fetching some accounts."
+            )
 
         return {
             "status": "success",
