@@ -593,7 +593,8 @@ class Transactoid:
             Returns:
                 Dictionary with account listing status including:
                 - status: "success" or "error"
-                - accounts: List of account dictionaries with account and institution details
+                - accounts: List of account dictionaries with account and
+                  institution details
                 - message: Human-readable status message
             """
             # Get or create PlaidClient
