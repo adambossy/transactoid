@@ -10,7 +10,7 @@ from pathlib import Path
 import queue
 import ssl
 import threading
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 import urllib.parse
 import uuid
 import webbrowser
@@ -262,7 +262,8 @@ def start_redirect_server(
     )
     thread.start()
 
-    actual_host, actual_port = server.server_address
+    server_address: tuple[str, int] = cast(tuple[str, int], server.server_address)
+    actual_host, actual_port = server_address
     return server, thread, actual_host, actual_port
 
 
