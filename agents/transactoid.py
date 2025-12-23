@@ -13,6 +13,7 @@ from openai.types.responses import (
 from promptorium import load_prompt
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 import yaml
 
 from agents import (
@@ -454,7 +455,7 @@ class Transactoid:
                 Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
             """
             try:
-                with self._db.session() as session:
+                with self._db.session() as session:  # type: Session
                     result = session.execute(text(query))
 
                     if result.returns_rows:
