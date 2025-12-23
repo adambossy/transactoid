@@ -13,6 +13,7 @@ from promptorium.services import PromptService
 from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
 
+
 # ----------------------------
 # Promptorium integration (library-based)
 # ----------------------------
