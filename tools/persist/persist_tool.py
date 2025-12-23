@@ -67,8 +67,8 @@ class PersistTool:
         """
         Apply tags to transactions.
 
-        Creates tags if they don't exist, then attaches them to the specified transactions.
-        Skips duplicate tag-transaction relationships.
+        Creates tags if they don't exist, then attaches them to the
+        specified transactions. Skips duplicate tag-transaction relationships.
 
         Args:
             transaction_ids: List of transaction IDs to tag
