@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
-from yaml import safe_load  # type: ignore[import-untyped]
+from yaml import safe_load
 
 from services.taxonomy import CategoryNode, Taxonomy
 
