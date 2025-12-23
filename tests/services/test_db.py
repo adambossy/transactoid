@@ -21,7 +21,7 @@ def create_db() -> DB:
     # Create tables
     from services.db import Base
 
-    with db.session() as session:
+    with db.session() as session:  # type: Session
         Base.metadata.create_all(session.bind)
     return db
 
@@ -123,7 +123,7 @@ def test_db_session_context_manager() -> None:
     """Test session context manager commits and rolls back correctly."""
     db = create_db()
 
-    with db.session() as session:
+    with db.session() as session:  # type: Session
         merchant = Merchant(normalized_name="test_merchant", display_name="Test")
         session.add(merchant)
         session.flush()
