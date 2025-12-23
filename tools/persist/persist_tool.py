@@ -75,7 +75,8 @@ class PersistTool:
             tag_names: List of tag names to apply (will be created if they don't exist)
 
         Returns:
-            ApplyTagsOutcome with count of relationships created and list of newly created tags
+            ApplyTagsOutcome with count of relationships created and list of
+            newly created tags
         """
         if not transaction_ids or not tag_names:
             return ApplyTagsOutcome(applied=0, created_tags=[])
