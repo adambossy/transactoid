@@ -1,9 +1,8 @@
-import os
 from logging.config import fileConfig
+import os
 
 from dotenv import load_dotenv
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
@@ -11,10 +10,9 @@ from alembic import context
 load_dotenv()
 
 # Import the Base and all models for autogenerate support
-from services.db import Base
-
 # Import all models to ensure they're registered with Base
 from services.db import (  # noqa: F401
+    Base,
     Category,
     Merchant,
     PlaidItem,
