@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, TextIO
+from typing import IO, Any, TextIO
 
 JSONType = Any
 
@@ -135,7 +135,7 @@ class FileCache:
         return key
 
     @contextmanager
-    def _atomic_writer(self, namespace: str, key: str) -> Iterator[TextIO]:
+    def _atomic_writer(self, namespace: str, key: str) -> Iterator[IO[str]]:
         final_path = self._key_path(namespace, key)
         ns_dir = final_path.parent
         tmp_file = tempfile.NamedTemporaryFile(
