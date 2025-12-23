@@ -30,16 +30,6 @@ def run_sync_cmd(
     run.run_sync(access_token=access_token, cursor=cursor, count=count)
 
 
-@run_app.command("analyzer")  # type: ignore[misc]
-def run_analyzer_cmd(
-    questions: list[str] | None = typer.Option(  # noqa: B008
-        None, help="Optional questions to seed the analyzer session"
-    ),
-) -> None:
-    """Run the analyzer workflow."""
-    run.run_analyzer(questions=questions)
-
-
 @run_app.command("pipeline")  # type: ignore[misc]
 def run_pipeline_cmd(
     access_token: str = typer.Option(..., help="Plaid access token for the item"),
