@@ -246,6 +246,25 @@ class PlaidClient:
                 f"Unsupported Plaid environment: {self._env!r}"
             ) from e
 
+    def _parse_json_response(self, body: str) -> dict[str, Any]:
+        """Parse JSON response from Plaid API.
+
+        Args:
+            body: JSON response body as string
+
+        Returns:
+            Parsed JSON as dictionary
+
+        Raises:
+            PlaidClientError: If JSON parsing fails
+        """
+        try:
+            return cast(dict[str, Any], json.loads(body))
+        except json.JSONDecodeError as e:
+            raise PlaidClientError(
+                f"Failed to parse Plaid response as JSON: {e}: {body}"
+            ) from e
+
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = self._base_url().rstrip("/") + path
         data = json.dumps(payload).encode("utf-8")
@@ -265,12 +284,7 @@ class PlaidClient:
         except urllib.error.URLError as e:  # pragma: no cover - network-dependent
             raise PlaidClientError(f"Network error calling Plaid API: {e}") from e
 
-        try:
-            return json.loads(body)
-        except json.JSONDecodeError as e:
-            raise PlaidClientError(
-                f"Failed to parse Plaid response as JSON: {e}: {body}"
-            ) from e
+        return self._parse_json_response(body)
 
     # High-level APIs -----------------------------------------------------
 
