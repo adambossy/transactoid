@@ -53,7 +53,7 @@ def _extract_category_records(raw: RawTaxonomyDoc) -> list[RawCategoryRecord]:
         return []
     if not isinstance(records_raw, list):
         raise ValueError("'categories' must be a list")
-    return [item for item in records_raw]
+    return list(records_raw)
 
 
 def _validate_and_normalize_record(

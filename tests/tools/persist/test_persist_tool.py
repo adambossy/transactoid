@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy.orm import Session
-
 from services.db import DB, CategoryRow, _normalize_merchant_name
 from services.taxonomy import Taxonomy
 from tools.persist.persist_tool import PersistTool

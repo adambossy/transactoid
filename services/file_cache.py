@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import IO, Any, TextIO
+from typing import IO, Any
 
 JSONType = Any
 
