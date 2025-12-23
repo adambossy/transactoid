@@ -84,6 +84,8 @@ class SyncTool:
         while True:
             try:
                 # Call Plaid's sync_transactions API
+                cursor_label = current_cursor or "initial"
+                print(f"Fetching transactions from Plaid (cursor: {cursor_label})...")
                 sync_result = self._plaid_client.sync_transactions(
                     self._access_token,
                     cursor=current_cursor,
@@ -94,6 +96,10 @@ class SyncTool:
                 added: list[Transaction] = sync_result.get("added", [])
                 modified: list[Transaction] = sync_result.get("modified", [])
                 removed: list[dict[str, Any]] = sync_result.get("removed", [])
+                print(
+                    f"Plaid fetch complete: {len(added)} added, "
+                    f"{len(modified)} modified, {len(removed)} removed"
+                )
                 next_cursor = sync_result.get("next_cursor", "")
                 has_more = sync_result.get("has_more", False)
 
@@ -133,7 +139,7 @@ class SyncTool:
                 # If no more pages, break
                 if not has_more:
                     break
-                
+
                 # Stop after one page for testing
                 break
 
