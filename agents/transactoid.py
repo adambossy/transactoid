@@ -14,7 +14,14 @@ from pydantic import BaseModel
 from sqlalchemy import text
 import yaml
 
-from agents import Agent, ModelSettings, Runner, SQLiteSession, WebSearchTool, function_tool
+from agents import (
+    Agent,
+    ModelSettings,
+    Runner,
+    SQLiteSession,
+    WebSearchTool,
+    function_tool,
+)
 from agents.items import (
     ItemHelpers,
     MessageOutputItem,
@@ -456,21 +463,11 @@ class Transactoid:
                             for key, value in row.items():
                                 if hasattr(value, "isoformat"):
                                     row[key] = value.isoformat()
-                        return {
-                            "rows": rows,
-                            "count": len(rows)
-                        }
+                        return {"rows": rows, "count": len(rows)}
                     else:
-                        return {
-                            "rows": [],
-                            "count": result.rowcount
-                        }
+                        return {"rows": [], "count": result.rowcount}
             except Exception as e:
-                return {
-                    "rows": [],
-                    "count": 0,
-                    "error": str(e)
-                }
+                return {"rows": [], "count": 0, "error": str(e)}
 
         @function_tool
         def sync_transactions() -> dict[str, Any]:
