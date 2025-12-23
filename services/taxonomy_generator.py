@@ -31,7 +31,7 @@ def store_generated(markdown: str) -> None:
     except Exception:
         try:
             storage.add_prompt(key, custom_dir=None)
-        except Exception:
+        except Exception:  # noqa: S110
             # If add_prompt fails because it already exists or any race,
             # ignore and retry update.
             pass
