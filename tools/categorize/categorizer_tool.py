@@ -12,6 +12,7 @@ import yaml
 
 from models.transaction import Transaction
 from services.file_cache import FileCache, stable_key
+from services.taxonomy import Taxonomy
 
 
 @dataclass
