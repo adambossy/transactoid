@@ -310,7 +310,8 @@ def setup_redirect_server(
             state=state,
         )
         redirect_uri = f"https://{actual_host}:{actual_port}{redirect_path}"
-        # Ensure we use 'localhost' instead of '127.0.0.1' to match Plaid allowlists commonly set to localhost.
+        # Ensure we use 'localhost' instead of '127.0.0.1' to match Plaid
+        # allowlists commonly set to localhost.
         if actual_host == "127.0.0.1":
             redirect_uri = f"https://localhost:{actual_port}{redirect_path}"
         return server, server_thread, redirect_uri
