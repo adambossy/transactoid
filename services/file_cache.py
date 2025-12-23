@@ -152,7 +152,7 @@ class FileCache:
                 try:
                     tmp_file.flush()
                     os.fsync(tmp_file.fileno())
-                except Exception:  # flushing/fsync is best-effort
+                except Exception:  # flushing/fsync is best-effort  # noqa: S110
                     pass
                 tmp_file.close()
 
