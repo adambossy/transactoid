@@ -6,14 +6,14 @@ import json
 import os
 import queue
 import threading
-from typing import Any, Literal, Self, TypedDict
+from typing import Any, Literal, Self, TypedDict, cast
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from pydantic import BaseModel, Field
 
-from models.transaction import Transaction
+from models.transaction import PersonalFinanceCategory, Transaction
 from services.plaid_link_flow import (
     build_success_message,
     create_link_token_and_url,
@@ -152,7 +152,7 @@ class PlaidTransactionModel(PlaidBaseModel):
             "unofficial_currency_code": self.unofficial_currency_code,
             "category": self.category,
             "category_id": self.category_id,
-            "personal_finance_category": self.personal_finance_category,
+            "personal_finance_category": cast(PersonalFinanceCategory | None, self.personal_finance_category),
         }
         return txn
 
