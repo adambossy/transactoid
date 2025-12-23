@@ -328,7 +328,7 @@ class DB:
         if not ids:
             return []
 
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             # Use CASE WHEN to preserve order
             order_case = case(
                 {id_val: idx for idx, id_val in enumerate(ids)},
@@ -357,7 +357,7 @@ class DB:
         Returns:
             Category ID or None if not found
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             category = session.query(Category).filter(Category.key == key).first()
             return category.category_id if category else None
 
@@ -370,7 +370,7 @@ class DB:
         Returns:
             Merchant instance or None if not found
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             merchant = (
                 session.query(Merchant)
                 .filter(Merchant.normalized_name == normalized_name)
@@ -395,7 +395,7 @@ class DB:
         Returns:
             Created Merchant instance
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             merchant = Merchant(
                 normalized_name=normalized_name, display_name=display_name
             )
@@ -420,7 +420,7 @@ class DB:
         Returns:
             Transaction instance or None if not found
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             transaction = (
                 session.query(Transaction)
                 .filter(
@@ -444,7 +444,7 @@ class DB:
         Returns:
             Created Transaction instance
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             # Resolve merchant if merchant_descriptor is provided
             merchant_id = data.get("merchant_id")
             if (
@@ -505,7 +505,7 @@ class DB:
         Raises:
             ValueError: If transaction is verified and cannot be updated
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             transaction = (
                 session.query(Transaction)
                 .filter(Transaction.transaction_id == transaction_id)
@@ -565,7 +565,7 @@ class DB:
         Returns:
             Number of transactions updated
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             result = (
                 session.query(Transaction)
                 .filter(
@@ -586,7 +586,7 @@ class DB:
         Returns:
             Tag instance
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             tag = session.query(Tag).filter(Tag.name == name).first()
             if tag is None:
                 tag = Tag(name=name, description=description)
@@ -612,7 +612,7 @@ class DB:
         if not transaction_ids or not tag_ids:
             return 0
 
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             # Check existing relationships
             existing = (
                 session.query(TransactionTag)
@@ -656,7 +656,7 @@ class DB:
         if not external_ids:
             return 0
 
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             result = (
                 session.query(Transaction)
                 .filter(
@@ -892,7 +892,7 @@ class DB:
         Returns:
             List of CategoryRow dictionaries
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             categories = session.query(Category).all()
 
             # Build parent_key lookup
@@ -923,7 +923,7 @@ class DB:
         Args:
             rows: Sequence of CategoryRow dictionaries with resolved IDs
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             # Delete all existing categories
             session.query(Category).delete()
 
@@ -960,7 +960,7 @@ class DB:
         Returns:
             Created or updated PlaidItem instance
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             item = session.query(PlaidItem).filter_by(item_id=item_id).first()
             if item is None:
                 item = PlaidItem(
@@ -989,7 +989,7 @@ class DB:
         Returns:
             PlaidItem instance or None if not found
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             item = session.query(PlaidItem).filter_by(item_id=item_id).first()
             if item:
                 session.expunge(item)
@@ -1001,7 +1001,7 @@ class DB:
         Returns:
             List of all PlaidItem instances
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             items = session.query(PlaidItem).all()
             for item in items:
                 session.expunge(item)
