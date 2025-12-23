@@ -397,7 +397,8 @@ class Transactoid:
         Args:
             db: Database instance
             taxonomy: Taxonomy instance for categorization
-            plaid_client: Optional PlaidClient instance. If None, will be created from env when needed.
+            plaid_client: Optional PlaidClient instance. If None, will be
+                created from env when needed.
         """
         self._db = db
         self._taxonomy = taxonomy
