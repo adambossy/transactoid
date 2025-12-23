@@ -504,6 +504,9 @@ class Transactoid:
             if error is not None:
                 return error
 
+            # After _ensure_plaid_client() returns None, _plaid_client is guaranteed to be initialized
+            assert self._plaid_client is not None
+
             # Check if at least one account is connected
             plaid_items = self._db.list_plaid_items()
             if not plaid_items:
@@ -582,6 +585,8 @@ class Transactoid:
             if error is not None:
                 return error
 
+            # After _ensure_plaid_client() returns None, _plaid_client is guaranteed to be initialized
+            assert self._plaid_client is not None
             return self._plaid_client.connect_new_account(db=self._db)
 
         @function_tool
@@ -610,6 +615,8 @@ class Transactoid:
             if error is not None:
                 return error
 
+            # After _ensure_plaid_client() returns None, _plaid_client is guaranteed to be initialized
+            assert self._plaid_client is not None
             return self._plaid_client.list_accounts(db=self._db)
 
         @function_tool
