@@ -283,7 +283,7 @@ class DB:
         Returns:
             List of ORM model instances in the order returned by SQL
         """
-        with self.session() as session:
+        with self.session() as session:  # type: Session
             result = session.execute(text(sql))
             rows = result.fetchall()
 
