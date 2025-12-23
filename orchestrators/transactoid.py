@@ -13,7 +13,7 @@ from openai.types.responses import (
 from promptorium import load_prompt
 from pydantic import BaseModel
 from sqlalchemy import text
-from sqlalchemy.engine import Result
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 import yaml
 
@@ -457,7 +457,7 @@ class Transactoid:
             """
             try:
                 with self._db.session() as session:  # type: Session
-                    result: Result[Any] = session.execute(text(query))
+                    result: CursorResult[Any] = session.execute(text(query))
 
                     if result.returns_rows:
                         # Convert Row objects to dicts
