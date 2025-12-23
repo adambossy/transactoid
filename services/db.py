@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 import re
-from typing import TYPE_CHECKING, Any, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, TypedDict, TypeVar, cast
 
 if TYPE_CHECKING:
     from services.taxonomy import Taxonomy
@@ -24,6 +24,7 @@ from sqlalchemy import (
     create_engine,
     text,
 )
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -265,6 +266,22 @@ class DB:
             raise
         finally:
             session.close()
+
+    def execute_raw_sql(self, query: str) -> CursorResult[Any]:
+        """Execute raw SQL query and return cursor result.
+
+        Returns CursorResult instead of generic Result to access:
+        - returns_rows: Whether query returns rows
+        - rowcount: Number of rows affected
+
+        Args:
+            query: Raw SQL query string
+
+        Returns:
+            CursorResult with proper typing for attribute access
+        """
+        with self.session() as session:  # type: Session
+            return cast(CursorResult[Any], session.execute(text(query)))
 
     def run_sql(
         self,
