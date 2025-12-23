@@ -6,7 +6,7 @@ import json
 import os
 import queue
 import threading
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Self, TypedDict
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -59,7 +59,7 @@ class PlaidBaseModel(BaseModel):
     """Shared base for Plaid response models with a short parse alias."""
 
     @classmethod
-    def parse(cls, data: Any) -> PlaidBaseModel:
+    def parse(cls, data: Any) -> Self:
         return cls.model_validate(data)
 
 
