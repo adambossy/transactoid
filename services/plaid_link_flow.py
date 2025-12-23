@@ -423,7 +423,7 @@ def exchange_token_and_get_item_info(
             item_info = get_item_info_fn(access_token)
             institution_name = item_info.get("institution_name")
             institution_id = item_info.get("institution_id")
-        except Exception:
+        except Exception:  # noqa: S110
             # Non-fatal: continue without institution info
             pass
 
