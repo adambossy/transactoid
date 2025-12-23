@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from openai.types.responses import (
     ResponseFunctionCallArgumentsDeltaEvent,
 )
+from openai.types.shared import Reasoning
 from promptorium import load_prompt
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -689,7 +690,7 @@ class Transactoid:
                 tag_transactions,
                 WebSearchTool(),
             ],
-            model_settings=ModelSettings(reasoning_effort="medium", summary="detailed"),
+            model_settings=ModelSettings(reasoning=Reasoning(effort="medium"), verbosity="high"),
         )
 
         # Create session for conversation memory
