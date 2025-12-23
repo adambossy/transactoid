@@ -10,7 +10,7 @@ from pathlib import Path
 import queue
 import ssl
 import threading
-from typing import Any
+from typing import Any, Protocol
 import urllib.parse
 import uuid
 import webbrowser
@@ -319,11 +319,25 @@ def setup_redirect_server(
         return None
 
 
+class CreateLinkTokenFn(Protocol):
+    """Protocol for create_link_token function signature."""
+
+    def __call__(
+        self,
+        *,
+        user_id: str,
+        redirect_uri: str | None = None,
+        products: list[str] | None = None,
+        country_codes: list[str] | None = None,
+        client_name: str | None = None,
+    ) -> str: ...
+
+
 def create_link_token_and_url(
     *,
     redirect_uri: str,
     state: dict[str, Any],
-    create_link_token_fn: Callable[[str, str, list[str], list[str], str], str],
+    create_link_token_fn: CreateLinkTokenFn,
     client_name: str,
 ) -> str:
     """Create a Plaid Link token and build the Link URL.
