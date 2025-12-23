@@ -337,7 +337,7 @@ class CreateLinkTokenFn(Protocol):
 class GetItemInfoFn(Protocol):
     """Protocol for get_item_info function signature."""
 
-    def __call__(self, access_token: str) -> dict[str, Any]: ...
+    def __call__(self, __access_token: str, /) -> dict[str, Any]: ...
 
 
 def create_link_token_and_url(
