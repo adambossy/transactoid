@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 import re
@@ -254,7 +254,7 @@ class DB:
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
 
     @contextmanager
-    def session(self) -> AbstractContextManager[Session]:
+    def session(self) -> Iterator[Session]:
         """Context manager for database sessions."""
         session = self._session_factory()
         try:
