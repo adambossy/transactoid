@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import TypedDict, cast
 
-from yaml import safe_load  # type: ignore[import-untyped]
+from yaml import safe_load
 
 from services.db import DB, CategoryRow
 
@@ -53,7 +53,7 @@ def _extract_category_records(raw: RawTaxonomyDoc) -> list[RawCategoryRecord]:
         return []
     if not isinstance(records_raw, list):
         raise ValueError("'categories' must be a list")
-    return [cast(RawCategoryRecord, item) for item in records_raw]
+    return [item for item in records_raw]
 
 
 def _validate_and_normalize_record(
