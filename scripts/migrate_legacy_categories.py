@@ -259,7 +259,7 @@ def _print_preview(
         typer.echo(f"  • {code} → {key}")
 
 
-@app.command("migrate")  # type: ignore[misc]
+@app.command("migrate")
 def migrate_command(
     input_path: Path = INPUT_PATH_OPTION,
     output_yaml: Path | None = OUTPUT_YAML_OPTION,
