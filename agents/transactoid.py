@@ -558,9 +558,10 @@ class Transactoid:
             """
             Trigger UI flow for connecting a new bank/institution via Plaid.
 
-            Opens a browser window for the user to link their bank account via Plaid Link.
-            The function handles the full OAuth flow, exchanges the public token for an
-            access token, and stores the connection in the database.
+            Opens a browser window for the user to link their bank account
+            via Plaid Link. The function handles the full OAuth flow,
+            exchanges the public token for an access token, and stores the
+            connection in the database.
 
             Returns:
                 Dictionary with connection status including:
