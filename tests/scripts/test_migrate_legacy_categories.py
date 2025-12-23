@@ -85,4 +85,3 @@ def test_build_category_rows_raises_for_missing_parent() -> None:
     # act / assert
     with pytest.raises(ValueError):
         mlc.build_category_rows(categories, slug_map)
-
