@@ -333,6 +333,12 @@ class CreateLinkTokenFn(Protocol):
     ) -> str: ...
 
 
+class GetItemInfoFn(Protocol):
+    """Protocol for get_item_info function signature."""
+
+    def __call__(self, access_token: str) -> dict[str, Any]: ...
+
+
 def create_link_token_and_url(
     *,
     redirect_uri: str,
@@ -409,7 +415,7 @@ def exchange_token_and_get_item_info(
     *,
     public_token: str,
     exchange_public_token_fn: Callable[[str], dict[str, Any]],
-    get_item_info_fn: Callable[[str], dict[str, Any]],
+    get_item_info_fn: GetItemInfoFn,
 ) -> dict[str, Any] | None:
     """Exchange public token for access token and get item info.
 
