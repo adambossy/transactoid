@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from sqlalchemy.orm import Session  # noqa: F401 - used in type comments
 
 from models.transaction import Transaction
 from services.db import (
