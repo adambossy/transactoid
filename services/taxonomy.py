@@ -31,7 +31,7 @@ class Taxonomy:
 
     @classmethod
     def from_db(cls, db: DB) -> Taxonomy:
-        rows: list[dict[str, object]] = db.fetch_categories()
+        rows = db.fetch_categories()
         nodes: list[CategoryNode] = []
         for row in rows:
             nodes.append(
