@@ -1,9 +1,10 @@
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
+
+from tools.ingest.ingest_tool import NormalizedTransaction
 
 from tools.ingest.adapters.amex import AmexAdapter, canonical_external_id_for
-from tools.ingest.ingest_tool import NormalizedTransaction
 
 
 def _create_amex_csv_file(tmp_path: Path, content: str) -> str:
@@ -13,7 +14,7 @@ def _create_amex_csv_file(tmp_path: Path, content: str) -> str:
     return str(file_path)
 
 
-def _normalize_transaction_as_dict(txn: NormalizedTransaction) -> Dict[str, Any]:
+def _normalize_transaction_as_dict(txn: NormalizedTransaction) -> dict[str, Any]:
     """Converts a NormalizedTransaction object to a dict for comparison."""
     return {
         "external_id": txn.external_id,
@@ -32,7 +33,7 @@ def _normalize_transaction_as_dict(txn: NormalizedTransaction) -> Dict[str, Any]
 
 def _parse_and_get_first_transaction_dict(
     adapter: AmexAdapter, file_path: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Parses the file and returns the first transaction as a dict."""
     transactions = adapter.parse(file_path)
     assert len(transactions) == 1, "Expected exactly one transaction"
