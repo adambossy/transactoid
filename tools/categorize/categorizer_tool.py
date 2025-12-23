@@ -228,7 +228,8 @@ class Categorizer:
             return result.revised_category
         if not self._taxonomy.is_valid_key(result.category):
             raise ValueError(
-                f"Invalid category key '{result.category}' for transaction idx {result.idx}"
+                f"Invalid category key '{result.category}' for transaction "
+                f"idx {result.idx}"
             )
         return result.category
 
