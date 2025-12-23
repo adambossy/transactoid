@@ -596,6 +596,7 @@ def test_recategorize_unverified_by_merchant() -> None:
     )
 
     groceries_id = db.get_category_id_by_key("food.groceries")
+    assert groceries_id is not None
     count = db.recategorize_unverified_by_merchant(merchant.merchant_id, groceries_id)
 
     assert count == 1
