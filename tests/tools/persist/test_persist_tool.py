@@ -4,7 +4,7 @@ from datetime import date
 
 from services.db import DB, CategoryRow, _normalize_merchant_name
 from services.taxonomy import Taxonomy
-from tools.persist.persist_tool import ApplyTagsOutcome, PersistTool
+from tools.persist.persist_tool import PersistTool
 
 
 def create_db() -> DB:

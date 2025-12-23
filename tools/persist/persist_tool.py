@@ -13,7 +13,7 @@ class ApplyTagsOutcome:
 
 
 class PersistTool:
-    def __init__(self, db: "DB", taxonomy: "Taxonomy") -> None:
+    def __init__(self, db: DB, taxonomy: Taxonomy) -> None:
         self._db = db
         self._taxonomy = taxonomy
 

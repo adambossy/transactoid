@@ -16,6 +16,7 @@ import uuid
 import webbrowser
 
 from dotenv import load_dotenv
+
 from services.plaid_client import PlaidClient, PlaidClientError
 from services.plaid_link_flow import (
     PublicTokenTimeoutError,

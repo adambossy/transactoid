@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
 import json
 import os
-from dataclasses import dataclass
-from typing import Iterable, Optional
 
-import yaml
 from openai import OpenAI
-from pydantic import BaseModel, Field
 from promptorium import load_prompt
+from pydantic import BaseModel, Field
+import yaml
 
 from models.transaction import Transaction
 from services.file_cache import FileCache, stable_key
@@ -20,9 +20,9 @@ class CategorizedTransaction:
     category_key: str
     category_confidence: float
     category_rationale: str
-    revised_category_key: Optional[str] = None
-    revised_category_confidence: Optional[float] = None
-    revised_category_rationale: Optional[str] = None
+    revised_category_key: str | None = None
+    revised_category_confidence: float | None = None
+    revised_category_rationale: str | None = None
 
 
 class CategorizationResult(BaseModel):
@@ -34,16 +34,16 @@ class CategorizationResult(BaseModel):
         ..., ge=0.0, le=1.0, description="Initial confidence before search"
     )
     rationale: str = Field(..., description="Initial rationale")
-    revised_category: Optional[str] = Field(
+    revised_category: str | None = Field(
         None, description="Category after web search"
     )
-    revised_score: Optional[float] = Field(
+    revised_score: float | None = Field(
         None, ge=0.0, le=1.0, description="Confidence after web search"
     )
-    revised_rationale: Optional[str] = Field(
+    revised_rationale: str | None = Field(
         None, description="Rationale after web search"
     )
-    citations: Optional[list[str]] = Field(
+    citations: list[str] | None = Field(
         None, description="Web pages used for revision"
     )
 
@@ -67,12 +67,12 @@ class CategorizationResponse(BaseModel):
 class Categorizer:
     def __init__(
         self,
-        taxonomy: "Taxonomy",
+        taxonomy: Taxonomy,
         *,
         prompt_key: str = "categorize-transactions",
         model: str = "gpt-5.1",
         confidence_threshold: float = 0.70,
-        file_cache: Optional[FileCache] = None,
+        file_cache: FileCache | None = None,
     ) -> None:
         self._taxonomy = taxonomy
         self._prompt_key = prompt_key

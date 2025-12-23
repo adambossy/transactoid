@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 import asyncio
 import os
 
 import typer
 
+from agents.transactoid import Transactoid
 from scripts import run
 from services.db import DB
 from services.taxonomy import Taxonomy
-from agents.transactoid import Transactoid
 
 app = typer.Typer(help="Transactoid — personal finance agent CLI.")
 

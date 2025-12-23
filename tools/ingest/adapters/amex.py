@@ -1,11 +1,11 @@
 import csv
+from datetime import datetime
 import hashlib
 import json
 import re
-from datetime import datetime
-from typing import List
 
 from tools.ingest.ingest_tool import NormalizedTransaction
+
 from .base import BankAdapter
 
 
@@ -42,9 +42,9 @@ def canonical_external_id_for(
 
 
 class AmexAdapter(BankAdapter):
-    def parse(self, file_path: str) -> List[NormalizedTransaction]:
+    def parse(self, file_path: str) -> list[NormalizedTransaction]:
         transactions = []
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             reader = csv.reader(f)
 
             # Read the header row to get column names

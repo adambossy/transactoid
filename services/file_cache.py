@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import tempfile
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Any, Iterator, List, Optional, TextIO
+from typing import Any, TextIO
 
 JSONType = Any
 
@@ -32,7 +33,7 @@ class FileCache:
 
     # -------- Public API --------
 
-    def get(self, namespace: str, key: str) -> Optional[JSONType]:
+    def get(self, namespace: str, key: str) -> JSONType | None:
         path = self._key_path(namespace, key)
         if not path.exists():
             return None
@@ -79,11 +80,11 @@ class FileCache:
                     logger.debug("FileCache clear failed at %s: %s", entry, exc)
         return removed
 
-    def list_keys(self, namespace: str) -> List[str]:
+    def list_keys(self, namespace: str) -> list[str]:
         ns_dir = self._namespace_dir(namespace)
         if not ns_dir.exists():
             return []
-        keys: List[str] = []
+        keys: list[str] = []
         for entry in ns_dir.iterdir():
             if entry.is_file() and entry.suffix == ".json":
                 keys.append(entry.stem)
