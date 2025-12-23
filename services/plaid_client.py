@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from http.server import ThreadingHTTPServer
 import json
@@ -501,7 +502,7 @@ class PlaidClient:
             item_data = exchange_token_and_get_item_info(
                 public_token=public_token,
                 exchange_public_token_fn=self.exchange_public_token,
-                get_item_info_fn=self.get_item_info,
+                get_item_info_fn=cast(Callable[[str], dict[str, Any]], self.get_item_info),
             )
             if item_data is None:
                 return {
