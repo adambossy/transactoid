@@ -13,7 +13,7 @@ def create_db() -> DB:
     # Create tables using SQLAlchemy Base
     from services.db import Base
 
-    with db.session() as session:
+    with db.session() as session:  # type: Session
         Base.metadata.create_all(session.bind)
     return db
 
