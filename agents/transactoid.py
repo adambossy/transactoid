@@ -460,7 +460,8 @@ class Transactoid:
                     if result.returns_rows:
                         # Convert Row objects to dicts
                         rows = [dict(row._mapping) for row in result.fetchall()]
-                        # Convert date/datetime objects to strings for JSON serialization
+                        # Convert date/datetime objects to strings for JSON
+                        # serialization
                         for row in rows:
                             for key, value in row.items():
                                 if hasattr(value, "isoformat"):
