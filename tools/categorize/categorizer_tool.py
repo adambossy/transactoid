@@ -35,18 +35,14 @@ class CategorizationResult(BaseModel):
         ..., ge=0.0, le=1.0, description="Initial confidence before search"
     )
     rationale: str = Field(..., description="Initial rationale")
-    revised_category: str | None = Field(
-        None, description="Category after web search"
-    )
+    revised_category: str | None = Field(None, description="Category after web search")
     revised_score: float | None = Field(
         None, ge=0.0, le=1.0, description="Confidence after web search"
     )
     revised_rationale: str | None = Field(
         None, description="Rationale after web search"
     )
-    citations: list[str] | None = Field(
-        None, description="Web pages used for revision"
-    )
+    citations: list[str] | None = Field(None, description="Web pages used for revision")
 
 
 class CategorizationResponse(BaseModel):

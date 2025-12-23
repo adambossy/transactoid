@@ -153,7 +153,9 @@ class PlaidTransactionModel(PlaidBaseModel):
             "unofficial_currency_code": self.unofficial_currency_code,
             "category": self.category,
             "category_id": self.category_id,
-            "personal_finance_category": cast(PersonalFinanceCategory | None, self.personal_finance_category),
+            "personal_finance_category": cast(
+                PersonalFinanceCategory | None, self.personal_finance_category
+            ),
         }
         return txn
 
@@ -516,7 +518,9 @@ class PlaidClient:
             item_data = exchange_token_and_get_item_info(
                 public_token=public_token,
                 exchange_public_token_fn=self.exchange_public_token,
-                get_item_info_fn=cast(Callable[[str], dict[str, Any]], self.get_item_info),
+                get_item_info_fn=cast(
+                    Callable[[str], dict[str, Any]], self.get_item_info
+                ),
             )
             if item_data is None:
                 return {
