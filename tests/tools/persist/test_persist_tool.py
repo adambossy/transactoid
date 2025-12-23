@@ -16,6 +16,7 @@ def create_db() -> DB:
     from services.db import Base
 
     with db.session() as session:  # type: Session
+        assert session.bind is not None
         Base.metadata.create_all(session.bind)
     return db
 
