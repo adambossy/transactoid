@@ -619,8 +619,10 @@ class Transactoid:
             Update categories for groups of transactions matching specified criteria.
 
             Args:
-                filter: Dictionary with filter criteria (e.g., date_range, category_prefix)
-                new_category: Category key to apply (must be valid from taxonomy)
+                filter: Dictionary with filter criteria (e.g., date_range,
+                    category_prefix)
+                new_category: Category key to apply (must be valid from
+                    taxonomy)
 
             Returns:
                 Dictionary with update summary
