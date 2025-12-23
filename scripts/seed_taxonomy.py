@@ -114,7 +114,8 @@ def _validate_parent_relationships(configs: list[CategoryConfig]) -> None:
 
 
 def _order_parent_child(configs: Iterable[CategoryConfig]) -> list[CategoryConfig]:
-    """Return a list ordered so that each parent appears immediately before its children."""
+    """Return a list ordered so that each parent appears immediately
+    before its children."""
     configs_list = list(configs)
     ordered: list[CategoryConfig] = []
     children_by_parent: dict[str, list[CategoryConfig]] = {}
