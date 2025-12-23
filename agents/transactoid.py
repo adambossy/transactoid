@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from decimal import Decimal
 import json
 import sys
-from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
 
 from dotenv import load_dotenv
 from openai.types.responses import (
