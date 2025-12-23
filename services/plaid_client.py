@@ -248,7 +248,7 @@ class PlaidClient:
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = self._base_url().rstrip("/") + path
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310
             url,
             data=data,
             headers={"Content-Type": "application/json"},
