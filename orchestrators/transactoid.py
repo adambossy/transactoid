@@ -6,15 +6,6 @@ import json
 import sys
 from typing import Any
 
-from dotenv import load_dotenv
-from openai.types.responses import (
-    ResponseFunctionCallArgumentsDeltaEvent,
-)
-from openai.types.shared import Reasoning
-from promptorium import load_prompt
-from pydantic import BaseModel
-import yaml
-
 from agents import (
     Agent,
     ModelSettings,
@@ -28,6 +19,15 @@ from agents.items import (
     MessageOutputItem,
     ToolCallOutputItem,
 )
+from dotenv import load_dotenv
+from openai.types.responses import (
+    ResponseFunctionCallArgumentsDeltaEvent,
+)
+from openai.types.shared import Reasoning
+from promptorium import load_prompt
+from pydantic import BaseModel
+import yaml
+
 from services.db import DB
 from services.plaid_client import PlaidClient, PlaidClientError
 from services.taxonomy import Taxonomy
@@ -501,8 +501,9 @@ class Transactoid:
             if error is not None:
                 return error
 
-            # After _ensure_plaid_client() returns None, _plaid_client is guaranteed to be initialized
-            assert self._plaid_client is not None
+            # After _ensure_plaid_client() returns None, _plaid_client is
+            # guaranteed to be initialized
+            assert self._plaid_client is not None  # noqa: S101
 
             # Check if at least one account is connected
             plaid_items = self._db.list_plaid_items()
@@ -582,8 +583,9 @@ class Transactoid:
             if error is not None:
                 return error
 
-            # After _ensure_plaid_client() returns None, _plaid_client is guaranteed to be initialized
-            assert self._plaid_client is not None
+            # After _ensure_plaid_client() returns None, _plaid_client is
+            # guaranteed to be initialized
+            assert self._plaid_client is not None  # noqa: S101
             return self._plaid_client.connect_new_account(db=self._db)
 
         @function_tool
@@ -612,8 +614,9 @@ class Transactoid:
             if error is not None:
                 return error
 
-            # After _ensure_plaid_client() returns None, _plaid_client is guaranteed to be initialized
-            assert self._plaid_client is not None
+            # After _ensure_plaid_client() returns None, _plaid_client is
+            # guaranteed to be initialized
+            assert self._plaid_client is not None  # noqa: S101
             return self._plaid_client.list_accounts(db=self._db)
 
         @function_tool
@@ -686,7 +689,9 @@ class Transactoid:
                 tag_transactions,
                 WebSearchTool(),
             ],
-            model_settings=ModelSettings(reasoning=Reasoning(effort="medium"), verbosity="high"),
+            model_settings=ModelSettings(
+                reasoning=Reasoning(effort="medium"), verbosity="high"
+            ),
         )
 
         # Create session for conversation memory
