@@ -12,6 +12,8 @@ from promptorium.storage.fs import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
 import yaml
 
+from services.yaml_utils import dump_yaml
+
 
 # ----------------------------
 # Promptorium integration (library-based)
@@ -62,13 +64,7 @@ def _normalize_yaml_for_hash(yaml_text: str) -> str:
         # Some YAMLs may be empty (None); represent deterministically
         if data is None:
             return ""
-        normalized = yaml.safe_dump(
-            data,
-            sort_keys=True,
-            default_flow_style=False,
-            allow_unicode=True,
-        )
-        return normalized.strip()
+        return dump_yaml(data).strip()
     except Exception:
         # Fallback: trim leading/trailing whitespace and collapse multiple blank lines
         # This ensures we are at least robust to pure whitespace edits.
@@ -195,12 +191,7 @@ def _yaml_dump_front_matter(meta: dict[str, Any]) -> str:
     - Prefer PyYAML if available
     - Otherwise write a minimal, safe subset
     """
-    return yaml.safe_dump(
-        meta,
-        sort_keys=True,
-        default_flow_style=False,
-        allow_unicode=True,
-    ).strip()
+    return dump_yaml(meta).strip()
 
 
 def wrap_with_front_matter(body_md: str, meta: dict[str, Any]) -> str:

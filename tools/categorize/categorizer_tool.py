@@ -8,11 +8,11 @@ import os
 from openai import OpenAI
 from promptorium import load_prompt
 from pydantic import BaseModel, Field
-import yaml
 
 from models.transaction import Transaction
 from services.file_cache import FileCache, stable_key
 from services.taxonomy import Taxonomy
+from services.yaml_utils import dump_yaml_basic
 
 
 @dataclass
@@ -123,7 +123,7 @@ class Categorizer:
 
     def _serialize_taxonomy(self, taxonomy_dict: dict[str, object]) -> str:
         """Serialize taxonomy dictionary to YAML string."""
-        return yaml.dump(taxonomy_dict, default_flow_style=False, sort_keys=False)
+        return dump_yaml_basic(taxonomy_dict, default_flow_style=False, sort_keys=False)
 
     def _render_prompt(
         self, txn_json_list: list[dict[str, object]], taxonomy_dict: dict[str, object]

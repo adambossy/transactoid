@@ -13,9 +13,6 @@ from openai.types.responses import (
 from openai.types.shared import Reasoning
 from promptorium import load_prompt
 from pydantic import BaseModel
-from sqlalchemy import text
-from sqlalchemy.engine import CursorResult
-from sqlalchemy.orm import Session
 import yaml
 
 from agents import (
@@ -457,21 +454,20 @@ class Transactoid:
                 Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
             """
             try:
-                with self._db.session() as session:  # type: Session
-                    result: CursorResult[Any] = session.execute(text(query))
+                result = self._db.execute_raw_sql(query)
 
-                    if result.returns_rows:
-                        # Convert Row objects to dicts
-                        rows = [dict(row._mapping) for row in result.fetchall()]
-                        # Convert date/datetime objects to strings for JSON
-                        # serialization
-                        for row in rows:
-                            for key, value in row.items():
-                                if hasattr(value, "isoformat"):
-                                    row[key] = value.isoformat()
-                        return {"rows": rows, "count": len(rows)}
-                    else:
-                        return {"rows": [], "count": result.rowcount}
+                if result.returns_rows:
+                    # Convert Row objects to dicts
+                    rows = [dict(row._mapping) for row in result.fetchall()]
+                    # Convert date/datetime objects to strings for JSON
+                    # serialization
+                    for row in rows:
+                        for key, value in row.items():
+                            if hasattr(value, "isoformat"):
+                                row[key] = value.isoformat()
+                    return {"rows": rows, "count": len(rows)}
+                else:
+                    return {"rows": [], "count": result.rowcount}
             except Exception as e:
                 return {"rows": [], "count": 0, "error": str(e)}
 
