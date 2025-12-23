@@ -11,7 +11,7 @@ load_dotenv()
 
 # Import the Base and all models for autogenerate support
 # Import all models to ensure they're registered with Base
-from services.db import (  # noqa: F401
+from services.db import (  # noqa: F401  # ruff: noqa: E402
     Base,
     Category,
     Merchant,
