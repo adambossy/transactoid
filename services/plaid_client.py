@@ -606,7 +606,10 @@ class PlaidClient:
                 "message": f"Failed to fetch accounts: {'; '.join(errors)}",
             }
 
-        message = f"Found {len(all_accounts)} account(s) across {len(plaid_items)} institution(s)."
+        message = (
+            f"Found {len(all_accounts)} account(s) across "
+            f"{len(plaid_items)} institution(s)."
+        )
         if errors:
             message += (
                 f" Note: {len(errors)} error(s) occurred while fetching some accounts."
