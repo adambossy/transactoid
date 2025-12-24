@@ -33,11 +33,7 @@ from services.db import DB
 from services.plaid_client import PlaidClient, PlaidClientError
 from services.taxonomy import Taxonomy
 from tools.categorize.categorizer_tool import Categorizer
-from tools.persist.persist_tool import (
-    PersistTool,
-    RecategorizeTool,
-    TagTransactionsTool,
-)
+from tools.persist.persist_tool import PersistTool, RecategorizeTool, TagTransactionsTool
 from tools.query.query_tool import RunSQLTool
 from tools.registry import ToolRegistry
 from tools.sync.sync_tool import SyncTool, SyncTransactionsTool
@@ -412,7 +408,6 @@ class Transactoid:
         self._categorizer = Categorizer(taxonomy)
         self._persist_tool = PersistTool(db, taxonomy)
         self._plaid_client = plaid_client
-        self._registry = ToolRegistry()
 
     def _ensure_plaid_client(
         self, *, error_factory: Callable[[PlaidClientError], dict[str, Any]]
@@ -432,33 +427,6 @@ class Transactoid:
                 return error_factory(e)
         return None
 
-    def _register_tools(self, access_token: str) -> None:
-        """Register all tools with the registry."""
-        # Ensure PlaidClient is initialized
-        if self._plaid_client is None:
-            self._plaid_client = PlaidClient.from_env()
-
-        # Register sync tool
-        sync_tool = SyncTransactionsTool(
-            plaid_client=self._plaid_client,
-            categorizer=self._categorizer,
-            db=self._db,
-            taxonomy=self._taxonomy,
-            access_token=access_token,
-        )
-        self._registry.register(sync_tool)
-
-        # Register persist tools
-        recat_tool = RecategorizeTool(self._persist_tool)
-        self._registry.register(recat_tool)
-
-        tag_tool = TagTransactionsTool(self._persist_tool)
-        self._registry.register(tag_tool)
-
-        # Register query tool
-        sql_tool = RunSQLTool(self._db)
-        self._registry.register(sql_tool)
-
     async def run(self) -> None:
         """
         Run the interactive agent loop using OpenAI Agents SDK.
@@ -476,18 +444,36 @@ class Transactoid:
             category_taxonomy=taxonomy_dict,
         )
 
-        # Get access token for tool registration
-        plaid_items = self._db.list_plaid_items()
-        if plaid_items:
-            access_token = plaid_items[0].access_token
-            # Register tools with access token
-            self._register_tools(access_token)
+        # Create tool wrapper functions
+        @function_tool
+        def run_sql(query: str) -> dict[str, Any]:
+            """
+            Execute SQL queries against the transaction database.
 
-        # Adapt tools for OpenAI Agents SDK
-        adapter = OpenAIAdapter(self._registry)
-        adapted_tools = adapter.adapt_all()
+            Args:
+                query: SQL query string to execute
 
-        # Create inline tool wrapper functions for tools not yet in registry
+            Returns:
+                Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
+            """
+            try:
+                result = self._db.execute_raw_sql(query)
+
+                if result.returns_rows:
+                    # Convert Row objects to dicts
+                    rows = [dict(row._mapping) for row in result.fetchall()]
+                    # Convert date/datetime objects to strings for JSON
+                    # serialization
+                    for row in rows:
+                        for key, value in row.items():
+                            if hasattr(value, "isoformat"):
+                                row[key] = value.isoformat()
+                    return {"rows": rows, "count": len(rows)}
+                else:
+                    return {"rows": [], "count": result.rowcount}
+            except Exception as e:
+                return {"rows": [], "count": 0, "error": str(e)}
+
         @function_tool
         def sync_transactions() -> dict[str, Any]:
             """
@@ -692,14 +678,14 @@ class Transactoid:
                 "message": "Tagging requires filter parsing",
             }
 
-        # Create Agent instance with adapted tools + inline tools
+        # Create Agent instance
         agent = Agent(
             name="Transactoid",
             instructions=instructions,
             model="gpt-5.1",
             tools=[
-                *adapted_tools,  # Tools from registry (run_sql, etc.)
-                sync_transactions,  # Inline tool with connection logic
+                run_sql,
+                sync_transactions,
                 connect_new_account,
                 list_accounts,
                 update_category_for_transaction_groups,
