@@ -7,7 +7,9 @@ from models.transaction import Transaction
 from services.db import DB
 from services.plaid_client import PlaidClient, PlaidClientError
 from services.taxonomy import Taxonomy
+from tools.base import StandardTool
 from tools.categorize.categorizer_tool import CategorizedTransaction, Categorizer
+from tools.protocol import ToolInputSchema
 
 
 @dataclass
@@ -168,3 +170,89 @@ class SyncTool:
                     raise
 
         return results
+
+
+class SyncTransactionsTool(StandardTool):
+    """
+    Tool wrapper for syncing transactions via Plaid.
+
+    Exposes the SyncTool functionality through the standardized Tool protocol
+    for use across multiple frontends (CLI, ChatKit, MCP, etc.).
+    """
+
+    _name = "sync_transactions"
+    _description = (
+        "Trigger synchronization with Plaid to fetch latest transactions. "
+        "Syncs all available transactions with automatic pagination, "
+        "categorizes each page as it's fetched, and persists results to the database."
+    )
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {},  # No parameters needed - uses configured access token
+        "required": [],
+    }
+
+    def __init__(
+        self,
+        plaid_client: PlaidClient,
+        categorizer: Categorizer,
+        db: DB,
+        taxonomy: Taxonomy,
+        access_token: str,
+    ) -> None:
+        """
+        Initialize the sync transactions tool.
+
+        Args:
+            plaid_client: Plaid client instance
+            categorizer: Categorizer instance for LLM-based categorization
+            db: Database instance for persisting transactions
+            taxonomy: Taxonomy instance for transaction categorization
+            access_token: Plaid access token for the item
+        """
+        self._sync_tool = SyncTool(
+            plaid_client=plaid_client,
+            categorizer=categorizer,
+            db=db,
+            taxonomy=taxonomy,
+            access_token=access_token,
+            cursor=None,
+        )
+
+    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        """
+        Execute sync and return summary dict.
+
+        Returns:
+            JSON-serializable dict with sync results including:
+            - status: "success" or "error"
+            - pages_processed: Number of pages fetched
+            - total_added: Total transactions added
+            - total_modified: Total transactions modified
+            - total_removed: Total transactions removed
+        """
+        try:
+            results = self._sync_tool.sync()
+
+            # Aggregate results into JSON-serializable dict
+            total_added = sum(len(r.categorized_added) for r in results)
+            total_modified = sum(len(r.categorized_modified) for r in results)
+            total_removed = sum(len(r.removed_transaction_ids) for r in results)
+
+            return {
+                "status": "success",
+                "pages_processed": len(results),
+                "total_added": total_added,
+                "total_modified": total_modified,
+                "total_removed": total_removed,
+            }
+        except PlaidClientError as e:
+            return {
+                "status": "error",
+                "error": f"Plaid sync failed: {e}",
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Sync failed: {e}",
+            }
