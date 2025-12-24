@@ -157,6 +157,32 @@ def tag_transactions(transaction_ids: list[int], tags: list[str]) -> dict[str, A
 
 
 @mcp.tool()
+def connect_new_account() -> dict[str, Any]:
+    """
+    Trigger UI flow for connecting a new bank/institution via Plaid.
+
+    Opens a browser window for the user to link their bank account via Plaid
+    Link. The function handles the full OAuth flow, exchanges the public token
+    for an access token, and stores the connection in the database.
+
+    Returns:
+        Dictionary with connection status including:
+        - status: "success" or "error"
+        - item_id: Plaid item ID if successful
+        - institution_name: Institution name if available
+        - message: Human-readable status message
+    """
+    try:
+        plaid_client = PlaidClient.from_env()
+        return plaid_client.connect_new_account(db=db)
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Failed to connect account: {str(e)}",
+        }
+
+
+@mcp.tool()
 def list_plaid_accounts() -> dict[str, Any]:
     """
     List all connected Plaid accounts.
