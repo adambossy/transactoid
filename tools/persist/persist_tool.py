@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from services.db import DB
 from services.taxonomy import Taxonomy
+from tools.base import StandardTool
+from tools.protocol import ToolInputSchema
 
 
 @dataclass
@@ -106,3 +109,136 @@ class PersistTool:
         applied_count = self._db.attach_tags(transaction_ids, tag_ids)
 
         return ApplyTagsOutcome(applied=applied_count, created_tags=created_tags)
+
+
+class RecategorizeTool(StandardTool):
+    """
+    Tool wrapper for bulk recategorizing transactions by merchant.
+
+    Exposes PersistTool.bulk_recategorize_by_merchant through the standardized
+    Tool protocol.
+    """
+
+    _name = "recategorize_by_merchant"
+    _description = (
+        "Bulk recategorize all unverified transactions for a given merchant. "
+        "Verified transactions are immutable and will not be changed."
+    )
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "merchant_id": {
+                "type": "integer",
+                "description": "ID of the merchant whose transactions will be updated",
+            },
+            "category_key": {
+                "type": "string",
+                "description": (
+                    "Taxonomy key for the new category (e.g., 'FOOD.GROCERIES')"
+                ),
+            },
+        },
+        "required": ["merchant_id", "category_key"],
+    }
+
+    def __init__(self, persist_tool: PersistTool) -> None:
+        """
+        Initialize the recategorize tool.
+
+        Args:
+            persist_tool: PersistTool instance to delegate to
+        """
+        self._persist_tool = persist_tool
+
+    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        """
+        Execute recategorization and return result.
+
+        Args:
+            merchant_id: ID of merchant
+            category_key: New category key
+
+        Returns:
+            JSON-serializable dict with:
+            - status: "success" or "error"
+            - updated_count: Number of transactions updated
+            - error: Error message if status is "error"
+        """
+        merchant_id: int = kwargs["merchant_id"]
+        category_key: str = kwargs["category_key"]
+
+        try:
+            updated_count = self._persist_tool.bulk_recategorize_by_merchant(
+                merchant_id, category_key
+            )
+            return {
+                "status": "success",
+                "updated_count": updated_count,
+            }
+        except ValueError as e:
+            return {
+                "status": "error",
+                "error": str(e),
+                "updated_count": 0,
+            }
+
+
+class TagTransactionsTool(StandardTool):
+    """
+    Tool wrapper for applying tags to transactions.
+
+    Exposes PersistTool.apply_tags through the standardized Tool protocol.
+    """
+
+    _name = "tag_transactions"
+    _description = "Apply user-defined tags to transactions."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "transaction_ids": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "List of transaction IDs to tag",
+            },
+            "tag_names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of tag names to apply",
+            },
+        },
+        "required": ["transaction_ids", "tag_names"],
+    }
+
+    def __init__(self, persist_tool: PersistTool) -> None:
+        """
+        Initialize the tag transactions tool.
+
+        Args:
+            persist_tool: PersistTool instance to delegate to
+        """
+        self._persist_tool = persist_tool
+
+    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        """
+        Execute tagging and return result.
+
+        Args:
+            transaction_ids: List of transaction IDs
+            tag_names: List of tag names
+
+        Returns:
+            JSON-serializable dict with:
+            - status: "success"
+            - applied: Number of tag-transaction relationships created
+            - created_tags: List of newly created tag names
+        """
+        transaction_ids: list[int] = kwargs["transaction_ids"]
+        tag_names: list[str] = kwargs["tag_names"]
+
+        outcome = self._persist_tool.apply_tags(transaction_ids, tag_names)
+
+        return {
+            "status": "success",
+            "applied": outcome.applied,
+            "created_tags": outcome.created_tags,
+        }
