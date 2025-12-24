@@ -220,7 +220,7 @@ def list_plaid_accounts() -> dict[str, Any]:
             "status": "success",
             "accounts": accounts,
             "count": len(accounts),
-            "message": f"Found {len(accounts)} connected account(s)}",
+            "message": f"Found {len(accounts)} connected account(s)",
         }
     except Exception as e:
         return {
