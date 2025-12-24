@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dotenv import load_dotenv
 import os
 from typing import Any
 
@@ -181,6 +182,9 @@ def main() -> None:
     from chatkit.server import StreamingResult
     from fastapi import FastAPI, Request, Response
     from fastapi.responses import StreamingResponse
+
+    # Load environment variables
+    load_dotenv(override=False)
 
     # Create server instance
     server = TransactoidChatKitServer()
