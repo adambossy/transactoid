@@ -19,6 +19,9 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
     "alembic>=1.17.2",
+    "openai-chatkit>=1.4.1",
+    "fastapi>=0.127.0",
+    "uvicorn>=0.38.0",
 ]
 
 [project.scripts]
