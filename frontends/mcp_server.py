@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
 import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+
+# Load environment variables
+load_dotenv(override=False)
 
 from services.db import DB
 from services.plaid_client import PlaidClient
@@ -150,6 +154,55 @@ def tag_transactions(transaction_ids: list[int], tags: list[str]) -> dict[str, A
         }
     except Exception as e:
         return {"status": "error", "message": str(e), "applied": 0, "created_tags": []}
+
+
+@mcp.tool()
+def list_plaid_accounts() -> dict[str, Any]:
+    """
+    List all connected Plaid accounts.
+
+    Returns:
+        Dictionary with list of connected accounts including item_id,
+        institution_id, institution_name, and access_token status.
+    """
+    try:
+        plaid_items = db.list_plaid_items()
+
+        if not plaid_items:
+            return {
+                "status": "success",
+                "accounts": [],
+                "message": "No Plaid accounts connected",
+            }
+
+        accounts = []
+        for item in plaid_items:
+            accounts.append({
+                "item_id": item.item_id,
+                "institution_id": item.institution_id or "unknown",
+                "institution_name": item.institution_name or "Unknown Institution",
+                "has_access_token": bool(item.access_token),
+                "created_at": (
+                    item.created_at.isoformat() if item.created_at else None
+                ),
+                "updated_at": (
+                    item.updated_at.isoformat() if item.updated_at else None
+                ),
+            })
+
+        return {
+            "status": "success",
+            "accounts": accounts,
+            "count": len(accounts),
+            "message": f"Found {len(accounts)} connected account(s)}",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "accounts": [],
+            "count": 0,
+            "message": f"Error listing accounts: {str(e)}",
+        }
 
 
 @mcp.tool()
