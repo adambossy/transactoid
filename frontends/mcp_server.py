@@ -1,0 +1,186 @@
+"""MCP server exposing Transactoid tools via Anthropic MCP SDK."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+
+from services.db import DB
+from services.plaid_client import PlaidClient
+from services.taxonomy import Taxonomy
+from tools.categorize.categorizer_tool import Categorizer
+from tools.persist.persist_tool import PersistTool
+from tools.sync.sync_tool import SyncTool
+
+# Initialize services globally
+db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+db = DB(db_url)
+taxonomy = Taxonomy.from_db(db)
+categorizer = Categorizer(taxonomy)
+persist_tool = PersistTool(db, taxonomy)
+
+# Create FastMCP server
+mcp = FastMCP(name="transactoid")
+
+
+@mcp.tool()
+def sync_transactions(count: int = 25) -> dict[str, Any]:
+    """
+    Trigger synchronization with Plaid to fetch latest transactions.
+
+    Syncs transactions, categorizes them, and persists to the database.
+
+    Args:
+        count: Maximum number of transactions to sync per page (default: 25)
+
+    Returns:
+        Dictionary with sync status and summary including pages_processed,
+        total_added, total_modified, and total_removed counts.
+    """
+    try:
+        # Get PlaidClient and access token
+        plaid_client = PlaidClient.from_env()
+        plaid_items = db.list_plaid_items()
+
+        if not plaid_items:
+            return {
+                "status": "error",
+                "message": "No Plaid accounts connected",
+                "pages_processed": 0,
+                "total_added": 0,
+                "total_modified": 0,
+                "total_removed": 0,
+            }
+
+        access_token = plaid_items[0].access_token
+
+        # Create sync tool
+        sync_tool = SyncTool(
+            plaid_client=plaid_client,
+            categorizer=categorizer,
+            db=db,
+            taxonomy=taxonomy,
+            access_token=access_token,
+            cursor=None,
+        )
+
+        # Execute sync
+        results = sync_tool.sync(count=count)
+
+        # Aggregate results
+        total_added = sum(len(r.categorized_added) for r in results)
+        total_modified = sum(len(r.categorized_modified) for r in results)
+        total_removed = sum(len(r.removed_transaction_ids) for r in results)
+
+        return {
+            "status": "success",
+            "pages_processed": len(results),
+            "total_added": total_added,
+            "total_modified": total_modified,
+            "total_removed": total_removed,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "pages_processed": 0,
+            "total_added": 0,
+            "total_modified": 0,
+            "total_removed": 0,
+        }
+
+
+@mcp.tool()
+def recategorize_merchant(merchant_id: int, category_key: str) -> dict[str, Any]:
+    """
+    Recategorize all transactions for a specific merchant.
+
+    Args:
+        merchant_id: The merchant ID to recategorize
+        category_key: The new category key (e.g., "FOOD.GROCERIES")
+
+    Returns:
+        Dictionary with recategorization results
+    """
+    try:
+        if not taxonomy.is_valid_key(category_key):
+            return {
+                "status": "error",
+                "message": f"Invalid category key: {category_key}",
+                "updated": 0,
+            }
+
+        updated_count = persist_tool.bulk_recategorize_by_merchant(
+            merchant_id=merchant_id, category_key=category_key
+        )
+
+        return {
+            "status": "success",
+            "updated": updated_count,
+            "message": (
+                f"Recategorized {updated_count} transactions to {category_key}"
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e), "updated": 0}
+
+
+@mcp.tool()
+def tag_transactions(transaction_ids: list[int], tags: list[str]) -> dict[str, Any]:
+    """
+    Apply tags to specific transactions.
+
+    Args:
+        transaction_ids: List of transaction IDs to tag
+        tags: List of tag names to apply
+
+    Returns:
+        Dictionary with tagging results
+    """
+    try:
+        result = persist_tool.apply_tags(transaction_ids, tags)
+
+        return {
+            "status": "success",
+            "applied": result.applied,
+            "created_tags": result.created_tags,
+            "message": f"Applied {len(tags)} tags to {result.applied} transactions",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e), "applied": 0, "created_tags": []}
+
+
+@mcp.tool()
+def run_sql(query: str) -> dict[str, Any]:
+    """
+    Execute SQL queries against the transaction database.
+
+    Args:
+        query: SQL query string to execute
+
+    Returns:
+        Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
+    """
+    try:
+        result = db.execute_raw_sql(query)
+
+        if result.returns_rows:
+            # Convert Row objects to dicts
+            rows = [dict(row._mapping) for row in result.fetchall()]
+            # Convert date/datetime objects to strings for JSON serialization
+            for row in rows:
+                for key, value in row.items():
+                    if hasattr(value, "isoformat"):
+                        row[key] = value.isoformat()
+            return {"status": "success", "rows": rows, "count": len(rows)}
+        else:
+            return {"status": "success", "rows": [], "count": result.rowcount}
+    except Exception as e:
+        return {"status": "error", "rows": [], "count": 0, "error": str(e)}
+
+
+if __name__ == "__main__":
+    # Run the MCP server
+    mcp.run()
