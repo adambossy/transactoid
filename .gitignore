@@ -211,8 +211,8 @@ __marimo__/
 .transactions
 .worktrees
 
-# Local SSL key for Plaid redirect server (certificate is tracked, key is not)
-configs/plaid_redirect_localhost.key
+# Local SSL certificates and keys
+.certs/
 
 # macOS
 .DS_Store
