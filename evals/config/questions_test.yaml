@@ -1,0 +1,13 @@
+questions:
+  - id: "q001_total_spending"
+    question: "How much did I spend in total last month?"
+    follow_ups: []
+    fixture: "last_month_spending"
+    ground_truth:
+      total_spending: 2450.50
+      transaction_count: 42
+    expectations:
+      - "Total is $2,450.50"
+      - "Response is concise (< 3 sentences)"
+      - "Currency formatted correctly"
+      - "Tone is snarky/snide"
