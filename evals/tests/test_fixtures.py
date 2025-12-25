@@ -4,7 +4,7 @@ import yaml
 
 from evals.data.fixtures import FIXTURES
 from evals.data.test_db_builder import EvalDBBuilder
-from services.db import Base, CategoryRow, DB
+from services.db import DB, Base, CategoryRow
 from services.taxonomy import Taxonomy
 
 
@@ -208,6 +208,6 @@ def test_last_month_spending_top_merchants_match() -> None:
 
     actual_top_3 = []
     for row in result:
-        actual_top_3.append((row[0], row[1], row[2]))  # type: ignore[index]
+        actual_top_3.append((row[0], row[1], row[2]))
 
     assert actual_top_3 == expected_top_3
