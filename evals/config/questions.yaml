@@ -1,0 +1,85 @@
+questions:
+  # Single-turn questions
+  - id: "q001_total_spending"
+    question: "How much did I spend in total last month?"
+    follow_ups: []
+    fixture: "last_month_spending"
+    ground_truth:
+      total_spending: 2450.50
+      transaction_count: 42
+    expectations:
+      - "Total is $2,450.50"
+      - "Response is concise (< 3 sentences)"
+      - "Currency formatted correctly with $ and 2 decimals"
+      - "Tone is snarky/snide but helpful"
+
+  - id: "q002_category_spending"
+    question: "How much did I spend on transportation last month?"
+    follow_ups: []
+    fixture: "last_month_spending"
+    ground_truth:
+      transportation_total: 425.00
+    expectations:
+      - "Transportation total is $425.00"
+      - "Response is brief and direct"
+      - "Currency formatted correctly"
+      - "Maintains snide tone"
+
+  - id: "q003_date_range"
+    question: "How much did I spend between November 1st and November 15th?"
+    follow_ups: []
+    fixture: "last_month_spending"
+    ground_truth:
+      first_half_spending: 1150.00
+      first_half_count: 20
+    expectations:
+      - "Total is $1,150.00"
+      - "Date range correctly interpreted (Nov 1-15)"
+      - "Response is concise"
+      - "Snarky tone present"
+
+  # Multi-turn questions
+  - id: "q004_food_breakdown"
+    question: "How much did I spend on food last month?"
+    follow_ups:
+      - "What percentage of that was groceries versus restaurants?"
+      - "Which restaurant did I spend the most at?"
+    fixture: "last_month_spending"
+    ground_truth:
+      food_total: 850.00
+      groceries: 520.00
+      restaurants: 330.00
+      groceries_pct: 61.2
+      restaurants_pct: 38.8
+      top_restaurant: "Chipotle"
+      top_restaurant_amount: 125.50
+    expectations:
+      - "Food total is $850.00"
+      - "Groceries total is $520.00, restaurants total is $330.00"
+      - "Percentages are approximately 61% and 39%"
+      - "Numbers remain consistent across all turns"
+      - "Uses markdown table for percentage breakdown"
+      - "Top restaurant is Chipotle with $125.50"
+      - "Maintains snide tone throughout conversation"
+
+  - id: "q005_merchant_analysis"
+    question: "What are my top 3 merchants by total spending last month?"
+    follow_ups:
+      - "How many transactions did I have at each of those merchants?"
+    fixture: "last_month_spending"
+    ground_truth:
+      top_merchant_1: "Whole Foods Market"
+      top_merchant_1_amount: 245.00
+      top_merchant_1_count: 4
+      top_merchant_2: "Shell"
+      top_merchant_2_amount: 180.00
+      top_merchant_2_count: 6
+      top_merchant_3: "Target"
+      top_merchant_3_amount: 165.00
+      top_merchant_3_count: 3
+    expectations:
+      - "Top 3 merchants are Whole Foods Market ($245.00), Shell ($180.00), Target ($165.00)"
+      - "Uses markdown table for top merchants"
+      - "Transaction counts: Whole Foods (4), Shell (6), Target (3)"
+      - "Numbers consistent between turns"
+      - "Snide tone maintained"
