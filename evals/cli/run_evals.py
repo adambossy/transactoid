@@ -4,6 +4,7 @@ import argparse
 import asyncio
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from dotenv import load_dotenv
 import json
 import os
 from typing import Any
@@ -20,6 +21,9 @@ from evals.data.test_db_builder import EvalDBBuilder
 from services.db import DB, Base, CategoryRow
 from services.file_cache import FileCache
 from services.taxonomy import Taxonomy
+
+# Load environment variables from .env
+load_dotenv()
 
 
 @dataclass

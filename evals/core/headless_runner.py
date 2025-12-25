@@ -120,8 +120,8 @@ class HeadlessAgentRunner:
 
     def _extract_response(self, result: Any) -> str:
         """Extract final response text from result."""
-        # Find MessageOutputItem in result.items
-        for item in result.items:
+        # Find MessageOutputItem in result.new_items
+        for item in result.new_items:
             if isinstance(item, MessageOutputItem):
                 # Get text from content
                 if hasattr(item, "content") and item.content:
@@ -132,16 +132,38 @@ class HeadlessAgentRunner:
         return ""
 
     def _extract_tool_calls(self, result: Any) -> list[dict[str, Any]]:
-        """Extract tool calls from result.items."""
+        """Extract tool calls from result.new_items."""
         calls = []
-        for item in result.items:
-            if isinstance(item, ToolCallOutputItem):
+        for item in result.new_items:
+            if hasattr(item, "type") and item.type == "tool_call_output_item":
+                # Extract data from raw_item
+                raw = item.raw_item
+                name = ""
+                arguments = {}
+                if isinstance(raw, dict):
+                    name = raw.get("function", {}).get("name", "")
+                    arguments_str = raw.get("function", {}).get("arguments", "{}")
+                    try:
+                        import json
+                        arguments = json.loads(arguments_str) if arguments_str else {}
+                    except Exception:
+                        arguments = {}
+                else:
+                    # Try to get name from raw object attributes
+                    if hasattr(raw, "function"):
+                        if hasattr(raw.function, "name"):
+                            name = raw.function.name
+                        if hasattr(raw.function, "arguments"):
+                            try:
+                                import json
+                                arguments = json.loads(raw.function.arguments)
+                            except Exception:
+                                arguments = {}
+
                 calls.append(
                     {
-                        "name": item.name,
-                        "arguments": item.arguments
-                        if hasattr(item, "arguments")
-                        else {},
+                        "name": name,
+                        "arguments": arguments,
                         "result": item.output if hasattr(item, "output") else None,
                     }
                 )
