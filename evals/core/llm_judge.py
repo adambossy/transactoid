@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import json
 from typing import Any
 
@@ -71,13 +71,15 @@ class LLMJudge:
             JudgeResult with scores for all criteria
         """
         # Check cache
-        cache_key = stable_key({
-            "conversation": conversation,
-            "ground_truth": ground_truth,
-            "expectations": expectations,
-            "model": "gpt-5.1",
-            "version": "1.0",
-        })
+        cache_key = stable_key(
+            {
+                "conversation": conversation,
+                "ground_truth": ground_truth,
+                "expectations": expectations,
+                "model": "gpt-5.1",
+                "version": "1.0",
+            }
+        )
         cached = self._cache.get("judge", cache_key)
         if cached:
             return self._parse_judge_response(cached)

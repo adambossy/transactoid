@@ -17,7 +17,7 @@ from evals.core.headless_runner import ConversationResult, HeadlessAgentRunner
 from evals.core.llm_judge import JudgeResult, LLMJudge
 from evals.data.fixtures import FIXTURES
 from evals.data.test_db_builder import EvalDBBuilder
-from services.db import Base, CategoryRow, DB
+from services.db import DB, Base, CategoryRow
 from services.file_cache import FileCache
 from services.taxonomy import Taxonomy
 
@@ -58,7 +58,8 @@ class EvalHarness:
         """
         with open(path) as f:
             data = yaml.safe_load(f)
-        return data["questions"]
+        questions: list[dict[str, Any]] = data["questions"]
+        return questions
 
     def _create_db(self) -> DB:
         """Create in-memory database."""
@@ -170,8 +171,7 @@ class EvalHarness:
             "multi_turn_count": sum(1 for r in results if r.follow_ups),
             "passed": sum(1 for r in results if r.judge_result.passed),
             "failed": sum(1 for r in results if not r.judge_result.passed),
-            "pass_rate": sum(1 for r in results if r.judge_result.passed)
-            / len(results)
+            "pass_rate": sum(1 for r in results if r.judge_result.passed) / len(results)
             if results
             else 0.0,
             "avg_scores": self._calculate_avg_scores(results),
@@ -196,10 +196,14 @@ class EvalHarness:
         }
 
         for result in results:
-            scores["numerical_consistency"] += result.judge_result.numerical_consistency.score
+            scores["numerical_consistency"] += (
+                result.judge_result.numerical_consistency.score
+            )
             scores["conciseness"] += result.judge_result.conciseness.score
             scores["use_of_tables"] += result.judge_result.use_of_tables.score
-            scores["accurate_formatting"] += result.judge_result.accurate_formatting.score
+            scores["accurate_formatting"] += (
+                result.judge_result.accurate_formatting.score
+            )
             scores["snide_personality"] += result.judge_result.snide_personality.score
             scores["overall"] += result.judge_result.overall_score
 
@@ -218,7 +222,9 @@ class EvalHarness:
             "duration_seconds": result.conversation_result.total_duration_seconds,
             "turns": [asdict(turn) for turn in result.conversation_result.turns],
             "judge_result": {
-                "numerical_consistency": asdict(result.judge_result.numerical_consistency),
+                "numerical_consistency": asdict(
+                    result.judge_result.numerical_consistency
+                ),
                 "conciseness": asdict(result.judge_result.conciseness),
                 "use_of_tables": asdict(result.judge_result.use_of_tables),
                 "accurate_formatting": asdict(result.judge_result.accurate_formatting),
@@ -245,7 +251,9 @@ class EvalHarness:
 
             table.add_row(
                 result.question_id,
-                result.question[:50] + "..." if len(result.question) > 50 else result.question,
+                result.question[:50] + "..."
+                if len(result.question) > 50
+                else result.question,
                 turns,
                 f"[{status_style}]{status}[/{status_style}]",
                 f"{result.judge_result.overall_score:.2f}",
@@ -258,10 +266,14 @@ class EvalHarness:
         failed = sum(1 for r in results if not r.judge_result.passed)
         total = len(results)
 
-        self._console.print(f"\n[bold]Summary:[/bold]")
+        self._console.print("\n[bold]Summary:[/bold]")
         self._console.print(f"  Total: {total} evals")
-        self._console.print(f"  [green]Passed: {passed} ({passed/total*100:.1f}%)[/green]")
-        self._console.print(f"  [red]Failed: {failed} ({failed/total*100:.1f}%)[/red]")
+        self._console.print(
+            f"  [green]Passed: {passed} ({passed / total * 100:.1f}%)[/green]"
+        )
+        self._console.print(
+            f"  [red]Failed: {failed} ({failed / total * 100:.1f}%)[/red]"
+        )
 
 
 async def main() -> None:

@@ -41,14 +41,16 @@ class EvalDBBuilder:
                 raise ValueError(msg)
 
             # Insert transaction
-            self._db.insert_transaction({
-                "external_id": txn_data["external_id"],
-                "source": "EVAL",
-                "account_id": "test_account",
-                "posted_at": txn_data["posted_at"],
-                "amount_cents": txn_data["amount_cents"],
-                "currency": "USD",
-                "merchant_descriptor": txn_data["merchant_descriptor"],
-                "category_id": category_id,
-                "is_verified": False,
-            })
+            self._db.insert_transaction(
+                {
+                    "external_id": txn_data["external_id"],
+                    "source": "EVAL",
+                    "account_id": "test_account",
+                    "posted_at": txn_data["posted_at"],
+                    "amount_cents": txn_data["amount_cents"],
+                    "currency": "USD",
+                    "merchant_descriptor": txn_data["merchant_descriptor"],
+                    "category_id": category_id,
+                    "is_verified": False,
+                }
+            )
