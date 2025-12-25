@@ -4,8 +4,9 @@ from dataclasses import dataclass
 import time
 from typing import Any
 
-from agents import Agent, InMemorySession, ModelSettings, Runner, function_tool
+from agents import Agent, ModelSettings, Runner, SQLiteSession, function_tool
 from agents.items import MessageOutputItem, ToolCallOutputItem
+from openai.types.shared.reasoning import Reasoning
 
 from services.db import DB
 from services.taxonomy import Taxonomy
@@ -67,7 +68,7 @@ class HeadlessAgentRunner:
         """
         # Create agent with inline tools
         agent = self._create_agent()
-        session = InMemorySession()
+        session = SQLiteSession(session_id="eval")
 
         turns: list[AgentTurn] = []
         total_start = time.time()
@@ -87,7 +88,7 @@ class HeadlessAgentRunner:
         )
 
     async def _run_single_turn(
-        self, agent: Agent, session: InMemorySession, question: str
+        self, agent: Agent, session: SQLiteSession, question: str
     ) -> AgentTurn:
         """Run one turn with Runner.run() (non-streaming).
 
@@ -126,7 +127,8 @@ class HeadlessAgentRunner:
                 if hasattr(item, "content") and item.content:
                     for content_item in item.content:
                         if hasattr(content_item, "text"):
-                            return content_item.text
+                            text: str = str(content_item.text)
+                            return text
         return ""
 
     def _extract_tool_calls(self, result: Any) -> list[dict[str, Any]]:
@@ -134,11 +136,15 @@ class HeadlessAgentRunner:
         calls = []
         for item in result.items:
             if isinstance(item, ToolCallOutputItem):
-                calls.append({
-                    "name": item.name,
-                    "arguments": item.arguments if hasattr(item, "arguments") else {},
-                    "result": item.output if hasattr(item, "output") else None,
-                })
+                calls.append(
+                    {
+                        "name": item.name,
+                        "arguments": item.arguments
+                        if hasattr(item, "arguments")
+                        else {},
+                        "result": item.output if hasattr(item, "output") else None,
+                    }
+                )
         return calls
 
     def _extract_reasoning(self, result: Any) -> str:
@@ -146,11 +152,13 @@ class HeadlessAgentRunner:
         # Check if result has reasoning attribute
         if hasattr(result, "reasoning") and result.reasoning:
             if hasattr(result.reasoning, "content"):
-                return result.reasoning.content
+                content: str = str(result.reasoning.content)
+                return content
         return ""
 
     def _create_agent(self) -> Agent:
         """Create agent with inline tools (same as production agent)."""
+
         # Define inline tools using function_tool decorator
         @function_tool
         def run_sql(query: str) -> dict[str, Any]:
@@ -200,5 +208,5 @@ Database schema:
 Remember: amount_cents is stored as integers (cents), convert to dollars by dividing by 100.""",
             model="gpt-5.1",
             tools=[run_sql],
-            model_settings=ModelSettings(reasoning_effort="medium"),
+            model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
         )
