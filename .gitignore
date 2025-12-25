@@ -217,3 +217,4 @@ configs/plaid_redirect_localhost.key
 
 # macOS
 .DS_Store
+.eval_results/
