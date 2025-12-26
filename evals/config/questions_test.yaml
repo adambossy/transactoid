@@ -1,6 +1,6 @@
 questions:
   - id: "q001_total_spending"
-    question: "How much did I spend in total last month?"
+    question: "How much did I spend in total in November 2024?"
     follow_ups: []
     fixture: "last_month_spending"
     ground_truth:
