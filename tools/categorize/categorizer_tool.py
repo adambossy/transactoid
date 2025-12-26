@@ -89,13 +89,16 @@ class Categorizer:
 
         cached_result = self._file_cache.get("categorize", cache_key)
         if cached_result is not None:
-            return self._parse_response(cached_result, txn_list)
+            categorized = self._parse_response(cached_result, txn_list)
+        else:
+            print(f"Categorizing {len(txn_list)} transactions with LLM...")
+            response_text = self._call_openai_api(prompt)
+            self._file_cache.set("categorize", cache_key, response_text)
+            categorized = self._parse_response(response_text, txn_list)
 
-        print(f"Categorizing {len(txn_list)} transactions with LLM...")
-        response_text = self._call_openai_api(prompt)
-        self._file_cache.set("categorize", cache_key, response_text)
+        # Validate and fix invalid categories with reflexion
+        categorized = self._validate_and_fix_categories(categorized, txn_list)
 
-        categorized = self._parse_response(response_text, txn_list)
         self._print_categorization_summary(categorized)
         return categorized
 
@@ -217,16 +220,16 @@ class Categorizer:
         )
 
     def _resolve_category_key(self, result: CategorizationResult) -> str:
-        """Determine which category key to use, preferring revised if valid."""
+        """Determine which category key to use, preferring revised if valid.
+
+        Note: This method no longer raises on invalid categories. Invalid categories
+        are now caught and fixed by the reflexion loop in _validate_and_fix_categories.
+        """
         if result.revised_category and self._taxonomy.is_valid_key(
             result.revised_category
         ):
             return result.revised_category
-        if not self._taxonomy.is_valid_key(result.category):
-            raise ValueError(
-                f"Invalid category key '{result.category}' for transaction "
-                f"idx {result.idx}"
-            )
+        # Return category even if invalid - will be caught by validation
         return result.category
 
     def _validate_revised_category(self, revised_category: str | None) -> str | None:
@@ -234,6 +237,266 @@ class Categorizer:
         if revised_category and not self._taxonomy.is_valid_key(revised_category):
             return None
         return revised_category
+
+    def _validate_and_fix_categories(
+        self,
+        categorized: list[CategorizedTransaction],
+        txns: list[Transaction],
+        max_retries: int = 3,
+    ) -> list[CategorizedTransaction]:
+        """Validate category keys and fix invalid ones using reflexion.
+
+        Args:
+            categorized: Initial categorization results
+            txns: Original transaction list
+            max_retries: Maximum reflexion attempts (default: 3)
+
+        Returns:
+            List of categorized transactions with all valid category keys
+
+        Raises:
+            ValueError: If invalid categories remain after max_retries
+        """
+        attempt = 0
+        while attempt < max_retries:
+            invalid_indices = self._find_invalid_category_indices(categorized)
+            if not invalid_indices:
+                return categorized  # All valid, done!
+
+            print(
+                f"Found {len(invalid_indices)} invalid categories, "
+                f"attempting reflexion fix (attempt {attempt + 1}/{max_retries})..."
+            )
+
+            # Fix invalid categories using reflexion
+            fixed_results = self._reflexion_fix_invalid_categories(
+                categorized, txns, invalid_indices, attempt + 1
+            )
+
+            # Update categorized list with fixed results
+            for idx, fixed in zip(invalid_indices, fixed_results):
+                categorized[idx] = fixed
+
+            attempt += 1
+
+        # Check if any invalid remain after max retries
+        remaining_invalid = self._find_invalid_category_indices(categorized)
+        if remaining_invalid:
+            invalid_keys = [
+                categorized[i].category_key for i in remaining_invalid
+            ]
+            raise ValueError(
+                f"Failed to categorize transactions after {max_retries} "
+                f"reflexion attempts. Still invalid at indices {remaining_invalid}: "
+                f"{invalid_keys}"
+            )
+
+        return categorized
+
+    def _find_invalid_category_indices(
+        self, categorized: list[CategorizedTransaction]
+    ) -> list[int]:
+        """Find indices of transactions with invalid category keys.
+
+        Args:
+            categorized: List of categorized transactions
+
+        Returns:
+            List of indices where category_key is invalid
+        """
+        invalid_indices: list[int] = []
+        for i, cat_txn in enumerate(categorized):
+            if not self._taxonomy.is_valid_key(cat_txn.category_key):
+                invalid_indices.append(i)
+        return invalid_indices
+
+    def _reflexion_fix_invalid_categories(
+        self,
+        categorized: list[CategorizedTransaction],
+        txns: list[Transaction],
+        invalid_indices: list[int],
+        attempt: int,
+    ) -> list[CategorizedTransaction]:
+        """Use reflexion to fix invalid category keys.
+
+        Args:
+            categorized: Current categorization results
+            txns: Original transaction list
+            invalid_indices: Indices of transactions with invalid categories
+            attempt: Current attempt number (for cache key)
+
+        Returns:
+            List of fixed CategorizedTransaction objects in same order as
+            invalid_indices
+        """
+        fixed: list[CategorizedTransaction] = []
+
+        for idx in invalid_indices:
+            cat_txn = categorized[idx]
+            txn = txns[idx]
+
+            # Build reflexion prompt
+            prompt = self._render_reflexion_prompt(
+                idx, cat_txn.category_key, txn
+            )
+
+            # Check cache first
+            cache_key = self._create_reflexion_cache_key(
+                cat_txn.category_key, txn, attempt
+            )
+            cached_result = self._file_cache.get("categorize-reflexion", cache_key)
+
+            if cached_result is not None:
+                response_text = cached_result
+            else:
+                response_text = self._call_openai_api(prompt)
+                self._file_cache.set("categorize-reflexion", cache_key, response_text)
+
+            # Parse reflexion response
+            try:
+                fixed_cat_txn = self._parse_reflexion_response(response_text, txn, idx)
+                fixed.append(fixed_cat_txn)
+            except (ValueError, json.JSONDecodeError) as e:
+                # If reflexion fails, keep original (will retry or fail later)
+                print(f"Warning: Reflexion parse failed for idx {idx}: {e}")
+                fixed.append(cat_txn)
+
+        return fixed
+
+    def _render_reflexion_prompt(
+        self, idx: int, invalid_category: str, txn: Transaction
+    ) -> str:
+        """Render reflexion prompt for fixing invalid category.
+
+        Args:
+            idx: Transaction index
+            invalid_category: The invalid category key that was provided
+            txn: Transaction data
+
+        Returns:
+            Rendered prompt string
+        """
+        template = load_prompt("reflexion-fix-invalid")
+
+        # Format transaction for prompt
+        txn_json = json.dumps(
+            {
+                "idx": idx,
+                "description": txn.get("name", ""),
+                "merchant": txn.get("merchant_name"),
+                "amount": txn.get("amount"),
+                "date": txn.get("date"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        # Get valid categories list
+        taxonomy_dict = self._taxonomy.to_prompt()
+        valid_categories_list = self._format_valid_categories_list(taxonomy_dict)
+
+        # Replace template variables
+        return (
+            template.replace("{{IDX}}", str(idx))
+            .replace("{{INVALID_CATEGORY}}", invalid_category)
+            .replace("{{TRANSACTION_JSON}}", txn_json)
+            .replace("{{VALID_CATEGORIES_LIST}}", valid_categories_list)
+        )
+
+    def _format_valid_categories_list(self, taxonomy_dict: dict[str, object]) -> str:
+        """Format taxonomy as a readable list of valid category keys.
+
+        Args:
+            taxonomy_dict: Taxonomy dictionary from to_prompt()
+
+        Returns:
+            Formatted string listing all valid category keys
+        """
+        # Extract all category keys from taxonomy
+        categories = taxonomy_dict.get("categories", [])
+        if isinstance(categories, list):
+            keys = [
+                cat["key"]
+                for cat in categories
+                if isinstance(cat, dict) and "key" in cat
+            ]
+            return "\n".join(f"- {key}" for key in sorted(keys))
+        return ""
+
+    def _create_reflexion_cache_key(
+        self, invalid_category: str, txn: Transaction, attempt: int
+    ) -> str:
+        """Create cache key for reflexion attempt.
+
+        Args:
+            invalid_category: The invalid category that needs fixing
+            txn: Transaction data
+            attempt: Attempt number
+
+        Returns:
+            Deterministic cache key
+        """
+        cache_payload = {
+            "invalid_category": invalid_category,
+            "txn": {
+                "name": txn.get("name"),
+                "merchant_name": txn.get("merchant_name"),
+                "amount": txn.get("amount"),
+                "date": txn.get("date"),
+            },
+            "attempt": attempt,
+            "model": self._model,
+        }
+        return stable_key(cache_payload)
+
+    def _parse_reflexion_response(
+        self, response_text: str, txn: Transaction, expected_idx: int
+    ) -> CategorizedTransaction:
+        """Parse reflexion response into CategorizedTransaction.
+
+        Args:
+            response_text: LLM response text
+            txn: Original transaction
+            expected_idx: Expected index value
+
+        Returns:
+            CategorizedTransaction with validated category
+
+        Raises:
+            ValueError: If response is invalid or category is still invalid
+        """
+        # Extract JSON object (not array)
+        json_start = response_text.find("{")
+        json_end = response_text.rfind("}") + 1
+        if json_start == -1 or json_end == 0:
+            raise ValueError(
+                f"Could not find JSON object in reflexion response: "
+                f"{response_text[:200]}"
+            )
+
+        json_str = response_text[json_start:json_end]
+        result_dict = json.loads(json_str)
+
+        # Validate structure
+        if result_dict.get("idx") != expected_idx:
+            raise ValueError(
+                f"Reflexion response idx {result_dict.get('idx')} "
+                f"does not match expected {expected_idx}"
+            )
+
+        category = result_dict.get("category", "")
+        if not self._taxonomy.is_valid_key(category):
+            raise ValueError(
+                f"Reflexion still produced invalid category: {category}"
+            )
+
+        # Build CategorizedTransaction
+        return CategorizedTransaction(
+            txn=txn,
+            category_key=category,
+            category_confidence=result_dict.get("score", 0.0),
+            category_rationale=result_dict.get("rationale", ""),
+        )
 
     def _print_categorization_summary(
         self, categorized: list[CategorizedTransaction]
