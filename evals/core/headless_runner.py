@@ -120,7 +120,15 @@ class HeadlessAgentRunner:
 
     def _extract_response(self, result: Any) -> str:
         """Extract final response text from result."""
-        # Find MessageOutputItem in result.new_items
+        # Try to get from final_output first (standard way)
+        if hasattr(result, "final_output") and result.final_output:
+            if isinstance(result.final_output, str):
+                return result.final_output
+            # If final_output is a dict or object, try to get text
+            if hasattr(result.final_output, "text"):
+                return str(result.final_output.text)
+
+        # Fallback: Find MessageOutputItem in result.new_items
         for item in result.new_items:
             if isinstance(item, MessageOutputItem):
                 # Get text from content
@@ -211,7 +219,13 @@ class HeadlessAgentRunner:
             name="Transactoid",
             instructions="""You are a personal finance assistant that helps users analyze their transaction data.
 
-You have access to a SQL database with transaction data. Use the run_sql tool to query and analyze transactions.
+You have access to a SQLite database with transaction data. Use the run_sql tool to query and analyze transactions.
+
+IMPORTANT: This is SQLite, not PostgreSQL. Use SQLite syntax:
+- Date functions: date(), datetime(), strftime(), julianday()
+- Date comparisons: date(posted_at) >= date('now', '-1 month')
+- NO PostgreSQL functions: date_trunc(), interval, CURRENT_DATE
+- Example: Last month spending: WHERE date(posted_at) >= date('now', 'start of month', '-1 month')
 
 When answering questions:
 - Be concise and direct (1-3 sentences)
@@ -227,7 +241,9 @@ Database schema:
 - tags: tag_id, name, description
 - transaction_tags: transaction_id, tag_id
 
-Remember: amount_cents is stored as integers (cents), convert to dollars by dividing by 100.""",
+Remember:
+- amount_cents is stored as integers (cents), convert to dollars by dividing by 100
+- posted_at is stored as ISO8601 strings (YYYY-MM-DD HH:MM:SS)""",
             model="gpt-5.1",
             tools=[run_sql],
             model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
