@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import yaml
 
+from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
-from evals.data.test_db_builder import EvalDBBuilder
 from services.db import DB, Base, CategoryRow
 from services.taxonomy import Taxonomy
 
