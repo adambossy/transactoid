@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import time
 from typing import Any
 
@@ -243,53 +242,28 @@ class HeadlessAgentRunner:
         return ""
 
     def _extract_tool_calls(self, result: Any) -> list[dict[str, Any]]:
-        """Extract tool calls from result.new_items."""
+        """Extract tool calls from result.
+
+        Extracts tool names by matching result structure to known tool outputs
+        (since SDK doesn't provide direct tool name metadata in non-streaming).
+        """
         calls = []
+
         for item in result.new_items:
             if hasattr(item, "type") and item.type == "tool_call_output_item":
-                name = ""
-                arguments: dict[str, Any] = {}
                 output = item.output if hasattr(item, "output") else None
+                arguments: dict[str, Any] = {}
 
-                # Try to get name from item attributes first
-                if hasattr(item, "name"):
-                    name = item.name
-
-                # If name not found, try raw_item
-                if not name:
-                    raw = item.raw_item
-                    if isinstance(raw, dict):
-                        name = raw.get("function", {}).get("name", "")
-                        arguments_str = raw.get("function", {}).get(
-                            "arguments", "{}"
-                        )
-                        try:
-                            arguments = (
-                                json.loads(arguments_str)
-                                if arguments_str
-                                else {}
-                            )
-                        except Exception:
-                            arguments = {}
-                    else:
-                        # Try to get name from raw object attributes
-                        if hasattr(raw, "function"):
-                            if hasattr(raw.function, "name"):
-                                name = raw.function.name
-                            if hasattr(raw.function, "arguments"):
-                                try:
-                                    arguments = json.loads(
-                                        raw.function.arguments
-                                    )
-                                except Exception:
-                                    arguments = {}
-
-                # If still no name, infer from result structure
-                if not name and isinstance(output, dict):
-                    name = self._infer_tool_name_from_result(output)
+                # Infer tool name from result structure
+                # (the SDK doesn't expose tool names in ToolCallOutputItem)
+                name = self._infer_tool_name_from_result(output)
 
                 # For run_sql, augment arguments with query from result
-                if name == "run_sql" and isinstance(output, dict) and "query" in output:
+                if (
+                    name == "run_sql"
+                    and isinstance(output, dict)
+                    and "query" in output
+                ):
                     # Include the query that was executed
                     arguments["query"] = output["query"]
 
@@ -302,11 +276,24 @@ class HeadlessAgentRunner:
                 )
         return calls
 
-    def _infer_tool_name_from_result(self, output: dict[str, Any]) -> str:
-        """Infer tool name from result structure."""
+    def _infer_tool_name_from_result(self, output: Any) -> str:
+        """Infer tool name from result structure.
+
+        The Agents SDK's non-streaming Runner doesn't expose tool names in
+        ToolCallOutputItem.raw_item (unlike streaming events which provide
+        function names directly). This method identifies tools by matching
+        their distinctive result structure signatures.
+
+        This is a workaround for an SDK limitation. Ideally, the SDK would
+        provide tool names directly in ToolCallOutputItem.
+        """
+        if not isinstance(output, dict):
+            return ""
+
         keys = set(output.keys())
 
-        # run_sql has 'rows' and 'count', with optional 'query'
+        # Distinctive result structures for each tool
+        # run_sql has 'rows' and 'count', with optional 'query' and 'error'
         if "rows" in keys and "count" in keys:
             return "run_sql"
 
@@ -318,16 +305,17 @@ class HeadlessAgentRunner:
         if "pages_processed" in keys:
             return "sync_transactions"
 
-        # connect_new_account has 'status' and 'item_id' or 'message'
-        if "status" in keys and ("item_id" in keys or "message" in keys):
-            # Could be connect_new_account or other status-based tools
-            # Distinguish by other fields
-            if "item_id" in keys:
-                return "connect_new_account"
+        # connect_new_account has 'status' and 'item_id'
+        if "status" in keys and "item_id" in keys:
+            return "connect_new_account"
 
-        # Default: try to infer from status if it exists
-        if "status" in keys:
-            return "unknown_status_tool"
+        # update_category_for_transaction_groups has 'updated' and 'error'
+        if "updated" in keys and "error" in keys:
+            return "update_category_for_transaction_groups"
+
+        # tag_transactions has 'applied' and 'created_tags'
+        if "applied" in keys and "created_tags" in keys:
+            return "tag_transactions"
 
         return ""
 
