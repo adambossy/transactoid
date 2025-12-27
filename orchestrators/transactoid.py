@@ -427,12 +427,12 @@ class Transactoid:
                 return error_factory(e)
         return None
 
-    async def run(self) -> None:
+    def create_agent(self) -> Agent:
         """
-        Run the interactive agent loop using OpenAI Agents SDK.
+        Create and return the Transactoid Agent instance with all tools.
 
-        The agent helps users understand and manage their personal finances
-        through a conversational interface with access to transaction data.
+        Returns:
+            Agent configured with all Transactoid tools and instructions
         """
         # Load and render prompt template
         template = load_prompt("agent-loop")
@@ -679,7 +679,7 @@ class Transactoid:
             }
 
         # Create Agent instance
-        agent = Agent(
+        return Agent(
             name="Transactoid",
             instructions=instructions,
             model="gpt-5.1",
@@ -696,6 +696,16 @@ class Transactoid:
                 reasoning=Reasoning(effort="medium"), verbosity="high"
             ),
         )
+
+    async def run(self) -> None:
+        """
+        Run the interactive agent loop using OpenAI Agents SDK.
+
+        The agent helps users understand and manage their personal finances
+        through a conversational interface with access to transaction data.
+        """
+        # Create agent using the extracted method
+        agent = self.create_agent()
 
         # Create session for conversation memory
         session = TransactoidSession(agent)
