@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-transactoid = "frontends.cli:agent"
+transactoid = "frontends.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["adapters*", "agents*", "configs*", "db*", "evals*", "frontends*", "models*", "orchestrators*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
