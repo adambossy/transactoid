@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import argparse
-import asyncio
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from dotenv import load_dotenv
 import json
-import os
 from typing import Any
 
 from rich.console import Console
@@ -21,9 +17,6 @@ from evals.data.test_db_builder import EvalDBBuilder
 from services.db import DB, Base, CategoryRow
 from services.file_cache import FileCache
 from services.taxonomy import Taxonomy
-
-# Load environment variables from .env
-load_dotenv()
 
 
 @dataclass
@@ -278,34 +271,3 @@ class EvalHarness:
         self._console.print(
             f"  [red]Failed: {failed} ({failed / total * 100:.1f}%)[/red]"
         )
-
-
-async def main() -> None:
-    """CLI entrypoint."""
-    parser = argparse.ArgumentParser(description="Run Transactoid evaluation suite")
-    parser.add_argument(
-        "--questions",
-        default="evals/config/questions.yaml",
-        help="Path to questions.yaml",
-    )
-    parser.add_argument(
-        "--output-dir", default=".eval_results", help="Output directory for results"
-    )
-    args = parser.parse_args()
-
-    # Run harness
-    harness = EvalHarness(args.questions)
-    results = await harness.run_all()
-
-    # Save and display results
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs(args.output_dir, exist_ok=True)
-    output_path = f"{args.output_dir}/eval_run_{timestamp}.json"
-    harness.save_results(results, output_path)
-    harness.print_summary(results)
-
-    print(f"\nResults saved to: {output_path}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

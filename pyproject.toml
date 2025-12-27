@@ -26,10 +26,10 @@ dependencies = [
 ]
 
 [project.scripts]
-transactoid = "ui.cli:agent"
+transactoid = "frontends.cli:agent"
 
 [tool.setuptools.packages.find]
-include = ["adapters*", "agents*", "configs*", "db*", "frontends*", "models*", "orchestrators*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
+include = ["adapters*", "agents*", "configs*", "db*", "evals*", "frontends*", "models*", "orchestrators*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
 
 [tool.deadcode]
 exclude = [

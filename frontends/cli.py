@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
+from dotenv import load_dotenv
 import os
 
 import typer
 
+from evals.core.eval_harness import EvalHarness
 from orchestrators.transactoid import Transactoid
 from scripts import run
 from services.db import DB
 from services.taxonomy import Taxonomy
+
+# Load environment variables from .env
+load_dotenv()
 
 app = typer.Typer(help="Transactoid — personal finance agent CLI.")
 
@@ -120,6 +126,47 @@ def agent() -> None:
     Run the transactoid agent to orchestrate sync → categorize → persist in batches.
     """
     asyncio.run(_agent_impl())
+
+
+async def _eval_impl(
+    questions_path: str,
+    output_dir: str,
+) -> None:
+    """
+    Run the evaluation suite against the agent.
+
+    Executes the agent against predefined questions with synthetic data,
+    evaluates responses using an LLM judge, and generates results.
+    """
+    # Run harness
+    harness = EvalHarness(questions_path)
+    results = await harness.run_all()
+
+    # Save and display results
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = f"{output_dir}/eval_run_{timestamp}.json"
+    harness.save_results(results, output_path)
+    harness.print_summary(results)
+
+    print(f"\nResults saved to: {output_path}")
+
+
+@app.command("eval")
+def eval_cmd(
+    questions: str = typer.Option(
+        "evals/config/questions.yaml",
+        "--questions",
+        help="Path to questions.yaml file",
+    ),
+    output_dir: str = typer.Option(
+        ".eval_results",
+        "--output-dir",
+        help="Output directory for results",
+    ),
+) -> None:
+    """Run the evaluation suite against the Transactoid agent."""
+    asyncio.run(_eval_impl(questions_path=questions, output_dir=output_dir))
 
 
 def main() -> None:
