@@ -210,6 +210,7 @@ __marimo__/
 # Untracked directories
 .transactions
 .worktrees
+.certs
 
 # Local SSL key for Plaid redirect server (certificate is tracked, key is not)
 configs/plaid_redirect_localhost.key
