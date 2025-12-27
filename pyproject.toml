@@ -28,7 +28,7 @@ dependencies = [
 transactoid = "frontends.cli:agent"
 
 [tool.setuptools.packages.find]
-include = ["agents*", "configs*", "db*", "evals*", "frontends*", "models*", "plans*", "prompts*", "scripts*", "services*", "tools*"]
+include = ["adapters*", "agents*", "configs*", "db*", "evals*", "frontends*", "models*", "orchestrators*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
 
 [tool.deadcode]
 exclude = [
