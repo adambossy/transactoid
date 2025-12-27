@@ -247,30 +247,48 @@ class HeadlessAgentRunner:
         calls = []
         for item in result.new_items:
             if hasattr(item, "type") and item.type == "tool_call_output_item":
-                # Extract data from raw_item
-                raw = item.raw_item
                 name = ""
                 arguments: dict[str, Any] = {}
-                if isinstance(raw, dict):
-                    name = raw.get("function", {}).get("name", "")
-                    arguments_str = raw.get("function", {}).get("arguments", "{}")
-                    try:
-                        arguments = json.loads(arguments_str) if arguments_str else {}
-                    except Exception:
-                        arguments = {}
-                else:
-                    # Try to get name from raw object attributes
-                    if hasattr(raw, "function"):
-                        if hasattr(raw.function, "name"):
-                            name = raw.function.name
-                        if hasattr(raw.function, "arguments"):
-                            try:
-                                arguments = json.loads(raw.function.arguments)
-                            except Exception:
-                                arguments = {}
+                output = item.output if hasattr(item, "output") else None
+
+                # Try to get name from item attributes first
+                if hasattr(item, "name"):
+                    name = item.name
+
+                # If name not found, try raw_item
+                if not name:
+                    raw = item.raw_item
+                    if isinstance(raw, dict):
+                        name = raw.get("function", {}).get("name", "")
+                        arguments_str = raw.get("function", {}).get(
+                            "arguments", "{}"
+                        )
+                        try:
+                            arguments = (
+                                json.loads(arguments_str)
+                                if arguments_str
+                                else {}
+                            )
+                        except Exception:
+                            arguments = {}
+                    else:
+                        # Try to get name from raw object attributes
+                        if hasattr(raw, "function"):
+                            if hasattr(raw.function, "name"):
+                                name = raw.function.name
+                            if hasattr(raw.function, "arguments"):
+                                try:
+                                    arguments = json.loads(
+                                        raw.function.arguments
+                                    )
+                                except Exception:
+                                    arguments = {}
+
+                # If still no name, infer from result structure
+                if not name and isinstance(output, dict):
+                    name = self._infer_tool_name_from_result(output)
 
                 # For run_sql, augment arguments with query from result
-                output = item.output if hasattr(item, "output") else None
                 if name == "run_sql" and isinstance(output, dict) and "query" in output:
                     # Include the query that was executed
                     arguments["query"] = output["query"]
@@ -283,6 +301,35 @@ class HeadlessAgentRunner:
                     }
                 )
         return calls
+
+    def _infer_tool_name_from_result(self, output: dict[str, Any]) -> str:
+        """Infer tool name from result structure."""
+        keys = set(output.keys())
+
+        # run_sql has 'rows' and 'count', with optional 'query'
+        if "rows" in keys and "count" in keys:
+            return "run_sql"
+
+        # list_accounts has 'accounts' and 'status'
+        if "accounts" in keys and "status" in keys:
+            return "list_accounts"
+
+        # sync_transactions has 'pages_processed'
+        if "pages_processed" in keys:
+            return "sync_transactions"
+
+        # connect_new_account has 'status' and 'item_id' or 'message'
+        if "status" in keys and ("item_id" in keys or "message" in keys):
+            # Could be connect_new_account or other status-based tools
+            # Distinguish by other fields
+            if "item_id" in keys:
+                return "connect_new_account"
+
+        # Default: try to infer from status if it exists
+        if "status" in keys:
+            return "unknown_status_tool"
+
+        return ""
 
     def _extract_reasoning(self, result: Any) -> str:
         """Extract reasoning from result."""
