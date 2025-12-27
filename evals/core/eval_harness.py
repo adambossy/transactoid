@@ -12,8 +12,8 @@ import yaml
 
 from evals.core.headless_runner import ConversationResult, HeadlessAgentRunner
 from evals.core.llm_judge import JudgeResult, LLMJudge
+from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
-from evals.data.test_db_builder import EvalDBBuilder
 from services.db import DB, Base, CategoryRow
 from services.file_cache import FileCache
 from services.taxonomy import Taxonomy
