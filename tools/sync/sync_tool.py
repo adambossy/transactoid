@@ -142,9 +142,6 @@ class SyncTool:
                 if not has_more:
                     break
 
-                # Stop after one page for testing
-                break
-
                 # Update cursor for next iteration
                 current_cursor = next_cursor
                 retry_count = 0  # Reset retry count on successful page
