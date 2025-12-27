@@ -8,6 +8,7 @@ from agents import Agent, ModelSettings, Runner, SQLiteSession, function_tool
 from agents.items import MessageOutputItem, ToolCallOutputItem
 from openai.types.shared.reasoning import Reasoning
 
+from orchestrators.transactoid import Transactoid
 from services.db import DB
 from services.taxonomy import Taxonomy
 
@@ -187,64 +188,11 @@ class HeadlessAgentRunner:
         return ""
 
     def _create_agent(self) -> Agent:
-        """Create agent with inline tools (same as production agent)."""
-
-        # Define inline tools using function_tool decorator
-        @function_tool
-        def run_sql(query: str) -> dict[str, Any]:
-            """Execute SQL query against transaction database.
-
-            Args:
-                query: SQL SELECT query to execute
-
-            Returns:
-                Dict with 'rows' (list of dicts) and 'count' (int)
-            """
-            # Execute query using DB.execute_raw_sql
-            result = self._db.execute_raw_sql(query)
-
-            # Convert result to list of dicts
-            rows = []
-            for row in result:
-                # Convert row to dict using column names
-                row_dict = {}
-                for idx, col in enumerate(result.keys()):
-                    row_dict[col] = row[idx]
-                rows.append(row_dict)
-
-            return {"rows": rows, "count": len(rows)}
-
-        # Create agent with model settings
-        return Agent(
-            name="Transactoid",
-            instructions="""You are a personal finance assistant that helps users analyze their transaction data.
-
-You have access to a SQLite database with transaction data. Use the run_sql tool to query and analyze transactions.
-
-IMPORTANT: This is SQLite, not PostgreSQL. Use SQLite syntax:
-- Date functions: date(), datetime(), strftime(), julianday()
-- Date comparisons: date(posted_at) >= date('now', '-1 month')
-- NO PostgreSQL functions: date_trunc(), interval, CURRENT_DATE
-- Example: Last month spending: WHERE date(posted_at) >= date('now', 'start of month', '-1 month')
-
-When answering questions:
-- Be concise and direct (1-3 sentences)
-- Format currency as $X,XXX.XX
-- Format percentages as XX%
-- Use markdown tables for breakdowns
-- Maintain a slightly snarky, sarcastic tone while being helpful
-
-Database schema:
-- transactions: transaction_id, external_id, source, account_id, posted_at, amount_cents, currency, merchant_descriptor, merchant_id, category_id, is_verified
-- merchants: merchant_id, normalized_name, display_name
-- categories: category_id, parent_id, key, name, description, parent_key
-- tags: tag_id, name, description
-- transaction_tags: transaction_id, tag_id
-
-Remember:
-- amount_cents is stored as integers (cents), convert to dollars by dividing by 100
-- posted_at is stored as ISO8601 strings (YYYY-MM-DD HH:MM:SS)""",
-            model="gpt-5.1",
-            tools=[run_sql],
-            model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
+        """Create agent using the production Transactoid orchestrator."""
+        # Create Transactoid instance and return its agent
+        transactoid = Transactoid(
+            db=self._db,
+            taxonomy=self._taxonomy,
+            plaid_client=None,  # Optional, will be created from env if needed
         )
+        return transactoid.create_agent()
