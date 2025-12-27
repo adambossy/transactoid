@@ -16,10 +16,22 @@ from services.taxonomy import Taxonomy
 # Load environment variables from .env
 load_dotenv()
 
-app = typer.Typer(help="Transactoid — personal finance agent CLI.")
+app = typer.Typer(
+    help="Transactoid — personal finance agent CLI.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 
 run_app = typer.Typer(help="Run pipeline workflows.")
 app.add_typer(run_app, name="run")
+
+
+@app.callback()
+def main_callback(ctx: typer.Context) -> None:
+    """CLI callback that runs agent by default when no subcommand is provided."""
+    # If no subcommand was invoked, run the agent
+    if ctx.invoked_subcommand is None:
+        asyncio.run(_agent_impl())
 
 
 @run_app.command("sync")
