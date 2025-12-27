@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dotenv import load_dotenv
 import os
 from typing import Any
 
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 # Load environment variables

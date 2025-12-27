@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from dotenv import load_dotenv
 import os
 
+from dotenv import load_dotenv
 import typer
 
 from evals.core.eval_harness import EvalHarness

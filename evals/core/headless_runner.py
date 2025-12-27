@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import time
 from typing import Any
 
@@ -14,7 +15,7 @@ from services.taxonomy import Taxonomy
 
 class MockPlaidClient:
     """Mock Plaid client for evals that avoids real API calls.
-    
+
     Returns test data for any Plaid item in the database, allowing
     the agent to proceed without hitting the real Plaid API.
     """
@@ -249,12 +250,11 @@ class HeadlessAgentRunner:
                 # Extract data from raw_item
                 raw = item.raw_item
                 name = ""
-                arguments = {}
+                arguments: dict[str, Any] = {}
                 if isinstance(raw, dict):
                     name = raw.get("function", {}).get("name", "")
                     arguments_str = raw.get("function", {}).get("arguments", "{}")
                     try:
-                        import json
                         arguments = json.loads(arguments_str) if arguments_str else {}
                     except Exception:
                         arguments = {}
@@ -265,16 +265,21 @@ class HeadlessAgentRunner:
                             name = raw.function.name
                         if hasattr(raw.function, "arguments"):
                             try:
-                                import json
                                 arguments = json.loads(raw.function.arguments)
                             except Exception:
                                 arguments = {}
+
+                # For run_sql, augment arguments with query from result
+                output = item.output if hasattr(item, "output") else None
+                if name == "run_sql" and isinstance(output, dict) and "query" in output:
+                    # Include the query that was executed
+                    arguments["query"] = output["query"]
 
                 calls.append(
                     {
                         "name": name,
                         "arguments": arguments,
-                        "result": item.output if hasattr(item, "output") else None,
+                        "result": output,
                     }
                 )
         return calls
@@ -292,11 +297,11 @@ class HeadlessAgentRunner:
         """Create agent using the production Transactoid orchestrator."""
         # Create mock Plaid client for evals to avoid real API calls
         mock_plaid = MockPlaidClient(self._db)
-        
+
         # Create Transactoid instance with mock Plaid client
         transactoid = Transactoid(
             db=self._db,
             taxonomy=self._taxonomy,
-            plaid_client=mock_plaid,
+            plaid_client=mock_plaid,  # type: ignore[arg-type]
         )
         return transactoid.create_agent()

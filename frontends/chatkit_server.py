@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dotenv import load_dotenv
 import os
 from typing import Any
 
@@ -11,6 +10,7 @@ from agents import Agent, ModelSettings, Runner
 from chatkit.agents import AgentContext, stream_agent_response
 from chatkit.server import ChatKitServer
 from chatkit.types import ThreadMetadata, ThreadStreamEvent, UserMessageItem
+from dotenv import load_dotenv
 from openai.types.shared import Reasoning
 from promptorium import load_prompt
 import yaml
