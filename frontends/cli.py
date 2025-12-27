@@ -121,9 +121,13 @@ async def _agent_impl(
     await agent_instance.run()
 
 
+@app.command()
 def agent() -> None:
     """
-    Run the transactoid agent to orchestrate sync → categorize → persist in batches.
+    Run the interactive Transactoid agent.
+
+    The agent helps you understand and manage your personal finances
+    through a conversational interface with access to transaction data.
     """
     asyncio.run(_agent_impl())
 
