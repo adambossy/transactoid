@@ -4,13 +4,114 @@ from dataclasses import dataclass
 import time
 from typing import Any
 
-from agents import Agent, ModelSettings, Runner, SQLiteSession, function_tool
-from agents.items import MessageOutputItem, ToolCallOutputItem
-from openai.types.shared.reasoning import Reasoning
+from agents import Agent, Runner, SQLiteSession
+from agents.items import MessageOutputItem
 
 from orchestrators.transactoid import Transactoid
 from services.db import DB
 from services.taxonomy import Taxonomy
+
+
+class MockPlaidClient:
+    """Mock Plaid client for evals that avoids real API calls.
+    
+    Returns test data for any Plaid item in the database, allowing
+    the agent to proceed without hitting the real Plaid API.
+    """
+
+    def __init__(self, db: DB) -> None:
+        """Initialize mock with database reference.
+
+        Args:
+            db: Database instance for looking up PlaidItem records
+        """
+        self._db = db
+
+    def list_accounts(self, db: DB) -> dict[str, Any]:
+        """List accounts for all Plaid items in the database.
+
+        Args:
+            db: Database instance
+
+        Returns:
+            Dictionary with status and accounts list
+        """
+        try:
+            plaid_items = db.list_plaid_items()
+            if not plaid_items:
+                return {
+                    "status": "success",
+                    "accounts": [],
+                    "message": "No connected accounts found.",
+                }
+
+            # For each PlaidItem, return a dummy account
+            accounts = []
+            for item in plaid_items:
+                accounts.append(
+                    {
+                        "account_id": f"account_{item.item_id}",
+                        "name": item.institution_name or f"Account for {item.item_id}",
+                        "official_name": item.institution_name,
+                        "mask": "****",
+                        "subtype": "checking",
+                        "type": "depository",
+                        "institution": item.institution_name,
+                    }
+                )
+
+            return {
+                "status": "success",
+                "accounts": accounts,
+                "message": f"Found {len(accounts)} account(s).",
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "accounts": [],
+                "message": f"Failed to list accounts: {e}",
+            }
+
+    def get_accounts(self, access_token: str) -> list[dict[str, Any]]:
+        """Get accounts for an access token (mocked).
+
+        Args:
+            access_token: Access token (ignored in mock)
+
+        Returns:
+            Empty list (accounts are returned via list_accounts)
+        """
+        return []
+
+    def connect_new_account(self, db: DB) -> dict[str, Any]:
+        """Attempt to connect a new account (always fails in eval).
+
+        Args:
+            db: Database instance
+
+        Returns:
+            Error dictionary
+        """
+        return {
+            "status": "error",
+            "message": "Cannot connect accounts in eval mode",
+        }
+
+    def sync_transactions(self, **kwargs: Any) -> dict[str, Any]:
+        """Sync transactions (mocked for eval).
+
+        Accepts any keyword arguments and ignores them.
+
+        Returns:
+            Success with zero transactions (fixture data is already in DB)
+        """
+        return {
+            "status": "success",
+            "pages_processed": 0,
+            "total_added": 0,
+            "total_modified": 0,
+            "total_removed": 0,
+        }
 
 
 @dataclass
@@ -189,10 +290,13 @@ class HeadlessAgentRunner:
 
     def _create_agent(self) -> Agent:
         """Create agent using the production Transactoid orchestrator."""
-        # Create Transactoid instance and return its agent
+        # Create mock Plaid client for evals to avoid real API calls
+        mock_plaid = MockPlaidClient(self._db)
+        
+        # Create Transactoid instance with mock Plaid client
         transactoid = Transactoid(
             db=self._db,
             taxonomy=self._taxonomy,
-            plaid_client=None,  # Optional, will be created from env if needed
+            plaid_client=mock_plaid,
         )
         return transactoid.create_agent()
