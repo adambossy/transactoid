@@ -28,15 +28,14 @@ from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
-from adapters.openai_adapter import OpenAIAdapter
 from services.db import DB
 from services.plaid_client import PlaidClient, PlaidClientError
 from services.taxonomy import Taxonomy
 from tools.categorize.categorizer_tool import Categorizer
-from tools.persist.persist_tool import PersistTool, RecategorizeTool, TagTransactionsTool
-from tools.query.query_tool import RunSQLTool
-from tools.registry import ToolRegistry
-from tools.sync.sync_tool import SyncTool, SyncTransactionsTool
+from tools.persist.persist_tool import (
+    PersistTool,
+)
+from tools.sync.sync_tool import SyncTool
 
 load_dotenv()
 
@@ -454,7 +453,8 @@ class Transactoid:
                 query: SQL query string to execute
 
             Returns:
-                Dictionary with 'rows' (list of dicts) and 'count' (number of rows)
+                Dictionary with 'rows' (list of dicts), 'count' (number of rows),
+                and 'query' (the executed SQL)
             """
             try:
                 result = self._db.execute_raw_sql(query)
@@ -468,11 +468,11 @@ class Transactoid:
                         for key, value in row.items():
                             if hasattr(value, "isoformat"):
                                 row[key] = value.isoformat()
-                    return {"rows": rows, "count": len(rows)}
+                    return {"rows": rows, "count": len(rows), "query": query}
                 else:
-                    return {"rows": [], "count": result.rowcount}
+                    return {"rows": [], "count": result.rowcount, "query": query}
             except Exception as e:
-                return {"rows": [], "count": 0, "error": str(e)}
+                return {"rows": [], "count": 0, "error": str(e), "query": query}
 
         @function_tool
         def sync_transactions() -> dict[str, Any]:
