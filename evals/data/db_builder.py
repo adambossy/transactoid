@@ -27,6 +27,17 @@ class EvalDBBuilder:
         Raises:
             ValueError: If a category_key in fixture is not valid in taxonomy
         """
+        # Insert Plaid items first (if present)
+        if fixture.plaid_items:
+            for plaid_item_data in fixture.plaid_items:
+                self._db.insert_plaid_item(
+                    item_id=plaid_item_data["item_id"],
+                    access_token=plaid_item_data["access_token"],
+                    institution_id=plaid_item_data.get("institution_id"),
+                    institution_name=plaid_item_data.get("institution_name"),
+                )
+
+        # Insert transactions
         for txn_data in fixture.transactions:
             # Validate category key exists
             category_key = txn_data["category_key"]

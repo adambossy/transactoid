@@ -1012,6 +1012,37 @@ class DB:
                 session.expunge(item)
             return item
 
+    def insert_plaid_item(
+        self,
+        item_id: str,
+        access_token: str,
+        institution_id: str | None = None,
+        institution_name: str | None = None,
+    ) -> PlaidItem:
+        """Insert a new Plaid item.
+
+        Args:
+            item_id: Unique identifier for the Plaid item
+            access_token: Access token for the Plaid item
+            institution_id: Optional Plaid institution ID
+            institution_name: Optional name of the institution
+
+        Returns:
+            Created PlaidItem instance
+        """
+        with self.session() as session:  # type: Session
+            plaid_item = PlaidItem(
+                item_id=item_id,
+                access_token=access_token,
+                institution_id=institution_id,
+                institution_name=institution_name,
+            )
+            session.add(plaid_item)
+            session.flush()
+            session.refresh(plaid_item)
+            session.expunge(plaid_item)
+            return plaid_item
+
     def list_plaid_items(self) -> list[PlaidItem]:
         """List all Plaid items.
 
