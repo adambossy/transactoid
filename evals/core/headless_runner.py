@@ -97,10 +97,10 @@ class MockPlaidClient:
             "message": "Cannot connect accounts in eval mode",
         }
 
-    def sync_transactions(self, **kwargs: Any) -> dict[str, Any]:
+    def sync_transactions(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Sync transactions (mocked for eval).
 
-        Accepts any keyword arguments and ignores them.
+        Accepts any positional or keyword arguments and ignores them.
 
         Returns:
             Success with zero transactions (fixture data is already in DB)
