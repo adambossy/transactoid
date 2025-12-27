@@ -128,17 +128,22 @@ class Categorizer:
         template = load_prompt(self._prompt_key)
         taxonomy_text = self._serialize_taxonomy(taxonomy_dict)
         txn_json_str = json.dumps(txn_json_list, ensure_ascii=False, indent=2)
-        return template.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text).replace(
-            "{{CTV_JSON}}", txn_json_str
-        )
+        taxonomy_rules = load_prompt("taxonomy-rules")
+
+        rendered = template.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text)
+        rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
+        rendered = rendered.replace("{{CTV_JSON}}", txn_json_str)
+        return rendered
 
     def _create_cache_key(
         self, txn_json_list: list[dict[str, object]], taxonomy_dict: dict[str, object]
     ) -> str:
         """Create deterministic cache key from transactions and taxonomy."""
+        taxonomy_rules = load_prompt("taxonomy-rules")
         cache_payload = {
             "txns": txn_json_list,
             "taxonomy": taxonomy_dict,
+            "taxonomy_rules": taxonomy_rules,
             "model": self._model,
         }
         return stable_key(cache_payload)
