@@ -329,7 +329,10 @@ class HeadlessAgentRunner:
         return ""
 
     def _create_agent(self) -> Agent:
-        """Create agent using the production Transactoid orchestrator."""
+        """Create agent using the production Transactoid orchestrator.
+
+        Uses SQLite dialect since evals run against SQLite database.
+        """
         # Create mock Plaid client for evals to avoid real API calls
         mock_plaid = MockPlaidClient(self._db)
 
@@ -339,4 +342,4 @@ class HeadlessAgentRunner:
             taxonomy=self._taxonomy,
             plaid_client=mock_plaid,  # type: ignore[arg-type]
         )
-        return transactoid.create_agent()
+        return transactoid.create_agent(sql_dialect="sqlite")
