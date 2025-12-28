@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass
 import json
 import os
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 from promptorium import load_prompt
 from pydantic import BaseModel, Field
 
@@ -70,18 +71,54 @@ class Categorizer:
         model: str = "gpt-5.1",
         confidence_threshold: float = 0.70,
         file_cache: FileCache | None = None,
+        max_concurrency: int = 8,
     ) -> None:
         self._taxonomy = taxonomy
         self._prompt_key = prompt_key
         self._model = model
         self._confidence_threshold = confidence_threshold
         self._file_cache = file_cache or FileCache()
+        self._max_concurrency = max_concurrency
+        self._semaphore: asyncio.Semaphore | None = None
 
-    def categorize(self, txns: Iterable[Transaction]) -> list[CategorizedTransaction]:
+    async def categorize(
+        self, txns: Iterable[Transaction], *, batch_size: int | None = None
+    ) -> list[CategorizedTransaction]:
         txn_list = list(txns)
         if not txn_list:
             return []
 
+        # Initialize semaphore lazily (requires event loop)
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        # If no batch size specified, process all transactions in one batch
+        if batch_size is None or batch_size >= len(txn_list):
+            return await self._categorize_batch(txn_list)
+
+        # Split into batches and process concurrently with semaphore limiting
+        batches = [
+            txn_list[i : i + batch_size] for i in range(0, len(txn_list), batch_size)
+        ]
+        print(
+            f"Categorizing {len(txn_list)} transactions in {len(batches)} batches "
+            f"(max concurrency: {self._max_concurrency})..."
+        )
+
+        tasks = [self._categorize_batch(batch) for batch in batches]
+        batch_results = await asyncio.gather(*tasks)
+
+        # Flatten results
+        all_categorized: list[CategorizedTransaction] = []
+        for result in batch_results:
+            all_categorized.extend(result)
+
+        return all_categorized
+
+    async def _categorize_batch(
+        self, txn_list: list[Transaction]
+    ) -> list[CategorizedTransaction]:
+        """Categorize a single batch of transactions."""
         txn_json_list = self._format_transactions_for_prompt(txn_list)
         taxonomy_dict = self._taxonomy.to_prompt()
         prompt = self._render_prompt(txn_json_list, taxonomy_dict)
@@ -91,13 +128,28 @@ class Categorizer:
         if cached_result is not None:
             return self._parse_response(cached_result, txn_list)
 
-        print(f"Categorizing {len(txn_list)} transactions with LLM...")
-        response_text = self._call_openai_api(prompt)
+        self._print_api_call_info(txn_list)
+        response_text = await self._call_openai_api(prompt)
         self._file_cache.set("categorize", cache_key, response_text)
 
-        categorized = self._parse_response(response_text, txn_list)
-        self._print_categorization_summary(categorized)
-        return categorized
+        return self._parse_response(response_text, txn_list)
+
+    def _print_api_call_info(self, txn_list: list[Transaction]) -> None:
+        """Print information about the API call being made."""
+        if len(txn_list) == 0:
+            return
+
+        first_date = txn_list[0].get("date", "unknown")
+        last_date = txn_list[-1].get("date", "unknown")
+
+        if first_date == last_date:
+            date_info = f"date: {first_date}"
+        else:
+            date_info = f"{first_date} to {last_date}"
+
+        print(
+            f"Calling OpenAI API for {len(txn_list)} transactions ({date_info})..."
+        )
 
     def _format_transactions_for_prompt(
         self, txns: list[Transaction]
@@ -148,19 +200,23 @@ class Categorizer:
         }
         return stable_key(cache_payload)
 
-    def _call_openai_api(self, prompt: str) -> str:
+    async def _call_openai_api(self, prompt: str) -> str:
         """Call OpenAI Responses API with web search enabled."""
         api_key = os.environ.get("OPENAI_API_KEY", "").strip()
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
 
-        client = OpenAI(api_key=api_key)
-        resp = client.responses.create(
-            model=self._model,
-            input=prompt,
-            tools=[{"type": "web_search"}],
-        )
-        return self._extract_response_text(resp)
+        # Use semaphore to limit concurrent API calls
+        if self._semaphore is None:
+            raise RuntimeError("Semaphore not initialized - call categorize() first")
+        async with self._semaphore:
+            client = AsyncOpenAI(api_key=api_key)
+            resp = await client.responses.create(
+                model=self._model,
+                input=prompt,
+                tools=[{"type": "web_search"}],
+            )
+            return self._extract_response_text(resp)
 
     def _extract_response_text(self, resp: object) -> str:
         """Extract text from OpenAI response object."""
@@ -175,7 +231,9 @@ class Categorizer:
         """Parse LLM response and map back to transactions."""
         json_str = self._extract_json_from_response(response_text)
         response = self._parse_categorization_response(json_str)
-        return self._map_results_to_transactions(response.results, txns)
+        categorized = self._map_results_to_transactions(response.results, txns)
+        self._print_categorization_summary(categorized)
+        return categorized
 
     def _extract_json_from_response(self, response_text: str) -> str:
         """Extract JSON array from response text."""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,7 +58,7 @@ class SyncTool:
         self._access_token = access_token
         self._cursor = cursor
 
-    def sync(
+    async def sync(
         self,
         *,
         count: int = 25,
@@ -112,11 +113,11 @@ class SyncTool:
                     if item.get("transaction_id")
                 ]
 
-                # Categorize added transactions
-                categorized_added = self._categorizer.categorize(added)
-
-                # Categorize modified transactions
-                categorized_modified = self._categorizer.categorize(modified)
+                # Categorize added and modified transactions concurrently
+                categorized_added, categorized_modified = await asyncio.gather(
+                    self._categorizer.categorize(added),
+                    self._categorizer.categorize(modified),
+                )
 
                 # Create SyncResult for this page
                 page_result = SyncResult(
@@ -229,7 +230,7 @@ class SyncTransactionsTool(StandardTool):
             - total_removed: Total transactions removed
         """
         try:
-            results = self._sync_tool.sync()
+            results = asyncio.run(self._sync_tool.sync())
 
             # Aggregate results into JSON-serializable dict
             total_added = sum(len(r.categorized_added) for r in results)
