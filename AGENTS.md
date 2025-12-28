@@ -101,6 +101,14 @@ def test_<unit>_<behavior>():
 - Environment loading
   - Load environment variables from a `.env` file using `python-dotenv`. Call `load_dotenv(override=False)` once in the CLI entrypoint before command execution; do not override variables that are already set.
 
+- Git worktrees
+  - Always work in a dedicated worktree located in `.worktrees/<branch-name>` unless already in one. Check the current directory path; if not in `.worktrees/`, create a new worktree and switch to its working directory before starting work.
+  - Stay inside the worktree for all development work. If you need to switch to main (e.g., to check something), always return to the worktree directory afterward.
+  - When instructed to clean up a worktree:
+    1. Ensure the worktree's branch is pushed to remote
+    2. Switch to the main branch worktree
+    3. Remove the worktree using `git worktree remove <path>`
+
 - Scale assumptions
   - This app targets a single-user workflow. Do not assume external clients, observability stacks, or production-grade frills by default.
 
