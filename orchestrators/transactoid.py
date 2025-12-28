@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from decimal import Decimal
 import json
+from pathlib import Path
 import sys
 from typing import Any
 
@@ -363,8 +364,27 @@ def _render_prompt_template(
     *,
     database_schema: dict[str, Any],
     category_taxonomy: dict[str, Any],
+    sql_dialect: str = "postgresql",
 ) -> str:
-    """Replace placeholders in the prompt template with actual data."""
+    """Replace placeholders in the prompt template with actual data.
+
+    Args:
+        template: Prompt template with {{VARIABLE}} placeholders
+        database_schema: Database schema dict
+        category_taxonomy: Category taxonomy dict
+        sql_dialect: "postgresql" (default) or "sqlite"
+
+    Returns:
+        Rendered prompt with all placeholders replaced
+    """
+    # Load SQL dialect directives based on parameter
+    if sql_dialect == "sqlite":
+        sql_directives_path = Path("prompts/sql-directives/sqlite.md")
+    else:
+        sql_directives_path = Path("prompts/sql-directives/postgresql.md")
+
+    sql_directives = sql_directives_path.read_text()
+
     # Format database schema as readable text
     schema_text = yaml.dump(database_schema, default_flow_style=False, sort_keys=False)
 
@@ -380,6 +400,7 @@ def _render_prompt_template(
     rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
     rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
     rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
+    rendered = rendered.replace("{{SQL_DIALECT_DIRECTIVES}}", sql_directives)
 
     return rendered
 
@@ -426,9 +447,14 @@ class Transactoid:
                 return error_factory(e)
         return None
 
-    def create_agent(self) -> Agent:
+    def create_agent(self, sql_dialect: str = "postgresql") -> Agent:
         """
         Create and return the Transactoid Agent instance with all tools.
+
+        Args:
+            sql_dialect: SQL dialect for query generation ("postgresql" or "sqlite").
+                Defaults to "postgresql" for production use.
+                Evals pass "sqlite" to match their test database.
 
         Returns:
             Agent configured with all Transactoid tools and instructions
@@ -441,6 +467,7 @@ class Transactoid:
             template,
             database_schema=schema_hint,
             category_taxonomy=taxonomy_dict,
+            sql_dialect=sql_dialect,
         )
 
         # Create tool wrapper functions
