@@ -5,7 +5,7 @@ import sys
 
 from promptorium import load_prompt
 
-from services import taxonomy_generator as tg
+from transactoid.taxonomy import generator as tg
 
 
 def run_build(yaml_path: str, model: str) -> bool:

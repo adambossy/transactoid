@@ -1,4 +1,0 @@
-- **SQL Dialect**: SQLite (not PostgreSQL). Use SQLite-compatible syntax and functions.
-  - For date operations use: `DATE()`, `DATE('now')`, `STRFTIME()` (not PostgreSQL `DATE_TRUNC()` or `INTERVAL`)
-  - For date arithmetic use: `DATE('now', '+1 month')` or `DATE('2025-01-01', '+30 days')` (not PostgreSQL `INTERVAL`)
-  - For string operations use SQLite functions: `UPPER()`, `LOWER()`, `SUBSTR()`, `INSTR()`
