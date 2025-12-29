@@ -4,8 +4,9 @@ import yaml
 
 from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
-from services.db import DB, Base, CategoryRow
-from services.taxonomy import Taxonomy
+from transactoid.infra.db.facade import DB, Base, CategoryRow
+from transactoid.taxonomy.core import Taxonomy
+from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 
 def _create_db() -> DB:
@@ -36,7 +37,7 @@ def _load_full_taxonomy(db: DB) -> Taxonomy:
         )
 
     db.replace_categories_rows(categories)
-    return Taxonomy.from_db(db)
+    return load_taxonomy_from_db(db)
 
 
 def test_last_month_spending_fixture_builds_correctly() -> None:

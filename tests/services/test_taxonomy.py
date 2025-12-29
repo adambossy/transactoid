@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING, TypedDict, cast
 
 from yaml import safe_load
 
-from services.taxonomy import CategoryNode, Taxonomy
+from transactoid.taxonomy.core import CategoryNode, Taxonomy
+from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 if TYPE_CHECKING:
-    from services.db import DB
+    from transactoid.infra.db.facade import DB
 
 
 class RawCategory(TypedDict):
@@ -114,12 +115,14 @@ def test_path_str_formats_two_level_hierarchy() -> None:
 
 
 def test_category_id_for_key_uses_db_lookup() -> None:
+    from transactoid.taxonomy.loader import get_category_id
+
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
     fake_db = cast("DB", build_fake_db({"food.groceries": 10, "travel.flights": 20}))
 
-    groceries_id = taxonomy.category_id_for_key(fake_db, "food.groceries")
-    missing_id = taxonomy.category_id_for_key(fake_db, "food.restaurants")
+    groceries_id = get_category_id(fake_db, taxonomy, "food.groceries")
+    missing_id = get_category_id(fake_db, taxonomy, "food.restaurants")
 
     assert groceries_id == 10
     assert missing_id is None
@@ -127,7 +130,7 @@ def test_category_id_for_key_uses_db_lookup() -> None:
 
 def test_from_db_converts_categories_to_nodes() -> None:
     db = cast("DB", build_fake_db_for_from_db())
-    taxonomy = Taxonomy.from_db(db)
+    taxonomy = load_taxonomy_from_db(db)
     nodes = {node.key: node for node in taxonomy.all_nodes()}
 
     assert nodes["food"].parent_key is None
