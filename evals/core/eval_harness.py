@@ -34,13 +34,18 @@ class EvalRunResult:
 class EvalHarness:
     """Main evaluation harness."""
 
-    def __init__(self, questions_path: str) -> None:
+    def __init__(self, questions_path: str, questions: str | None = None) -> None:
         """Initialize harness.
 
         Args:
             questions_path: Path to questions.yaml file
+            questions: Comma-separated question IDs to run (e.g., q001,q003,q005).
+                      If None, runs all questions.
         """
         self._questions = self._load_questions(questions_path)
+        if questions:
+            included_ids = set(questions.split(","))
+            self._questions = [q for q in self._questions if q["id"] in included_ids]
         self._cache = FileCache()
         self._console = Console()
 
@@ -62,7 +67,8 @@ class EvalHarness:
         """Create in-memory database."""
         db = DB("sqlite:///:memory:")
         with db.session() as session:
-            assert session.bind is not None
+            if session.bind is None:
+                raise RuntimeError("Session bind is None")
             Base.metadata.create_all(session.bind)
         return db
 
