@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,10 +26,14 @@ dependencies = [
 ]
 
 [project.scripts]
-transactoid = "frontends.cli:main"
+transactoid = "transactoid.ui.cli:agent"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-include = ["adapters*", "agents*", "configs*", "db*", "evals*", "frontends*", "models*", "orchestrators*", "plans*", "prompts*", "scripts*", "services*", "tools*", "ui*"]
+where = ["src"]
+include = ["transactoid*"]
 
 [tool.deadcode]
 exclude = [

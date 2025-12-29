@@ -4,16 +4,18 @@ from datetime import date
 
 from sqlalchemy.orm import Session  # noqa: F401 - used in type comments
 
-from services.db import DB, CategoryRow, _normalize_merchant_name
-from services.taxonomy import Taxonomy
-from tools.persist.persist_tool import PersistTool
+from transactoid.infra.db.facade import DB
+from transactoid.infra.db.models import CategoryRow, normalize_merchant_name
+from transactoid.taxonomy.core import Taxonomy
+from transactoid.taxonomy.loader import load_taxonomy_from_db
+from transactoid.tools.persist.persist_tool import PersistTool
 
 
 def create_db() -> DB:
     """Create in-memory database instance."""
     db = DB("sqlite:///:memory:")
     # Create tables using SQLAlchemy Base
-    from services.db import Base
+    from transactoid.infra.db.models import Base
 
     with db.session() as session:  # type: Session
         assert session.bind is not None
@@ -34,14 +36,14 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
         ),
     ]
     db.replace_categories_rows(categories)
-    return Taxonomy.from_db(db)
+    return load_taxonomy_from_db(db)
 
 
 def _get_merchant_id_for_descriptor(db: DB, descriptor: str) -> int:
     """Helper to resolve merchant_id created via merchant_descriptor."""
     # The DB layer normalizes merchant descriptors when inserting transactions,
     # so we use the same logic via the shared helper.
-    normalized = _normalize_merchant_name(descriptor)
+    normalized = normalize_merchant_name(descriptor)
     merchant = db.find_merchant_by_normalized_name(normalized)
     assert merchant is not None
     return merchant.merchant_id
