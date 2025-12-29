@@ -4,7 +4,8 @@ import yaml
 
 from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
-from transactoid.infra.db.facade import DB, Base, CategoryRow
+from transactoid.infra.db.facade import DB
+from transactoid.infra.db.models import Base, CategoryRow
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 
@@ -151,7 +152,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
     count_result = db.execute_raw_sql("""
         SELECT COUNT(*)
         FROM transactions
-        WHERE posted_at >= '2024-11-01' AND posted_at <= '2024-11-15'
+        WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
     actual_count = count_result.fetchone()[0]  # type: ignore[index]
     assert actual_count == expected_count
@@ -160,7 +161,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
     sum_result = db.execute_raw_sql("""
         SELECT SUM(amount_cents)
         FROM transactions
-        WHERE posted_at >= '2024-11-01' AND posted_at <= '2024-11-15'
+        WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
     actual_cents = sum_result.fetchone()[0]  # type: ignore[index]
     assert actual_cents == expected_cents

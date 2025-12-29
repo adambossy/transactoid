@@ -9,10 +9,17 @@ from transactoid.infra.db.facade import DB, CategoryRow
 
 
 def test_seed_taxonomy_applies_fixture_to_db(tmp_path: Path) -> None:
+    from transactoid.infra.db.models import Base
+
     yaml_path = (
         Path(__file__).resolve().parents[1] / "fixtures" / "sample_taxonomy.yaml"
     )
     db = DB("sqlite:///:memory:")
+
+    # Create tables
+    with db.session() as session:
+        assert session.bind is not None
+        Base.metadata.create_all(session.bind)
 
     categories = seed_taxonomy_from_yaml(db, yaml_path)
 

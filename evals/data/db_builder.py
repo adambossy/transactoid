@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from evals.data.fixtures import TransactionFixture
-from services.db import DB
-from services.taxonomy import Taxonomy
+from transactoid.infra.db.facade import DB
+from transactoid.taxonomy.core import Taxonomy
 
 
 class EvalDBBuilder:
