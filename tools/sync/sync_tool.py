@@ -25,6 +25,25 @@ class SyncResult:
     has_more: bool
 
 
+@dataclass
+class AccumulatedTransactions:
+    """Accumulated transactions from all Plaid sync pages."""
+
+    added: list[Transaction]
+    modified: list[Transaction]
+    removed: list[dict[str, Any]]
+    final_cursor: str
+    pages_fetched: int
+
+
+@dataclass
+class CategorizedBatch:
+    """Results from categorizing accumulated transactions."""
+
+    categorized_added: list[CategorizedTransaction]
+    categorized_modified: list[CategorizedTransaction]
+
+
 class SyncTool:
     """
     Sync tool that calls Plaid's transaction sync API and categorizes all
@@ -90,116 +109,230 @@ class SyncTool:
             # No event loop running, safe to use asyncio.run()
             return asyncio.run(self._sync_async(count=count))
 
-    async def _sync_async(
-        self,
-        *,
-        count: int = 25,
-    ) -> list[SyncResult]:
+    async def _fetch_all_pages(self, *, count: int) -> AccumulatedTransactions:
         """
-        Internal async implementation of sync.
+        Fetch all available transaction pages from Plaid.
 
-        Handles pagination automatically, categorizes each page as it's fetched.
+        Handles pagination automatically with retry logic for
+        TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION errors.
 
         Args:
-            count: Maximum number of transactions per page (default: 25, max: 500)
+            count: Maximum transactions per page (25-500)
 
         Returns:
-            List of SyncResult objects, one per page processed
+            AccumulatedTransactions with all fetched data
 
         Raises:
-            PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
-                and cannot be recovered after retries
+            PlaidClientError: If max retries exceeded for mutation errors
         """
         current_cursor = self._cursor
         pagination_start_cursor = current_cursor
-        results: list[SyncResult] = []
+
+        added_all: list[Transaction] = []
+        modified_all: list[Transaction] = []
+        removed_all: list[dict[str, Any]] = []
+
+        pages_fetched = 0
         max_retries = 3
         retry_count = 0
 
         while True:
             try:
-                # Call Plaid's sync_transactions API
+                # Fetch page from Plaid
                 cursor_label = current_cursor or "initial"
                 print(f"Fetching transactions from Plaid (cursor: {cursor_label})...")
+
                 sync_result = self._plaid_client.sync_transactions(
                     self._access_token,
                     cursor=current_cursor,
                     count=count,
                 )
 
-                # Extract data from sync result
+                # Extract data
                 added: list[Transaction] = sync_result.get("added", [])
                 modified: list[Transaction] = sync_result.get("modified", [])
                 removed: list[dict[str, Any]] = sync_result.get("removed", [])
+                next_cursor: str = sync_result.get("next_cursor", "")
+                has_more: bool = sync_result.get("has_more", False)
+
+                # Accumulate
+                added_all.extend(added)
+                modified_all.extend(modified)
+                removed_all.extend(removed)
+                pages_fetched += 1
+
+                # Progress logging
                 print(
                     f"Plaid fetch complete: {len(added)} added, "
-                    f"{len(modified)} modified, {len(removed)} removed"
-                )
-                next_cursor = sync_result.get("next_cursor", "")
-                has_more = sync_result.get("has_more", False)
-
-                # Extract removed transaction IDs
-                removed_transaction_ids = [
-                    item.get("transaction_id", "")
-                    for item in removed
-                    if item.get("transaction_id")
-                ]
-
-                # Categorize added and modified transactions concurrently
-                categorized_added, categorized_modified = await asyncio.gather(
-                    self._categorizer.categorize(added),
-                    self._categorizer.categorize(modified),
+                    f"{len(modified)} modified, {len(removed)} removed "
+                    f"(page {pages_fetched})"
                 )
 
-                # Create SyncResult for this page
-                page_result = SyncResult(
-                    categorized_added=categorized_added,
-                    categorized_modified=categorized_modified,
-                    removed_transaction_ids=removed_transaction_ids,
-                    next_cursor=next_cursor,
-                    has_more=has_more,
-                )
-
-                # Persist transactions to database
-                self._db.save_transactions(
-                    self._taxonomy, categorized_added + categorized_modified
-                )
-                if removed_transaction_ids:
-                    self._db.delete_transactions_by_external_ids(
-                        removed_transaction_ids, source="PLAID"
-                    )
-
-                results.append(page_result)
-
-                # If no more pages, break
+                # Check if done
                 if not has_more:
+                    print(
+                        f"Total fetched: {len(added_all)} added, "
+                        f"{len(modified_all)} modified, {len(removed_all)} removed "
+                        f"across {pages_fetched} pages"
+                    )
                     break
 
                 # Update cursor for next iteration
                 current_cursor = next_cursor
-                retry_count = 0  # Reset retry count on successful page
+                retry_count = 0
 
             except PlaidClientError as e:
-                # Check if this is a mutation during pagination error
+                # Handle mutation during pagination
                 error_msg = str(e)
                 if "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" in error_msg:
                     if retry_count < max_retries:
-                        # Restart pagination from the beginning
+                        print(
+                            f"Mutation detected, restarting fetch "
+                            f"(attempt {retry_count + 1}/{max_retries})..."
+                        )
+                        # Clear accumulators and restart
+                        added_all = []
+                        modified_all = []
+                        removed_all = []
                         current_cursor = pagination_start_cursor
-                        results = []  # Clear partial results
+                        pages_fetched = 0
                         retry_count += 1
                         continue
                     else:
-                        # Max retries exceeded
                         raise PlaidClientError(
                             f"Failed to sync after {max_retries} retries due to "
                             "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION"
                         ) from e
                 else:
-                    # Re-raise other PlaidClientErrors
                     raise
 
-        return results
+        return AccumulatedTransactions(
+            added=added_all,
+            modified=modified_all,
+            removed=removed_all,
+            final_cursor=next_cursor,
+            pages_fetched=pages_fetched,
+        )
+
+    async def _categorize_accumulated(
+        self,
+        accumulated: AccumulatedTransactions,
+    ) -> CategorizedBatch:
+        """
+        Categorize all accumulated transactions using LLM.
+
+        Processes added and modified transactions concurrently using
+        the existing Categorizer with its semaphore limiting.
+
+        Args:
+            accumulated: All transactions from Plaid sync
+
+        Returns:
+            CategorizedBatch with categorized results
+        """
+        total_txns = len(accumulated.added) + len(accumulated.modified)
+        print(
+            f"Categorizing {total_txns} transactions "
+            f"({len(accumulated.added)} added, {len(accumulated.modified)} modified)..."
+        )
+
+        # Categorize added and modified concurrently
+        categorized_added, categorized_modified = await asyncio.gather(
+            self._categorizer.categorize(accumulated.added),
+            self._categorizer.categorize(accumulated.modified),
+        )
+
+        return CategorizedBatch(
+            categorized_added=categorized_added,
+            categorized_modified=categorized_modified,
+        )
+
+    def _persist_all(
+        self,
+        categorized: CategorizedBatch,
+        removed: list[dict[str, Any]],
+    ) -> None:
+        """
+        Persist all categorized transactions to database.
+
+        Args:
+            categorized: All categorized transactions
+            removed: Removed transaction data from Plaid
+        """
+        # Combine all categorized transactions
+        all_categorized = (
+            categorized.categorized_added + categorized.categorized_modified
+        )
+
+        # Extract removed transaction IDs
+        removed_ids = [
+            item.get("transaction_id", "")
+            for item in removed
+            if item.get("transaction_id")
+        ]
+
+        # Persist to database
+        if all_categorized:
+            print(f"Persisting {len(all_categorized)} transactions to database...")
+            self._db.save_transactions(self._taxonomy, all_categorized)
+
+        if removed_ids:
+            print(f"Deleting {len(removed_ids)} removed transactions...")
+            self._db.delete_transactions_by_external_ids(removed_ids, source="PLAID")
+
+    def _build_sync_result(
+        self,
+        categorized: CategorizedBatch,
+        accumulated: AccumulatedTransactions,
+    ) -> SyncResult:
+        """Build SyncResult from categorized batch and accumulated data."""
+        removed_ids = [
+            item.get("transaction_id", "")
+            for item in accumulated.removed
+            if item.get("transaction_id")
+        ]
+
+        return SyncResult(
+            categorized_added=categorized.categorized_added,
+            categorized_modified=categorized.categorized_modified,
+            removed_transaction_ids=removed_ids,
+            next_cursor=accumulated.final_cursor,
+            has_more=False,  # Always False after fetching all pages
+        )
+
+    async def _sync_async(
+        self,
+        *,
+        count: int = 25,
+    ) -> list[SyncResult]:
+        """
+        Three-phase sync: fetch all, categorize all, persist all.
+
+        Phase 1: Fetch all pages from Plaid (fast, sequential)
+        Phase 2: Categorize all transactions (slow, parallelized)
+        Phase 3: Persist to database (fast, bulk operation)
+
+        Args:
+            count: Maximum number of transactions per page (default: 25, max: 500)
+
+        Returns:
+            List containing single SyncResult representing entire sync
+
+        Raises:
+            PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
+                and cannot be recovered after retries
+        """
+        # Phase 1: Fetch all transactions from Plaid
+        accumulated = await self._fetch_all_pages(count=count)
+
+        # Phase 2: Categorize all transactions concurrently
+        categorized = await self._categorize_accumulated(accumulated)
+
+        # Phase 3: Persist everything to database
+        self._persist_all(categorized, accumulated.removed)
+
+        # Return single SyncResult representing entire sync
+        return [self._build_sync_result(categorized, accumulated)]
 
 
 class SyncTransactionsTool(StandardTool):
