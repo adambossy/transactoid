@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from dataclasses import dataclass
 from typing import Any
 
@@ -78,7 +79,16 @@ class SyncTool:
             PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
                 and cannot be recovered after retries
         """
-        return asyncio.run(self._sync_async(count=count))
+        try:
+            # Check if there's already an event loop running
+            asyncio.get_running_loop()
+            # If loop exists, run in a new thread to avoid conflict
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._sync_async(count=count))
+                return future.result()
+        except RuntimeError:
+            # No event loop running, safe to use asyncio.run()
+            return asyncio.run(self._sync_async(count=count))
 
     async def _sync_async(
         self,
