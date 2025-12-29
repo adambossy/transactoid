@@ -7,7 +7,6 @@ import os
 from dotenv import load_dotenv
 import typer
 
-from evals.core.eval_harness import EvalHarness
 from transactoid.orchestrators.transactoid import Transactoid
 from scripts import run
 from transactoid.infra.db.facade import DB
@@ -156,6 +155,8 @@ async def _eval_impl(
     Executes the agent against predefined questions with synthetic data,
     evaluates responses using an LLM judge, and generates results.
     """
+    from evals.core.eval_harness import EvalHarness
+
     # Run harness
     harness = EvalHarness(questions_path, questions=questions)
     results = await harness.run_all()
