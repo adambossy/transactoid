@@ -26,14 +26,14 @@ dependencies = [
 ]
 
 [project.scripts]
-transactoid = "transactoid.ui.cli:agent"
+transactoid = "transactoid.ui.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"transactoid" = "src/transactoid"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
-include = ["transactoid*"]
+where = ["src", "."]
+include = ["transactoid*", "models", "evals*", "scripts"]
 
 [tool.deadcode]
 exclude = [
