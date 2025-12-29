@@ -146,6 +146,7 @@ def agent() -> None:
 
 async def _eval_impl(
     questions_path: str,
+    questions: str | None,
     output_dir: str,
 ) -> None:
     """
@@ -155,7 +156,7 @@ async def _eval_impl(
     evaluates responses using an LLM judge, and generates results.
     """
     # Run harness
-    harness = EvalHarness(questions_path)
+    harness = EvalHarness(questions_path, questions=questions)
     results = await harness.run_all()
 
     # Save and display results
@@ -170,10 +171,15 @@ async def _eval_impl(
 
 @app.command("eval")
 def eval_cmd(
-    questions: str = typer.Option(
+    input: str = typer.Option(
         "evals/config/questions.yaml",
-        "--questions",
+        "--input",
         help="Path to questions.yaml file",
+    ),
+    questions: str | None = typer.Option(
+        None,
+        "--questions",
+        help="Comma-separated question IDs to run (e.g., q001,q003,q005). If not provided, runs all.",
     ),
     output_dir: str = typer.Option(
         ".eval_results",
@@ -182,7 +188,9 @@ def eval_cmd(
     ),
 ) -> None:
     """Run the evaluation suite against the Transactoid agent."""
-    asyncio.run(_eval_impl(questions_path=questions, output_dir=output_dir))
+    asyncio.run(
+        _eval_impl(questions_path=input, questions=questions, output_dir=output_dir)
+    )
 
 
 def main() -> None:

@@ -375,7 +375,8 @@ FIXTURES: dict[str, TransactionFixture] = {
             "top_merchant_3_amount": 165.00,
             "top_merchant_3_count": 3,
         },
-        description="42 transactions across November 2024 with known totals for comprehensive testing",
+        description="42 transactions across November 2024 with known totals for comprehensive "
+        "testing",
         plaid_items=[
             {
                 "item_id": "eval_test_item",
