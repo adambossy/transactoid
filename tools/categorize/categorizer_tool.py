@@ -91,9 +91,7 @@ class CategorizerLogger:
             max_concurrency,
         )
 
-    def categorization_summary(
-        self, categorized: list[CategorizedTransaction]
-    ) -> None:
+    def categorization_summary(self, categorized: list[CategorizedTransaction]) -> None:
         """Log categorization completion summary."""
         recategorized_count = sum(
             1 for c in categorized if c.revised_category_key is not None
@@ -135,6 +133,12 @@ class Categorizer:
         self._max_concurrency = max_concurrency
         self._semaphore: asyncio.Semaphore | None = None
         self._logger = CategorizerLogger()
+
+        # Initialize OpenAI client once
+        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
+        self._client = AsyncOpenAI(api_key=api_key)
 
     async def categorize(
         self, txns: Iterable[Transaction], *, batch_size: int | None = None
@@ -237,16 +241,11 @@ class Categorizer:
 
     async def _call_openai_api(self, prompt: str) -> str:
         """Call OpenAI Responses API with web search enabled."""
-        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
-
         # Use semaphore to limit concurrent API calls
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
         async with self._semaphore:
-            client = AsyncOpenAI(api_key=api_key)
-            resp = await client.responses.create(
+            resp = await self._client.responses.create(
                 model=self._model,
                 input=prompt,
                 tools=[{"type": "web_search"}],
