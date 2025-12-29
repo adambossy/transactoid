@@ -28,7 +28,7 @@ def test_slugify_label_handles_special_characters() -> None:
     slug = mlc.slugify_label(label)
 
     # expected / assert
-    assert slug == "banking_movements_transfers_refunds_fees"
+    assert slug == "banking_movements_transfers_refunds_and_fees"
 
 
 def test_build_slug_map_deduplicates_collisions() -> None:
@@ -64,14 +64,14 @@ def test_build_category_rows_orders_and_links_children() -> None:
     # expected
     expected_keys = [
         "income",
-        "income.salary_wages",
-        "food_dining",
-        "food_dining.groceries",
+        "income.salary_and_wages",
+        "food_and_dining",
+        "food_and_dining.groceries",
     ]
 
     # assert
     assert [row["key"] for row in rows] == expected_keys
-    assert mapping["Groceries"] == "food_dining.groceries"
+    assert mapping["Groceries"] == "food_and_dining.groceries"
     assert rows[1]["parent_key"] == "income"
 
 
