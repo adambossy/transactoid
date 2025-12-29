@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "custom_dirs": {
-    "agent-loop": "prompts/agent-loop",
-    "categorize-transactions": "prompts/categorize-transactions",
-    "taxonomy-rules": "prompts/taxonomy-rules"
+    "agent-loop": "src/transactoid/prompts/agent-loop",
+    "categorize-transactions": "src/transactoid/prompts/categorize-transactions",
+    "taxonomy-rules": "src/transactoid/prompts/taxonomy-rules"
   }
 }
