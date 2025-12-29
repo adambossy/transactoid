@@ -210,4 +210,62 @@ def test_<unit>_<behavior>():
 - Comments
   - Reserve comments for intent and non-obvious decisions. Avoid narrating the change itself.
 
+## Logging
+
+- Use loguru for structured logging
+  - Import: `import loguru` and `from loguru import logger`
+  - Type hint: `loguru.Logger` (not `Any`)
+  - Default instance: Use the pre-configured `logger` object
+
+- Separate logging logic from business logic
+  - Extract logging concerns into a dedicated logger class
+  - Keep formatting and presentation logic out of core business methods
+  - Example pattern:
+
+    ```python
+    import loguru
+    from loguru import logger
+
+    class MyComponentLogger:
+        """Handles all logging for MyComponent with business logic separated."""
+
+        def __init__(self, logger_instance: loguru.Logger = logger) -> None:
+            self._logger = logger_instance
+
+        def operation_start(self, item_count: int, config: str) -> None:
+            """Log operation start with context."""
+            self._logger.bind(
+                item_count=item_count,
+                config=config
+            ).info("Starting operation with {} items (config: {})", item_count, config)
+
+        def _format_details(self, items: list) -> str:
+            """Helper to format details for logging."""
+            # Business logic for formatting stays in logger class
+            return f"items: {len(items)}"
+
+    class MyComponent:
+        def __init__(self):
+            self._logger = MyComponentLogger()
+
+        def process(self, items: list) -> None:
+            self._logger.operation_start(len(items), "default")
+            # Business logic here without logging concerns
+    ```
+
+- Use structured logging with bind()
+  - Attach contextual data using `.bind()` for queryable logs
+  - Example: `logger.bind(user_id=123, action="login").info("User logged in")`
+
+- Choose appropriate log levels
+  - `logger.info()` for normal operations and progress
+  - `logger.debug()` for detailed diagnostic information
+  - `logger.warning()` for recoverable issues
+  - `logger.error()` for errors that need attention
+  - `logger.success()` for positive outcomes (loguru-specific)
+
+- Avoid print() in production code
+  - Use logger methods instead of print statements
+  - Reserve print() only for CLI interaction or testing output
+
 When in doubt, choose the option that improves local readability for the next reader and keeps the public surface simple and predictable.

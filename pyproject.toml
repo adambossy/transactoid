@@ -22,6 +22,7 @@ dependencies = [
     "openai-chatkit>=1.4.1",
     "fastapi>=0.127.0",
     "uvicorn>=0.38.0",
+    "loguru>=0.7.3",
 ]
 
 [project.scripts]

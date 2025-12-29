@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import json
 import os
 
+import loguru
+from loguru import logger
 from openai import AsyncOpenAI
 from promptorium import load_prompt
 from pydantic import BaseModel, Field
@@ -62,6 +64,58 @@ class CategorizationResponse(BaseModel):
         raise ValueError(f"Expected JSON array, got {type(data)}")
 
 
+class CategorizerLogger:
+    """Handles all logging for the categorizer with business logic separated."""
+
+    def __init__(self, logger_instance: loguru.Logger = logger) -> None:
+        self._logger = logger_instance
+
+    def api_call(self, txn_list: list[Transaction]) -> None:
+        """Log API call with formatted transaction context."""
+        if not txn_list:
+            return
+
+        date_range = self._format_date_range(txn_list)
+        self._logger.bind(transaction_count=len(txn_list), date_range=date_range).info(
+            "Calling OpenAI API for {} transactions ({})", len(txn_list), date_range
+        )
+
+    def batch_start(
+        self, total_txns: int, num_batches: int, max_concurrency: int
+    ) -> None:
+        """Log batch processing start."""
+        self._logger.info(
+            "Categorizing {} transactions in {} batches (max concurrency: {})",
+            total_txns,
+            num_batches,
+            max_concurrency,
+        )
+
+    def categorization_summary(
+        self, categorized: list[CategorizedTransaction]
+    ) -> None:
+        """Log categorization completion summary."""
+        recategorized_count = sum(
+            1 for c in categorized if c.revised_category_key is not None
+        )
+        self._logger.bind(
+            total_categorized=len(categorized), recategorized=recategorized_count
+        ).info(
+            "LLM categorization complete: {} categorized, {} recategorized",
+            len(categorized),
+            recategorized_count,
+        )
+
+    def _format_date_range(self, txn_list: list[Transaction]) -> str:
+        """Format transaction date range for display."""
+        first_date = txn_list[0].get("date", "unknown")
+        last_date = txn_list[-1].get("date", "unknown")
+
+        if first_date == last_date:
+            return f"date: {first_date}"
+        return f"{first_date} to {last_date}"
+
+
 class Categorizer:
     def __init__(
         self,
@@ -80,6 +134,7 @@ class Categorizer:
         self._file_cache = file_cache or FileCache()
         self._max_concurrency = max_concurrency
         self._semaphore: asyncio.Semaphore | None = None
+        self._logger = CategorizerLogger()
 
     async def categorize(
         self, txns: Iterable[Transaction], *, batch_size: int | None = None
@@ -100,10 +155,7 @@ class Categorizer:
         batches = [
             txn_list[i : i + batch_size] for i in range(0, len(txn_list), batch_size)
         ]
-        print(
-            f"Categorizing {len(txn_list)} transactions in {len(batches)} batches "
-            f"(max concurrency: {self._max_concurrency})..."
-        )
+        self._logger.batch_start(len(txn_list), len(batches), self._max_concurrency)
 
         tasks = [self._categorize_batch(batch) for batch in batches]
         batch_results = await asyncio.gather(*tasks)
@@ -128,28 +180,11 @@ class Categorizer:
         if cached_result is not None:
             return self._parse_response(cached_result, txn_list)
 
-        self._print_api_call_info(txn_list)
+        self._logger.api_call(txn_list)
         response_text = await self._call_openai_api(prompt)
         self._file_cache.set("categorize", cache_key, response_text)
 
         return self._parse_response(response_text, txn_list)
-
-    def _print_api_call_info(self, txn_list: list[Transaction]) -> None:
-        """Print information about the API call being made."""
-        if len(txn_list) == 0:
-            return
-
-        first_date = txn_list[0].get("date", "unknown")
-        last_date = txn_list[-1].get("date", "unknown")
-
-        if first_date == last_date:
-            date_info = f"date: {first_date}"
-        else:
-            date_info = f"{first_date} to {last_date}"
-
-        print(
-            f"Calling OpenAI API for {len(txn_list)} transactions ({date_info})..."
-        )
 
     def _format_transactions_for_prompt(
         self, txns: list[Transaction]
@@ -232,7 +267,7 @@ class Categorizer:
         json_str = self._extract_json_from_response(response_text)
         response = self._parse_categorization_response(json_str)
         categorized = self._map_results_to_transactions(response.results, txns)
-        self._print_categorization_summary(categorized)
+        self._logger.categorization_summary(categorized)
         return categorized
 
     def _extract_json_from_response(self, response_text: str) -> str:
@@ -297,15 +332,3 @@ class Categorizer:
         if revised_category and not self._taxonomy.is_valid_key(revised_category):
             return None
         return revised_category
-
-    def _print_categorization_summary(
-        self, categorized: list[CategorizedTransaction]
-    ) -> None:
-        """Print summary of categorization results."""
-        recategorized_count = sum(
-            1 for c in categorized if c.revised_category_key is not None
-        )
-        print(
-            f"LLM categorization complete: {len(categorized)} categorized, "
-            f"{recategorized_count} recategorized"
-        )
