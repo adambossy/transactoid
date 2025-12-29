@@ -109,6 +109,11 @@ def test_<unit>_<behavior>():
     2. Switch to the main branch worktree
     3. Remove the worktree using `git worktree remove <path>`
 
+- Branch naming
+  - Use `<type>/<description>` format with lowercase and hyphens (kebab-case).
+  - Types: `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`.
+  - Example: `feature/add-plaid-sync`, `fix/transaction-dedupe`.
+
 - Scale assumptions
   - This app targets a single-user workflow. Do not assume external clients, observability stacks, or production-grade frills by default.
 
