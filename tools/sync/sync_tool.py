@@ -5,6 +5,9 @@ import concurrent.futures
 from dataclasses import dataclass
 from typing import Any
 
+import loguru
+from loguru import logger
+
 from models.transaction import Transaction
 from services.db import DB
 from services.plaid_client import PlaidClient, PlaidClientError
@@ -44,6 +47,91 @@ class CategorizedBatch:
     categorized_modified: list[CategorizedTransaction]
 
 
+class SyncToolLogger:
+    """Handles all logging for SyncTool with business logic separated."""
+
+    def __init__(self, logger_instance: loguru.Logger = logger) -> None:
+        self._logger = logger_instance
+
+    def fetch_start(self, cursor: str) -> None:
+        """Log start of page fetch from Plaid."""
+        cursor_label = cursor or "initial"
+        self._logger.bind(cursor=cursor_label).info(
+            "Fetching transactions from Plaid (cursor: {})", cursor_label
+        )
+
+    def fetch_complete(
+        self, added_count: int, modified_count: int, removed_count: int, page_num: int
+    ) -> None:
+        """Log completion of page fetch."""
+        self._logger.bind(
+            added=added_count,
+            modified=modified_count,
+            removed=removed_count,
+            page=page_num,
+        ).info(
+            "Plaid fetch complete: {} added, {} modified, {} removed (page {})",
+            added_count,
+            modified_count,
+            removed_count,
+            page_num,
+        )
+
+    def fetch_summary(
+        self,
+        total_added: int,
+        total_modified: int,
+        total_removed: int,
+        total_pages: int,
+    ) -> None:
+        """Log summary of all fetched pages."""
+        self._logger.bind(
+            total_added=total_added,
+            total_modified=total_modified,
+            total_removed=total_removed,
+            pages=total_pages,
+        ).info(
+            "Total fetched: {} added, {} modified, {} removed across {} pages",
+            total_added,
+            total_modified,
+            total_removed,
+            total_pages,
+        )
+
+    def mutation_retry(self, attempt: int, max_retries: int) -> None:
+        """Log mutation error retry attempt."""
+        self._logger.bind(attempt=attempt, max_retries=max_retries).warning(
+            "Mutation detected, restarting fetch (attempt {}/{})",
+            attempt,
+            max_retries,
+        )
+
+    def categorization_start(
+        self, total_count: int, added_count: int, modified_count: int
+    ) -> None:
+        """Log start of categorization phase."""
+        self._logger.bind(
+            total=total_count, added=added_count, modified=modified_count
+        ).info(
+            "Categorizing {} transactions ({} added, {} modified)",
+            total_count,
+            added_count,
+            modified_count,
+        )
+
+    def persistence_start(self, transaction_count: int) -> None:
+        """Log start of persistence phase."""
+        self._logger.bind(count=transaction_count).info(
+            "Persisting {} transactions to database", transaction_count
+        )
+
+    def deletion_start(self, deletion_count: int) -> None:
+        """Log start of deletion phase."""
+        self._logger.bind(count=deletion_count).info(
+            "Deleting {} removed transactions", deletion_count
+        )
+
+
 class SyncTool:
     """
     Sync tool that calls Plaid's transaction sync API and categorizes all
@@ -77,6 +165,7 @@ class SyncTool:
         self._taxonomy = taxonomy
         self._access_token = access_token
         self._cursor = cursor
+        self._logger = SyncToolLogger()
 
     def sync(
         self,
@@ -139,8 +228,7 @@ class SyncTool:
         while True:
             try:
                 # Fetch page from Plaid
-                cursor_label = current_cursor or "initial"
-                print(f"Fetching transactions from Plaid (cursor: {cursor_label})...")
+                self._logger.fetch_start(current_cursor or "")
 
                 sync_result = self._plaid_client.sync_transactions(
                     self._access_token,
@@ -162,18 +250,17 @@ class SyncTool:
                 pages_fetched += 1
 
                 # Progress logging
-                print(
-                    f"Plaid fetch complete: {len(added)} added, "
-                    f"{len(modified)} modified, {len(removed)} removed "
-                    f"(page {pages_fetched})"
+                self._logger.fetch_complete(
+                    len(added), len(modified), len(removed), pages_fetched
                 )
 
                 # Check if done
                 if not has_more:
-                    print(
-                        f"Total fetched: {len(added_all)} added, "
-                        f"{len(modified_all)} modified, {len(removed_all)} removed "
-                        f"across {pages_fetched} pages"
+                    self._logger.fetch_summary(
+                        len(added_all),
+                        len(modified_all),
+                        len(removed_all),
+                        pages_fetched,
                     )
                     break
 
@@ -186,10 +273,7 @@ class SyncTool:
                 error_msg = str(e)
                 if "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" in error_msg:
                     if retry_count < max_retries:
-                        print(
-                            f"Mutation detected, restarting fetch "
-                            f"(attempt {retry_count + 1}/{max_retries})..."
-                        )
+                        self._logger.mutation_retry(retry_count + 1, max_retries)
                         # Clear accumulators and restart
                         added_all = []
                         modified_all = []
@@ -231,9 +315,8 @@ class SyncTool:
             CategorizedBatch with categorized results
         """
         total_txns = len(accumulated.added) + len(accumulated.modified)
-        print(
-            f"Categorizing {total_txns} transactions "
-            f"({len(accumulated.added)} added, {len(accumulated.modified)} modified)..."
+        self._logger.categorization_start(
+            total_txns, len(accumulated.added), len(accumulated.modified)
         )
 
         # Categorize added and modified concurrently
@@ -273,11 +356,11 @@ class SyncTool:
 
         # Persist to database
         if all_categorized:
-            print(f"Persisting {len(all_categorized)} transactions to database...")
+            self._logger.persistence_start(len(all_categorized))
             self._db.save_transactions(self._taxonomy, all_categorized)
 
         if removed_ids:
-            print(f"Deleting {len(removed_ids)} removed transactions...")
+            self._logger.deletion_start(len(removed_ids))
             self._db.delete_transactions_by_external_ids(removed_ids, source="PLAID")
 
     def _build_sync_result(
