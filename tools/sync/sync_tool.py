@@ -58,13 +58,35 @@ class SyncTool:
         self._access_token = access_token
         self._cursor = cursor
 
-    async def sync(
+    def sync(
         self,
         *,
         count: int = 25,
     ) -> list[SyncResult]:
         """
         Sync all available transactions with automatic pagination.
+
+        Handles pagination automatically, categorizes each page as it's fetched.
+
+        Args:
+            count: Maximum number of transactions per page (default: 25, max: 500)
+
+        Returns:
+            List of SyncResult objects, one per page processed
+
+        Raises:
+            PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
+                and cannot be recovered after retries
+        """
+        return asyncio.run(self._sync_async(count=count))
+
+    async def _sync_async(
+        self,
+        *,
+        count: int = 25,
+    ) -> list[SyncResult]:
+        """
+        Internal async implementation of sync.
 
         Handles pagination automatically, categorizes each page as it's fetched.
 
@@ -230,7 +252,7 @@ class SyncTransactionsTool(StandardTool):
             - total_removed: Total transactions removed
         """
         try:
-            results = asyncio.run(self._sync_tool.sync())
+            results = self._sync_tool.sync()
 
             # Aggregate results into JSON-serializable dict
             total_added = sum(len(r.categorized_added) for r in results)
