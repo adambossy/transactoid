@@ -6,21 +6,22 @@ import pytest
 from sqlalchemy.orm import Session  # noqa: F401 - used in type comments
 
 from models.transaction import Transaction
-from services.db import (
-    DB,
+from transactoid.infra.db.facade import DB
+from transactoid.infra.db.models import (
     CategoryRow,
     Merchant,
     Transaction as DBTransaction,
 )
-from services.taxonomy import Taxonomy
-from tools.categorize.categorizer_tool import CategorizedTransaction
+from transactoid.taxonomy.core import Taxonomy
+from transactoid.taxonomy.loader import get_category_id, load_taxonomy_from_db
+from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
 
 
 def create_db() -> DB:
     """Create in-memory database instance."""
     db = DB("sqlite:///:memory:")
     # Create tables
-    from services.db import Base
+    from transactoid.infra.db.models import Base
 
     with db.session() as session:  # type: Session
         assert session.bind is not None
@@ -65,7 +66,7 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
         ),
     ]
     db.replace_categories_rows(categories)
-    return Taxonomy.from_db(db)
+    return load_taxonomy_from_db(db)
 
 
 def create_sample_transaction(
@@ -367,7 +368,8 @@ def test_save_transactions_inserts_new_transaction() -> None:
     txn = create_sample_transaction(external_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(txn, category_key="food.groceries")
 
-    outcome = db.save_transactions(taxonomy, [cat_txn])
+    category_lookup = lambda key: get_category_id(db, taxonomy, key)
+    outcome = db.save_transactions(category_lookup, [cat_txn])
 
     assert outcome.inserted == 1
     assert outcome.updated == 0
@@ -399,7 +401,8 @@ def test_save_transactions_skips_verified_transaction() -> None:
     txn = create_sample_transaction(external_id="plaid_txn_123")
     cat_txn = create_categorized_transaction(txn, category_key="food.groceries")
 
-    outcome = db.save_transactions(taxonomy, [cat_txn])
+    category_lookup = lambda key: get_category_id(db, taxonomy, key)
+    outcome = db.save_transactions(category_lookup, [cat_txn])
 
     assert outcome.inserted == 0
     assert outcome.updated == 0
@@ -429,7 +432,8 @@ def test_save_transactions_updates_unverified_transaction() -> None:
     txn = create_sample_transaction(external_id="plaid_txn_123", amount=60.00)
     cat_txn = create_categorized_transaction(txn, category_key="food.restaurants")
 
-    outcome = db.save_transactions(taxonomy, [cat_txn])
+    category_lookup = lambda key: get_category_id(db, taxonomy, key)
+    outcome = db.save_transactions(category_lookup, [cat_txn])
 
     assert outcome.inserted == 0
     assert outcome.updated == 1
@@ -458,7 +462,8 @@ def test_save_transactions_prefers_revised_category_key() -> None:
         revised_category_key="food.restaurants",
     )
 
-    outcome = db.save_transactions(taxonomy, [cat_txn])
+    category_lookup = lambda key: get_category_id(db, taxonomy, key)
+    outcome = db.save_transactions(category_lookup, [cat_txn])
 
     assert outcome.inserted == 1
     inserted_txn = db.get_transaction_by_external(
@@ -482,7 +487,8 @@ def test_save_transactions_merchant_normalization_deduplication() -> None:
     cat_txn1 = create_categorized_transaction(txn1)
     cat_txn2 = create_categorized_transaction(txn2)
 
-    outcome = db.save_transactions(taxonomy, [cat_txn1, cat_txn2])
+    category_lookup = lambda key: get_category_id(db, taxonomy, key)
+    outcome = db.save_transactions(category_lookup, [cat_txn1, cat_txn2])
 
     assert outcome.inserted == 2
 

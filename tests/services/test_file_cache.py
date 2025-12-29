@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from services.file_cache import FileCache, stable_key
+from transactoid.infra.cache.file_cache import FileCache, stable_key
 
 
 def populate_namespace(cache: FileCache, namespace: str, values: Iterable[int]) -> None:
