@@ -379,9 +379,9 @@ def _render_prompt_template(
     """
     # Load SQL dialect directives based on parameter
     if sql_dialect == "sqlite":
-        sql_directives_path = Path("prompts/sql-directives/sqlite.md")
+        sql_directives_path = Path("src/transactoid/prompts/sql-directives/sqlite.md")
     else:
-        sql_directives_path = Path("prompts/sql-directives/postgresql.md")
+        sql_directives_path = Path("src/transactoid/prompts/sql-directives/postgresql.md")
 
     sql_directives = sql_directives_path.read_text()
 
