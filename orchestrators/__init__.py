@@ -1,3 +1,0 @@
-"""
-Agent package initializer.
-"""

@@ -7,7 +7,7 @@ import pytest
 
 from scripts import build_taxonomy
 from scripts.build_taxonomy import run_build
-from services import taxonomy_generator as tg
+from transactoid.taxonomy import generator as tg
 
 
 def test_normalized_yaml_hash_is_stable_for_whitespace() -> None:

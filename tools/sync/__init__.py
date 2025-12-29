@@ -1,3 +1,0 @@
-"""
-Sync tools package.
-"""
