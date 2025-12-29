@@ -120,7 +120,8 @@ Evaluate the conversation on these 5 criteria (0.0-1.0 each):
 1. **Numerical Consistency**: Numbers match ground truth and remain consistent across turns
 2. **Conciseness**: Responses are brief (1-3 sentences)
 3. **Use of Tables**: Markdown tables used appropriately for structured data
-4. **Accurate Formatting**: Currency ($XX.XX), percentages (XX%), dates formatted correctly
+4. **Accurate Formatting**: Currency ($XX.XX), percentages (XX%), dates formatted
+   correctly
 5. **Snide Personality**: Exhibits slightly snarky/snide tone while remaining helpful
 
 Return your evaluation as JSON with this exact structure:
