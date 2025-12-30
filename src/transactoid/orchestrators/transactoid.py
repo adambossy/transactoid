@@ -54,7 +54,7 @@ def _use_color() -> bool:
 
 COLORS = {
     "reason": "33",  # yellow
-    "text": "32",  # green
+    "text": "37",  # white
     "tool": "36",  # cyan
     "args": "35",  # magenta
     "out": "34",  # blue
@@ -126,7 +126,7 @@ class StreamRenderer:
         print(colorize(delta, "reason"), end="", flush=True)
 
     def on_output_text(self, delta: str) -> None:
-        """Stream output text in green."""
+        """Stream output text in white."""
         self._clear_thinking()
         print(colorize(delta, "text"), end="", flush=True)
 
