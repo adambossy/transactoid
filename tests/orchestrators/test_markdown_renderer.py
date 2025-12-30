@@ -4,8 +4,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from transactoid.orchestrators.markdown_renderer import MarkdownStreamRenderer
-from transactoid.orchestrators.stream_renderer import StreamRenderer
+from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
+from transactoid.ui.stream_renderer import StreamRenderer
 
 
 def test_markdown_renderer_accumulates_deltas() -> None:
@@ -15,7 +15,7 @@ def test_markdown_renderer_accumulates_deltas() -> None:
     delta2 = "**world**"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         renderer = MarkdownStreamRenderer()
         renderer._use_rich = True  # Force Rich mode for testing
 
@@ -36,7 +36,7 @@ def test_markdown_renderer_enters_mode_on_first_delta() -> None:
     delta = "text"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         renderer = MarkdownStreamRenderer()
         renderer._use_rich = True  # Force Rich mode
 
@@ -63,7 +63,7 @@ def test_markdown_renderer_exits_mode_on_tool_call() -> None:
     tool_name = "run_sql"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         renderer = MarkdownStreamRenderer()
         renderer._use_rich = True  # Force Rich mode
 
@@ -89,7 +89,7 @@ def test_markdown_renderer_handles_incomplete_markdown() -> None:
     incomplete_samples = ["**bold", "```python\n", "def foo("]
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         renderer = MarkdownStreamRenderer()
         renderer._use_rich = True  # Force Rich mode
 
@@ -108,7 +108,7 @@ def test_markdown_renderer_fallback_when_no_tty(
     monkeypatch.setenv("NO_COLOR", "1")
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console") as mock_console:
+    with patch("transactoid.ui.markdown_renderer.Console") as mock_console:
         mock_console.return_value.is_terminal = True
 
         # Act
@@ -128,7 +128,7 @@ def test_markdown_renderer_updates_live_context() -> None:
     delta2 = "Some text"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         renderer = MarkdownStreamRenderer()
         renderer._use_rich = True  # Force Rich mode
 
@@ -158,7 +158,7 @@ def test_markdown_renderer_cleans_up_on_turn_end() -> None:
     text = "Some markdown text"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         renderer = MarkdownStreamRenderer()
         renderer._use_rich = True  # Force Rich mode
 
@@ -187,8 +187,8 @@ def test_markdown_renderer_rate_limits_updates() -> None:
     delta2 = " world"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
-        with patch("transactoid.orchestrators.markdown_renderer.time") as mock_time:
+    with patch("transactoid.ui.markdown_renderer.Console"):
+        with patch("transactoid.ui.markdown_renderer.time") as mock_time:
             # Mock time to always return the same value for both calls
             mock_time.time.return_value = 1000.0
 
@@ -218,7 +218,7 @@ def test_markdown_renderer_uses_plain_text_when_disabled() -> None:
     delta = "Some text"
 
     # Setup
-    with patch("transactoid.orchestrators.markdown_renderer.Console"):
+    with patch("transactoid.ui.markdown_renderer.Console"):
         with patch.object(StreamRenderer, "on_output_text") as mock_parent:
             renderer = MarkdownStreamRenderer()
             renderer._use_rich = False  # Disable Rich

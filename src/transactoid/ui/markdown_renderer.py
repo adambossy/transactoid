@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 
-from transactoid.orchestrators.stream_renderer import StreamRenderer
+from transactoid.ui.stream_renderer import StreamRenderer
 
 
 class MarkdownStreamRenderer(StreamRenderer):
