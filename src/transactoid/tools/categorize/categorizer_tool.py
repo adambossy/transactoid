@@ -18,7 +18,7 @@ from promptorium.util.repo_root import find_repo_root
 from pydantic import BaseModel, Field
 
 from models.transaction import Transaction
-from transactoid.infra.cache.file_cache import FileCache, stable_key
+from transactoid.adapters.cache.file_cache import FileCache, stable_key
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.utils.yaml import dump_yaml_basic
 
