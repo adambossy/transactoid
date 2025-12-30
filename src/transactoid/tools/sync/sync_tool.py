@@ -9,12 +9,15 @@ import loguru
 from loguru import logger
 
 from models.transaction import Transaction
-from transactoid.infra.db.facade import DB
 from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
+from transactoid.infra.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool
-from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction, Categorizer
+from transactoid.tools.categorize.categorizer_tool import (
+    CategorizedTransaction,
+    Categorizer,
+)
 from transactoid.tools.protocol import ToolInputSchema
 
 

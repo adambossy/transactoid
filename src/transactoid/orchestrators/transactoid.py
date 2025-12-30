@@ -29,8 +29,8 @@ from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
-from transactoid.infra.db.facade import DB
 from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
+from transactoid.infra.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
@@ -381,7 +381,9 @@ def _render_prompt_template(
     if sql_dialect == "sqlite":
         sql_directives_path = Path("src/transactoid/prompts/sql-directives/sqlite.md")
     else:
-        sql_directives_path = Path("src/transactoid/prompts/sql-directives/postgresql.md")
+        sql_directives_path = Path(
+            "src/transactoid/prompts/sql-directives/postgresql.md"
+        )
 
     sql_directives = sql_directives_path.read_text()
 

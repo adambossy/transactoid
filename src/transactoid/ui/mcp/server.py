@@ -11,9 +11,8 @@ from mcp.server.fastmcp import FastMCP
 # Load environment variables
 load_dotenv(override=False)
 
-from transactoid.infra.db.facade import DB
 from transactoid.infra.clients.plaid import PlaidClient
-from transactoid.taxonomy.core import Taxonomy
+from transactoid.infra.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
@@ -204,18 +203,20 @@ def list_plaid_accounts() -> dict[str, Any]:
 
         accounts = []
         for item in plaid_items:
-            accounts.append({
-                "item_id": item.item_id,
-                "institution_id": item.institution_id or "unknown",
-                "institution_name": item.institution_name or "Unknown Institution",
-                "has_access_token": bool(item.access_token),
-                "created_at": (
-                    item.created_at.isoformat() if item.created_at else None
-                ),
-                "updated_at": (
-                    item.updated_at.isoformat() if item.updated_at else None
-                ),
-            })
+            accounts.append(
+                {
+                    "item_id": item.item_id,
+                    "institution_id": item.institution_id or "unknown",
+                    "institution_name": item.institution_name or "Unknown Institution",
+                    "has_access_token": bool(item.access_token),
+                    "created_at": (
+                        item.created_at.isoformat() if item.created_at else None
+                    ),
+                    "updated_at": (
+                        item.updated_at.isoformat() if item.updated_at else None
+                    ),
+                }
+            )
 
         return {
             "status": "success",

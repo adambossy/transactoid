@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
 
 from sqlalchemy import (
-    TIMESTAMP,
     case,
     create_engine,
     text,
@@ -21,7 +20,6 @@ from sqlalchemy.orm import (
 )
 
 from transactoid.infra.db.models import (
-    Base,
     Category,
     CategoryRow,
     Merchant,
