@@ -15,10 +15,9 @@ from openai.types.shared import Reasoning
 from promptorium import load_prompt
 import yaml
 
-from transactoid.orchestrators.openai_adapter import OpenAIAdapter
-from transactoid.adapters.db.facade import DB
 from transactoid.adapters.clients.plaid import PlaidClient
-from transactoid.taxonomy.core import Taxonomy
+from transactoid.adapters.db.facade import DB
+from transactoid.orchestrators.openai_adapter import OpenAIAdapter
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (

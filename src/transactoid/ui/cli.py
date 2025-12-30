@@ -7,9 +7,9 @@ import os
 from dotenv import load_dotenv
 import typer
 
-from transactoid.orchestrators.transactoid import Transactoid
 from scripts import run
 from transactoid.adapters.db.facade import DB
+from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 

@@ -7,8 +7,8 @@ from typing import Any
 from agents import Agent, Runner, SQLiteSession
 from agents.items import MessageOutputItem
 
-from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.adapters.db.facade import DB
+from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.core import Taxonomy
 
 
