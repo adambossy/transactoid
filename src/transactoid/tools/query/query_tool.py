@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from transactoid.infra.db.facade import DB
+from transactoid.adapters.db.facade import DB
 from transactoid.tools.base import StandardTool
 from transactoid.tools.protocol import ToolInputSchema
 
