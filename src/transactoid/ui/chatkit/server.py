@@ -16,8 +16,8 @@ from promptorium import load_prompt
 import yaml
 
 from transactoid.orchestrators.openai_adapter import OpenAIAdapter
-from transactoid.infra.db.facade import DB
-from transactoid.infra.clients.plaid import PlaidClient
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
@@ -100,9 +100,7 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
         taxonomy_dict = self._taxonomy.to_prompt()
 
         # Format database schema as readable text
-        schema_text = yaml.dump(
-            schema_hint, default_flow_style=False, sort_keys=False
-        )
+        schema_text = yaml.dump(schema_hint, default_flow_style=False, sort_keys=False)
 
         # Format taxonomy as readable text
         taxonomy_text = yaml.dump(

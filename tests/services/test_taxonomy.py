@@ -9,7 +9,7 @@ from transactoid.taxonomy.core import CategoryNode, Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 if TYPE_CHECKING:
-    from transactoid.infra.db.facade import DB
+    from transactoid.adapters.db.facade import DB
 
 
 class RawCategory(TypedDict):

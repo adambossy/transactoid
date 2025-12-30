@@ -15,7 +15,7 @@ import urllib.request
 from pydantic import BaseModel, Field
 
 from models.transaction import PersonalFinanceCategory, Transaction
-from transactoid.infra.clients.plaid_link import (
+from transactoid.adapters.clients.plaid_link import (
     build_success_message,
     create_link_token_and_url,
     exchange_token_and_get_item_info,

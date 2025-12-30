@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy.orm import Session  # noqa: F401 - used in type comments
 
 from models.transaction import Transaction
-from transactoid.infra.db.facade import DB
-from transactoid.infra.db.models import (
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import (
     CategoryRow,
     Merchant,
     Transaction as DBTransaction,
@@ -21,7 +21,7 @@ def create_db() -> DB:
     """Create in-memory database instance."""
     db = DB("sqlite:///:memory:")
     # Create tables
-    from transactoid.infra.db.models import Base
+    from transactoid.adapters.db.models import Base
 
     with db.session() as session:  # type: Session
         assert session.bind is not None

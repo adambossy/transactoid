@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from transactoid.infra.db.facade import DB
+from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool

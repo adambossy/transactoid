@@ -4,8 +4,8 @@ from datetime import date
 
 from sqlalchemy.orm import Session  # noqa: F401 - used in type comments
 
-from transactoid.infra.db.facade import DB
-from transactoid.infra.db.models import CategoryRow, normalize_merchant_name
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import CategoryRow, normalize_merchant_name
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.persist.persist_tool import PersistTool
@@ -15,7 +15,7 @@ def create_db() -> DB:
     """Create in-memory database instance."""
     db = DB("sqlite:///:memory:")
     # Create tables using SQLAlchemy Base
-    from transactoid.infra.db.models import Base
+    from transactoid.adapters.db.models import Base
 
     with db.session() as session:  # type: Session
         assert session.bind is not None

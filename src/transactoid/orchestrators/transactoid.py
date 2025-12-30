@@ -18,8 +18,8 @@ from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
-from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
-from transactoid.infra.db.facade import DB
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
