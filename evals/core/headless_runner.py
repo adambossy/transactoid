@@ -7,9 +7,9 @@ from typing import Any
 from agents import Agent, Runner, SQLiteSession
 from agents.items import MessageOutputItem
 
-from orchestrators.transactoid import Transactoid
-from services.db import DB
-from services.taxonomy import Taxonomy
+from transactoid.orchestrators.transactoid import Transactoid
+from transactoid.infra.db.facade import DB
+from transactoid.taxonomy.core import Taxonomy
 
 
 class MockPlaidClient:
