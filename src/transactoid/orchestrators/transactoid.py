@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from decimal import Decimal
-import json
 from pathlib import Path
-import sys
 from typing import Any
 
 from agents import (
@@ -15,30 +12,22 @@ from agents import (
     WebSearchTool,
     function_tool,
 )
-from agents.items import (
-    ItemHelpers,
-    MessageOutputItem,
-    ToolCallOutputItem,
-)
 from dotenv import load_dotenv
-from openai.types.responses import (
-    ResponseFunctionCallArgumentsDeltaEvent,
-)
 from openai.types.shared import Reasoning
 from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
-from transactoid.infra.db.facade import DB
 from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
-from transactoid.orchestrators.markdown_renderer import MarkdownStreamRenderer
-from transactoid.orchestrators.stream_renderer import EventRouter
+from transactoid.infra.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
 from transactoid.tools.sync.sync_tool import SyncTool
+from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
+from transactoid.ui.stream_renderer import EventRouter, StreamRenderer
 
 load_dotenv()
 
@@ -110,7 +99,9 @@ def _render_prompt_template(
     if sql_dialect == "sqlite":
         sql_directives_path = Path("src/transactoid/prompts/sql-directives/sqlite.md")
     else:
-        sql_directives_path = Path("src/transactoid/prompts/sql-directives/postgresql.md")
+        sql_directives_path = Path(
+            "src/transactoid/prompts/sql-directives/postgresql.md"
+        )
 
     sql_directives = sql_directives_path.read_text()
 
