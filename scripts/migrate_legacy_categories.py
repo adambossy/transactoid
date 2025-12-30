@@ -125,7 +125,7 @@ def load_legacy_categories(
 def slugify_label(label: str) -> str:
     normalized = (
         label.lower()
-        .replace("&", " and ")
+        .replace("&", " ")
         .replace("@", " at ")
         .replace("%", " percent ")
     )
