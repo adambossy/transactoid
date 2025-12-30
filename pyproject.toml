@@ -23,6 +23,7 @@ dependencies = [
     "fastapi>=0.127.0",
     "uvicorn>=0.38.0",
     "loguru>=0.7.3",
+    "rich>=13.0.0",
 ]
 
 [project.scripts]
