@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from scripts.seed_taxonomy import load_categories, seed_taxonomy_from_yaml
-from transactoid.infra.db.facade import DB, CategoryRow
+from transactoid.adapters.db.facade import DB, CategoryRow
 
 
 def test_seed_taxonomy_applies_fixture_to_db(tmp_path: Path) -> None:
-    from transactoid.infra.db.models import Base
+    from transactoid.adapters.db.models import Base
 
     yaml_path = (
         Path(__file__).resolve().parents[1] / "fixtures" / "sample_taxonomy.yaml"

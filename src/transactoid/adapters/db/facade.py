@@ -19,7 +19,8 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
-from transactoid.infra.db.models import (
+from transactoid.adapters.db.models import (
+    Base,
     Category,
     CategoryRow,
     Merchant,
