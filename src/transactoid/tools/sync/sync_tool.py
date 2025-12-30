@@ -9,8 +9,8 @@ import loguru
 from loguru import logger
 
 from models.transaction import Transaction
-from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
-from transactoid.infra.db.facade import DB
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool

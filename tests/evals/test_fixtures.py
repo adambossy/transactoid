@@ -4,8 +4,8 @@ import yaml
 
 from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
-from transactoid.infra.db.facade import DB
-from transactoid.infra.db.models import Base, CategoryRow
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import Base, CategoryRow
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 
