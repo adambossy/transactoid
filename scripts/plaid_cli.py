@@ -17,8 +17,8 @@ import webbrowser
 
 from dotenv import load_dotenv
 
-from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
-from transactoid.infra.clients.plaid_link import (
+from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
+from transactoid.adapters.clients.plaid_link import (
     PublicTokenTimeoutError,
     RedirectServerError,
     shutdown_redirect_server,

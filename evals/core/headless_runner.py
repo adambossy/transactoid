@@ -8,7 +8,7 @@ from agents import Agent, Runner, SQLiteSession
 from agents.items import MessageOutputItem
 
 from transactoid.orchestrators.transactoid import Transactoid
-from transactoid.infra.db.facade import DB
+from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 
 
@@ -259,11 +259,7 @@ class HeadlessAgentRunner:
                 name = self._infer_tool_name_from_result(output)
 
                 # For run_sql, augment arguments with query from result
-                if (
-                    name == "run_sql"
-                    and isinstance(output, dict)
-                    and "query" in output
-                ):
+                if name == "run_sql" and isinstance(output, dict) and "query" in output:
                     # Include the query that was executed
                     arguments["query"] = output["query"]
 

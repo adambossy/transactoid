@@ -9,12 +9,15 @@ import loguru
 from loguru import logger
 
 from models.transaction import Transaction
-from transactoid.infra.db.facade import DB
-from transactoid.infra.clients.plaid import PlaidClient, PlaidClientError
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool
-from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction, Categorizer
+from transactoid.tools.categorize.categorizer_tool import (
+    CategorizedTransaction,
+    Categorizer,
+)
 from transactoid.tools.protocol import ToolInputSchema
 
 
@@ -171,7 +174,7 @@ class SyncTool:
     def sync(
         self,
         *,
-        count: int = 25,
+        count: int = 250,
     ) -> list[SyncResult]:
         """
         Sync all available transactions with automatic pagination.
@@ -179,7 +182,7 @@ class SyncTool:
         Handles pagination automatically, categorizes each page as it's fetched.
 
         Args:
-            count: Maximum number of transactions per page (default: 25, max: 500)
+            count: Maximum number of transactions per page (default: 250, max: 500)
 
         Returns:
             List of SyncResult objects, one per page processed
@@ -307,7 +310,8 @@ class SyncTool:
         Categorize all accumulated transactions using LLM.
 
         Processes added and modified transactions concurrently using
-        the existing Categorizer with its semaphore limiting.
+        the existing Categorizer with its semaphore limiting. Categorization
+        is batched with 25 transactions per batch to manage LLM context size.
 
         Args:
             accumulated: All transactions from Plaid sync
@@ -320,10 +324,10 @@ class SyncTool:
             total_txns, len(accumulated.added), len(accumulated.modified)
         )
 
-        # Categorize added and modified concurrently
+        # Categorize added and modified concurrently with batch_size=25
         categorized_added, categorized_modified = await asyncio.gather(
-            self._categorizer.categorize(accumulated.added),
-            self._categorizer.categorize(accumulated.modified),
+            self._categorizer.categorize(accumulated.added, batch_size=25),
+            self._categorizer.categorize(accumulated.modified, batch_size=25),
         )
 
         return CategorizedBatch(

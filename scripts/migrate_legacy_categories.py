@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import typer
 import yaml
 
-from transactoid.infra.db.facade import DB, CategoryRow
+from transactoid.adapters.db.facade import DB, CategoryRow
 
 app = typer.Typer(
     help=(
