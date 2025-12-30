@@ -46,6 +46,10 @@ class DB:
         self._engine = create_engine(url, echo=False)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
 
+    def create_schema(self) -> None:
+        """Create database tables if they do not already exist."""
+        Base.metadata.create_all(self._engine)
+
     @contextmanager
     def session(self) -> Iterator[Session]:
         """Context manager for database sessions."""

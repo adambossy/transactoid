@@ -211,6 +211,7 @@ def seed_taxonomy_from_yaml(db: DB, yaml_path: Path | str) -> list[CategoryConfi
     Returns the validated category configurations that were applied.
     """
 
+    db.create_schema()
     categories = load_categories(yaml_path)
     rows = _build_category_rows_with_parent_ids(categories)
     db.replace_categories_rows(rows)
