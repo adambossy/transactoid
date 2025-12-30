@@ -7,7 +7,7 @@ from typing import Any
 from openai import AsyncOpenAI
 import yaml
 
-from services.file_cache import FileCache, stable_key
+from transactoid.infra.cache.file_cache import FileCache, stable_key
 
 
 @dataclass

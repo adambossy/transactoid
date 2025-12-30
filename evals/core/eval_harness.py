@@ -14,9 +14,11 @@ from evals.core.headless_runner import ConversationResult, HeadlessAgentRunner
 from evals.core.llm_judge import JudgeResult, LLMJudge
 from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
-from services.db import DB, Base, CategoryRow
-from services.file_cache import FileCache
-from services.taxonomy import Taxonomy
+from transactoid.infra.db.facade import DB
+from transactoid.infra.db.models import Base, CategoryRow
+from transactoid.infra.cache.file_cache import FileCache
+from transactoid.taxonomy.core import Taxonomy
+from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 
 @dataclass
@@ -98,7 +100,7 @@ class EvalHarness:
             )
 
         db.replace_categories_rows(categories)
-        return Taxonomy.from_db(db)
+        return load_taxonomy_from_db(db)
 
     async def run_eval(self, question_config: dict[str, Any]) -> EvalRunResult:
         """Run single eval: DB setup → agent run → judge.
