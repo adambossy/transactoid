@@ -14,10 +14,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.orm import (
-    Session,
-    sessionmaker,
-)
+from sqlalchemy.orm import Session, sessionmaker
 
 from transactoid.adapters.db.models import (
     Base,
