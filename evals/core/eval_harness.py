@@ -14,9 +14,9 @@ from evals.core.headless_runner import ConversationResult, HeadlessAgentRunner
 from evals.core.llm_judge import JudgeResult, LLMJudge
 from evals.data.db_builder import EvalDBBuilder
 from evals.data.fixtures import FIXTURES
+from transactoid.infra.cache.file_cache import FileCache
 from transactoid.infra.db.facade import DB
 from transactoid.infra.db.models import Base, CategoryRow
-from transactoid.infra.cache.file_cache import FileCache
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 

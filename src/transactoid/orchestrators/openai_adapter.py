@@ -50,6 +50,7 @@ class OpenAIAdapter:
         Returns:
             FunctionTool instance that wraps tool.execute()
         """
+
         # Create wrapper function with proper signature
         def tool_wrapper(**kwargs: Any) -> dict[str, Any]:
             return tool.execute(**kwargs)
