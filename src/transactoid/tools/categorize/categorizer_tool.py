@@ -238,6 +238,7 @@ class Categorizer:
         """Categorize a single batch of transactions."""
         txn_json_list = self._format_transactions_for_prompt(txn_list)
         taxonomy_dict = self._taxonomy.to_prompt()
+        valid_keys = self._extract_valid_keys(taxonomy_dict)
         prompt = self._render_prompt(txn_json_list, taxonomy_dict)
         cache_key = self._create_cache_key(txn_json_list, taxonomy_dict)
 
@@ -250,7 +251,7 @@ class Categorizer:
             return categorized
 
         self._logger.api_call(txn_list)
-        response_text = await self._call_openai_api(prompt)
+        response_text = await self._call_openai_api(prompt, valid_keys=valid_keys)
         self._file_cache.set("categorize", cache_key, response_text)
 
         categorized = self._parse_response(response_text, txn_list)
@@ -308,16 +309,74 @@ class Categorizer:
         }
         return stable_key(cache_payload)
 
-    async def _call_openai_api(self, prompt: str) -> str:
+    def _extract_valid_keys(self, taxonomy_dict: dict[str, object]) -> list[str]:
+        nodes = taxonomy_dict.get("nodes", [])
+        if not isinstance(nodes, list):
+            return []
+        keys: list[str] = []
+        for node in nodes:
+            if isinstance(node, dict) and "key" in node:
+                keys.append(str(node["key"]))
+        return sorted(keys)
+
+    def _build_response_schema(self, valid_keys: list[str]) -> dict[str, object]:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "categorization",
+                "schema": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "idx": {"type": "integer"},
+                            "category": {"type": "string", "enum": valid_keys},
+                            "score": {"type": "number"},
+                            "rationale": {"type": "string"},
+                            "revised_category": {
+                                "anyOf": [
+                                    {"type": "null"},
+                                    {"type": "string", "enum": valid_keys},
+                                ]
+                            },
+                            "revised_score": {"type": ["number", "null"]},
+                            "revised_rationale": {"type": ["string", "null"]},
+                            "merchant_summary": {"type": ["string", "null"]},
+                            "citations": {"type": ["array", "null"]},
+                        },
+                        "required": [
+                            "idx",
+                            "category",
+                            "score",
+                            "rationale",
+                            "revised_category",
+                            "revised_score",
+                            "revised_rationale",
+                            "merchant_summary",
+                            "citations",
+                        ],
+                    },
+                },
+                "strict": True,
+            },
+        }
+
+    async def _call_openai_api(
+        self, prompt: str, *, valid_keys: list[str] | None = None
+    ) -> str:
         """Call OpenAI Responses API with web search enabled."""
         # Use semaphore to limit concurrent API calls
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
         async with self._semaphore:
+            extra_body = None
+            if valid_keys:
+                extra_body = {"response_format": self._build_response_schema(valid_keys)}
             resp = await self._client.responses.create(
                 model=self._model,
                 input=prompt,
                 tools=[{"type": "web_search"}],
+                extra_body=extra_body,
             )
             return self._extract_response_text(resp)
 
