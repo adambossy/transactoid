@@ -59,9 +59,7 @@ class SimpleInMemoryStore(Store[Any]):
         threads = list(self._threads.values())
         # Simple pagination (not optimal but works for demo)
         if after:
-            start_idx = next(
-                (i for i, t in enumerate(threads) if t.id == after), 0
-            ) + 1
+            start_idx = next((i for i, t in enumerate(threads) if t.id == after), 0) + 1
         else:
             start_idx = 0
 
@@ -77,9 +75,7 @@ class SimpleInMemoryStore(Store[Any]):
         if thread_id in self._items:
             del self._items[thread_id]
 
-    async def save_item(
-        self, thread_id: str, item: ThreadItem, context: Any
-    ) -> None:
+    async def save_item(self, thread_id: str, item: ThreadItem, context: Any) -> None:
         """Save a thread item."""
         if thread_id not in self._items:
             self._items[thread_id] = {}
@@ -91,9 +87,7 @@ class SimpleInMemoryStore(Store[Any]):
         """Add a thread item."""
         await self.save_item(thread_id, item, context)
 
-    async def load_item(
-        self, thread_id: str, item_id: str, context: Any
-    ) -> ThreadItem:
+    async def load_item(self, thread_id: str, item_id: str, context: Any) -> ThreadItem:
         """Load a thread item by ID."""
         if thread_id not in self._items or item_id not in self._items[thread_id]:
             raise ValueError(f"Item {item_id} not found in thread {thread_id}")
