@@ -32,6 +32,7 @@ class CategorizedTransaction:
     revised_category_key: str | None = None
     revised_category_confidence: float | None = None
     revised_category_rationale: str | None = None
+    merchant_summary: str | None = None
 
 
 class CategorizationResult(BaseModel):
@@ -49,6 +50,10 @@ class CategorizationResult(BaseModel):
     )
     revised_rationale: str | None = Field(
         None, description="Rationale after web search"
+    )
+    merchant_summary: str | None = Field(
+        None,
+        description="3-5 bullet points summarizing merchant findings from web search",
     )
     citations: list[str] | None = Field(None, description="Web pages used for revision")
 
@@ -375,6 +380,7 @@ class Categorizer:
             revised_category_key=revised_category,
             revised_category_confidence=result.revised_score,
             revised_category_rationale=result.revised_rationale,
+            merchant_summary=result.merchant_summary,
         )
 
     def _resolve_category_key(self, result: CategorizationResult) -> str:
@@ -447,6 +453,7 @@ class Categorizer:
                 "revised_category": cat_txn.revised_category_key,
                 "revised_score": cat_txn.revised_category_confidence,
                 "revised_rationale": cat_txn.revised_category_rationale,
+                "merchant_summary": cat_txn.merchant_summary,
             }
 
             transaction_pairs.append({"input": input_txn, "output": output})
