@@ -8,15 +8,15 @@ from typing import Any
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-# Load environment variables
-load_dotenv(override=False)
-
-from transactoid.adapters.db.facade import DB
 from transactoid.adapters.clients.plaid import PlaidClient
+from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.sync.sync_tool import SyncTool
+
+# Load environment variables
+load_dotenv(override=False)
 
 # Initialize services globally
 db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
