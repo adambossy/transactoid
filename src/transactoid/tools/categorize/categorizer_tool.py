@@ -12,7 +12,9 @@ import secrets
 import loguru
 from loguru import logger
 from openai import AsyncOpenAI
-from promptorium import load_prompt
+from promptorium import PromptService, load_prompt
+from promptorium.storage import FileSystemPromptStorage
+from promptorium.util.repo_root import find_repo_root
 from pydantic import BaseModel, Field
 
 from models.transaction import Transaction
@@ -175,6 +177,10 @@ class Categorizer:
         self._semaphore: asyncio.Semaphore | None = None
         self._logger = CategorizerLogger()
         self._api_logger = CategorizerAPILogger()
+
+        # Initialize promptorium service for version lookup
+        storage = FileSystemPromptStorage(find_repo_root())
+        self._prompt_service = PromptService(storage)
 
         # Initialize OpenAI client once
         api_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -390,6 +396,14 @@ class Categorizer:
             return None
         return revised_category
 
+    def _get_prompt_version(self, key: str) -> int:
+        """Get the latest version number for a prompt key."""
+        prompts = self._prompt_service.list_prompts()
+        for p in prompts:
+            if p.ref.key == key:
+                return max(v.version for v in p.versions)
+        raise ValueError(f"Prompt key '{key}' not found")
+
     def _log_api_call(
         self,
         session_id: str,
@@ -399,9 +413,13 @@ class Categorizer:
         from_cache: bool,
     ) -> None:
         """Log API call inputs and outputs to JSON file."""
+        # Get prompt versions
+        prompt_version = self._get_prompt_version(self._prompt_key)
+        taxonomy_rules_version = self._get_prompt_version("taxonomy-rules")
+
         metadata = {
-            "prompt_key": self._prompt_key,
-            "taxonomy_rules_key": "taxonomy-rules",
+            "prompt_key": f"{self._prompt_key}-{prompt_version}",
+            "taxonomy_rules_key": f"taxonomy-rules-{taxonomy_rules_version}",
             "model": self._model,
             "timestamp": datetime.now(UTC).isoformat(),
             "batch_idx": batch_idx,
