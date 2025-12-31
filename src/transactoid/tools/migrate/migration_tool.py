@@ -279,9 +279,7 @@ class MigrationTool:
 
             if recategorize and affected_count > 0:
                 # Run recategorization with full taxonomy
-                result = self._recategorize_with_threshold(
-                    all_transactions, target_key
-                )
+                result = self._recategorize_with_threshold(all_transactions, target_key)
             else:
                 # Simple reassignment without recategorization
                 txn_ids = [t[0].transaction_id for t in all_transactions]
@@ -396,9 +394,7 @@ class MigrationTool:
                 summary=f"Failed to split category: {e}",
             )
 
-    def _db_txn_to_categorizer_input(
-        self, txn: DBTransaction
-    ) -> dict[str, object]:
+    def _db_txn_to_categorizer_input(self, txn: DBTransaction) -> dict[str, object]:
         """Convert DB transaction to categorizer input format."""
         return {
             "transaction_id": str(txn.transaction_id),
@@ -440,9 +436,7 @@ class MigrationTool:
             self._categorizer.categorize(txn_dicts)
         )
 
-        return self._apply_categorization_results(
-            transactions, categorized, target_key
-        )
+        return self._apply_categorization_results(transactions, categorized, target_key)
 
     def _recategorize_constrained_with_threshold(
         self,
