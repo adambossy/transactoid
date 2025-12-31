@@ -48,8 +48,8 @@ class Merchant(Base):
     )
 
     # Relationships
-    transactions: Mapped[list[Transaction]] = relationship(
-        "Transaction", back_populates="merchant"
+    transactions: Mapped[list[DerivedTransaction]] = relationship(
+        "DerivedTransaction", back_populates="merchant"
     )
 
 
@@ -82,30 +82,59 @@ class Category(Base):
         "Category", remote_side="Category.category_id", back_populates="children"
     )
     children: Mapped[list[Category]] = relationship("Category", back_populates="parent")
-    transactions: Mapped[list[Transaction]] = relationship(
-        "Transaction", back_populates="category"
+    transactions: Mapped[list[DerivedTransaction]] = relationship(
+        "DerivedTransaction", back_populates="category"
     )
 
 
-class Transaction(Base):
-    """Transaction model."""
+class PlaidTransaction(Base):
+    """Plaid Transaction model - immutable source data from Plaid."""
 
-    __tablename__ = "transactions"
+    __tablename__ = "plaid_transactions"
     __table_args__ = (
         UniqueConstraint(
-            "external_id", "source", name="uq_transactions_external_source"
+            "external_id", "source", name="uq_plaid_transactions_external_source"
         ),
     )
 
-    transaction_id: Mapped[int] = mapped_column(
+    plaid_transaction_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
     external_id: Mapped[str] = mapped_column(String, nullable=False)
-    source: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)  # "PLAID" or "CSV"
     account_id: Mapped[str] = mapped_column(String, nullable=False)
     posted_at: Mapped[date] = mapped_column(Date, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False)
+    merchant_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    institution: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # Relationships
+    derived_transactions: Mapped[list[DerivedTransaction]] = relationship(
+        "DerivedTransaction", back_populates="plaid_transaction", cascade="all, delete-orphan"
+    )
+
+
+class DerivedTransaction(Base):
+    """Derived Transaction model - mutable, enriched transactions for queries."""
+
+    __tablename__ = "derived_transactions"
+
+    transaction_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    plaid_transaction_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("plaid_transactions.plaid_transaction_id", ondelete="CASCADE"), nullable=False
+    )
+    external_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    posted_at: Mapped[date] = mapped_column(Date, nullable=False)
     merchant_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
     merchant_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("merchants.merchant_id"), nullable=True
@@ -113,7 +142,6 @@ class Transaction(Base):
     category_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("categories.category_id"), nullable=True
     )
-    institution: Mapped[str | None] = mapped_column(String, nullable=True)
     is_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )
@@ -125,6 +153,9 @@ class Transaction(Base):
     )
 
     # Relationships
+    plaid_transaction: Mapped[PlaidTransaction] = relationship(
+        "PlaidTransaction", back_populates="derived_transactions"
+    )
     merchant: Mapped[Merchant | None] = relationship(
         "Merchant", back_populates="transactions"
     )
@@ -152,8 +183,8 @@ class Tag(Base):
     )
 
     # Relationships
-    transactions: Mapped[list[Transaction]] = relationship(
-        "Transaction", secondary="transaction_tags", back_populates="tags"
+    transactions: Mapped[list[DerivedTransaction]] = relationship(
+        "DerivedTransaction", secondary="transaction_tags", back_populates="tags"
     )
 
 
@@ -163,7 +194,7 @@ class TransactionTag(Base):
     __tablename__ = "transaction_tags"
 
     transaction_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("transactions.transaction_id"), primary_key=True
+        Integer, ForeignKey("derived_transactions.transaction_id", ondelete="CASCADE"), primary_key=True
     )
     tag_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("tags.tag_id"), primary_key=True
