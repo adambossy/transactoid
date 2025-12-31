@@ -14,10 +14,11 @@ load_dotenv()
 from transactoid.adapters.db.models import (  # noqa: F401, E402
     Base,
     Category,
+    DerivedTransaction,
     Merchant,
     PlaidItem,
+    PlaidTransaction,
     Tag,
-    Transaction,
     TransactionTag,
 )
 

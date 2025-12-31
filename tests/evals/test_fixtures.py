@@ -57,12 +57,12 @@ def test_last_month_spending_fixture_builds_correctly() -> None:
     expected_total_cents = int(fixture.ground_truth["total_spending"] * 100)
 
     # Assert - total count
-    count_result = db.execute_raw_sql("SELECT COUNT(*) FROM transactions")
+    count_result = db.execute_raw_sql("SELECT COUNT(*) FROM derived_transactions")
     actual_count = count_result.fetchone()[0]  # type: ignore[index]
     assert actual_count == expected_count
 
     # Assert - total amount
-    sum_result = db.execute_raw_sql("SELECT SUM(amount_cents) FROM transactions")
+    sum_result = db.execute_raw_sql("SELECT SUM(amount_cents) FROM derived_transactions")
     actual_total_cents = sum_result.fetchone()[0]  # type: ignore[index]
     assert actual_total_cents == expected_total_cents
 
@@ -83,9 +83,9 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
 
     # Assert - food total
     food_result = db.execute_raw_sql("""
-        SELECT SUM(t.amount_cents)
-        FROM transactions t
-        JOIN categories c ON t.category_id = c.category_id
+        SELECT SUM(dt.amount_cents)
+        FROM derived_transactions dt
+        JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key LIKE 'food_and_dining.%'
     """)
     actual_food_cents = food_result.fetchone()[0]  # type: ignore[index]
@@ -93,9 +93,9 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
 
     # Assert - groceries
     groceries_result = db.execute_raw_sql("""
-        SELECT SUM(t.amount_cents)
-        FROM transactions t
-        JOIN categories c ON t.category_id = c.category_id
+        SELECT SUM(dt.amount_cents)
+        FROM derived_transactions dt
+        JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key = 'food_and_dining.groceries'
     """)
     actual_groceries_cents = groceries_result.fetchone()[0]  # type: ignore[index]
@@ -103,9 +103,9 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
 
     # Assert - restaurants
     restaurants_result = db.execute_raw_sql("""
-        SELECT SUM(t.amount_cents)
-        FROM transactions t
-        JOIN categories c ON t.category_id = c.category_id
+        SELECT SUM(dt.amount_cents)
+        FROM derived_transactions dt
+        JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key = 'food_and_dining.restaurants'
     """)
     actual_restaurants_cents = restaurants_result.fetchone()[0]  # type: ignore[index]
@@ -126,9 +126,9 @@ def test_last_month_spending_transportation_total_matches() -> None:
 
     # Assert
     result = db.execute_raw_sql("""
-        SELECT SUM(t.amount_cents)
-        FROM transactions t
-        JOIN categories c ON t.category_id = c.category_id
+        SELECT SUM(dt.amount_cents)
+        FROM derived_transactions dt
+        JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key LIKE 'transportation_and_auto.%'
     """)
     actual_cents = result.fetchone()[0]  # type: ignore[index]
@@ -151,7 +151,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
     # Assert - count
     count_result = db.execute_raw_sql("""
         SELECT COUNT(*)
-        FROM transactions
+        FROM derived_transactions
         WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
     actual_count = count_result.fetchone()[0]  # type: ignore[index]
@@ -160,7 +160,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
     # Assert - total
     sum_result = db.execute_raw_sql("""
         SELECT SUM(amount_cents)
-        FROM transactions
+        FROM derived_transactions
         WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
     actual_cents = sum_result.fetchone()[0]  # type: ignore[index]
@@ -199,10 +199,10 @@ def test_last_month_spending_top_merchants_match() -> None:
     result = db.execute_raw_sql("""
         SELECT
             m.display_name,
-            SUM(t.amount_cents) as total,
+            SUM(dt.amount_cents) as total,
             COUNT(*) as txn_count
-        FROM transactions t
-        JOIN merchants m ON t.merchant_id = m.merchant_id
+        FROM derived_transactions dt
+        JOIN merchants m ON dt.merchant_id = m.merchant_id
         GROUP BY m.merchant_id, m.display_name
         ORDER BY total DESC
         LIMIT 3
