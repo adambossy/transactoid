@@ -27,7 +27,6 @@ from transactoid.adapters.db.models import (
     SaveOutcome,
     SaveRowOutcome,
     Tag,
-    Transaction,
     TransactionTag,
     normalize_merchant_name,
 )
@@ -131,14 +130,14 @@ class DB:
     def fetch_transactions_by_ids_preserving_order(
         self,
         ids: list[int],
-    ) -> list[Transaction]:
-        """Fetch transactions by IDs preserving input order.
+    ) -> list[DerivedTransaction]:
+        """Fetch derived transactions by IDs preserving input order.
 
         Args:
             ids: List of transaction IDs
 
         Returns:
-            List of Transaction instances in the same order as input IDs
+            List of DerivedTransaction instances in the same order as input IDs
         """
         if not ids:
             return []
@@ -147,11 +146,11 @@ class DB:
             # Use CASE WHEN to preserve order
             order_case = case(
                 {id_val: idx for idx, id_val in enumerate(ids)},
-                value=Transaction.transaction_id,
+                value=DerivedTransaction.transaction_id,
             )
             transactions = (
-                session.query(Transaction)
-                .filter(Transaction.transaction_id.in_(ids))
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.transaction_id.in_(ids))
                 .order_by(order_case)
                 .all()
             )
@@ -224,31 +223,33 @@ class DB:
         self,
         *,
         external_id: str,
-        source: str,
-    ) -> Transaction | None:
-        """Get transaction by external ID and source.
+        source: str = "PLAID",
+    ) -> DerivedTransaction | None:
+        """Get derived transaction by external ID.
 
         Args:
             external_id: External transaction ID
-            source: Source identifier (e.g., "PLAID", "CSV")
+            source: Ignored (kept for backward compatibility)
 
         Returns:
-            Transaction instance or None if not found
+            DerivedTransaction instance or None if not found
         """
         with self.session() as session:  # type: Session
             transaction = (
-                session.query(Transaction)
-                .filter(
-                    Transaction.external_id == external_id, Transaction.source == source
-                )
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.external_id == external_id)
                 .first()
             )
             if transaction:
                 session.expunge(transaction)
             return transaction
 
-    def insert_transaction(self, data: dict[str, Any]) -> Transaction:
-        """Insert a new transaction.
+    def insert_transaction(self, data: dict[str, Any]) -> DerivedTransaction:
+        """Insert a new derived transaction (legacy wrapper).
+
+        DEPRECATED: Use insert_derived_transaction() instead.
+        This method creates both a PlaidTransaction and DerivedTransaction
+        for backward compatibility.
 
         Args:
             data: Transaction data dictionary with fields:
@@ -257,56 +258,40 @@ class DB:
                 - category_id (optional), institution (optional)
 
         Returns:
-            Created Transaction instance
+            Created DerivedTransaction instance
         """
-        with self.session() as session:  # type: Session
-            # Resolve merchant if merchant_descriptor is provided
-            merchant_id = data.get("merchant_id")
-            if (
-                merchant_id is None
-                and "merchant_descriptor" in data
-                and data["merchant_descriptor"]
-            ):
-                normalized_name = normalize_merchant_name(data["merchant_descriptor"])
-                merchant = (
-                    session.query(Merchant)
-                    .filter(Merchant.normalized_name == normalized_name)
-                    .first()
-                )
-                if merchant is None:
-                    merchant = Merchant(
-                        normalized_name=normalized_name,
-                        display_name=data["merchant_descriptor"],
-                    )
-                    session.add(merchant)
-                    session.flush()
-                merchant_id = merchant.merchant_id
+        # First create PlaidTransaction
+        plaid_txn = self.upsert_plaid_transaction(
+            external_id=data["external_id"],
+            source=data.get("source", "PLAID"),
+            account_id=data["account_id"],
+            posted_at=data["posted_at"],
+            amount_cents=data["amount_cents"],
+            currency=data["currency"],
+            merchant_descriptor=data.get("merchant_descriptor"),
+            institution=data.get("institution"),
+        )
 
-            transaction = Transaction(
-                external_id=data["external_id"],
-                source=data["source"],
-                account_id=data["account_id"],
-                posted_at=data["posted_at"],
-                amount_cents=data["amount_cents"],
-                currency=data["currency"],
-                merchant_descriptor=data.get("merchant_descriptor"),
-                merchant_id=merchant_id,
-                category_id=data.get("category_id"),
-                institution=data.get("institution"),
-                is_verified=data.get("is_verified", False),
-            )
-            session.add(transaction)
-            session.flush()
-            session.refresh(transaction)
-            session.expunge(transaction)
-            return transaction
+        # Then create DerivedTransaction
+        derived_data = {
+            "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+            "external_id": data["external_id"],
+            "amount_cents": data["amount_cents"],
+            "posted_at": data["posted_at"],
+            "merchant_descriptor": data.get("merchant_descriptor"),
+            "category_id": data.get("category_id"),
+            "is_verified": data.get("is_verified", False),
+        }
+        return self.insert_derived_transaction(derived_data)
 
     def update_transaction_mutable(
         self,
         transaction_id: int,
         data: dict[str, Any],
-    ) -> Transaction:
-        """Update mutable fields of a transaction.
+    ) -> DerivedTransaction:
+        """Update mutable fields of a derived transaction (legacy wrapper).
+
+        DEPRECATED: Use update_derived_mutable() instead.
 
         Only updates if transaction is not verified (is_verified=False).
 
@@ -315,63 +300,19 @@ class DB:
             data: Dictionary of fields to update
 
         Returns:
-            Updated Transaction instance
+            Updated DerivedTransaction instance
 
         Raises:
             ValueError: If transaction is verified and cannot be updated
         """
-        with self.session() as session:  # type: Session
-            transaction = (
-                session.query(Transaction)
-                .filter(Transaction.transaction_id == transaction_id)
-                .first()
-            )
-            if transaction is None:
-                raise ValueError(f"Transaction {transaction_id} not found")
-
-            if transaction.is_verified:
-                raise ValueError(
-                    f"Transaction {transaction_id} is verified and cannot be updated"
-                )
-
-            # Resolve merchant if merchant_descriptor is provided
-            if "merchant_descriptor" in data and data["merchant_descriptor"]:
-                normalized_name = normalize_merchant_name(data["merchant_descriptor"])
-                merchant = (
-                    session.query(Merchant)
-                    .filter(Merchant.normalized_name == normalized_name)
-                    .first()
-                )
-                if merchant is None:
-                    merchant = Merchant(
-                        normalized_name=normalized_name,
-                        display_name=data["merchant_descriptor"],
-                    )
-                    session.add(merchant)
-                    session.flush()
-                data["merchant_id"] = merchant.merchant_id
-
-            # Update mutable fields
-            for key, value in data.items():
-                if key in (
-                    "category_id",
-                    "merchant_id",
-                    "amount_cents",
-                    "merchant_descriptor",
-                ):
-                    setattr(transaction, key, value)
-
-            session.flush()
-            session.refresh(transaction)
-            session.expunge(transaction)
-            return transaction
+        return self.update_derived_mutable(transaction_id, data)
 
     def recategorize_unverified_by_merchant(
         self,
         merchant_id: int,
         category_id: int,
     ) -> int:
-        """Recategorize all unverified transactions for a merchant.
+        """Recategorize all unverified derived transactions for a merchant.
 
         Args:
             merchant_id: Merchant ID
@@ -382,10 +323,10 @@ class DB:
         """
         with self.session() as session:  # type: Session
             result = (
-                session.query(Transaction)
+                session.query(DerivedTransaction)
                 .filter(
-                    Transaction.merchant_id == merchant_id,
-                    ~Transaction.is_verified,
+                    DerivedTransaction.merchant_id == merchant_id,
+                    ~DerivedTransaction.is_verified,
                 )
                 .update({"category_id": category_id}, synchronize_session=False)
             )
@@ -457,13 +398,16 @@ class DB:
         external_ids: list[str],
         source: str = "PLAID",
     ) -> int:
-        """Delete transactions by their external IDs.
+        """Delete derived transactions by their external IDs (legacy wrapper).
+
+        DEPRECATED: Use delete_plaid_transactions_by_external_ids() for full
+        cascade delete, or delete_derived_by_plaid_id() for derived-only.
 
         Only deletes unverified transactions to respect immutability guarantees.
 
         Args:
             external_ids: List of external transaction IDs (e.g., Plaid transaction_id)
-            source: Source identifier (default: "PLAID")
+            source: Source identifier (default: "PLAID") - ignored
 
         Returns:
             Number of transactions deleted
@@ -473,11 +417,10 @@ class DB:
 
         with self.session() as session:  # type: Session
             result = (
-                session.query(Transaction)
+                session.query(DerivedTransaction)
                 .filter(
-                    Transaction.external_id.in_(external_ids),
-                    Transaction.source == source,
-                    ~Transaction.is_verified,
+                    DerivedTransaction.external_id.in_(external_ids),
+                    ~DerivedTransaction.is_verified,
                 )
                 .delete(synchronize_session=False)
             )
