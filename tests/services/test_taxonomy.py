@@ -211,3 +211,228 @@ class FakeDBForFromDB(FakeDB):
 
 def build_fake_db_for_from_db() -> FakeDBForFromDB:
     return FakeDBForFromDB()
+
+
+# --- Migration method tests ---
+
+
+def test_add_category_creates_new_root_category() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.add_category("health", "Health", None, "Healthcare spending")
+
+    assert new_taxonomy.is_valid_key("health")
+    node = new_taxonomy.get("health")
+    assert node is not None
+    assert node.name == "Health"
+    assert node.description == "Healthcare spending"
+    assert node.parent_key is None
+
+
+def test_add_category_creates_new_child_category() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.add_category("food.dining", "Dining Out", "food")
+
+    assert new_taxonomy.is_valid_key("food.dining")
+    node = new_taxonomy.get("food.dining")
+    assert node is not None
+    assert node.parent_key == "food"
+
+
+def test_add_category_raises_for_duplicate_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="already exists"):
+        taxonomy.add_category("food", "Duplicate", None)
+
+
+def test_add_category_raises_for_nonexistent_parent() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exist"):
+        taxonomy.add_category("foo.bar", "Bar", "foo")
+
+
+def test_add_category_raises_for_non_root_parent() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="not a root category"):
+        taxonomy.add_category("food.groceries.organic", "Organic", "food.groceries")
+
+
+def test_remove_category_removes_leaf_category() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.remove_category("food.groceries")
+
+    assert not new_taxonomy.is_valid_key("food.groceries")
+    assert new_taxonomy.is_valid_key("food")
+
+
+def test_remove_category_raises_for_nonexistent_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exist"):
+        taxonomy.remove_category("nonexistent")
+
+
+def test_remove_category_raises_for_category_with_children() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="has children"):
+        taxonomy.remove_category("food")
+
+
+def test_rename_category_updates_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.rename_category("food", "meals")
+
+    assert not new_taxonomy.is_valid_key("food")
+    assert new_taxonomy.is_valid_key("meals")
+    node = new_taxonomy.get("meals")
+    assert node is not None
+    assert node.name == "Food"  # Name stays the same
+
+
+def test_rename_category_updates_children_parent_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.rename_category("food", "meals")
+
+    groceries = new_taxonomy.get("food.groceries")
+    assert groceries is not None
+    assert groceries.parent_key == "meals"
+
+
+def test_rename_category_raises_for_nonexistent_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exist"):
+        taxonomy.rename_category("nonexistent", "new")
+
+
+def test_rename_category_raises_for_existing_new_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="already exists"):
+        taxonomy.rename_category("food", "travel")
+
+
+def test_merge_categories_removes_sources() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.merge_categories(
+        ["food.restaurants"], "food.groceries"
+    )
+
+    assert not new_taxonomy.is_valid_key("food.restaurants")
+    assert new_taxonomy.is_valid_key("food.groceries")
+
+
+def test_merge_categories_raises_for_empty_sources() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        taxonomy.merge_categories([], "food.groceries")
+
+
+def test_merge_categories_raises_for_nonexistent_target() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exist"):
+        taxonomy.merge_categories(["food.groceries"], "nonexistent")
+
+
+def test_merge_categories_raises_for_source_same_as_target() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="cannot be the same"):
+        taxonomy.merge_categories(["food.groceries"], "food.groceries")
+
+
+def test_split_category_creates_targets_and_removes_source() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    new_taxonomy = taxonomy.split_category(
+        "food.groceries",
+        [
+            ("food.supermarket", "Supermarket", None),
+            ("food.convenience", "Convenience Store", "Quick stops"),
+        ],
+    )
+
+    assert not new_taxonomy.is_valid_key("food.groceries")
+    assert new_taxonomy.is_valid_key("food.supermarket")
+    assert new_taxonomy.is_valid_key("food.convenience")
+
+    supermarket = new_taxonomy.get("food.supermarket")
+    assert supermarket is not None
+    assert supermarket.parent_key == "food"
+
+    convenience = new_taxonomy.get("food.convenience")
+    assert convenience is not None
+    assert convenience.description == "Quick stops"
+
+
+def test_split_category_raises_for_nonexistent_source() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exist"):
+        taxonomy.split_category("nonexistent", [("a", "A", None)])
+
+
+def test_split_category_raises_for_empty_targets() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="at least one target"):
+        taxonomy.split_category("food.groceries", [])
+
+
+def test_split_category_raises_for_existing_target_key() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="already exists"):
+        taxonomy.split_category(
+            "food.groceries",
+            [("food.restaurants", "Restaurants", None)],
+        )
+
+
+def test_split_category_raises_for_source_with_children() -> None:
+    taxonomy = Taxonomy.from_nodes(build_sample_nodes())
+
+    import pytest
+
+    with pytest.raises(ValueError, match="has children"):
+        taxonomy.split_category(
+            "food",
+            [("meals", "Meals", None)],
+        )
