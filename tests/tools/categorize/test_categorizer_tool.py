@@ -21,9 +21,7 @@ def test_categorization_result_parses_with_merchant_summary() -> None:
         "revised_score": 0.85,
         "revised_rationale": "Found via search",
         "merchant_summary": (
-            "- Small local cafe\n"
-            "- Serves breakfast and lunch\n"
-            "- Located in downtown"
+            "- Small local cafe\n- Serves breakfast and lunch\n- Located in downtown"
         ),
         "citations": ["https://example.com"],
     }
