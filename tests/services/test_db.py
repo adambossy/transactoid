@@ -9,8 +9,8 @@ from models.transaction import Transaction
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.db.models import (
     CategoryRow,
+    DerivedTransaction,
     Merchant,
-    Transaction as DBTransaction,
 )
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id, load_taxonomy_from_db
@@ -665,14 +665,15 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
     assert "tables" in hint
     assert "merchants" in hint["tables"]
     assert "categories" in hint["tables"]
-    assert "transactions" in hint["tables"]
+    assert "plaid_transactions" in hint["tables"]
+    assert "derived_transactions" in hint["tables"]
     assert "tags" in hint["tables"]
     assert "transaction_tags" in hint["tables"]
 
-    transactions_table = hint["tables"]["transactions"]
-    assert "columns" in transactions_table
-    assert "relationships" in transactions_table
-    assert "transaction_id" in transactions_table["columns"]
+    derived_table = hint["tables"]["derived_transactions"]
+    assert "columns" in derived_table
+    assert "relationships" in derived_table
+    assert "transaction_id" in derived_table["columns"]
 
 
 def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
@@ -707,12 +708,12 @@ def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
     # ruff: noqa: S608
     sql = f"""
     SELECT transaction_id, external_id, amount_cents
-    FROM transactions
+    FROM derived_transactions
     WHERE transaction_id IN ({id1}, {id2})
     ORDER BY amount_cents DESC
     """
 
-    results = db.run_sql(sql, model=DBTransaction, pk_column="transaction_id")
+    results = db.run_sql(sql, model=DerivedTransaction, pk_column="transaction_id")
 
     assert len(results) == 2
     # Should be in SQL order (DESC by amount_cents)
