@@ -642,7 +642,7 @@ class DB:
                         "created_at": "TIMESTAMP",
                         "updated_at": "TIMESTAMP",
                     },
-                    "relationships": ["transactions"],
+                    "relationships": ["derived_transactions"],
                 },
                 "categories": {
                     "columns": {
@@ -655,11 +655,11 @@ class DB:
                         "created_at": "TIMESTAMP",
                         "updated_at": "TIMESTAMP",
                     },
-                    "relationships": ["parent", "children", "transactions"],
+                    "relationships": ["parent", "children", "derived_transactions"],
                 },
-                "transactions": {
+                "plaid_transactions": {
                     "columns": {
-                        "transaction_id": "INTEGER PRIMARY KEY",
+                        "plaid_transaction_id": "INTEGER PRIMARY KEY",
                         "external_id": "TEXT",
                         "source": "TEXT",
                         "account_id": "TEXT",
@@ -667,15 +667,30 @@ class DB:
                         "amount_cents": "INTEGER",
                         "currency": "TEXT",
                         "merchant_descriptor": "TEXT",
+                        "institution": "TEXT",
+                        "created_at": "TIMESTAMP",
+                        "updated_at": "TIMESTAMP",
+                    },
+                    "relationships": ["derived_transactions"],
+                    "constraints": ["UNIQUE(external_id, source)"],
+                    "notes": "Immutable source data from Plaid. Do NOT query directly for spending analysis.",
+                },
+                "derived_transactions": {
+                    "columns": {
+                        "transaction_id": "INTEGER PRIMARY KEY",
+                        "plaid_transaction_id": "INTEGER FOREIGN KEY",
+                        "external_id": "TEXT UNIQUE",
+                        "amount_cents": "INTEGER",
+                        "posted_at": "DATE",
+                        "merchant_descriptor": "TEXT",
                         "merchant_id": "INTEGER FOREIGN KEY",
                         "category_id": "INTEGER FOREIGN KEY",
-                        "institution": "TEXT",
                         "is_verified": "BOOLEAN",
                         "created_at": "TIMESTAMP",
                         "updated_at": "TIMESTAMP",
                     },
-                    "relationships": ["merchant", "category", "tags"],
-                    "constraints": ["UNIQUE(external_id, source)"],
+                    "relationships": ["plaid_transaction", "merchant", "category", "tags"],
+                    "notes": "Primary table for all spending queries and analysis. May have multiple rows per Plaid transaction (Amazon item splits).",
                 },
                 "tags": {
                     "columns": {
@@ -685,14 +700,14 @@ class DB:
                         "created_at": "TIMESTAMP",
                         "updated_at": "TIMESTAMP",
                     },
-                    "relationships": ["transactions"],
+                    "relationships": ["derived_transactions"],
                 },
                 "transaction_tags": {
                     "columns": {
-                        "transaction_id": "INTEGER PRIMARY KEY",
-                        "tag_id": "INTEGER PRIMARY KEY",
+                        "transaction_id": "INTEGER PRIMARY KEY FOREIGN KEY",
+                        "tag_id": "INTEGER PRIMARY KEY FOREIGN KEY",
                     },
-                    "relationships": ["transaction", "tag"],
+                    "relationships": ["derived_transaction", "tag"],
                 },
             },
         }
