@@ -219,7 +219,9 @@ def build_fake_db_for_from_db() -> FakeDBForFromDB:
 def test_add_category_creates_new_root_category() -> None:
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
-    new_taxonomy = taxonomy.add_category("health", "Health", None, "Healthcare spending")
+    new_taxonomy = taxonomy.add_category(
+        "health", "Health", None, "Healthcare spending"
+    )
 
     assert new_taxonomy.is_valid_key("health")
     node = new_taxonomy.get("health")
@@ -337,9 +339,7 @@ def test_rename_category_raises_for_existing_new_key() -> None:
 def test_merge_categories_removes_sources() -> None:
     taxonomy = Taxonomy.from_nodes(build_sample_nodes())
 
-    new_taxonomy = taxonomy.merge_categories(
-        ["food.restaurants"], "food.groceries"
-    )
+    new_taxonomy = taxonomy.merge_categories(["food.restaurants"], "food.groceries")
 
     assert not new_taxonomy.is_valid_key("food.restaurants")
     assert new_taxonomy.is_valid_key("food.groceries")
