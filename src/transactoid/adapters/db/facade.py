@@ -279,6 +279,7 @@ class DB:
             "amount_cents": data["amount_cents"],
             "posted_at": data["posted_at"],
             "merchant_descriptor": data.get("merchant_descriptor"),
+            "merchant_id": data.get("merchant_id"),
             "category_id": data.get("category_id"),
             "is_verified": data.get("is_verified", False),
         }
