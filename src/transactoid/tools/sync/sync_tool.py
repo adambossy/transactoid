@@ -3,14 +3,21 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import loguru
 from loguru import logger
 
 from models.transaction import Transaction
+from transactoid.adapters.amazon import (
+    create_split_derived_transactions,
+    is_amazon_transaction,
+    preserve_enrichments_by_amount,
+)
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import DerivedTransaction
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool
@@ -133,6 +140,26 @@ class SyncToolLogger:
         """Log start of deletion phase."""
         self._logger.bind(count=deletion_count).info(
             "Deleting {} removed transactions", deletion_count
+        )
+
+    def plaid_persist_start(self, count: int) -> None:
+        """Log start of Plaid persistence phase."""
+        self._logger.bind(count=count).info(
+            "Persisting {} transactions to plaid_transactions table", count
+        )
+
+    def mutation_start(self, count: int) -> None:
+        """Log start of mutation phase."""
+        self._logger.bind(count=count).info(
+            "Creating derived transactions for {} Plaid transactions", count
+        )
+
+    def amazon_split(self, plaid_id: str, split_count: int) -> None:
+        """Log Amazon transaction split."""
+        self._logger.bind(plaid_id=plaid_id, splits=split_count).debug(
+            "Split Amazon transaction {} into {} derived transactions",
+            plaid_id,
+            split_count,
         )
 
 
@@ -302,6 +329,203 @@ class SyncTool:
             pages_fetched=pages_fetched,
         )
 
+    def _persist_to_plaid_table(
+        self,
+        accumulated: AccumulatedTransactions,
+    ) -> list[int]:
+        """
+        Persist Plaid transactions to plaid_transactions table.
+
+        Phase 2 of 5-phase sync workflow.
+
+        Args:
+            accumulated: All transactions from Plaid sync
+
+        Returns:
+            List of plaid_transaction_ids that were created/updated
+        """
+        all_txns = accumulated.added + accumulated.modified
+        self._logger.plaid_persist_start(len(all_txns))
+
+        plaid_ids: list[int] = []
+
+        # Insert or update added/modified
+        for txn in all_txns:
+            # Parse date
+            posted_at_str = txn.get("date", "")
+            from datetime import datetime
+
+            try:
+                posted_at = datetime.strptime(posted_at_str, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                continue
+
+            # Convert amount to cents
+            amount = txn.get("amount", 0.0)
+            amount_cents = int(amount * 100)
+
+            plaid_txn = self._db.upsert_plaid_transaction(
+                external_id=txn.get("transaction_id", ""),
+                source="PLAID",
+                account_id=txn.get("account_id", ""),
+                posted_at=posted_at,
+                amount_cents=amount_cents,
+                currency=txn.get("iso_currency_code") or "USD",
+                merchant_descriptor=txn.get("merchant_name") or txn.get("name"),
+                institution=None,
+            )
+            plaid_ids.append(plaid_txn.plaid_transaction_id)
+
+        # Delete removed
+        if accumulated.removed:
+            removed_ids = [
+                item.get("transaction_id", "")
+                for item in accumulated.removed
+                if item.get("transaction_id")
+            ]
+            if removed_ids:
+                self._logger.deletion_start(len(removed_ids))
+                self._db.delete_plaid_transactions_by_external_ids(
+                    removed_ids, source="PLAID"
+                )
+
+        return plaid_ids
+
+    def _mutate_to_derived(
+        self,
+        plaid_ids: list[int],
+        amazon_csv_dir: Path | None = None,
+    ) -> list[int]:
+        """
+        Generate derived transactions from Plaid transactions.
+
+        Phase 3 of 5-phase sync workflow. Applies mutations like Amazon
+        splitting and preserves enrichments from old derived transactions.
+
+        Args:
+            plaid_ids: List of plaid_transaction_ids to process
+            amazon_csv_dir: Directory containing Amazon CSV files (optional)
+
+        Returns:
+            List of derived transaction_ids that were created
+        """
+        self._logger.mutation_start(len(plaid_ids))
+
+        derived_ids: list[int] = []
+        csv_dir = amazon_csv_dir or Path(".transactions/amazon")
+
+        for plaid_id in plaid_ids:
+            plaid_txn = self._db.get_plaid_transaction(plaid_id)
+            if not plaid_txn:
+                continue
+
+            # Get existing derived transactions for preservation
+            old_derived = self._db.get_derived_by_plaid_id(plaid_id)
+
+            # Generate new derived transactions
+            if is_amazon_transaction(plaid_txn.merchant_descriptor):
+                new_derived_data = create_split_derived_transactions(plaid_txn, csv_dir)
+                if len(new_derived_data) > 1:
+                    self._logger.amazon_split(
+                        plaid_txn.external_id, len(new_derived_data)
+                    )
+            else:
+                # 1:1 mapping for non-Amazon transactions
+                new_derived_data = [
+                    {
+                        "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                        "external_id": plaid_txn.external_id,
+                        "amount_cents": plaid_txn.amount_cents,
+                        "posted_at": plaid_txn.posted_at,
+                        "merchant_descriptor": plaid_txn.merchant_descriptor,
+                        "category_id": None,
+                        "is_verified": False,
+                    }
+                ]
+
+            # Preserve enrichments by amount matching
+            if old_derived:
+                new_derived_data = preserve_enrichments_by_amount(
+                    old_derived, new_derived_data
+                )
+                # Delete old derived (CASCADE handles tags)
+                self._db.delete_derived_by_plaid_id(plaid_id)
+
+            # Insert new derived transactions
+            for data in new_derived_data:
+                derived_txn = self._db.insert_derived_transaction(data)
+                derived_ids.append(derived_txn.transaction_id)
+
+        return derived_ids
+
+    async def _categorize_derived(
+        self,
+        derived_ids: list[int],
+    ) -> None:
+        """
+        Categorize derived transactions using LLM.
+
+        Phase 4 of 5-phase sync workflow. Only categorizes if category_id
+        is NULL or is_verified is FALSE.
+
+        Args:
+            derived_ids: List of derived transaction IDs to categorize
+        """
+        derived_txns = self._db.get_derived_transactions_by_ids(derived_ids)
+
+        # Filter to uncategorized or unverified
+        to_categorize = [
+            txn
+            for txn in derived_txns
+            if txn.category_id is None or not txn.is_verified
+        ]
+
+        if not to_categorize:
+            return
+
+        self._logger.categorization_start(
+            len(to_categorize), len(to_categorize), 0  # All are "added" from perspective
+        )
+
+        # Convert DerivedTransaction to dict format for categorizer
+        txn_dicts = [
+            {
+                "transaction_id": txn.external_id,
+                "date": txn.posted_at.isoformat(),
+                "amount": txn.amount_cents / 100.0,
+                "merchant_name": txn.merchant_descriptor,
+                "name": txn.merchant_descriptor,
+                "account_id": "",
+                "iso_currency_code": "USD",
+            }
+            for txn in to_categorize
+        ]
+
+        # Categorize in batches
+        categorized = await self._categorizer.categorize(txn_dicts, batch_size=25)
+
+        # Build mapping from external_id to transaction_id
+        external_to_id = {txn.external_id: txn.transaction_id for txn in to_categorize}
+
+        # Update category_id for categorized transactions
+        category_lookup = lambda key: get_category_id(self._db, self._taxonomy, key)
+        for cat_txn in categorized:
+            external_id = cat_txn.txn.get("transaction_id", "")
+            transaction_id = external_to_id.get(external_id)
+            if transaction_id is None:
+                continue
+
+            # Determine category key (prefer revised if present)
+            category_key = (
+                cat_txn.revised_category_key
+                if cat_txn.revised_category_key
+                else cat_txn.category_key
+            )
+            category_id = category_lookup(category_key) if category_key else None
+
+            if category_id:
+                self._db.update_derived_category(transaction_id, category_id)
+
     async def _categorize_accumulated(
         self,
         accumulated: AccumulatedTransactions,
@@ -395,11 +619,13 @@ class SyncTool:
         count: int = 25,
     ) -> list[SyncResult]:
         """
-        Three-phase sync: fetch all, categorize all, persist all.
+        Five-phase sync: fetch, persist plaid, mutate, categorize, done.
 
         Phase 1: Fetch all pages from Plaid (fast, sequential)
-        Phase 2: Categorize all transactions (slow, parallelized)
-        Phase 3: Persist to database (fast, bulk operation)
+        Phase 2: Persist to plaid_transactions table (fast)
+        Phase 3: Mutate to derived_transactions (Amazon splitting, preservation)
+        Phase 4: Categorize derived transactions (slow, parallelized)
+        Phase 5: Done (categories already updated in Phase 4)
 
         Args:
             count: Maximum number of transactions per page (default: 25, max: 500)
@@ -414,13 +640,18 @@ class SyncTool:
         # Phase 1: Fetch all transactions from Plaid
         accumulated = await self._fetch_all_pages(count=count)
 
-        # Phase 2: Categorize all transactions concurrently
+        # Phase 2: Persist to plaid_transactions table
+        plaid_ids = self._persist_to_plaid_table(accumulated)
+
+        # Phase 3: Mutate to derived_transactions (with Amazon splitting)
+        derived_ids = self._mutate_to_derived(plaid_ids)
+
+        # Phase 4: Categorize derived transactions
+        await self._categorize_derived(derived_ids)
+
+        # Phase 5: Build result (categories already persisted in Phase 4)
+        # Use old categorization for backward compatibility with return type
         categorized = await self._categorize_accumulated(accumulated)
-
-        # Phase 3: Persist everything to database
-        self._persist_all(categorized, accumulated.removed)
-
-        # Return single SyncResult representing entire sync
         return [self._build_sync_result(categorized, accumulated)]
 
 
