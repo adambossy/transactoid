@@ -1531,3 +1531,170 @@ class DB:
             for account in accounts:
                 session.expunge(account)
             return accounts
+
+    # Migration methods
+
+    def get_transactions_by_category_id(
+        self, category_id: int
+    ) -> list[DerivedTransaction]:
+        """
+        Get all transactions for a given category.
+
+        Args:
+            category_id: Category ID to filter by
+
+        Returns:
+            List of DerivedTransaction instances
+        """
+        with self.session() as session:  # type: Session
+            txns = (
+                session.query(DerivedTransaction)
+                .filter_by(category_id=category_id)
+                .all()
+            )
+            for txn in txns:
+                session.expunge(txn)
+            return txns
+
+    def update_category_key(self, old_key: str, new_key: str) -> None:
+        """
+        Update category key (for rename operations).
+
+        Args:
+            old_key: Current category key
+            new_key: New category key
+
+        Raises:
+            ValueError: If old_key does not exist or new_key already exists
+        """
+        with self.session() as session:  # type: Session
+            old_category = session.query(Category).filter_by(key=old_key).first()
+            if not old_category:
+                msg = f"Category with key '{old_key}' does not exist"
+                raise ValueError(msg)
+
+            new_category = session.query(Category).filter_by(key=new_key).first()
+            if new_category:
+                msg = f"Category with key '{new_key}' already exists"
+                raise ValueError(msg)
+
+            old_category.key = new_key
+
+    def reassign_transactions_to_category(
+        self,
+        transaction_ids: list[int],
+        new_category_id: int,
+        reset_verified: bool = False,
+    ) -> None:
+        """
+        Bulk reassign transactions to new category, optionally reset verified status.
+
+        Args:
+            transaction_ids: List of transaction IDs to reassign
+            new_category_id: New category ID to assign
+            reset_verified: If True, set is_verified=False for these transactions
+
+        Raises:
+            ValueError: If new_category_id does not exist
+        """
+        if not transaction_ids:
+            return
+
+        with self.session() as session:  # type: Session
+            # Validate category exists
+            category = (
+                session.query(Category).filter_by(category_id=new_category_id).first()
+            )
+            if not category:
+                msg = f"Category with ID {new_category_id} does not exist"
+                raise ValueError(msg)
+
+            # Bulk update transactions
+            for txn_id in transaction_ids:
+                txn = (
+                    session.query(DerivedTransaction)
+                    .filter_by(transaction_id=txn_id)
+                    .first()
+                )
+                if txn:
+                    txn.category_id = new_category_id
+                    if reset_verified:
+                        txn.is_verified = False
+
+    def replace_categories_from_taxonomy(self, taxonomy: Any) -> None:
+        """
+        Sync categories in DB with taxonomy contents, preserving category IDs.
+
+        Used after taxonomy modifications to sync DB with in-memory taxonomy.
+        Preserves existing category IDs to maintain foreign key integrity.
+
+        Args:
+            taxonomy: Taxonomy instance to sync from
+        """
+        with self.session() as session:  # type: Session
+            # Get existing categories by key
+            existing = {c.key: c for c in session.query(Category).all()}
+            existing_keys = set(existing.keys())
+
+            # Get new taxonomy nodes
+            all_nodes = taxonomy.all_nodes()
+            new_keys = {n.key for n in all_nodes}
+
+            # Delete categories no longer in taxonomy
+            keys_to_delete = existing_keys - new_keys
+            for key in keys_to_delete:
+                session.delete(existing[key])
+            session.flush()
+
+            # Build parent_id mapping (existing + new)
+            parent_id_map: dict[str, int] = {}
+            for key, cat in existing.items():
+                if key in new_keys:
+                    parent_id_map[key] = cat.category_id
+
+            # Process nodes: parents first, then children
+            parent_nodes = [n for n in all_nodes if n.parent_key is None]
+            child_nodes = [n for n in all_nodes if n.parent_key is not None]
+
+            # Update or insert parents
+            for node in parent_nodes:
+                if node.key in existing:
+                    # Update existing
+                    cat = existing[node.key]
+                    cat.name = node.name
+                    cat.description = node.description
+                    cat.parent_id = None
+                else:
+                    # Insert new
+                    cat = Category(
+                        key=node.key,
+                        name=node.name,
+                        description=node.description,
+                        parent_id=None,
+                    )
+                    session.add(cat)
+                    session.flush()
+                    parent_id_map[node.key] = cat.category_id
+
+            # Update or insert children
+            for node in child_nodes:
+                parent_id = (
+                    parent_id_map.get(node.parent_key) if node.parent_key else None
+                )
+                if node.key in existing:
+                    # Update existing
+                    cat = existing[node.key]
+                    cat.name = node.name
+                    cat.description = node.description
+                    cat.parent_id = parent_id
+                else:
+                    # Insert new
+                    cat = Category(
+                        key=node.key,
+                        name=node.name,
+                        description=node.description,
+                        parent_id=parent_id,
+                    )
+                    session.add(cat)
+                    session.flush()
+                    parent_id_map[node.key] = cat.category_id

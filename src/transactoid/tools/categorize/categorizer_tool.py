@@ -244,6 +244,111 @@ class Categorizer:
 
         return all_categorized
 
+    async def categorize_constrained(
+        self,
+        txns: Iterable[Transaction],
+        allowed_category_keys: list[str],
+        *,
+        batch_size: int | None = None,
+    ) -> list[CategorizedTransaction]:
+        """
+        Categorize transactions with limited category options.
+
+        Used by split operations to recategorize among specific targets.
+        Creates a filtered taxonomy with only the allowed categories and
+        uses it for categorization.
+
+        Args:
+            txns: Transactions to categorize
+            allowed_category_keys: List of category keys to allow as options
+            batch_size: Optional batch size for processing
+
+        Returns:
+            List of CategorizedTransaction with categories from allowed set
+        """
+        txn_list = list(txns)
+        if not txn_list:
+            return []
+
+        # Validate that all allowed keys exist in taxonomy
+        for key in allowed_category_keys:
+            if not self._taxonomy.is_valid_key(key):
+                msg = f"Category key '{key}' is not valid in taxonomy"
+                raise ValueError(msg)
+
+        # Initialize semaphore lazily (requires event loop)
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        # Create logging session
+        session_id = self._api_logger.create_session()
+
+        # If no batch size specified, process all transactions in one batch
+        if batch_size is None or batch_size >= len(txn_list):
+            return await self._categorize_batch_constrained(
+                txn_list,
+                allowed_category_keys,
+                session_id=session_id,
+                batch_idx=0,
+            )
+
+        # Split into batches and process concurrently with semaphore limiting
+        batches = [
+            txn_list[i : i + batch_size] for i in range(0, len(txn_list), batch_size)
+        ]
+        self._logger.batch_start(len(txn_list), len(batches), self._max_concurrency)
+
+        tasks = [
+            self._categorize_batch_constrained(
+                batch,
+                allowed_category_keys,
+                session_id=session_id,
+                batch_idx=idx,
+            )
+            for idx, batch in enumerate(batches)
+        ]
+        batch_results = await asyncio.gather(*tasks)
+
+        # Flatten results
+        all_categorized: list[CategorizedTransaction] = []
+        for result in batch_results:
+            all_categorized.extend(result)
+
+        return all_categorized
+
+    async def _categorize_batch_constrained(
+        self,
+        txn_list: list[Transaction],
+        allowed_category_keys: list[str],
+        session_id: str,
+        batch_idx: int,
+    ) -> list[CategorizedTransaction]:
+        """Categorize a batch with constrained taxonomy."""
+        txn_json_list = self._format_transactions_for_prompt(txn_list)
+        # Use filtered taxonomy with only allowed keys
+        taxonomy_dict = self._taxonomy.to_prompt(include_keys=allowed_category_keys)
+        valid_keys = self._extract_valid_keys(taxonomy_dict)
+        prompt = self._render_prompt(txn_json_list, taxonomy_dict)
+        cache_key = self._create_cache_key(txn_json_list, taxonomy_dict)
+
+        cached_result = self._file_cache.get("categorize", cache_key)
+        if cached_result is not None:
+            categorized = self._parse_response(cached_result, txn_list)
+            self._log_api_call(
+                session_id, batch_idx, txn_json_list, categorized, from_cache=True
+            )
+            return categorized
+
+        self._logger.api_call(txn_list)
+        response_text = await self._call_openai_api(prompt, valid_keys=valid_keys)
+        self._file_cache.set("categorize", cache_key, response_text)
+
+        categorized = self._parse_response(response_text, txn_list)
+        self._log_api_call(
+            session_id, batch_idx, txn_json_list, categorized, from_cache=False
+        )
+        return categorized
+
     async def _categorize_batch(
         self, txn_list: list[Transaction], session_id: str, batch_idx: int
     ) -> list[CategorizedTransaction]:
