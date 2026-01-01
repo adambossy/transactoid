@@ -162,6 +162,22 @@ class SyncToolLogger:
             split_count,
         )
 
+    def pipeline_persist_batch(self, batch_size: int, plaid_ids_count: int) -> None:
+        """Log batch persistence in pipeline."""
+        self._logger.bind(batch_size=batch_size, plaid_ids=plaid_ids_count).debug(
+            "Persisted batch of {} transactions → {} plaid_ids",
+            batch_size,
+            plaid_ids_count,
+        )
+
+    def pipeline_mutate_batch(self, plaid_ids_count: int, derived_ids_count: int) -> None:
+        """Log batch mutation in pipeline."""
+        self._logger.bind(plaid_ids=plaid_ids_count, derived_ids=derived_ids_count).debug(
+            "Mutated {} plaid_ids → {} derived_ids",
+            plaid_ids_count,
+            derived_ids_count,
+        )
+
 
 class SyncTool:
     """
@@ -619,13 +635,15 @@ class SyncTool:
         count: int = 25,
     ) -> list[SyncResult]:
         """
-        Five-phase sync: fetch, persist plaid, mutate, categorize, done.
+        Pipelined sync: fetch → persist → mutate run concurrently, then batch categorize.
 
-        Phase 1: Fetch all pages from Plaid (fast, sequential)
-        Phase 2: Persist to plaid_transactions table (fast)
-        Phase 3: Mutate to derived_transactions (Amazon splitting, preservation)
-        Phase 4: Categorize derived transactions (slow, parallelized)
-        Phase 5: Done (categories already updated in Phase 4)
+        Pipeline stages (run concurrently):
+        - fetch_producer: Fetches pages from Plaid, pushes to persist_queue
+        - persist_consumer: Persists to plaid_transactions, pushes ids to mutate_queue
+        - mutate_consumer: Creates derived_transactions, collects derived_ids
+
+        Final stage (after pipeline):
+        - Batch categorization of all derived transactions (for LLM efficiency)
 
         Args:
             count: Maximum number of transactions per page (default: 25, max: 500)
@@ -637,22 +655,274 @@ class SyncTool:
             PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
                 and cannot be recovered after retries
         """
-        # Phase 1: Fetch all transactions from Plaid
-        accumulated = await self._fetch_all_pages(count=count)
+        max_retries = 3
+        retry_count = 0
+        pagination_start_cursor = self._cursor
 
-        # Phase 2: Persist to plaid_transactions table
-        plaid_ids = self._persist_to_plaid_table(accumulated)
+        while retry_count <= max_retries:
+            try:
+                return await self._run_pipeline(count, pagination_start_cursor)
+            except PlaidClientError as e:
+                if "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" in str(e):
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        self._logger.mutation_retry(retry_count, max_retries)
+                        continue
+                raise
 
-        # Phase 3: Mutate to derived_transactions (with Amazon splitting)
-        derived_ids = self._mutate_to_derived(plaid_ids)
+        raise PlaidClientError(
+            f"Failed to sync after {max_retries} retries due to "
+            "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION"
+        )
 
-        # Phase 4: Categorize derived transactions
-        await self._categorize_derived(derived_ids)
+    async def _run_pipeline(
+        self,
+        count: int,
+        start_cursor: str | None,
+    ) -> list[SyncResult]:
+        """
+        Run the pipelined fetch → persist → mutate workflow.
 
-        # Phase 5: Build result (categories already persisted in Phase 4)
-        # Use old categorization for backward compatibility with return type
+        Args:
+            count: Max transactions per page
+            start_cursor: Starting cursor for pagination
+
+        Returns:
+            List containing single SyncResult
+        """
+        # Queues for pipeline stages
+        persist_queue: asyncio.Queue[list[Transaction] | None] = asyncio.Queue()
+        mutate_queue: asyncio.Queue[list[int] | None] = asyncio.Queue()
+
+        # Shared state for results
+        accumulated = AccumulatedTransactions(
+            added=[],
+            modified=[],
+            removed=[],
+            final_cursor="",
+            pages_fetched=0,
+        )
+        all_derived_ids: list[int] = []
+        pipeline_error: list[Exception] = []  # Mutable container for error propagation
+
+        async def fetch_producer() -> None:
+            """Fetch pages from Plaid and push to persist_queue."""
+            nonlocal accumulated
+            current_cursor = start_cursor
+            pages_fetched = 0
+
+            try:
+                while True:
+                    self._logger.fetch_start(current_cursor or "")
+
+                    sync_result = self._plaid_client.sync_transactions(
+                        self._access_token,
+                        cursor=current_cursor,
+                        count=count,
+                    )
+
+                    added: list[Transaction] = sync_result.get("added", [])
+                    modified: list[Transaction] = sync_result.get("modified", [])
+                    removed: list[dict[str, Any]] = sync_result.get("removed", [])
+                    next_cursor: str = sync_result.get("next_cursor", "")
+                    has_more: bool = sync_result.get("has_more", False)
+
+                    pages_fetched += 1
+                    self._logger.fetch_complete(
+                        len(added), len(modified), len(removed), pages_fetched
+                    )
+
+                    # Accumulate for result building
+                    accumulated.added.extend(added)
+                    accumulated.modified.extend(modified)
+                    accumulated.removed.extend(removed)
+                    accumulated.pages_fetched = pages_fetched
+                    accumulated.final_cursor = next_cursor
+
+                    # Push batch to persist queue
+                    batch = added + modified
+                    if batch:
+                        await persist_queue.put(batch)
+
+                    if not has_more:
+                        self._logger.fetch_summary(
+                            len(accumulated.added),
+                            len(accumulated.modified),
+                            len(accumulated.removed),
+                            pages_fetched,
+                        )
+                        break
+
+                    current_cursor = next_cursor
+
+            except Exception as e:
+                pipeline_error.append(e)
+                raise
+            finally:
+                await persist_queue.put(None)  # Signal done
+
+        async def persist_consumer() -> None:
+            """Consume from persist_queue, persist to plaid_transactions, push to mutate_queue."""
+            try:
+                while True:
+                    batch = await persist_queue.get()
+                    if batch is None:
+                        break
+
+                    if pipeline_error:
+                        break  # Abort if fetch failed
+
+                    plaid_ids = self._persist_batch_to_plaid(batch)
+                    self._logger.pipeline_persist_batch(len(batch), len(plaid_ids))
+                    if plaid_ids:
+                        await mutate_queue.put(plaid_ids)
+
+            except Exception as e:
+                pipeline_error.append(e)
+                raise
+            finally:
+                await mutate_queue.put(None)  # Signal done
+
+        async def mutate_consumer() -> None:
+            """Consume from mutate_queue, create derived transactions."""
+            nonlocal all_derived_ids
+            try:
+                while True:
+                    plaid_ids = await mutate_queue.get()
+                    if plaid_ids is None:
+                        break
+
+                    if pipeline_error:
+                        break  # Abort if upstream failed
+
+                    derived_ids = self._mutate_batch_to_derived(plaid_ids)
+                    self._logger.pipeline_mutate_batch(len(plaid_ids), len(derived_ids))
+                    all_derived_ids.extend(derived_ids)
+
+            except Exception as e:
+                pipeline_error.append(e)
+                raise
+
+        # Run pipeline stages concurrently
+        await asyncio.gather(
+            fetch_producer(),
+            persist_consumer(),
+            mutate_consumer(),
+        )
+
+        # Re-raise any pipeline errors
+        if pipeline_error:
+            raise pipeline_error[0]
+
+        # Handle removals
+        if accumulated.removed:
+            removed_ids = [
+                item.get("transaction_id", "")
+                for item in accumulated.removed
+                if item.get("transaction_id")
+            ]
+            if removed_ids:
+                self._logger.deletion_start(len(removed_ids))
+                self._db.delete_plaid_transactions_by_external_ids(
+                    removed_ids, source="PLAID"
+                )
+
+        # Batch categorization (after pipeline completes for LLM efficiency)
+        if all_derived_ids:
+            await self._categorize_derived(all_derived_ids)
+
+        # Build result for backward compatibility
         categorized = await self._categorize_accumulated(accumulated)
         return [self._build_sync_result(categorized, accumulated)]
+
+    def _persist_batch_to_plaid(self, batch: list[Transaction]) -> list[int]:
+        """
+        Persist a batch of transactions to plaid_transactions table.
+
+        Args:
+            batch: List of Plaid transactions to persist
+
+        Returns:
+            List of plaid_transaction_ids that were created/updated
+        """
+        from datetime import datetime
+
+        plaid_ids: list[int] = []
+
+        for txn in batch:
+            posted_at_str = txn.get("date", "")
+            try:
+                posted_at = datetime.strptime(posted_at_str, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                continue
+
+            amount = txn.get("amount", 0.0)
+            amount_cents = int(amount * 100)
+
+            plaid_txn = self._db.upsert_plaid_transaction(
+                external_id=txn.get("transaction_id", ""),
+                source="PLAID",
+                account_id=txn.get("account_id", ""),
+                posted_at=posted_at,
+                amount_cents=amount_cents,
+                currency=txn.get("iso_currency_code") or "USD",
+                merchant_descriptor=txn.get("merchant_name") or txn.get("name"),
+                institution=None,
+            )
+            plaid_ids.append(plaid_txn.plaid_transaction_id)
+
+        return plaid_ids
+
+    def _mutate_batch_to_derived(self, plaid_ids: list[int]) -> list[int]:
+        """
+        Create derived transactions for a batch of plaid_transaction_ids.
+
+        Args:
+            plaid_ids: List of plaid_transaction_ids to process
+
+        Returns:
+            List of derived transaction_ids that were created
+        """
+        derived_ids: list[int] = []
+        csv_dir = Path(".transactions/amazon")
+
+        for plaid_id in plaid_ids:
+            plaid_txn = self._db.get_plaid_transaction(plaid_id)
+            if not plaid_txn:
+                continue
+
+            old_derived = self._db.get_derived_by_plaid_id(plaid_id)
+
+            if is_amazon_transaction(plaid_txn.merchant_descriptor):
+                new_derived_data = create_split_derived_transactions(plaid_txn, csv_dir)
+                if len(new_derived_data) > 1:
+                    self._logger.amazon_split(
+                        plaid_txn.external_id, len(new_derived_data)
+                    )
+            else:
+                new_derived_data = [
+                    {
+                        "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                        "external_id": plaid_txn.external_id,
+                        "amount_cents": plaid_txn.amount_cents,
+                        "posted_at": plaid_txn.posted_at,
+                        "merchant_descriptor": plaid_txn.merchant_descriptor,
+                        "category_id": None,
+                        "is_verified": False,
+                    }
+                ]
+
+            if old_derived:
+                new_derived_data = preserve_enrichments_by_amount(
+                    old_derived, new_derived_data
+                )
+                self._db.delete_derived_by_plaid_id(plaid_id)
+
+            for data in new_derived_data:
+                derived_txn = self._db.insert_derived_transaction(data)
+                derived_ids.append(derived_txn.transaction_id)
+
+        return derived_ids
 
 
 class SyncTransactionsTool(StandardTool):
