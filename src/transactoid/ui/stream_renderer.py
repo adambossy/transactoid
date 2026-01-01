@@ -179,14 +179,32 @@ class StreamRenderer:
         return (summary, full_error)
 
     def on_tool_result(self, output: Any) -> None:
-        """Display tool execution result in collapsed format with summary."""
+        """Display tool execution result in collapsed format with summary.
+
+        If the output contains an error, it is printed prominently in red.
+        """
+        # Check for error in output and print prominently
+        if isinstance(output, dict):
+            # Handle explicit error field
+            if "error" in output:
+                error_msg = str(output["error"])
+                print(colorize(f"❌ Tool error: {error_msg}", "error"))
+                print()
+                return
+            # Handle status: "error" with message field
+            if output.get("status") == "error" and "message" in output:
+                error_msg = str(output["message"])
+                print(colorize(f"❌ Tool error: {error_msg}", "error"))
+                print()
+                return
+
         summary, full_text = self._summarize_tool_result(output)
         print(colorize(f"↩️ Tool result ▶ {summary}", "out"))
 
         # Print full text on separate lines if it was truncated
         if full_text:
-            print(colorize("Full output:", "error"))
-            print(colorize(full_text, "error"))
+            print(colorize("Full output:", "faint"))
+            print(colorize(full_text, "faint"))
 
         print()
 
