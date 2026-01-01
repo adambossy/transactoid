@@ -78,6 +78,22 @@ class AmazonCSVLoader:
         if orders_csv.exists():
             with open(orders_csv) as f:
                 reader = csv.DictReader(f)
+
+                # Validate required columns
+                required_cols = {"order_id", "date", "total"}
+                if reader.fieldnames:
+                    found_cols = set(reader.fieldnames)
+                    missing = required_cols - found_cols
+                    if missing:
+                        logger.error(
+                            "Amazon orders CSV is missing required columns: {}. "
+                            "Found columns: {}. "
+                            "Expected columns: order_id, date, total, tax (optional), shipping (optional)",
+                            missing,
+                            reader.fieldnames,
+                        )
+                        return orders, items_by_order
+
                 for row in reader:
                     # Parse total (e.g., "$39.27" → 3927 cents)
                     total_str = row["total"].replace("$", "").replace(",", "")
@@ -112,6 +128,22 @@ class AmazonCSVLoader:
         if items_csv.exists():
             with open(items_csv) as f:
                 reader = csv.DictReader(f)
+
+                # Validate required columns
+                required_cols = {"order_id", "description", "price", "quantity", "asin"}
+                if reader.fieldnames:
+                    found_cols = set(reader.fieldnames)
+                    missing = required_cols - found_cols
+                    if missing:
+                        logger.error(
+                            "Amazon items CSV is missing required columns: {}. "
+                            "Found columns: {}. "
+                            "Expected columns: order_id, description, price, quantity, asin",
+                            missing,
+                            reader.fieldnames,
+                        )
+                        return orders, items_by_order
+
                 for row in reader:
                     # Parse price (e.g., "$37.97" → 3797 cents)
                     price_str = row["price"].replace("$", "").replace(",", "")
