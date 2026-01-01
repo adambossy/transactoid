@@ -222,3 +222,4 @@ configs/plaid_redirect_localhost.key
 
 # Database files (test/eval data only)
 db/app.db
+*.db
