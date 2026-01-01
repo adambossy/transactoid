@@ -121,13 +121,16 @@ class AmazonReconcilerLogger:
         external_id: str,
         amount_cents: int,
         posted_at: date,
+        merchant_descriptor: str | None = None,
     ) -> None:
         """Log when no order match is found for a transaction."""
         self._logger.warning(
-            "No Amazon order match for Plaid transaction {} (${:.2f} on {})",
+            "No Amazon order match for Plaid transaction {} "
+            "(${:.2f} on {}, merchant: {})",
             external_id,
             amount_cents / 100,
             posted_at,
+            merchant_descriptor,
         )
 
     def no_items_for_order(self, order_id: str) -> None:
@@ -369,6 +372,7 @@ def create_split_derived_transactions(
             plaid_txn.external_id,
             abs(plaid_txn.amount_cents),
             plaid_txn.posted_at,
+            plaid_txn.merchant_descriptor,
         )
         return [
             {
