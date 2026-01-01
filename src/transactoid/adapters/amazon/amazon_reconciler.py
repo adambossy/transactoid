@@ -187,6 +187,60 @@ def is_amazon_transaction(merchant_descriptor: str | None) -> bool:
     return any(pattern in normalized for pattern in patterns)
 
 
+class OrderAmountIndex:
+    """Index orders by amount bucket for fast lookup.
+
+    Groups orders into buckets by dollar amount (cents // 100) to enable
+    O(1) lookup of candidate orders instead of O(n) scan.
+    """
+
+    def __init__(self, orders: dict[str, CSVOrder]) -> None:
+        """Build amount index from orders dict.
+
+        Args:
+            orders: Dictionary of Amazon orders (order_id -> CSVOrder)
+        """
+        self._orders = orders
+        self._by_amount: dict[int, list[CSVOrder]] = {}
+
+        for order in orders.values():
+            bucket = order.order_total_cents // 100  # Round to dollar
+            if bucket not in self._by_amount:
+                self._by_amount[bucket] = []
+            self._by_amount[bucket].append(order)
+
+    def get_candidates(self, amount_cents: int, tolerance_cents: int) -> list[CSVOrder]:
+        """Get orders within tolerance of the given amount.
+
+        Args:
+            amount_cents: Target amount in cents
+            tolerance_cents: Maximum difference in cents
+
+        Returns:
+            List of orders that could potentially match
+        """
+        # Calculate bucket range to check
+        # tolerance_cents=50 means we need to check +/- 1 dollar bucket
+        bucket_range = (tolerance_cents // 100) + 1
+        target_bucket = amount_cents // 100
+
+        candidates: list[CSVOrder] = []
+        min_bucket = target_bucket - bucket_range
+        max_bucket = target_bucket + bucket_range + 1
+        for bucket in range(min_bucket, max_bucket):
+            candidates.extend(self._by_amount.get(bucket, []))
+
+        return candidates
+
+    def all_orders(self) -> list[CSVOrder]:
+        """Return all orders for near-miss scanning."""
+        return list(self._orders.values())
+
+    def __len__(self) -> int:
+        """Return total number of orders."""
+        return len(self._orders)
+
+
 def _build_mismatch_reason(
     amount_diff: int,
     date_diff: int,
@@ -207,7 +261,7 @@ def _build_mismatch_reason(
 
 def find_matching_amazon_order(
     plaid_txn: PlaidTransaction,
-    orders: dict[str, CSVOrder],
+    order_index: OrderAmountIndex,
     date_tolerance_days: int = 3,
     amount_tolerance_cents: int = 50,
     *,
@@ -220,9 +274,11 @@ def find_matching_amazon_order(
     - Date within tolerance
     - Return best match by date proximity
 
+    Uses OrderAmountIndex for O(1) candidate lookup instead of O(n) scan.
+
     Args:
         plaid_txn: Plaid transaction to match
-        orders: Dictionary of Amazon orders (order_id -> CSVOrder)
+        order_index: Pre-built amount index for fast order lookup
         date_tolerance_days: Maximum date difference in days (default: 3)
         amount_tolerance_cents: Maximum amount difference in cents (default: 50)
         reconciler_logger: Logger instance for diagnostic output
@@ -234,42 +290,49 @@ def find_matching_amazon_order(
     plaid_date = plaid_txn.posted_at
 
     reconciler_logger.match_attempt(
-        plaid_txn.external_id, plaid_amount, plaid_date, len(orders)
+        plaid_txn.external_id, plaid_amount, plaid_date, len(order_index)
     )
 
     candidates: list[tuple[CSVOrder, int]] = []
-    near_misses: list[tuple[CSVOrder, int, int, str]] = []
 
-    for order in orders.values():
+    # Use index to get only orders within amount tolerance
+    potential_orders = order_index.get_candidates(plaid_amount, amount_tolerance_cents)
+    for order in potential_orders:
         amount_diff = abs(plaid_amount - order.order_total_cents)
         date_diff = abs((plaid_date - order.order_date).days)
 
         if amount_diff <= amount_tolerance_cents and date_diff <= date_tolerance_days:
             candidates.append((order, date_diff))
-        elif date_diff <= 30 and amount_diff <= 5000:
-            reason = _build_mismatch_reason(
-                amount_diff, date_diff, amount_tolerance_cents, date_tolerance_days
-            )
-            near_misses.append((order, amount_diff, date_diff, reason))
 
     if candidates:
         best = min(candidates, key=lambda x: x[1])
         reconciler_logger.match_found(plaid_txn.external_id, best[0], best[1])
         return best[0]
 
-    # No match - log diagnostics
+    # No match - scan all orders for near-misses (diagnostic only)
+    near_misses: list[tuple[CSVOrder, int, int, str]] = []
+    for order in order_index.all_orders():
+        amount_diff = abs(plaid_amount - order.order_total_cents)
+        date_diff = abs((plaid_date - order.order_date).days)
+
+        if date_diff <= 30 and amount_diff <= 5000:
+            reason = _build_mismatch_reason(
+                amount_diff, date_diff, amount_tolerance_cents, date_tolerance_days
+            )
+            near_misses.append((order, amount_diff, date_diff, reason))
+
     if near_misses:
         near_misses.sort(key=lambda x: x[1] + x[2] * 100)
         reconciler_logger.near_misses_found(plaid_amount, plaid_date, near_misses)
     else:
-        reconciler_logger.no_near_misses(plaid_amount, plaid_date, len(orders))
+        reconciler_logger.no_near_misses(plaid_amount, plaid_date, len(order_index))
 
     return None
 
 
 def create_split_derived_transactions(
     plaid_txn: PlaidTransaction,
-    orders: dict[str, CSVOrder],
+    order_index: OrderAmountIndex,
     items_by_order: dict[str, list[CSVItem]],
     *,
     reconciler_logger: AmazonReconcilerLogger = _reconciler_logger,
@@ -280,7 +343,7 @@ def create_split_derived_transactions(
 
     Args:
         plaid_txn: Plaid transaction to split
-        orders: Pre-loaded Amazon orders (order_id -> CSVOrder)
+        order_index: Pre-built amount index for fast order lookup
         items_by_order: Pre-loaded Amazon items (order_id -> list[CSVItem])
         reconciler_logger: Logger instance for diagnostic output
 
@@ -288,7 +351,7 @@ def create_split_derived_transactions(
         List of derived transaction data dictionaries
     """
     order = find_matching_amazon_order(
-        plaid_txn, orders, reconciler_logger=reconciler_logger
+        plaid_txn, order_index, reconciler_logger=reconciler_logger
     )
     if not order:
         reconciler_logger.no_order_match(
