@@ -11,6 +11,8 @@ from loguru import logger
 
 from models.transaction import Transaction
 from transactoid.adapters.amazon import (
+    AmazonItemsCSVLoader,
+    AmazonOrdersCSVLoader,
     create_split_derived_transactions,
     is_amazon_transaction,
     preserve_enrichments_by_amount,
@@ -430,6 +432,12 @@ class SyncTool:
         derived_ids: list[int] = []
         csv_dir = amazon_csv_dir or Path(".transactions/amazon")
 
+        # Load Amazon CSVs once for the entire batch
+        orders_csv = csv_dir / "amazon-order-history-orders.csv"
+        items_csv = csv_dir / "amazon-order-history-items.csv"
+        amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
+        amazon_items = AmazonItemsCSVLoader(items_csv).load()
+
         for plaid_id in plaid_ids:
             plaid_txn = self._db.get_plaid_transaction(plaid_id)
             if not plaid_txn:
@@ -440,7 +448,9 @@ class SyncTool:
 
             # Generate new derived transactions
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
-                new_derived_data = create_split_derived_transactions(plaid_txn, csv_dir)
+                new_derived_data = create_split_derived_transactions(
+                    plaid_txn, amazon_orders, amazon_items
+                )
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
                         plaid_txn.external_id, len(new_derived_data)
@@ -886,6 +896,12 @@ class SyncTool:
         derived_ids: list[int] = []
         csv_dir = Path(".transactions/amazon")
 
+        # Load Amazon CSVs once for the entire batch
+        orders_csv = csv_dir / "amazon-order-history-orders.csv"
+        items_csv = csv_dir / "amazon-order-history-items.csv"
+        amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
+        amazon_items = AmazonItemsCSVLoader(items_csv).load()
+
         for plaid_id in plaid_ids:
             plaid_txn = self._db.get_plaid_transaction(plaid_id)
             if not plaid_txn:
@@ -894,7 +910,9 @@ class SyncTool:
             old_derived = self._db.get_derived_by_plaid_id(plaid_id)
 
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
-                new_derived_data = create_split_derived_transactions(plaid_txn, csv_dir)
+                new_derived_data = create_split_derived_transactions(
+                    plaid_txn, amazon_orders, amazon_items
+                )
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
                         plaid_txn.external_id, len(new_derived_data)
