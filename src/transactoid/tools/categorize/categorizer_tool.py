@@ -320,45 +320,45 @@ class Categorizer:
         return sorted(keys)
 
     def _build_response_schema(self, valid_keys: list[str]) -> dict[str, object]:
+        """Build JSON schema for OpenAI Responses API text.format parameter."""
         return {
             "type": "json_schema",
-            "json_schema": {
-                "name": "categorization",
-                "schema": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "idx": {"type": "integer"},
-                            "category": {"type": "string", "enum": valid_keys},
-                            "score": {"type": "number"},
-                            "rationale": {"type": "string"},
-                            "revised_category": {
-                                "anyOf": [
-                                    {"type": "null"},
-                                    {"type": "string", "enum": valid_keys},
-                                ]
-                            },
-                            "revised_score": {"type": ["number", "null"]},
-                            "revised_rationale": {"type": ["string", "null"]},
-                            "merchant_summary": {"type": ["string", "null"]},
-                            "citations": {"type": ["array", "null"]},
+            "name": "categorization",
+            "schema": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "idx": {"type": "integer"},
+                        "category": {"type": "string", "enum": valid_keys},
+                        "score": {"type": "number"},
+                        "rationale": {"type": "string"},
+                        "revised_category": {
+                            "anyOf": [
+                                {"type": "null"},
+                                {"type": "string", "enum": valid_keys},
+                            ]
                         },
-                        "required": [
-                            "idx",
-                            "category",
-                            "score",
-                            "rationale",
-                            "revised_category",
-                            "revised_score",
-                            "revised_rationale",
-                            "merchant_summary",
-                            "citations",
-                        ],
+                        "revised_score": {"type": ["number", "null"]},
+                        "revised_rationale": {"type": ["string", "null"]},
+                        "merchant_summary": {"type": ["string", "null"]},
+                        "citations": {"type": ["array", "null"]},
                     },
+                    "required": [
+                        "idx",
+                        "category",
+                        "score",
+                        "rationale",
+                        "revised_category",
+                        "revised_score",
+                        "revised_rationale",
+                        "merchant_summary",
+                        "citations",
+                    ],
+                    "additionalProperties": False,
                 },
-                "strict": True,
             },
+            "strict": True,
         }
 
     async def _call_openai_api(
@@ -369,9 +369,11 @@ class Categorizer:
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
         async with self._semaphore:
-            extra_body = None
+            extra_body: dict[str, object] | None = None
             if valid_keys:
-                extra_body = {"response_format": self._build_response_schema(valid_keys)}
+                # Responses API uses text.format instead of response_format
+                response_schema = self._build_response_schema(valid_keys)
+                extra_body = {"text": {"format": response_schema}}
             resp = await self._client.responses.create(
                 model=self._model,
                 input=prompt,
