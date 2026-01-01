@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from loguru import logger
+
 
 @dataclass
 class CSVOrder:
@@ -55,8 +57,24 @@ class AmazonCSVLoader:
         orders: dict[str, CSVOrder] = {}
         items_by_order: dict[str, list[CSVItem]] = defaultdict(list)
 
+        # Check if directory exists
+        if not self._csv_dir.exists():
+            logger.warning(
+                "Amazon CSV directory not found at {}. "
+                "Amazon transactions will not be split by item. "
+                "To enable splitting, export your Amazon order history to this directory.",
+                self._csv_dir,
+            )
+            return orders, items_by_order
+
         # Load orders
         orders_csv = self._csv_dir / "amazon-order-history-orders.csv"
+        if not orders_csv.exists():
+            logger.warning(
+                "Amazon orders CSV not found at {}. "
+                "Amazon transactions will not be split by item.",
+                orders_csv,
+            )
         if orders_csv.exists():
             with open(orders_csv) as f:
                 reader = csv.DictReader(f)
@@ -85,6 +103,12 @@ class AmazonCSVLoader:
 
         # Load items
         items_csv = self._csv_dir / "amazon-order-history-items.csv"
+        if not items_csv.exists():
+            logger.warning(
+                "Amazon items CSV not found at {}. "
+                "Amazon transactions will not be split by item.",
+                items_csv,
+            )
         if items_csv.exists():
             with open(items_csv) as f:
                 reader = csv.DictReader(f)
