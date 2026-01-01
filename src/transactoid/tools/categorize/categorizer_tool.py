@@ -65,13 +65,27 @@ class CategorizationResponse(BaseModel):
 
     @classmethod
     def parse_json(cls, json_str: str) -> CategorizationResponse:
-        """Parse JSON string into CategorizationResponse."""
+        """Parse JSON string into CategorizationResponse.
+
+        Handles both formats:
+        - Object with "results" key: {"results": [...]}
+        - Raw array: [...]
+        """
         data = json.loads(json_str)
+        if isinstance(data, dict) and "results" in data:
+            return cls(
+                results=[
+                    CategorizationResult.model_validate(item)
+                    for item in data["results"]
+                ]
+            )
         if isinstance(data, list):
             return cls(
                 results=[CategorizationResult.model_validate(item) for item in data]
             )
-        raise ValueError(f"Expected JSON array, got {type(data)}")
+        raise ValueError(
+            f"Expected JSON object with 'results' or array, got {type(data)}"
+        )
 
 
 class CategorizerLogger:
@@ -320,43 +334,54 @@ class Categorizer:
         return sorted(keys)
 
     def _build_response_schema(self, valid_keys: list[str]) -> dict[str, object]:
-        """Build JSON schema for OpenAI Responses API text.format parameter."""
+        """Build JSON schema for OpenAI Responses API text.format parameter.
+
+        OpenAI requires top-level type to be "object", so we wrap the array
+        in an object with a "results" property.
+        """
         return {
             "type": "json_schema",
             "name": "categorization",
             "schema": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "idx": {"type": "integer"},
-                        "category": {"type": "string", "enum": valid_keys},
-                        "score": {"type": "number"},
-                        "rationale": {"type": "string"},
-                        "revised_category": {
-                            "anyOf": [
-                                {"type": "null"},
-                                {"type": "string", "enum": valid_keys},
-                            ]
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "idx": {"type": "integer"},
+                                "category": {"type": "string", "enum": valid_keys},
+                                "score": {"type": "number"},
+                                "rationale": {"type": "string"},
+                                "revised_category": {
+                                    "anyOf": [
+                                        {"type": "null"},
+                                        {"type": "string", "enum": valid_keys},
+                                    ]
+                                },
+                                "revised_score": {"type": ["number", "null"]},
+                                "revised_rationale": {"type": ["string", "null"]},
+                                "merchant_summary": {"type": ["string", "null"]},
+                                "citations": {"type": ["array", "null"]},
+                            },
+                            "required": [
+                                "idx",
+                                "category",
+                                "score",
+                                "rationale",
+                                "revised_category",
+                                "revised_score",
+                                "revised_rationale",
+                                "merchant_summary",
+                                "citations",
+                            ],
+                            "additionalProperties": False,
                         },
-                        "revised_score": {"type": ["number", "null"]},
-                        "revised_rationale": {"type": ["string", "null"]},
-                        "merchant_summary": {"type": ["string", "null"]},
-                        "citations": {"type": ["array", "null"]},
                     },
-                    "required": [
-                        "idx",
-                        "category",
-                        "score",
-                        "rationale",
-                        "revised_category",
-                        "revised_score",
-                        "revised_rationale",
-                        "merchant_summary",
-                        "citations",
-                    ],
-                    "additionalProperties": False,
                 },
+                "required": ["results"],
+                "additionalProperties": False,
             },
             "strict": True,
         }
@@ -400,14 +425,23 @@ class Categorizer:
         return categorized
 
     def _extract_json_from_response(self, response_text: str) -> str:
-        """Extract JSON array from response text."""
-        json_start = response_text.find("[")
-        json_end = response_text.rfind("]") + 1
-        if json_start == -1 or json_end == 0:
-            raise ValueError(
-                f"Could not find JSON array in response: {response_text[:200]}"
-            )
-        return response_text[json_start:json_end]
+        """Extract JSON from response text.
+
+        Handles both object {"results": [...]} and array [...] formats.
+        """
+        # Try object format first (preferred)
+        obj_start = response_text.find("{")
+        obj_end = response_text.rfind("}") + 1
+        if obj_start != -1 and obj_end > 0:
+            return response_text[obj_start:obj_end]
+
+        # Fall back to array format
+        arr_start = response_text.find("[")
+        arr_end = response_text.rfind("]") + 1
+        if arr_start != -1 and arr_end > 0:
+            return response_text[arr_start:arr_end]
+
+        raise ValueError(f"Could not find JSON in response: {response_text[:200]}")
 
     def _parse_categorization_response(self, json_str: str) -> CategorizationResponse:
         """Parse JSON string into CategorizationResponse using Pydantic."""
