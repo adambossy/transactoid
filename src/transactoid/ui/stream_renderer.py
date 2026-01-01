@@ -144,11 +144,13 @@ class StreamRenderer:
         """Generate a brief summary of a tool result.
 
         Returns:
-            Tuple of (summary_line, full_error_or_none)
+            Tuple of (summary_line, full_text_if_truncated_or_none)
         """
         if not isinstance(output, dict):
             text = str(output)
-            return (text[:60] + "..." if len(text) > 60 else text, None)
+            if len(text) > 60:
+                return (text[:60] + "...", text)
+            return (text, None)
 
         parts = []
         full_error = None
@@ -175,13 +177,13 @@ class StreamRenderer:
 
     def on_tool_result(self, output: Any) -> None:
         """Display tool execution result in collapsed format with summary."""
-        summary, full_error = self._summarize_tool_result(output)
+        summary, full_text = self._summarize_tool_result(output)
         print(colorize(f"↩️ Tool result ▶ {summary}", "out"))
 
-        # Print full error on separate lines if it was truncated
-        if full_error and len(full_error) > 40:
-            print(colorize("Full error:", "error"))
-            print(colorize(full_error, "error"))
+        # Print full text on separate lines if it was truncated
+        if full_text:
+            print(colorize("Full output:", "error"))
+            print(colorize(full_text, "error"))
 
         print()
 
