@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from transactoid.services.amazon.csv_loader import (
+from transactoid.adapters.amazon.csv_loader import (
     AmazonItemsCSVLoader,
     AmazonOrdersCSVLoader,
     CSVItem,

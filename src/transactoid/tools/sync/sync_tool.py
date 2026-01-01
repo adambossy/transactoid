@@ -13,6 +13,7 @@ from models.transaction import Transaction
 from transactoid.adapters.amazon import (
     AmazonItemsCSVLoader,
     AmazonOrdersCSVLoader,
+    OrderAmountIndex,
     create_split_derived_transactions,
     is_amazon_transaction,
     preserve_enrichments_by_amount,
@@ -438,6 +439,9 @@ class SyncTool:
         amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
         amazon_items = AmazonItemsCSVLoader(items_csv).load()
 
+        # Build amount index for O(1) order lookup
+        order_index = OrderAmountIndex(amazon_orders)
+
         for plaid_id in plaid_ids:
             plaid_txn = self._db.get_plaid_transaction(plaid_id)
             if not plaid_txn:
@@ -449,7 +453,7 @@ class SyncTool:
             # Generate new derived transactions
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
                 new_derived_data = create_split_derived_transactions(
-                    plaid_txn, amazon_orders, amazon_items
+                    plaid_txn, order_index, amazon_items
                 )
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
@@ -902,6 +906,9 @@ class SyncTool:
         amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
         amazon_items = AmazonItemsCSVLoader(items_csv).load()
 
+        # Build amount index for O(1) order lookup
+        order_index = OrderAmountIndex(amazon_orders)
+
         for plaid_id in plaid_ids:
             plaid_txn = self._db.get_plaid_transaction(plaid_id)
             if not plaid_txn:
@@ -911,7 +918,7 @@ class SyncTool:
 
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
                 new_derived_data = create_split_derived_transactions(
-                    plaid_txn, amazon_orders, amazon_items
+                    plaid_txn, order_index, amazon_items
                 )
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
