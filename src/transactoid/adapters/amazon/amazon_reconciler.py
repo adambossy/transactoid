@@ -10,8 +10,7 @@ import loguru
 from loguru import logger
 
 from transactoid.adapters.amazon.csv_loader import (
-    AmazonItemsCSVLoader,
-    AmazonOrdersCSVLoader,
+    CSVItem,
     CSVOrder,
 )
 from transactoid.adapters.db.models import (
@@ -270,7 +269,8 @@ def find_matching_amazon_order(
 
 def create_split_derived_transactions(
     plaid_txn: PlaidTransaction,
-    csv_dir: Path,
+    orders: dict[str, CSVOrder],
+    items_by_order: dict[str, list[CSVItem]],
     *,
     reconciler_logger: AmazonReconcilerLogger = _reconciler_logger,
 ) -> list[dict[str, Any]]:
@@ -280,19 +280,13 @@ def create_split_derived_transactions(
 
     Args:
         plaid_txn: Plaid transaction to split
-        csv_dir: Directory containing Amazon CSV files
+        orders: Pre-loaded Amazon orders (order_id -> CSVOrder)
+        items_by_order: Pre-loaded Amazon items (order_id -> list[CSVItem])
         reconciler_logger: Logger instance for diagnostic output
 
     Returns:
         List of derived transaction data dictionaries
     """
-    orders_csv = csv_dir / "amazon-order-history-orders.csv"
-    items_csv = csv_dir / "amazon-order-history-items.csv"
-    orders = AmazonOrdersCSVLoader(orders_csv).load()
-    items_by_order = AmazonItemsCSVLoader(items_csv).load()
-
-    reconciler_logger.csv_loaded(orders, len(items_by_order), csv_dir)
-
     order = find_matching_amazon_order(
         plaid_txn, orders, reconciler_logger=reconciler_logger
     )
