@@ -363,7 +363,12 @@ class Categorizer:
                                 "revised_score": {"type": ["number", "null"]},
                                 "revised_rationale": {"type": ["string", "null"]},
                                 "merchant_summary": {"type": ["string", "null"]},
-                                "citations": {"type": ["array", "null"]},
+                                "citations": {
+                                    "anyOf": [
+                                        {"type": "null"},
+                                        {"type": "array", "items": {"type": "string"}},
+                                    ]
+                                },
                             },
                             "required": [
                                 "idx",
