@@ -1,14 +1,12 @@
-"""Amazon CSV loader for orders and items data."""
+"""Amazon CSV loaders for orders and items data."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import csv
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-
-from loguru import logger
 
 
 @dataclass
@@ -33,133 +31,140 @@ class CSVItem:
     asin: str  # Amazon product identifier
 
 
-class AmazonCSVLoader:
-    """Loads Amazon orders and items from CSV files."""
+def _parse_cents(value: str) -> int:
+    """Parse a currency string like '$39.27' into cents (3927)."""
+    cleaned = value.replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return 0
+    return int(float(cleaned) * 100)
 
-    def __init__(self, csv_dir: Path):
-        """Initialize loader with CSV directory.
 
-        Args:
-            csv_dir: Directory containing amazon-order-history-*.csv files
-        """
-        self._csv_dir = csv_dir
+def _is_header_row(row: dict[str, str]) -> bool:
+    """Check if row is a duplicate header (appears in concatenated exports)."""
+    order_id = row.get("order id", "") or row.get("order_id", "")
+    return order_id in ("order id", "order_id")
 
-    def load_orders_and_items(
-        self,
-    ) -> tuple[dict[str, CSVOrder], dict[str, list[CSVItem]]]:
-        """Load orders and items from CSV files.
+
+class AmazonOrdersCSVLoader:
+    """Loads Amazon orders from CSV file."""
+
+    REQUIRED_COLUMNS = {"date", "total"}
+    ORDER_ID_COLUMNS = ("order id", "order_id")
+
+    def __init__(self, csv_path: Path):
+        """Initialize loader with path to orders CSV file."""
+        self._csv_path = csv_path
+
+    def load(self) -> dict[str, CSVOrder]:
+        """Load orders from CSV file.
 
         Returns:
-            Tuple of:
-            - orders: dict mapping order_id → CSVOrder
-            - items_by_order: dict mapping order_id → list[CSVItem]
+            Dict mapping order_id → CSVOrder
         """
         orders: dict[str, CSVOrder] = {}
-        items_by_order: dict[str, list[CSVItem]] = defaultdict(list)
 
-        # Check if directory exists
-        if not self._csv_dir.exists():
-            logger.warning(
-                "Amazon CSV directory not found at {}. "
-                "Amazon transactions will not be split by item. "
-                "To enable splitting, export your Amazon order history to this directory.",
-                self._csv_dir,
-            )
-            return orders, items_by_order
+        if not self._csv_path.exists():
+            return orders
 
-        # Load orders
-        orders_csv = self._csv_dir / "amazon-order-history-orders.csv"
-        if not orders_csv.exists():
-            logger.warning(
-                "Amazon orders CSV not found at {}. "
-                "Amazon transactions will not be split by item.",
-                orders_csv,
-            )
-        if orders_csv.exists():
-            with open(orders_csv) as f:
-                reader = csv.DictReader(f)
+        with open(self._csv_path, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
 
-                # Validate required columns
-                required_cols = {"order_id", "date", "total"}
-                if reader.fieldnames:
-                    found_cols = set(reader.fieldnames)
-                    missing = required_cols - found_cols
-                    if missing:
-                        logger.error(
-                            "Amazon orders CSV is missing required columns: {}. "
-                            "Found columns: {}. "
-                            "Expected columns: order_id, date, total, tax (optional), shipping (optional)",
-                            missing,
-                            reader.fieldnames,
-                        )
-                        return orders, items_by_order
+            if not self._validate_columns(reader.fieldnames or []):
+                return orders
 
-                for row in reader:
-                    # Parse total (e.g., "$39.27" → 3927 cents)
-                    total_str = row["total"].replace("$", "").replace(",", "")
-                    order_total_cents = int(float(total_str) * 100)
+            for row in reader:
+                if _is_header_row(row):
+                    continue
 
-                    # Parse tax (may be empty)
-                    tax_str = row.get("tax", "") or "0"
-                    tax_cents = int(float(tax_str.replace("$", "").replace(",", "")) * 100)
+                order = self._parse_row(row)
+                if order:
+                    orders[order.order_id] = order
 
-                    # Parse shipping (may be empty)
-                    shipping_str = row.get("shipping", "") or "0"
-                    shipping_cents = int(
-                        float(shipping_str.replace("$", "").replace(",", "")) * 100
-                    )
+        return orders
 
-                    orders[row["order_id"]] = CSVOrder(
-                        order_id=row["order_id"],
-                        order_date=datetime.strptime(row["date"], "%Y-%m-%d").date(),
-                        order_total_cents=order_total_cents,
-                        tax_cents=tax_cents,
-                        shipping_cents=shipping_cents,
-                    )
+    def _validate_columns(self, fieldnames: Sequence[str]) -> bool:
+        """Validate CSV has required columns."""
+        found = set(fieldnames)
+        has_order_id = any(col in found for col in self.ORDER_ID_COLUMNS)
+        missing = self.REQUIRED_COLUMNS - found
 
-        # Load items
-        items_csv = self._csv_dir / "amazon-order-history-items.csv"
-        if not items_csv.exists():
-            logger.warning(
-                "Amazon items CSV not found at {}. "
-                "Amazon transactions will not be split by item.",
-                items_csv,
-            )
-        if items_csv.exists():
-            with open(items_csv) as f:
-                reader = csv.DictReader(f)
+        return has_order_id and not missing
 
-                # Validate required columns
-                required_cols = {"order_id", "description", "price", "quantity", "asin"}
-                if reader.fieldnames:
-                    found_cols = set(reader.fieldnames)
-                    missing = required_cols - found_cols
-                    if missing:
-                        logger.error(
-                            "Amazon items CSV is missing required columns: {}. "
-                            "Found columns: {}. "
-                            "Expected columns: order_id, description, price, quantity, asin",
-                            missing,
-                            reader.fieldnames,
-                        )
-                        return orders, items_by_order
+    def _parse_row(self, row: dict[str, str]) -> CSVOrder | None:
+        """Parse a CSV row into a CSVOrder."""
+        order_id = row.get("order id") or row.get("order_id", "")
+        total_str = row.get("total", "")
 
-                for row in reader:
-                    # Parse price (e.g., "$37.97" → 3797 cents)
-                    price_str = row["price"].replace("$", "").replace(",", "")
-                    price_cents = int(float(price_str) * 100)
+        if not total_str.replace("$", "").replace(",", "").strip():
+            return None
 
-                    # Parse quantity
-                    quantity = int(row["quantity"])
+        return CSVOrder(
+            order_id=order_id,
+            order_date=datetime.strptime(row["date"], "%Y-%m-%d").date(),
+            order_total_cents=_parse_cents(total_str),
+            tax_cents=_parse_cents(row.get("tax", "")),
+            shipping_cents=_parse_cents(row.get("shipping", "")),
+        )
 
-                    items_by_order[row["order_id"]].append(
-                        CSVItem(
-                            order_id=row["order_id"],
-                            description=row["description"],
-                            price_cents=price_cents,
-                            quantity=quantity,
-                            asin=row["asin"],
-                        )
-                    )
 
-        return orders, items_by_order
+class AmazonItemsCSVLoader:
+    """Loads Amazon items from CSV file."""
+
+    REQUIRED_COLUMNS = {"description", "price", "quantity"}
+    ORDER_ID_COLUMNS = ("order id", "order_id")
+    ASIN_COLUMNS = ("ASIN", "asin")
+
+    def __init__(self, csv_path: Path):
+        """Initialize loader with path to items CSV file."""
+        self._csv_path = csv_path
+
+    def load(self) -> dict[str, list[CSVItem]]:
+        """Load items from CSV file.
+
+        Returns:
+            Dict mapping order_id → list[CSVItem]
+        """
+        items_by_order: dict[str, list[CSVItem]] = {}
+
+        if not self._csv_path.exists():
+            return items_by_order
+
+        with open(self._csv_path, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+
+            if not self._validate_columns(reader.fieldnames or []):
+                return items_by_order
+
+            for row in reader:
+                if _is_header_row(row):
+                    continue
+
+                item = self._parse_row(row)
+                if item:
+                    if item.order_id not in items_by_order:
+                        items_by_order[item.order_id] = []
+                    items_by_order[item.order_id].append(item)
+
+        return items_by_order
+
+    def _validate_columns(self, fieldnames: Sequence[str]) -> bool:
+        """Validate CSV has required columns."""
+        found = set(fieldnames)
+        has_order_id = any(col in found for col in self.ORDER_ID_COLUMNS)
+        has_asin = any(col in found for col in self.ASIN_COLUMNS)
+        missing = self.REQUIRED_COLUMNS - found
+
+        return has_order_id and has_asin and not missing
+
+    def _parse_row(self, row: dict[str, str]) -> CSVItem | None:
+        """Parse a CSV row into a CSVItem."""
+        order_id = row.get("order id") or row.get("order_id", "")
+        asin = row.get("ASIN") or row.get("asin", "")
+
+        return CSVItem(
+            order_id=order_id,
+            description=row["description"],
+            price_cents=_parse_cents(row["price"]),
+            quantity=int(row["quantity"]),
+            asin=asin,
+        )

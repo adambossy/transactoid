@@ -6,10 +6,16 @@ from transactoid.adapters.amazon.amazon_reconciler import (
     is_amazon_transaction,
     preserve_enrichments_by_amount,
 )
-from transactoid.adapters.amazon.csv_loader import AmazonCSVLoader, CSVItem, CSVOrder
+from transactoid.adapters.amazon.csv_loader import (
+    AmazonItemsCSVLoader,
+    AmazonOrdersCSVLoader,
+    CSVItem,
+    CSVOrder,
+)
 
 __all__ = [
-    "AmazonCSVLoader",
+    "AmazonItemsCSVLoader",
+    "AmazonOrdersCSVLoader",
     "CSVItem",
     "CSVOrder",
     "create_split_derived_transactions",

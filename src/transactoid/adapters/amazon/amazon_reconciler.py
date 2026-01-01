@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from transactoid.adapters.amazon.csv_loader import AmazonCSVLoader, CSVOrder
+from transactoid.adapters.amazon.csv_loader import (
+    AmazonItemsCSVLoader,
+    AmazonOrdersCSVLoader,
+    CSVOrder,
+)
 from transactoid.adapters.db.models import (
     DerivedTransaction,
     PlaidTransaction,
@@ -92,8 +96,10 @@ def create_split_derived_transactions(
         List of derived transaction data dictionaries
     """
     # Load Amazon CSV data
-    csv_loader = AmazonCSVLoader(csv_dir)
-    orders, items_by_order = csv_loader.load_orders_and_items()
+    orders_csv = csv_dir / "amazon-order-history-orders.csv"
+    items_csv = csv_dir / "amazon-order-history-items.csv"
+    orders = AmazonOrdersCSVLoader(orders_csv).load()
+    items_by_order = AmazonItemsCSVLoader(items_csv).load()
 
     # Find matching order
     order = find_matching_amazon_order(plaid_txn, orders)
@@ -222,12 +228,10 @@ def preserve_enrichments_by_amount(
 
                 if len(available) > 1:
                     logger.warning(
-                        f"Multiple old transactions with amount {amount}, matched first one"
+                        f"Multiple old txns with amount {amount}, matched first"
                     )
             else:
-                logger.info(
-                    f"No available match for amount {amount} (all candidates already matched)"
-                )
+                logger.info(f"No match for amount {amount} (all candidates matched)")
         else:
             logger.info(
                 f"No old transaction found with amount {amount}, using fresh data"
