@@ -79,6 +79,14 @@ class TransactionFilter(BaseModel):
     amount_max: float | None = None
 
 
+class TargetCategory(BaseModel):
+    """Target category for split operations."""
+
+    key: str
+    name: str
+    description: str | None = None
+
+
 def _render_prompt_template(
     template: str,
     *,
@@ -445,7 +453,7 @@ class Transactoid:
             source_key: str | None = None,
             target_key: str | None = None,
             source_keys: list[str] | None = None,
-            targets: list[dict[str, str | None]] | None = None,
+            targets: list[TargetCategory] | None = None,
             new_key: str | None = None,
             name: str | None = None,
             parent_key: str | None = None,
@@ -515,12 +523,9 @@ class Transactoid:
                         "success": False,
                         "error": "split requires source_key and targets",
                     }
-                target_tuples: list[tuple[str, str, str | None]] = []
-                for t in targets:
-                    key_val = t.get("key")
-                    name_val = t.get("name")
-                    if key_val is not None and name_val is not None:
-                        target_tuples.append((key_val, name_val, t.get("description")))
+                target_tuples: list[tuple[str, str, str | None]] = [
+                    (t.key, t.name, t.description) for t in targets
+                ]
                 result = self._migration_tool.split_category(source_key, target_tuples)
             else:
                 return {"success": False, "error": f"Unknown operation: {operation}"}
