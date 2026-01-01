@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from transactoid.adapters.cache.file_cache import FileCache
 from transactoid.adapters.db.facade import DB
-from transactoid.adapters.db.models import Transaction as DBTransaction
+from transactoid.adapters.db.models import DerivedTransaction as DBTransaction
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 
