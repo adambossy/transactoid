@@ -13,6 +13,7 @@ from sqlalchemy import (
     create_engine,
     text,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -871,6 +872,45 @@ class DB:
             session.refresh(plaid_txn)
             session.expunge(plaid_txn)
             return plaid_txn
+
+    def bulk_upsert_plaid_transactions(
+        self,
+        transactions: list[dict[str, Any]],
+    ) -> list[int]:
+        """Bulk insert or update Plaid transactions using PostgreSQL ON CONFLICT.
+
+        Each dict should have keys:
+            external_id, source, account_id, posted_at, amount_cents,
+            currency, merchant_descriptor, institution
+
+        Args:
+            transactions: List of transaction dicts to upsert
+
+        Returns:
+            List of plaid_transaction_ids (in same order as input)
+        """
+        if not transactions:
+            return []
+
+        with self.session() as session:  # type: Session
+            stmt = pg_insert(PlaidTransaction).values(transactions)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["external_id", "source"],
+                set_={
+                    "account_id": stmt.excluded.account_id,
+                    "posted_at": stmt.excluded.posted_at,
+                    "amount_cents": stmt.excluded.amount_cents,
+                    "currency": stmt.excluded.currency,
+                    "merchant_descriptor": stmt.excluded.merchant_descriptor,
+                    "institution": stmt.excluded.institution,
+                    "updated_at": datetime.now(),
+                },
+            ).returning(PlaidTransaction.plaid_transaction_id)
+
+            result = session.execute(stmt)
+            plaid_ids = [row[0] for row in result.fetchall()]
+            session.commit()
+            return plaid_ids
 
     def get_plaid_transaction(self, plaid_transaction_id: int) -> PlaidTransaction | None:
         """Get Plaid transaction by ID.
