@@ -1066,6 +1066,99 @@ class DB:
             session.expunge(derived_txn)
             return derived_txn
 
+    def bulk_insert_derived_transactions(
+        self,
+        data_list: list[dict[str, Any]],
+    ) -> list[int]:
+        """Bulk insert derived transactions efficiently.
+
+        Optimized for performance:
+        - Single query to resolve existing merchants
+        - Bulk creation of new merchants
+        - Bulk insert of all derived transactions
+
+        Args:
+            data_list: List of derived transaction data dictionaries with fields:
+                - plaid_transaction_id, external_id, amount_cents, posted_at
+                - merchant_descriptor (optional), merchant_id (optional)
+                - category_id (optional), is_verified (default: False)
+
+        Returns:
+            List of created transaction IDs
+        """
+        if not data_list:
+            return []
+
+        with self.session() as session:  # type: Session
+            # Step 1: Collect unique merchant descriptors
+            descriptors: set[str] = set()
+            for data in data_list:
+                if (
+                    data.get("merchant_id") is None
+                    and data.get("merchant_descriptor")
+                ):
+                    descriptors.add(normalize_merchant_name(data["merchant_descriptor"]))
+
+            # Step 2: Fetch existing merchants in single query
+            merchant_map: dict[str, int] = {}
+            if descriptors:
+                existing = (
+                    session.query(Merchant)
+                    .filter(Merchant.normalized_name.in_(descriptors))
+                    .all()
+                )
+                for m in existing:
+                    merchant_map[m.normalized_name] = m.merchant_id
+
+            # Step 3: Create missing merchants
+            new_merchants = []
+            for data in data_list:
+                if data.get("merchant_id") is None and data.get("merchant_descriptor"):
+                    normalized = normalize_merchant_name(data["merchant_descriptor"])
+                    if normalized not in merchant_map:
+                        new_merchant = Merchant(
+                            normalized_name=normalized,
+                            display_name=data["merchant_descriptor"],
+                        )
+                        new_merchants.append(new_merchant)
+                        merchant_map[normalized] = -1  # Placeholder
+
+            if new_merchants:
+                session.add_all(new_merchants)
+                session.flush()
+                # Update merchant_map with actual IDs
+                for m in new_merchants:
+                    merchant_map[m.normalized_name] = m.merchant_id
+
+            # Step 4: Prepare derived transaction objects
+            derived_txns = []
+            for data in data_list:
+                merchant_id = data.get("merchant_id")
+                if merchant_id is None and data.get("merchant_descriptor"):
+                    normalized = normalize_merchant_name(data["merchant_descriptor"])
+                    merchant_id = merchant_map.get(normalized)
+
+                derived_txn = DerivedTransaction(
+                    plaid_transaction_id=data["plaid_transaction_id"],
+                    external_id=data["external_id"],
+                    amount_cents=data["amount_cents"],
+                    posted_at=data["posted_at"],
+                    merchant_descriptor=data.get("merchant_descriptor"),
+                    merchant_id=merchant_id,
+                    category_id=data.get("category_id"),
+                    is_verified=data.get("is_verified", False),
+                )
+                derived_txns.append(derived_txn)
+
+            # Step 5: Bulk insert
+            session.add_all(derived_txns)
+            session.flush()
+
+            # Get IDs
+            transaction_ids = [txn.transaction_id for txn in derived_txns]
+
+            return transaction_ids
+
     def get_derived_by_plaid_id(
         self,
         plaid_transaction_id: int,
@@ -1161,6 +1254,30 @@ class DB:
             result = (
                 session.query(DerivedTransaction)
                 .filter(DerivedTransaction.plaid_transaction_id == plaid_transaction_id)
+                .delete(synchronize_session=False)
+            )
+            return result
+
+    def delete_derived_by_plaid_ids(
+        self,
+        plaid_transaction_ids: list[int],
+    ) -> int:
+        """Delete all derived transactions for multiple Plaid transactions.
+
+        Args:
+            plaid_transaction_ids: List of Plaid transaction IDs
+
+        Returns:
+            Number of transactions deleted
+        """
+        if not plaid_transaction_ids:
+            return 0
+        with self.session() as session:  # type: Session
+            result = (
+                session.query(DerivedTransaction)
+                .filter(
+                    DerivedTransaction.plaid_transaction_id.in_(plaid_transaction_ids)
+                )
                 .delete(synchronize_session=False)
             )
             return result
