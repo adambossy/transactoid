@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from transactoid.adapters.db.facade import DB
@@ -66,11 +67,13 @@ class RunSQLTool(StandardTool):
                 # Convert Row objects to dicts
                 rows = [dict(row._mapping) for row in result.fetchall()]
 
-                # Convert date/datetime objects to ISO format strings
+                # Convert non-JSON-serializable types
                 for row in rows:
                     for key, value in row.items():
                         if hasattr(value, "isoformat"):
                             row[key] = value.isoformat()
+                        elif isinstance(value, Decimal):
+                            row[key] = float(value)
 
                 return {
                     "status": "success",
