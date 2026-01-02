@@ -5,9 +5,9 @@ import os
 from typing import Any
 
 from agents import Agent, ModelSettings, Runner
-from chatkit.agents import AgentContext, stream_agent_response
+from chatkit.agents import AgentContext, simple_to_agent_input, stream_agent_response
 from chatkit.server import ChatKitServer
-from chatkit.types import ThreadMetadata, ThreadStreamEvent, UserMessageItem
+from chatkit.types import ThreadItem, ThreadMetadata, ThreadStreamEvent, UserMessageItem
 from dotenv import load_dotenv
 from openai.types.shared import Reasoning
 from promptorium import load_prompt
@@ -148,17 +148,26 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
         if input_user_message is None:
             return
 
-        # Extract text from user message content
-        message_text = ""
-        for content in input_user_message.content:
-            if hasattr(content, "text"):
-                message_text = content.text
-                break
+        # Load conversation history from store
+        history_page = await self.store.load_thread_items(
+            thread.id,
+            after=None,
+            limit=100,  # Load up to 100 previous items
+            order="asc",
+            context=context,
+        )
+        history_items: list[ThreadItem] = history_page.data
 
-        # Run agent with streaming
+        # Add the new user message to history
+        history_items.append(input_user_message)
+
+        # Convert thread items to agent input format
+        agent_input = await simple_to_agent_input(history_items)
+
+        # Run agent with streaming, passing full conversation history
         result = Runner.run_streamed(
             starting_agent=agent,
-            input=message_text,
+            input=agent_input,
         )
 
         # Create AgentContext for chatkit integration
