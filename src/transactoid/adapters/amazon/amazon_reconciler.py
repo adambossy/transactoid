@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,49 @@ from transactoid.adapters.db.models import (
     PlaidTransaction,
     normalize_merchant_name,
 )
+
+
+class ReconcileStatus(Enum):
+    """Status of a reconciliation attempt."""
+
+    MATCHED = auto()  # Successfully matched to order and split
+    REFUND = auto()  # Negative amount (refund/credit)
+    NO_ORDER_MATCH = auto()  # No matching order found in CSV
+    NO_ITEMS = auto()  # Order found but no items in CSV
+
+
+@dataclass
+class ReconcileStats:
+    """Tracks reconciliation statistics."""
+
+    total: int = 0
+    matched: int = 0
+    refunds: int = 0
+    no_order_match: int = 0
+    no_items: int = 0
+
+    def record(self, status: ReconcileStatus) -> None:
+        """Record a reconciliation result."""
+        self.total += 1
+        if status == ReconcileStatus.MATCHED:
+            self.matched += 1
+        elif status == ReconcileStatus.REFUND:
+            self.refunds += 1
+        elif status == ReconcileStatus.NO_ORDER_MATCH:
+            self.no_order_match += 1
+        elif status == ReconcileStatus.NO_ITEMS:
+            self.no_items += 1
+
+    def summary(self) -> str:
+        """Return a summary string of the stats."""
+        parts = [f"total={self.total}", f"matched={self.matched}"]
+        if self.refunds:
+            parts.append(f"refunds={self.refunds}")
+        if self.no_order_match:
+            parts.append(f"no_order_match={self.no_order_match}")
+        if self.no_items:
+            parts.append(f"no_items={self.no_items}")
+        return ", ".join(parts)
 
 
 class AmazonReconcilerLogger:
@@ -156,6 +201,23 @@ class AmazonReconcilerLogger:
         """Log unmatched old transactions."""
         self._logger.warning(
             "Unmatched old transactions: {} with amounts {}", count, amounts
+        )
+
+    def reconciliation_summary(self, stats: ReconcileStats) -> None:
+        """Log final reconciliation summary."""
+        if stats.total == 0:
+            return
+
+        match_rate = (stats.matched / stats.total) * 100 if stats.total > 0 else 0
+        self._logger.info(
+            "Amazon reconciliation complete: {} total, {} matched ({:.1f}%), "
+            "{} refunds, {} no order match, {} no items",
+            stats.total,
+            stats.matched,
+            match_rate,
+            stats.refunds,
+            stats.no_order_match,
+            stats.no_items,
         )
 
     def _format_near_misses(self, misses: list[tuple[CSVOrder, int, int, str]]) -> str:
@@ -343,7 +405,7 @@ def create_split_derived_transactions(
     *,
     skip_near_miss_scan: bool = False,
     reconciler_logger: AmazonReconcilerLogger = _reconciler_logger,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], ReconcileStatus]:
     """Create split derived transactions from Amazon order.
 
     Allocates tax and shipping proportionally based on item subtotals.
@@ -356,8 +418,27 @@ def create_split_derived_transactions(
         reconciler_logger: Logger instance for diagnostic output
 
     Returns:
-        List of derived transaction data dictionaries
+        Tuple of (derived transaction data list, reconciliation status)
     """
+    # Check for refund first (negative amounts in Plaid are credits/refunds)
+    # Note: Plaid amounts are negative for debits, positive for credits
+    # So a positive amount here means money coming back (refund)
+    if plaid_txn.amount_cents > 0:
+        return (
+            [
+                {
+                    "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                    "external_id": plaid_txn.external_id,
+                    "amount_cents": plaid_txn.amount_cents,
+                    "posted_at": plaid_txn.posted_at,
+                    "merchant_descriptor": plaid_txn.merchant_descriptor,
+                    "category_id": None,
+                    "is_verified": False,
+                }
+            ],
+            ReconcileStatus.REFUND,
+        )
+
     order = find_matching_amazon_order(
         plaid_txn,
         order_index,
@@ -370,32 +451,38 @@ def create_split_derived_transactions(
             abs(plaid_txn.amount_cents),
             plaid_txn.posted_at,
         )
-        return [
-            {
-                "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-                "external_id": plaid_txn.external_id,
-                "amount_cents": plaid_txn.amount_cents,
-                "posted_at": plaid_txn.posted_at,
-                "merchant_descriptor": plaid_txn.merchant_descriptor,
-                "category_id": None,
-                "is_verified": False,
-            }
-        ]
+        return (
+            [
+                {
+                    "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                    "external_id": plaid_txn.external_id,
+                    "amount_cents": plaid_txn.amount_cents,
+                    "posted_at": plaid_txn.posted_at,
+                    "merchant_descriptor": plaid_txn.merchant_descriptor,
+                    "category_id": None,
+                    "is_verified": False,
+                }
+            ],
+            ReconcileStatus.NO_ORDER_MATCH,
+        )
 
     items = items_by_order.get(order.order_id, [])
     if not items:
         reconciler_logger.no_items_for_order(order.order_id)
-        return [
-            {
-                "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-                "external_id": plaid_txn.external_id,
-                "amount_cents": plaid_txn.amount_cents,
-                "posted_at": plaid_txn.posted_at,
-                "merchant_descriptor": plaid_txn.merchant_descriptor,
-                "category_id": None,
-                "is_verified": False,
-            }
-        ]
+        return (
+            [
+                {
+                    "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                    "external_id": plaid_txn.external_id,
+                    "amount_cents": plaid_txn.amount_cents,
+                    "posted_at": plaid_txn.posted_at,
+                    "merchant_descriptor": plaid_txn.merchant_descriptor,
+                    "category_id": None,
+                    "is_verified": False,
+                }
+            ],
+            ReconcileStatus.NO_ITEMS,
+        )
 
     item_subtotals = [item.price_cents * item.quantity for item in items]
     total_items_subtotal = sum(item_subtotals)
@@ -428,7 +515,7 @@ def create_split_derived_transactions(
             }
         )
 
-    return derived_data
+    return (derived_data, ReconcileStatus.MATCHED)
 
 
 def preserve_enrichments_by_amount(
