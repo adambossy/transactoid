@@ -25,7 +25,6 @@ from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool
 from transactoid.tools.categorize.categorizer_tool import (
-    CategorizedTransaction,
     Categorizer,
 )
 from transactoid.tools.protocol import ToolInputSchema
@@ -35,11 +34,11 @@ from transactoid.tools.protocol import ToolInputSchema
 class SyncResult:
     """Result from a single sync page."""
 
-    categorized_added: list[CategorizedTransaction]
-    categorized_modified: list[CategorizedTransaction]
     removed_transaction_ids: list[str]  # Plaid transaction IDs to delete
     next_cursor: str
     has_more: bool
+    added_count: int = 0
+    modified_count: int = 0
 
 
 @dataclass
@@ -51,14 +50,6 @@ class AccumulatedTransactions:
     removed: list[dict[str, Any]]
     final_cursor: str
     pages_fetched: int
-
-
-@dataclass
-class CategorizedBatch:
-    """Results from categorizing accumulated transactions."""
-
-    categorized_added: list[CategorizedTransaction]
-    categorized_modified: list[CategorizedTransaction]
 
 
 class SyncToolLogger:
@@ -165,20 +156,62 @@ class SyncToolLogger:
             split_count,
         )
 
-    def pipeline_persist_batch(self, batch_size: int, plaid_ids_count: int) -> None:
-        """Log batch persistence in pipeline."""
-        self._logger.bind(batch_size=batch_size, plaid_ids=plaid_ids_count).debug(
-            "Persisted batch of {} transactions → {} plaid_ids",
+    def pipeline_persist_start(self, batch_size: int, batch_num: int) -> None:
+        """Log start of batch persistence in pipeline."""
+        self._logger.bind(batch_size=batch_size, batch_num=batch_num).debug(
+            "Persisting batch {} ({} transactions)...",
+            batch_num,
             batch_size,
+        )
+
+    def pipeline_persist_complete(
+        self,
+        batch_size: int,
+        plaid_ids_count: int,
+        batch_num: int,
+        elapsed_ms: int,
+    ) -> None:
+        """Log completion of batch persistence in pipeline."""
+        self._logger.bind(
+            batch_size=batch_size,
+            plaid_ids=plaid_ids_count,
+            batch_num=batch_num,
+            elapsed_ms=elapsed_ms,
+        ).debug(
+            "Persisted batch {} ({} transactions → {} plaid_ids) in {}ms",
+            batch_num,
+            batch_size,
+            plaid_ids_count,
+            elapsed_ms,
+        )
+
+    def pipeline_mutate_start(self, plaid_ids_count: int, batch_num: int) -> None:
+        """Log start of batch mutation in pipeline."""
+        self._logger.bind(plaid_ids=plaid_ids_count, batch_num=batch_num).debug(
+            "Mutating batch {} ({} plaid_ids)...",
+            batch_num,
             plaid_ids_count,
         )
 
-    def pipeline_mutate_batch(self, plaid_ids_count: int, derived_ids_count: int) -> None:
-        """Log batch mutation in pipeline."""
-        self._logger.bind(plaid_ids=plaid_ids_count, derived_ids=derived_ids_count).debug(
-            "Mutated {} plaid_ids → {} derived_ids",
+    def pipeline_mutate_complete(
+        self,
+        plaid_ids_count: int,
+        derived_ids_count: int,
+        batch_num: int,
+        elapsed_ms: int,
+    ) -> None:
+        """Log completion of batch mutation in pipeline."""
+        self._logger.bind(
+            plaid_ids=plaid_ids_count,
+            derived_ids=derived_ids_count,
+            batch_num=batch_num,
+            elapsed_ms=elapsed_ms,
+        ).debug(
+            "Mutated batch {} ({} plaid_ids → {} derived_ids) in {}ms",
+            batch_num,
             plaid_ids_count,
             derived_ids_count,
+            elapsed_ms,
         )
 
 
@@ -556,79 +589,11 @@ class SyncTool:
             if category_id:
                 self._db.update_derived_category(transaction_id, category_id)
 
-    async def _categorize_accumulated(
+    def _build_sync_result_from_accumulated(
         self,
-        accumulated: AccumulatedTransactions,
-    ) -> CategorizedBatch:
-        """
-        Categorize all accumulated transactions using LLM.
-
-        Processes added and modified transactions concurrently using
-        the existing Categorizer with its semaphore limiting. Categorization
-        is batched with 25 transactions per batch to manage LLM context size.
-
-        Args:
-            accumulated: All transactions from Plaid sync
-
-        Returns:
-            CategorizedBatch with categorized results
-        """
-        total_txns = len(accumulated.added) + len(accumulated.modified)
-        self._logger.categorization_start(
-            total_txns, len(accumulated.added), len(accumulated.modified)
-        )
-
-        # Categorize added and modified concurrently with batch_size=25
-        categorized_added, categorized_modified = await asyncio.gather(
-            self._categorizer.categorize(accumulated.added, batch_size=25),
-            self._categorizer.categorize(accumulated.modified, batch_size=25),
-        )
-
-        return CategorizedBatch(
-            categorized_added=categorized_added,
-            categorized_modified=categorized_modified,
-        )
-
-    def _persist_all(
-        self,
-        categorized: CategorizedBatch,
-        removed: list[dict[str, Any]],
-    ) -> None:
-        """
-        Persist all categorized transactions to database.
-
-        Args:
-            categorized: All categorized transactions
-            removed: Removed transaction data from Plaid
-        """
-        # Combine all categorized transactions
-        all_categorized = (
-            categorized.categorized_added + categorized.categorized_modified
-        )
-
-        # Extract removed transaction IDs
-        removed_ids = [
-            item.get("transaction_id", "")
-            for item in removed
-            if item.get("transaction_id")
-        ]
-
-        # Persist to database
-        if all_categorized:
-            self._logger.persistence_start(len(all_categorized))
-            category_lookup = lambda key: get_category_id(self._db, self._taxonomy, key)
-            self._db.save_transactions(category_lookup, all_categorized)
-
-        if removed_ids:
-            self._logger.deletion_start(len(removed_ids))
-            self._db.delete_transactions_by_external_ids(removed_ids, source="PLAID")
-
-    def _build_sync_result(
-        self,
-        categorized: CategorizedBatch,
         accumulated: AccumulatedTransactions,
     ) -> SyncResult:
-        """Build SyncResult from categorized batch and accumulated data."""
+        """Build SyncResult from accumulated data (categorization persisted to DB)."""
         removed_ids = [
             item.get("transaction_id", "")
             for item in accumulated.removed
@@ -636,11 +601,11 @@ class SyncTool:
         ]
 
         return SyncResult(
-            categorized_added=categorized.categorized_added,
-            categorized_modified=categorized.categorized_modified,
             removed_transaction_ids=removed_ids,
             next_cursor=accumulated.final_cursor,
-            has_more=False,  # Always False after fetching all pages
+            has_more=False,
+            added_count=len(accumulated.added),
+            modified_count=len(accumulated.modified),
         )
 
     async def _sync_async(
@@ -776,7 +741,10 @@ class SyncTool:
                 await persist_queue.put(None)  # Signal done
 
         async def persist_consumer() -> None:
-            """Consume from persist_queue, persist to plaid_transactions, push to mutate_queue."""
+            """Persist batches to plaid_transactions, push IDs to mutate_queue."""
+            import time
+
+            batch_num = 0
             try:
                 while True:
                     batch = await persist_queue.get()
@@ -786,8 +754,17 @@ class SyncTool:
                     if pipeline_error:
                         break  # Abort if fetch failed
 
+                    batch_num += 1
+                    self._logger.pipeline_persist_start(len(batch), batch_num)
+                    start_time = time.monotonic()
                     plaid_ids = self._persist_batch_to_plaid(batch)
-                    self._logger.pipeline_persist_batch(len(batch), len(plaid_ids))
+                    elapsed_ms = int((time.monotonic() - start_time) * 1000)
+                    self._logger.pipeline_persist_complete(
+                        len(batch),
+                        len(plaid_ids),
+                        batch_num,
+                        elapsed_ms,
+                    )
                     if plaid_ids:
                         await mutate_queue.put(plaid_ids)
 
@@ -799,7 +776,10 @@ class SyncTool:
 
         async def mutate_consumer() -> None:
             """Consume from mutate_queue, create derived transactions."""
+            import time
+
             nonlocal all_derived_ids
+            batch_num = 0
             try:
                 while True:
                     plaid_ids = await mutate_queue.get()
@@ -809,8 +789,17 @@ class SyncTool:
                     if pipeline_error:
                         break  # Abort if upstream failed
 
+                    batch_num += 1
+                    self._logger.pipeline_mutate_start(len(plaid_ids), batch_num)
+                    start_time = time.monotonic()
                     derived_ids = self._mutate_batch_to_derived(plaid_ids)
-                    self._logger.pipeline_mutate_batch(len(plaid_ids), len(derived_ids))
+                    elapsed_ms = int((time.monotonic() - start_time) * 1000)
+                    self._logger.pipeline_mutate_complete(
+                        len(plaid_ids),
+                        len(derived_ids),
+                        batch_num,
+                        elapsed_ms,
+                    )
                     all_derived_ids.extend(derived_ids)
 
             except Exception as e:
@@ -845,9 +834,7 @@ class SyncTool:
         if all_derived_ids:
             await self._categorize_derived(all_derived_ids)
 
-        # Build result for backward compatibility
-        categorized = await self._categorize_accumulated(accumulated)
-        return [self._build_sync_result(categorized, accumulated)]
+        return [self._build_sync_result_from_accumulated(accumulated)]
 
     def _persist_batch_to_plaid(self, batch: list[Transaction]) -> list[int]:
         """
