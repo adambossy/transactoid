@@ -14,10 +14,12 @@ from transactoid.adapters.amazon import (
     AmazonItemsCSVLoader,
     AmazonOrdersCSVLoader,
     OrderAmountIndex,
+    ReconcileStats,
     create_split_derived_transactions,
     is_amazon_transaction,
     preserve_enrichments_by_amount,
 )
+from transactoid.adapters.amazon.amazon_reconciler import _reconciler_logger
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
@@ -473,6 +475,9 @@ class SyncTool:
         # Build amount index for O(1) order lookup
         order_index = OrderAmountIndex(amazon_orders)
 
+        # Track reconciliation stats
+        reconcile_stats = ReconcileStats()
+
         for plaid_id in plaid_ids:
             plaid_txn = self._db.get_plaid_transaction(plaid_id)
             if not plaid_txn:
@@ -483,12 +488,13 @@ class SyncTool:
 
             # Generate new derived transactions
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
-                new_derived_data = create_split_derived_transactions(
+                new_derived_data, status = create_split_derived_transactions(
                     plaid_txn,
                     order_index,
                     amazon_items,
                     skip_near_miss_scan=True,
                 )
+                reconcile_stats.record(status)
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
                         plaid_txn.external_id, len(new_derived_data)
@@ -519,6 +525,9 @@ class SyncTool:
             for data in new_derived_data:
                 derived_txn = self._db.insert_derived_transaction(data)
                 derived_ids.append(derived_txn.transaction_id)
+
+        # Log reconciliation summary
+        _reconciler_logger.reconciliation_summary(reconcile_stats)
 
         return derived_ids
 
@@ -905,6 +914,9 @@ class SyncTool:
         # Build amount index for O(1) order lookup
         order_index = OrderAmountIndex(amazon_orders)
 
+        # Track reconciliation stats
+        reconcile_stats = ReconcileStats()
+
         # Batch fetch all plaid transactions and old derived in 2 queries
         plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
         old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
@@ -921,12 +933,13 @@ class SyncTool:
             old_derived = old_derived_map.get(plaid_id, [])
 
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
-                new_derived_data = create_split_derived_transactions(
+                new_derived_data, status = create_split_derived_transactions(
                     plaid_txn,
                     order_index,
                     amazon_items,
                     skip_near_miss_scan=True,
                 )
+                reconcile_stats.record(status)
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
                         plaid_txn.external_id, len(new_derived_data)
@@ -958,6 +971,9 @@ class SyncTool:
 
         # Bulk insert all new derived in single call
         derived_ids = self._db.bulk_insert_derived_transactions(all_new_derived_data)
+
+        # Log reconciliation summary
+        _reconciler_logger.reconciliation_summary(reconcile_stats)
 
         return derived_ids
 
