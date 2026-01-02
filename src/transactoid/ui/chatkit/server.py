@@ -182,8 +182,8 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
             yield event
 
 
-def main() -> None:
-    """Main entry point for ChatKit server."""
+def create_app():
+    """Create and configure the FastAPI application."""
     from chatkit.server import StreamingResult
     from fastapi import FastAPI, Request, Response
     from fastapi.middleware.cors import CORSMiddleware
@@ -236,10 +236,20 @@ def main() -> None:
             return StreamingResponse(result, media_type="text/event-stream")
         return Response(content=result.json, media_type="application/json")
 
-    # Run the FastAPI server
+    return app
+
+
+def main() -> None:
+    """Main entry point for ChatKit server."""
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)  # noqa: S104
+    uvicorn.run(
+        "transactoid.ui.chatkit.server:create_app",
+        host="0.0.0.0",  # noqa: S104
+        port=8000,
+        reload=True,
+        factory=True,
+    )
 
 
 if __name__ == "__main__":
