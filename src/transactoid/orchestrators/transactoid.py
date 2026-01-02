@@ -18,8 +18,8 @@ from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
-from transactoid.adapters.db.facade import DB
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
+from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
@@ -294,8 +294,8 @@ class Transactoid:
             results = sync_tool.sync()
 
             # Aggregate results
-            total_added = sum(len(r.categorized_added) for r in results)
-            total_modified = sum(len(r.categorized_modified) for r in results)
+            total_added = sum(r.added_count for r in results)
+            total_modified = sum(r.modified_count for r in results)
             total_removed = sum(len(r.removed_transaction_ids) for r in results)
 
             return {

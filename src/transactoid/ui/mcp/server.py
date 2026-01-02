@@ -74,8 +74,8 @@ def sync_transactions(count: int = 25) -> dict[str, Any]:
         results = sync_tool.sync(count=count)
 
         # Aggregate results
-        total_added = sum(len(r.categorized_added) for r in results)
-        total_modified = sum(len(r.categorized_modified) for r in results)
+        total_added = sum(r.added_count for r in results)
+        total_modified = sum(r.modified_count for r in results)
         total_removed = sum(len(r.removed_transaction_ids) for r in results)
 
         return {
