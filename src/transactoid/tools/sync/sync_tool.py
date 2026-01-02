@@ -906,6 +906,10 @@ class SyncTool:
         plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
         old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
 
+        # Collect all derived data and plaid_ids to delete
+        all_new_derived_data: list[dict[str, Any]] = []
+        plaid_ids_to_delete: list[int] = []
+
         for plaid_id in plaid_ids:
             plaid_txn = plaid_txns_map.get(plaid_id)
             if not plaid_txn:
@@ -941,11 +945,16 @@ class SyncTool:
                 new_derived_data = preserve_enrichments_by_amount(
                     old_derived, new_derived_data
                 )
-                self._db.delete_derived_by_plaid_id(plaid_id)
+                plaid_ids_to_delete.append(plaid_id)
 
-            for data in new_derived_data:
-                derived_txn = self._db.insert_derived_transaction(data)
-                derived_ids.append(derived_txn.transaction_id)
+            all_new_derived_data.extend(new_derived_data)
+
+        # Bulk delete old derived in single query
+        if plaid_ids_to_delete:
+            self._db.delete_derived_by_plaid_ids(plaid_ids_to_delete)
+
+        # Bulk insert all new derived in single call
+        derived_ids = self._db.bulk_insert_derived_transactions(all_new_derived_data)
 
         return derived_ids
 
