@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Benchmark script for measuring mutation phase performance."""
 
-import time
+from __future__ import annotations
+
 from pathlib import Path
+import time
 
 from transactoid.adapters.amazon import (
     AmazonItemsCSVLoader,
@@ -64,7 +66,7 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
         # Time DB reads
         start = time.monotonic()
         plaid_txn = db.get_plaid_transaction(plaid_id)
-        old_derived = db.get_derived_by_plaid_id(plaid_id)
+        _ = db.get_derived_by_plaid_id(plaid_id)  # Benchmark includes this read
         db_read_total_ms += (time.monotonic() - start) * 1000
 
         if plaid_txn and is_amazon_transaction(plaid_txn.merchant_descriptor):
@@ -73,14 +75,16 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
             _ = create_split_derived_transactions(plaid_txn, order_index, amazon_items)
             amazon_reconcile_ms += (time.monotonic() - start) * 1000
 
+    db_read_avg = db_read_total_ms / len(plaid_ids) if plaid_ids else 0
+    reconcile_avg = amazon_reconcile_ms / amazon_count if amazon_count else 0
     metrics = {
         "plaid_ids_processed": len(plaid_ids),
         "amazon_transactions": amazon_count,
         "csv_load_ms": csv_load_ms,
         "db_read_total_ms": db_read_total_ms,
-        "db_read_avg_ms": db_read_total_ms / len(plaid_ids) if plaid_ids else 0,
+        "db_read_avg_ms": db_read_avg,
         "amazon_reconcile_total_ms": amazon_reconcile_ms,
-        "amazon_reconcile_avg_ms": amazon_reconcile_ms / amazon_count if amazon_count else 0,
+        "amazon_reconcile_avg_ms": reconcile_avg,
     }
 
     print("\n=== Mutation Benchmark Results ===")
@@ -90,7 +94,8 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
     print(f"DB reads total: {metrics['db_read_total_ms']:.1f}ms")
     print(f"DB reads avg: {metrics['db_read_avg_ms']:.2f}ms per transaction")
     print(f"Amazon reconcile total: {metrics['amazon_reconcile_total_ms']:.1f}ms")
-    print(f"Amazon reconcile avg: {metrics['amazon_reconcile_avg_ms']:.2f}ms per Amazon txn")
+    avg_ms = metrics["amazon_reconcile_avg_ms"]
+    print(f"Amazon reconcile avg: {avg_ms:.2f}ms per Amazon txn")
 
     return metrics
 
