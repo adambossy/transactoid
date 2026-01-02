@@ -931,6 +931,31 @@ class DB:
                 session.expunge(plaid_txn)
             return plaid_txn
 
+    def get_plaid_transactions_by_ids(
+        self,
+        plaid_transaction_ids: list[int],
+    ) -> dict[int, PlaidTransaction]:
+        """Get multiple Plaid transactions by IDs in a single query.
+
+        Args:
+            plaid_transaction_ids: List of Plaid transaction IDs
+
+        Returns:
+            Dict mapping plaid_transaction_id to PlaidTransaction instance
+        """
+        if not plaid_transaction_ids:
+            return {}
+
+        with self.session() as session:  # type: Session
+            plaid_txns = (
+                session.query(PlaidTransaction)
+                .filter(PlaidTransaction.plaid_transaction_id.in_(plaid_transaction_ids))
+                .all()
+            )
+            for txn in plaid_txns:
+                session.expunge(txn)
+            return {txn.plaid_transaction_id: txn for txn in plaid_txns}
+
     def get_plaid_transaction_by_external(
         self,
         external_id: str,
@@ -1062,6 +1087,38 @@ class DB:
             for txn in derived_txns:
                 session.expunge(txn)
             return derived_txns
+
+    def get_derived_by_plaid_ids(
+        self,
+        plaid_transaction_ids: list[int],
+    ) -> dict[int, list[DerivedTransaction]]:
+        """Get all derived transactions for multiple Plaid transactions in a single query.
+
+        Args:
+            plaid_transaction_ids: List of Plaid transaction IDs
+
+        Returns:
+            Dict mapping plaid_transaction_id to list of DerivedTransaction instances
+        """
+        if not plaid_transaction_ids:
+            return {}
+
+        with self.session() as session:  # type: Session
+            derived_txns = (
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.plaid_transaction_id.in_(plaid_transaction_ids))
+                .all()
+            )
+            for txn in derived_txns:
+                session.expunge(txn)
+
+            # Group by plaid_transaction_id
+            result: dict[int, list[DerivedTransaction]] = {
+                pid: [] for pid in plaid_transaction_ids
+            }
+            for txn in derived_txns:
+                result[txn.plaid_transaction_id].append(txn)
+            return result
 
     def get_derived_transactions_by_ids(
         self,
