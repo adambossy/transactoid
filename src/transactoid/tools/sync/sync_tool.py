@@ -485,7 +485,10 @@ class SyncTool:
             # Generate new derived transactions
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
                 new_derived_data = create_split_derived_transactions(
-                    plaid_txn, order_index, amazon_items
+                    plaid_txn,
+                    order_index,
+                    amazon_items,
+                    skip_near_miss_scan=True,
                 )
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
@@ -912,7 +915,10 @@ class SyncTool:
 
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
                 new_derived_data = create_split_derived_transactions(
-                    plaid_txn, order_index, amazon_items
+                    plaid_txn,
+                    order_index,
+                    amazon_items,
+                    skip_near_miss_scan=True,
                 )
                 if len(new_derived_data) > 1:
                     self._logger.amazon_split(
