@@ -22,6 +22,7 @@ from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.categorize.categorizer_tool import Categorizer
+from transactoid.tools.migrate.migration_tool import MigrationTool
 from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
@@ -75,6 +76,14 @@ class TransactionFilter(BaseModel):
     merchant: str | None = None
     amount_min: float | None = None
     amount_max: float | None = None
+
+
+class TargetCategory(BaseModel):
+    """Target category for split operations."""
+
+    key: str
+    name: str
+    description: str | None = None
 
 
 def _render_prompt_template(
@@ -147,6 +156,7 @@ class Transactoid:
         self._taxonomy = taxonomy
         self._categorizer = Categorizer(taxonomy)
         self._persist_tool = PersistTool(db, taxonomy)
+        self._migration_tool = MigrationTool(db, taxonomy, self._categorizer)
         self._plaid_client = plaid_client
 
     def _ensure_plaid_client(
@@ -425,6 +435,100 @@ class Transactoid:
                 "message": "Tagging requires filter parsing",
             }
 
+        @function_tool
+        def migrate_taxonomy(
+            operation: str,
+            source_key: str | None = None,
+            target_key: str | None = None,
+            source_keys: list[str] | None = None,
+            targets: list[TargetCategory] | None = None,
+            new_key: str | None = None,
+            name: str | None = None,
+            parent_key: str | None = None,
+            description: str | None = None,
+            fallback_key: str | None = None,
+            recategorize: bool = False,
+        ) -> dict[str, Any]:
+            """
+            Perform taxonomy migrations: rename, merge, split, add, or remove.
+
+            Operations:
+            - add: Add new category (key, name, parent_key, description)
+            - remove: Remove category (source_key, fallback_key if has txns)
+            - rename: Rename category (source_key, new_key)
+            - merge: Merge categories (source_keys, target_key, recategorize)
+            - split: Split category (source_key, targets list)
+
+            When transactions are recategorized:
+            - Verified with confidence >= 0.70 keep verified status
+            - Verified with confidence < 0.70 are demoted to unverified
+
+            Args:
+                operation: One of "add", "remove", "rename", "merge", "split"
+                source_key: Key of category to modify (remove/rename/split)
+                target_key: Target category key (merge)
+                source_keys: List of source keys (merge)
+                targets: List of {key, name, description} dicts (split)
+                new_key: New key name (rename)
+                name: Display name (add)
+                parent_key: Parent category key (add)
+                description: Category description (add)
+                fallback_key: Fallback for reassignment (remove)
+                recategorize: Run LLM recategorization (merge)
+
+            Returns:
+                Migration result with success status and summary
+            """
+            if operation == "add":
+                if not new_key or not name:
+                    return {"success": False, "error": "add requires key and name"}
+                result = self._migration_tool.add_category(
+                    new_key, name, parent_key, description
+                )
+            elif operation == "remove":
+                if not source_key:
+                    return {"success": False, "error": "remove requires source_key"}
+                result = self._migration_tool.remove_category(source_key, fallback_key)
+            elif operation == "rename":
+                if not source_key or not new_key:
+                    return {
+                        "success": False,
+                        "error": "rename requires source_key and new_key",
+                    }
+                result = self._migration_tool.rename_category(source_key, new_key)
+            elif operation == "merge":
+                if not source_keys or not target_key:
+                    return {
+                        "success": False,
+                        "error": "merge requires source_keys and target_key",
+                    }
+                result = self._migration_tool.merge_categories(
+                    source_keys, target_key, recategorize=recategorize
+                )
+            elif operation == "split":
+                if not source_key or not targets:
+                    return {
+                        "success": False,
+                        "error": "split requires source_key and targets",
+                    }
+                target_tuples: list[tuple[str, str, str | None]] = [
+                    (t.key, t.name, t.description) for t in targets
+                ]
+                result = self._migration_tool.split_category(source_key, target_tuples)
+            else:
+                return {"success": False, "error": f"Unknown operation: {operation}"}
+
+            return {
+                "success": result.success,
+                "operation": result.operation,
+                "affected_transactions": result.affected_transaction_count,
+                "recategorized": result.recategorized_count,
+                "verified_retained": result.verified_retained_count,
+                "verified_demoted": result.verified_demoted_count,
+                "errors": result.errors,
+                "summary": result.summary,
+            }
+
         # Create Agent instance
         return Agent(
             name="Transactoid",
@@ -437,6 +541,7 @@ class Transactoid:
                 list_accounts,
                 update_category_for_transaction_groups,
                 tag_transactions,
+                migrate_taxonomy,
                 WebSearchTool(),
             ],
             model_settings=ModelSettings(
