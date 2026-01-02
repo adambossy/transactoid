@@ -463,13 +463,12 @@ class SyncTool:
         self._logger.mutation_start(len(plaid_ids))
 
         derived_ids: list[int] = []
-        csv_dir = amazon_csv_dir or Path(".transactions/amazon")
+        csv_dir = amazon_csv_dir or Path(".transactions/amazon").resolve()
 
         # Load Amazon CSVs once for the entire batch
-        orders_csv = csv_dir / "amazon-order-history-orders.csv"
-        items_csv = csv_dir / "amazon-order-history-items.csv"
-        amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
-        amazon_items = AmazonItemsCSVLoader(items_csv).load()
+        # Loaders expect a directory and glob for files matching their prefix
+        amazon_orders = AmazonOrdersCSVLoader(csv_dir).load()
+        amazon_items = AmazonItemsCSVLoader(csv_dir).load()
 
         # Build amount index for O(1) order lookup
         order_index = OrderAmountIndex(amazon_orders)
@@ -880,24 +879,28 @@ class SyncTool:
 
         return self._db.bulk_upsert_plaid_transactions(txn_dicts)
 
-    def _mutate_batch_to_derived(self, plaid_ids: list[int]) -> list[int]:
+    def _mutate_batch_to_derived(
+        self,
+        plaid_ids: list[int],
+        amazon_csv_dir: Path | None = None,
+    ) -> list[int]:
         """
         Create derived transactions for a batch of plaid_transaction_ids.
 
         Args:
             plaid_ids: List of plaid_transaction_ids to process
+            amazon_csv_dir: Directory containing Amazon CSV files (optional)
 
         Returns:
             List of derived transaction_ids that were created
         """
         derived_ids: list[int] = []
-        csv_dir = Path(".transactions/amazon")
+        csv_dir = amazon_csv_dir or Path(".transactions/amazon").resolve()
 
         # Load Amazon CSVs once for the entire batch
-        orders_csv = csv_dir / "amazon-order-history-orders.csv"
-        items_csv = csv_dir / "amazon-order-history-items.csv"
-        amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
-        amazon_items = AmazonItemsCSVLoader(items_csv).load()
+        # Loaders expect a directory and glob for files matching their prefix
+        amazon_orders = AmazonOrdersCSVLoader(csv_dir).load()
+        amazon_items = AmazonItemsCSVLoader(csv_dir).load()
 
         # Build amount index for O(1) order lookup
         order_index = OrderAmountIndex(amazon_orders)

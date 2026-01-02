@@ -419,7 +419,7 @@ def create_split_derived_transactions(
         derived_data.append(
             {
                 "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-                "external_id": f"{plaid_txn.external_id}-{item.asin}",
+                "external_id": f"{plaid_txn.external_id}-{item.asin}-{idx}",
                 "amount_cents": item_allocated,
                 "posted_at": plaid_txn.posted_at,
                 "merchant_descriptor": f"Amazon: {item.description[:50]}",

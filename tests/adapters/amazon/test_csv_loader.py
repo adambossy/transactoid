@@ -13,11 +13,9 @@ from transactoid.adapters.amazon.csv_loader import (
     CSVOrder,
 )
 
-# Path to the actual Amazon CSV files in the project
+# Path to the Amazon CSV directory
 # test_csv_loader.py -> amazon -> adapters -> tests -> amazon-splitting
 AMAZON_CSV_DIR = Path(__file__).parents[3] / ".transactions" / "amazon"
-ORDERS_CSV = AMAZON_CSV_DIR / "amazon-order-history-orders.csv"
-ITEMS_CSV = AMAZON_CSV_DIR / "amazon-order-history-items.csv"
 
 
 class TestAmazonOrdersCSVLoader:
@@ -25,10 +23,11 @@ class TestAmazonOrdersCSVLoader:
 
     @pytest.fixture
     def loader(self) -> AmazonOrdersCSVLoader:
-        return AmazonOrdersCSVLoader(ORDERS_CSV)
+        return AmazonOrdersCSVLoader(AMAZON_CSV_DIR)
 
     def test_orders_csv_exists(self) -> None:
-        assert ORDERS_CSV.exists(), f"Orders CSV not found: {ORDERS_CSV}"
+        orders_files = list(AMAZON_CSV_DIR.glob("amazon-order-history-orders*.csv"))
+        assert len(orders_files) > 0, f"No orders CSVs found in: {AMAZON_CSV_DIR}"
 
     def test_load_returns_non_empty_dict(self, loader: AmazonOrdersCSVLoader) -> None:
         orders = loader.load()
@@ -58,8 +57,8 @@ class TestAmazonOrdersCSVLoader:
         assert order.tax_cents == 320  # $3.20
         assert order.shipping_cents == 0
 
-    def test_missing_file_returns_empty_dict(self, tmp_path: Path) -> None:
-        loader = AmazonOrdersCSVLoader(tmp_path / "nonexistent.csv")
+    def test_missing_dir_returns_empty_dict(self, tmp_path: Path) -> None:
+        loader = AmazonOrdersCSVLoader(tmp_path / "nonexistent")
 
         orders = loader.load()
 
@@ -71,10 +70,11 @@ class TestAmazonItemsCSVLoader:
 
     @pytest.fixture
     def loader(self) -> AmazonItemsCSVLoader:
-        return AmazonItemsCSVLoader(ITEMS_CSV)
+        return AmazonItemsCSVLoader(AMAZON_CSV_DIR)
 
     def test_items_csv_exists(self) -> None:
-        assert ITEMS_CSV.exists(), f"Items CSV not found: {ITEMS_CSV}"
+        items_files = list(AMAZON_CSV_DIR.glob("amazon-order-history-items*.csv"))
+        assert len(items_files) > 0, f"No items CSVs found in: {AMAZON_CSV_DIR}"
 
     def test_load_returns_non_empty_dict(self, loader: AmazonItemsCSVLoader) -> None:
         items_by_order = loader.load()
@@ -110,8 +110,8 @@ class TestAmazonItemsCSVLoader:
         assert item.quantity == 1
         assert item.asin == "B0725BK81G"
 
-    def test_missing_file_returns_empty_dict(self, tmp_path: Path) -> None:
-        loader = AmazonItemsCSVLoader(tmp_path / "nonexistent.csv")
+    def test_missing_dir_returns_empty_dict(self, tmp_path: Path) -> None:
+        loader = AmazonItemsCSVLoader(tmp_path / "nonexistent")
 
         items = loader.load()
 
@@ -122,8 +122,8 @@ class TestLoadersIntegration:
     """Tests that verify orders and items can be linked together."""
 
     def test_items_linked_to_orders(self) -> None:
-        orders = AmazonOrdersCSVLoader(ORDERS_CSV).load()
-        items_by_order = AmazonItemsCSVLoader(ITEMS_CSV).load()
+        orders = AmazonOrdersCSVLoader(AMAZON_CSV_DIR).load()
+        items_by_order = AmazonItemsCSVLoader(AMAZON_CSV_DIR).load()
 
         matched_count = sum(1 for order_id in items_by_order if order_id in orders)
 
