@@ -1,7 +1,5 @@
 """ChatKit server exposing Transactoid tools via OpenAI ChatKit SDK."""
 
-from __future__ import annotations
-
 from collections.abc import AsyncIterator
 import os
 from typing import Any
@@ -194,16 +192,37 @@ def main() -> None:
     # Add CORS middleware for local development
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    @app.get("/debug")
+    async def debug_routes() -> dict[str, list[str]]:
+        """List all registered routes."""
+        routes = [r.path for r in app.routes]
+        return {"routes": routes}
+
     @app.post("/chatkit")
-    async def chatkit_endpoint(request: Request) -> Response:
+    async def chatkit_endpoint(req: Request):
         """ChatKit endpoint that processes requests."""
-        result = await server.process(await request.body(), context={})
+        body = await req.body()
+        print(f"Request method: {req.method}")
+        print(f"Request headers: {dict(req.headers)}")
+        print(f"Request body: {body[:500] if body else b'empty'}")
+
+        if not body:
+            return Response(
+                content='{"error": "No request body"}',
+                media_type="application/json",
+                status_code=400,
+            )
+
+        result = await server.process(body, context={})
         if isinstance(result, StreamingResult):
             return StreamingResponse(result, media_type="text/event-stream")
         return Response(content=result.json, media_type="application/json")
