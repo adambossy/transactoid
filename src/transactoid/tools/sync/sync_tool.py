@@ -840,6 +840,8 @@ class SyncTool:
         """
         Persist a batch of transactions to plaid_transactions table.
 
+        Uses bulk upsert for performance (single DB round-trip instead of N).
+
         Args:
             batch: List of Plaid transactions to persist
 
@@ -848,8 +850,8 @@ class SyncTool:
         """
         from datetime import datetime
 
-        plaid_ids: list[int] = []
-
+        # Transform batch into dicts for bulk upsert
+        txn_dicts: list[dict[str, object]] = []
         for txn in batch:
             posted_at_str = txn.get("date", "")
             try:
@@ -860,19 +862,21 @@ class SyncTool:
             amount = txn.get("amount", 0.0)
             amount_cents = int(amount * 100)
 
-            plaid_txn = self._db.upsert_plaid_transaction(
-                external_id=txn.get("transaction_id", ""),
-                source="PLAID",
-                account_id=txn.get("account_id", ""),
-                posted_at=posted_at,
-                amount_cents=amount_cents,
-                currency=txn.get("iso_currency_code") or "USD",
-                merchant_descriptor=txn.get("merchant_name") or txn.get("name"),
-                institution=None,
-            )
-            plaid_ids.append(plaid_txn.plaid_transaction_id)
+            txn_dicts.append({
+                "external_id": txn.get("transaction_id", ""),
+                "source": "PLAID",
+                "account_id": txn.get("account_id", ""),
+                "posted_at": posted_at,
+                "amount_cents": amount_cents,
+                "currency": txn.get("iso_currency_code") or "USD",
+                "merchant_descriptor": txn.get("merchant_name") or txn.get("name"),
+                "institution": None,
+            })
 
-        return plaid_ids
+        if not txn_dicts:
+            return []
+
+        return self._db.bulk_upsert_plaid_transactions(txn_dicts)
 
     def _mutate_batch_to_derived(self, plaid_ids: list[int]) -> list[int]:
         """
