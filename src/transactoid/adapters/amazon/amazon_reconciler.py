@@ -262,7 +262,7 @@ def _build_mismatch_reason(
 def find_matching_amazon_order(
     plaid_txn: PlaidTransaction,
     order_index: OrderAmountIndex,
-    date_tolerance_days: int = 3,
+    date_tolerance_days: int = 30,
     amount_tolerance_cents: int = 50,
     *,
     skip_near_miss_scan: bool = False,
@@ -280,7 +280,7 @@ def find_matching_amazon_order(
     Args:
         plaid_txn: Plaid transaction to match
         order_index: Pre-built amount index for fast order lookup
-        date_tolerance_days: Maximum date difference in days (default: 3)
+        date_tolerance_days: Maximum date difference in days (default: 30)
         amount_tolerance_cents: Maximum amount difference in cents (default: 50)
         skip_near_miss_scan: Skip O(n) near-miss scan for performance (default: False)
         reconciler_logger: Logger instance for diagnostic output

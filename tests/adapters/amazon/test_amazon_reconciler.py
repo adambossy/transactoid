@@ -125,8 +125,8 @@ class TestFindMatchingAmazonOrder:
 
     def test_near_miss_scan_enabled_by_default(self) -> None:
         # Input - no match scenario with close order for near-miss detection
-        # Order has close amount but date outside tolerance (triggers near-miss)
-        order = create_csv_order("order-1", 5500, date(2024, 1, 20))
+        # Order has close amount but date outside 30-day tolerance (triggers near-miss)
+        order = create_csv_order("order-1", 5500, date(2024, 3, 1))
         plaid_txn = create_plaid_txn(1, "ext-1", -5000, date(2024, 1, 15))
 
         # Setup
