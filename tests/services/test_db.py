@@ -719,3 +719,154 @@ def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
     # Should be in SQL order (DESC by amount_cents)
     assert results[0].transaction_id == txn2.transaction_id
     assert results[1].transaction_id == txn1.transaction_id
+
+
+def test_get_plaid_transactions_by_ids_returns_dict() -> None:
+    """Test bulk fetch of Plaid transactions returns dict keyed by ID."""
+    db = create_db()
+
+    # Create plaid transactions
+    plaid1 = db.upsert_plaid_transaction(
+        external_id="ext_1",
+        source="PLAID",
+        account_id="acc_1",
+        posted_at=date(2024, 1, 15),
+        amount_cents=1000,
+        currency="USD",
+        merchant_descriptor="Merchant A",
+        institution=None,
+    )
+    plaid2 = db.upsert_plaid_transaction(
+        external_id="ext_2",
+        source="PLAID",
+        account_id="acc_2",
+        posted_at=date(2024, 1, 16),
+        amount_cents=2000,
+        currency="USD",
+        merchant_descriptor="Merchant B",
+        institution=None,
+    )
+    plaid3 = db.upsert_plaid_transaction(
+        external_id="ext_3",
+        source="PLAID",
+        account_id="acc_3",
+        posted_at=date(2024, 1, 17),
+        amount_cents=3000,
+        currency="USD",
+        merchant_descriptor="Merchant C",
+        institution=None,
+    )
+
+    # Fetch two of them in bulk
+    result = db.get_plaid_transactions_by_ids(
+        [plaid1.plaid_transaction_id, plaid3.plaid_transaction_id]
+    )
+
+    assert len(result) == 2
+    assert plaid1.plaid_transaction_id in result
+    assert plaid3.plaid_transaction_id in result
+    assert plaid2.plaid_transaction_id not in result
+    assert result[plaid1.plaid_transaction_id].external_id == "ext_1"
+    assert result[plaid3.plaid_transaction_id].external_id == "ext_3"
+
+
+def test_get_plaid_transactions_by_ids_empty_list() -> None:
+    """Test bulk fetch with empty list returns empty dict."""
+    db = create_db()
+    result = db.get_plaid_transactions_by_ids([])
+    assert result == {}
+
+
+def test_get_derived_by_plaid_ids_returns_grouped_dict() -> None:
+    """Test bulk fetch of derived transactions groups by plaid_id."""
+    db = create_db()
+
+    # Create plaid transactions
+    plaid1 = db.upsert_plaid_transaction(
+        external_id="ext_1",
+        source="PLAID",
+        account_id="acc_1",
+        posted_at=date(2024, 1, 15),
+        amount_cents=5000,
+        currency="USD",
+        merchant_descriptor="Amazon",
+        institution=None,
+    )
+    plaid2 = db.upsert_plaid_transaction(
+        external_id="ext_2",
+        source="PLAID",
+        account_id="acc_2",
+        posted_at=date(2024, 1, 16),
+        amount_cents=3000,
+        currency="USD",
+        merchant_descriptor="Walmart",
+        institution=None,
+    )
+
+    # Create derived transactions - 2 for plaid1, 1 for plaid2
+    derived1a = db.insert_derived_transaction({
+        "plaid_transaction_id": plaid1.plaid_transaction_id,
+        "external_id": "ext_1-item1",
+        "amount_cents": 2500,
+        "posted_at": date(2024, 1, 15),
+        "merchant_descriptor": "Amazon: Item 1",
+    })
+    derived1b = db.insert_derived_transaction({
+        "plaid_transaction_id": plaid1.plaid_transaction_id,
+        "external_id": "ext_1-item2",
+        "amount_cents": 2500,
+        "posted_at": date(2024, 1, 15),
+        "merchant_descriptor": "Amazon: Item 2",
+    })
+    derived2 = db.insert_derived_transaction({
+        "plaid_transaction_id": plaid2.plaid_transaction_id,
+        "external_id": "ext_2",
+        "amount_cents": 3000,
+        "posted_at": date(2024, 1, 16),
+        "merchant_descriptor": "Walmart",
+    })
+
+    # Fetch in bulk
+    result = db.get_derived_by_plaid_ids(
+        [plaid1.plaid_transaction_id, plaid2.plaid_transaction_id]
+    )
+
+    assert len(result) == 2
+    assert len(result[plaid1.plaid_transaction_id]) == 2
+    assert len(result[plaid2.plaid_transaction_id]) == 1
+
+    # Verify correct derived transactions
+    plaid1_derived_ids = {d.transaction_id for d in result[plaid1.plaid_transaction_id]}
+    assert derived1a.transaction_id in plaid1_derived_ids
+    assert derived1b.transaction_id in plaid1_derived_ids
+    assert result[plaid2.plaid_transaction_id][0].transaction_id == derived2.transaction_id
+
+
+def test_get_derived_by_plaid_ids_empty_for_no_derived() -> None:
+    """Test bulk fetch returns empty list for plaid_ids with no derived."""
+    db = create_db()
+
+    # Create plaid transaction with no derived
+    plaid = db.upsert_plaid_transaction(
+        external_id="ext_1",
+        source="PLAID",
+        account_id="acc_1",
+        posted_at=date(2024, 1, 15),
+        amount_cents=1000,
+        currency="USD",
+        merchant_descriptor="Test",
+        institution=None,
+    )
+
+    result = db.get_derived_by_plaid_ids([plaid.plaid_transaction_id])
+
+    assert len(result) == 1
+    assert plaid.plaid_transaction_id in result
+    assert result[plaid.plaid_transaction_id] == []
+
+
+def test_get_derived_by_plaid_ids_empty_list() -> None:
+    """Test bulk fetch with empty list returns empty dict."""
+    db = create_db()
+    result = db.get_derived_by_plaid_ids([])
+    assert result == {}

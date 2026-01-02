@@ -20,7 +20,6 @@ from transactoid.adapters.amazon import (
 )
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
-from transactoid.adapters.db.models import DerivedTransaction
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool
@@ -900,12 +899,16 @@ class SyncTool:
         # Build amount index for O(1) order lookup
         order_index = OrderAmountIndex(amazon_orders)
 
+        # Batch fetch all plaid transactions and old derived in 2 queries
+        plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
+        old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
+
         for plaid_id in plaid_ids:
-            plaid_txn = self._db.get_plaid_transaction(plaid_id)
+            plaid_txn = plaid_txns_map.get(plaid_id)
             if not plaid_txn:
                 continue
 
-            old_derived = self._db.get_derived_by_plaid_id(plaid_id)
+            old_derived = old_derived_map.get(plaid_id, [])
 
             if is_amazon_transaction(plaid_txn.merchant_descriptor):
                 new_derived_data = create_split_derived_transactions(
