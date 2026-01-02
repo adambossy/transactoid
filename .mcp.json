@@ -8,6 +8,12 @@
       "type": "stdio",
       "command": "uv",
       "args": ["run", "python", "frontends/mcp_server.py"]
+    },
+    "playwriter": {
+      "command": "npx",
+      "args": [
+        "playwriter"
+      ]
     }
   }
 }
