@@ -1232,6 +1232,7 @@ class DB:
             derived_txns = (
                 session.query(DerivedTransaction)
                 .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
+                .order_by(DerivedTransaction.external_id)  # Deterministic for cache
                 .all()
             )
             for txn in derived_txns:
