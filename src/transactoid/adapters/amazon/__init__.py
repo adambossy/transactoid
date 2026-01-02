@@ -2,6 +2,8 @@
 
 from transactoid.adapters.amazon.amazon_reconciler import (
     OrderAmountIndex,
+    ReconcileStats,
+    ReconcileStatus,
     create_split_derived_transactions,
     find_matching_amazon_order,
     is_amazon_transaction,
@@ -20,6 +22,8 @@ __all__ = [
     "CSVItem",
     "CSVOrder",
     "OrderAmountIndex",
+    "ReconcileStats",
+    "ReconcileStatus",
     "create_split_derived_transactions",
     "find_matching_amazon_order",
     "is_amazon_transaction",
