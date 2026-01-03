@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 @dataclass
-class CSVOrder:
+class AmazonOrder:
     """Amazon order from CSV."""
 
     order_id: str
@@ -21,7 +21,7 @@ class CSVOrder:
 
 
 @dataclass
-class CSVItem:
+class AmazonItem:
     """Amazon item from CSV."""
 
     order_id: str
@@ -62,13 +62,13 @@ class AmazonOrdersCSVLoader:
         """Initialize loader with directory containing orders CSV files."""
         self._csv_dir = csv_dir
 
-    def load(self) -> dict[str, CSVOrder]:
+    def load(self) -> dict[str, AmazonOrder]:
         """Load orders from all matching CSV files.
 
         Returns:
-            Dict mapping order_id → CSVOrder
+            Dict mapping order_id → AmazonOrder
         """
-        orders: dict[str, CSVOrder] = {}
+        orders: dict[str, AmazonOrder] = {}
 
         if not self._csv_dir.exists():
             return orders
@@ -78,7 +78,7 @@ class AmazonOrdersCSVLoader:
 
         return orders
 
-    def _load_file(self, csv_path: Path, orders: dict[str, CSVOrder]) -> None:
+    def _load_file(self, csv_path: Path, orders: dict[str, AmazonOrder]) -> None:
         """Load orders from a single CSV file into the orders dict."""
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
@@ -102,8 +102,8 @@ class AmazonOrdersCSVLoader:
 
         return has_order_id and not missing
 
-    def _parse_row(self, row: dict[str, str]) -> CSVOrder | None:
-        """Parse a CSV row into a CSVOrder."""
+    def _parse_row(self, row: dict[str, str]) -> AmazonOrder | None:
+        """Parse a CSV row into a AmazonOrder."""
         order_id = row.get("order id") or row.get("order_id", "")
         total_str = row.get("total", "")
 
@@ -114,7 +114,7 @@ class AmazonOrdersCSVLoader:
         tax_cents = _parse_cents(row.get("tax", ""))
         shipping_cents = _parse_cents(row.get("shipping", ""))
 
-        return CSVOrder(
+        return AmazonOrder(
             order_id=order_id,
             order_date=datetime.strptime(row["date"], "%Y-%m-%d").date(),
             order_total_cents=total_cents,
@@ -135,13 +135,13 @@ class AmazonItemsCSVLoader:
         """Initialize loader with directory containing items CSV files."""
         self._csv_dir = csv_dir
 
-    def load(self) -> dict[str, list[CSVItem]]:
+    def load(self) -> dict[str, list[AmazonItem]]:
         """Load items from all matching CSV files.
 
         Returns:
-            Dict mapping order_id → list[CSVItem]
+            Dict mapping order_id → list[AmazonItem]
         """
-        items_by_order: dict[str, list[CSVItem]] = {}
+        items_by_order: dict[str, list[AmazonItem]] = {}
 
         if not self._csv_dir.exists():
             return items_by_order
@@ -152,7 +152,7 @@ class AmazonItemsCSVLoader:
         return items_by_order
 
     def _load_file(
-        self, csv_path: Path, items_by_order: dict[str, list[CSVItem]]
+        self, csv_path: Path, items_by_order: dict[str, list[AmazonItem]]
     ) -> None:
         """Load items from a single CSV file into the items dict."""
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
@@ -180,8 +180,8 @@ class AmazonItemsCSVLoader:
 
         return has_order_id and has_asin and not missing
 
-    def _parse_row(self, row: dict[str, str]) -> CSVItem | None:
-        """Parse a CSV row into a CSVItem."""
+    def _parse_row(self, row: dict[str, str]) -> AmazonItem | None:
+        """Parse a CSV row into a AmazonItem."""
         order_id = row.get("order id") or row.get("order_id", "")
         asin = row.get("ASIN") or row.get("asin", "")
         quantity_str = row.get("quantity", "").strip()
@@ -194,7 +194,7 @@ class AmazonItemsCSVLoader:
         if price_cents is None:
             return None
 
-        return CSVItem(
+        return AmazonItem(
             order_id=order_id,
             description=row["description"],
             price_cents=price_cents,
