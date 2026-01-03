@@ -7,6 +7,10 @@ from transactoid.adapters.amazon.csv_loader import (
     AmazonOrdersCSVLoader,
 )
 from transactoid.adapters.amazon.logger import AmazonMatcherLogger
+from transactoid.adapters.amazon.mutation_plugin import (
+    AmazonMutationPlugin,
+    AmazonMutationPluginConfig,
+)
 from transactoid.adapters.amazon.order_index import AmazonOrderIndex
 from transactoid.adapters.amazon.plaid_matcher import (
     MatchingReport,
@@ -37,6 +41,9 @@ __all__ = [
     # Splitting
     "DerivedTransactionData",
     "split_order_to_derived",
+    # Mutation plugin
+    "AmazonMutationPlugin",
+    "AmazonMutationPluginConfig",
     # Logging
     "AmazonMatcherLogger",
 ]
