@@ -140,18 +140,28 @@ class StreamRenderer:
                 print(colorize(f"📞 {state.name}({args_text})", "tool"))
         print()
 
-    def _summarize_tool_result(self, output: Any) -> str:
-        """Generate a brief summary of a tool result."""
+    def _summarize_tool_result(self, output: Any) -> tuple[str, str | None]:
+        """Generate a brief summary of a tool result.
+
+        Returns:
+            Tuple of (summary_line, full_text_if_truncated_or_none)
+        """
         if not isinstance(output, dict):
             text = str(output)
-            return text[:60] + "..." if len(text) > 60 else text
+            if len(text) > 60:
+                return (text[:60] + "...", text)
+            return (text, None)
 
         parts = []
+        full_error = None
+
         if "status" in output:
             parts.append(output["status"])
         if "error" in output:
-            error_text = str(output["error"])[:40]
-            parts.append(f"error: {error_text}...")
+            full_error = str(output["error"])
+            # Short summary for the main line
+            error_preview = full_error[:40] + "..." if len(full_error) > 40 else full_error
+            parts.append(f"error: {error_preview}")
         if "accounts" in output:
             parts.append(f"{len(output['accounts'])} accounts")
         if "count" in output:
@@ -162,12 +172,19 @@ class StreamRenderer:
             msg = output["message"][:40]
             parts.append(msg)
 
-        return ", ".join(parts) if parts else "{...}"
+        summary = ", ".join(parts) if parts else "{...}"
+        return (summary, full_error)
 
     def on_tool_result(self, output: Any) -> None:
         """Display tool execution result in collapsed format with summary."""
-        summary = self._summarize_tool_result(output)
+        summary, full_text = self._summarize_tool_result(output)
         print(colorize(f"↩️ Tool result ▶ {summary}", "out"))
+
+        # Print full text on separate lines if it was truncated
+        if full_text:
+            print(colorize("Full output:", "error"))
+            print(colorize(full_text, "error"))
+
         print()
 
     def on_message_output(self, item: MessageOutputItem) -> None:
