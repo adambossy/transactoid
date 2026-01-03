@@ -18,6 +18,7 @@ from transactoid.tools.categorize.categorizer_tool import (
     Categorizer,
 )
 from transactoid.tools.protocol import ToolInputSchema
+from transactoid.tools.sync.mutation_registry import MutationRegistry
 
 
 @dataclass
@@ -212,6 +213,7 @@ class SyncTool:
         *,
         access_token: str,
         cursor: str | None = None,
+        mutation_registry: MutationRegistry | None = None,
     ) -> None:
         """
         Initialize the sync tool.
@@ -223,6 +225,7 @@ class SyncTool:
             taxonomy: Taxonomy instance for transaction categorization
             access_token: Plaid access token for the item
             cursor: Optional cursor for incremental sync (None for initial sync)
+            mutation_registry: Optional registry for mutation plugins (e.g., Amazon)
         """
         self._plaid_client = plaid_client
         self._categorizer = categorizer
@@ -231,6 +234,7 @@ class SyncTool:
         self._access_token = access_token
         self._cursor = cursor
         self._logger = SyncToolLogger()
+        self._mutation_registry = mutation_registry or MutationRegistry()
 
     def sync(
         self,
@@ -845,6 +849,10 @@ class SyncTool:
         """
         Create derived transactions for a batch of plaid_transaction_ids.
 
+        Uses the mutation registry to process transactions. Plugins like
+        AmazonMutationPlugin can split transactions into multiple derived
+        transactions. Default behavior is 1:1 mapping.
+
         Args:
             plaid_ids: List of plaid_transaction_ids to process
 
@@ -854,6 +862,12 @@ class SyncTool:
         # Batch fetch all plaid transactions and old derived in 2 queries
         plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
         old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
+
+        # Initialize plugins with full batch for O(N+M) matching efficiency
+        plaid_txns_list = [
+            plaid_txns_map[pid] for pid in plaid_ids if pid in plaid_txns_map
+        ]
+        self._mutation_registry.initialize_plugins(plaid_txns_list)
 
         # Collect all derived data and plaid_ids to delete
         all_new_derived_data: list[dict[str, Any]] = []
@@ -866,28 +880,13 @@ class SyncTool:
 
             old_derived = old_derived_map.get(plaid_id, [])
 
-            # 1:1 mapping for all transactions
-            new_derived_data: dict[str, Any] = {
-                "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-                "external_id": plaid_txn.external_id,
-                "amount_cents": plaid_txn.amount_cents,
-                "posted_at": plaid_txn.posted_at,
-                "merchant_descriptor": plaid_txn.merchant_descriptor,
-                "category_id": None,
-                "is_verified": False,
-            }
+            # Use registry to process (returns N derived for plugins, 1 for default)
+            result = self._mutation_registry.process(plaid_txn, old_derived)
+            all_new_derived_data.extend(result.derived_data_list)
 
-            # Preserve enrichments from old derived if exists
-            if old_derived and len(old_derived) == 1:
-                old = old_derived[0]
-                if old.is_verified and old.category_id is not None:
-                    new_derived_data["category_id"] = old.category_id
-                new_derived_data["is_verified"] = old.is_verified
-                if old.merchant_id is not None:
-                    new_derived_data["merchant_id"] = old.merchant_id
+            # Mark for deletion if there were old derived
+            if old_derived:
                 plaid_ids_to_delete.append(plaid_id)
-
-            all_new_derived_data.append(new_derived_data)
 
         # Bulk delete old derived in single query
         if plaid_ids_to_delete:
