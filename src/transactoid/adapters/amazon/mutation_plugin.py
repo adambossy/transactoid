@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from transactoid.adapters.amazon.logger import AmazonMatcherLogger
 from transactoid.adapters.amazon.order_index import AmazonOrderIndex
 from transactoid.adapters.amazon.plaid_matcher import (
     is_amazon_transaction,
@@ -55,6 +56,7 @@ class AmazonMutationPlugin:
         self._config = config
         self._index: AmazonOrderIndex | None = None
         self._plaid_id_to_order_id: dict[int, str] = {}
+        self._logger = AmazonMatcherLogger()
 
     def initialize(self, plaid_txns: list[PlaidTransaction]) -> None:
         """Pre-compute matches for all Amazon transactions.
@@ -71,6 +73,7 @@ class AmazonMutationPlugin:
             return
 
         self._index = AmazonOrderIndex.from_csv_dir(self._config.csv_dir)
+        self._logger.index_loaded(self._index.order_count, self._index.item_count)
 
         # Filter to Amazon transactions only
         amazon_txns = [
@@ -80,6 +83,8 @@ class AmazonMutationPlugin:
         if not amazon_txns:
             self._plaid_id_to_order_id = {}
             return
+
+        self._logger.matching_start(len(amazon_txns), len(plaid_txns))
 
         # Match orders to transactions
         orders = list(self._index._orders.values())
@@ -131,6 +136,14 @@ class AmazonMutationPlugin:
 
         items = self._index.get_items(order_id)
 
+        # Log match found
+        self._logger.match_found(
+            plaid_txn.plaid_transaction_id,
+            order_id,
+            len(items),
+            plaid_txn.amount_cents,
+        )
+
         # Split order into item-level derived transactions
         derived_data_list = split_order_to_derived(plaid_txn, order, items)
 
@@ -148,6 +161,13 @@ class AmazonMutationPlugin:
                     "is_verified": False,
                 }
             )
+
+        # Log split created
+        self._logger.split_created(
+            plaid_txn.plaid_transaction_id,
+            len(result_list),
+            [d["external_id"] for d in result_list],
+        )
 
         # Preserve enrichments if old_derived has matching count
         if old_derived and len(old_derived) == len(result_list):
