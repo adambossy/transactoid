@@ -6,10 +6,10 @@ from collections import defaultdict
 from pathlib import Path
 
 from transactoid.adapters.amazon.csv_loader import (
+    AmazonItem,
     AmazonItemsCSVLoader,
+    AmazonOrder,
     AmazonOrdersCSVLoader,
-    CSVItem,
-    CSVOrder,
 )
 
 
@@ -21,18 +21,18 @@ class AmazonOrderIndex:
 
     def __init__(
         self,
-        orders: dict[str, CSVOrder],
-        items_by_order: dict[str, list[CSVItem]],
+        orders: dict[str, AmazonOrder],
+        items_by_order: dict[str, list[AmazonItem]],
     ) -> None:
         """Initialize with loaded orders and items.
 
         Args:
-            orders: Dict mapping order_id -> CSVOrder
-            items_by_order: Dict mapping order_id -> list[CSVItem]
+            orders: Dict mapping order_id -> AmazonOrder
+            items_by_order: Dict mapping order_id -> list[AmazonItem]
         """
         self._orders = orders
         self._items_by_order = items_by_order
-        self._by_amount: dict[int, list[CSVOrder]] = defaultdict(list)
+        self._by_amount: dict[int, list[AmazonOrder]] = defaultdict(list)
 
         # Build amount index for O(1) lookup
         for order in orders.values():
@@ -53,7 +53,7 @@ class AmazonOrderIndex:
         items = AmazonItemsCSVLoader(csv_dir).load()
         return cls(orders, items)
 
-    def get_orders_by_amount(self, amount_cents: int) -> list[CSVOrder]:
+    def get_orders_by_amount(self, amount_cents: int) -> list[AmazonOrder]:
         """Get all orders with the given amount. O(1) lookup.
 
         Args:
@@ -64,7 +64,7 @@ class AmazonOrderIndex:
         """
         return self._by_amount.get(amount_cents, [])
 
-    def get_items(self, order_id: str) -> list[CSVItem]:
+    def get_items(self, order_id: str) -> list[AmazonItem]:
         """Get items for an order.
 
         Args:
@@ -75,14 +75,14 @@ class AmazonOrderIndex:
         """
         return self._items_by_order.get(order_id, [])
 
-    def get_order(self, order_id: str) -> CSVOrder | None:
+    def get_order(self, order_id: str) -> AmazonOrder | None:
         """Get order by ID.
 
         Args:
             order_id: Amazon order ID
 
         Returns:
-            CSVOrder if found, None otherwise
+            AmazonOrder if found, None otherwise
         """
         return self._orders.get(order_id)
 
