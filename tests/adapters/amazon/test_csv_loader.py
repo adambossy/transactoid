@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from transactoid.adapters.amazon.csv_loader import (
+    AmazonItem,
     AmazonItemsCSVLoader,
+    AmazonOrder,
     AmazonOrdersCSVLoader,
-    CSVItem,
-    CSVOrder,
 )
 
 # Path to the Amazon CSV directory
@@ -38,7 +38,7 @@ class TestAmazonOrdersCSVLoader:
         orders = loader.load()
 
         for order_id, order in orders.items():
-            assert isinstance(order, CSVOrder)
+            assert isinstance(order, AmazonOrder)
             assert order.order_id == order_id
             assert order.order_date is not None
             assert order.order_total_cents >= 0
@@ -87,7 +87,7 @@ class TestAmazonItemsCSVLoader:
 
         for order_id, items in items_by_order.items():
             for item in items:
-                assert isinstance(item, CSVItem)
+                assert isinstance(item, AmazonItem)
                 assert item.order_id == order_id
                 assert item.description != ""
                 assert item.price_cents >= 0

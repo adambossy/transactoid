@@ -4,10 +4,10 @@ from datetime import date
 
 from tests.adapters.amazon.fixtures import (
     EXPECTED_MATCHES,
-    create_csv_orders,
+    create_amazon_orders,
     create_plaid_transactions,
 )
-from transactoid.adapters.amazon.csv_loader import CSVOrder
+from transactoid.adapters.amazon.csv_loader import AmazonOrder
 from transactoid.adapters.amazon.plaid_matcher import match_orders_to_transactions
 from transactoid.adapters.db.models import PlaidTransaction
 
@@ -18,7 +18,7 @@ class TestMatchOrdersToTransactions:
     def test_matches_all_orders_with_fixture_data(self) -> None:
         """All 25 fixture orders match their expected Plaid transactions."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -31,7 +31,7 @@ class TestMatchOrdersToTransactions:
         """Orders match transactions with identical amounts."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
@@ -63,7 +63,7 @@ class TestMatchOrdersToTransactions:
         """Orders do not match transactions with different amounts."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
@@ -95,7 +95,7 @@ class TestMatchOrdersToTransactions:
         """Orders do not match transactions posted before order date."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 5),
                 order_total_cents=1000,
@@ -127,7 +127,7 @@ class TestMatchOrdersToTransactions:
         """Orders do not match transactions posted too long after order date."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
@@ -159,7 +159,7 @@ class TestMatchOrdersToTransactions:
         """When multiple transactions have same amount, selects closest date."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
@@ -202,14 +202,14 @@ class TestMatchOrdersToTransactions:
         """Each transaction can only be matched to one order."""
         # Input - two orders with same amount
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
                 tax_cents=100,
                 shipping_cents=0,
             ),
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-002",
                 order_date=date(2025, 1, 2),
                 order_total_cents=1000,
@@ -242,14 +242,14 @@ class TestMatchOrdersToTransactions:
         """Multiple orders with same amount match different transactions."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
                 tax_cents=100,
                 shipping_cents=0,
             ),
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-002",
                 order_date=date(2025, 1, 3),
                 order_total_cents=1000,
@@ -291,7 +291,7 @@ class TestMatchOrdersToTransactions:
     def test_empty_orders_returns_empty_dict(self) -> None:
         """Empty order list returns empty match dict."""
         # Input
-        orders: list[CSVOrder] = []
+        orders: list[AmazonOrder] = []
         plaid_txns = [
             PlaidTransaction(
                 plaid_transaction_id=1,
@@ -316,7 +316,7 @@ class TestMatchOrdersToTransactions:
         """Empty transaction list returns all orders unmatched."""
         # Input
         orders = [
-            CSVOrder(
+            AmazonOrder(
                 order_id="ORDER-001",
                 order_date=date(2025, 1, 1),
                 order_total_cents=1000,
@@ -339,7 +339,7 @@ class TestIndividualFixtureMappings:
     def test_order_1_single_item_hand_wash(self) -> None:
         """Order 113-5524816-2451403 ($150.25) maps to txn 839 - 1 item."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -351,7 +351,7 @@ class TestIndividualFixtureMappings:
     def test_order_3_two_items_baby_wipes_and_diapers(self) -> None:
         """Order 113-2183381-7505026 ($49.77) maps to txn 841 - 2 items."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -363,7 +363,7 @@ class TestIndividualFixtureMappings:
     def test_order_6_small_amount_tripod_plate(self) -> None:
         """Order 112-7570534-9890666 ($7.61) maps to txn 831 - 1 item."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -375,7 +375,7 @@ class TestIndividualFixtureMappings:
     def test_order_8_same_day_posting(self) -> None:
         """Order 112-4502156-7842663 ($40.47) maps to txn 771 - 0-day lag."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -387,7 +387,7 @@ class TestIndividualFixtureMappings:
     def test_order_11_three_items_baby_clothes(self) -> None:
         """Order 113-8425491-4935405 ($45.30) maps to txn 791 - 3 items."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -399,7 +399,7 @@ class TestIndividualFixtureMappings:
     def test_order_17_probiotic_drops(self) -> None:
         """Order 112-9348880-7178650 ($49.98) maps to txn 27 - 1 item."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -411,7 +411,7 @@ class TestIndividualFixtureMappings:
     def test_order_21_duplicate_items_same_asin(self) -> None:
         """Order 112-9508317-5020242 ($10.98) maps to txn 189 - 2 same items."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -423,7 +423,7 @@ class TestIndividualFixtureMappings:
     def test_order_22_four_items_with_duplicates(self) -> None:
         """Order 112-9053665-8377064 ($59.24) maps to txn 198 - 4 items."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -435,7 +435,7 @@ class TestIndividualFixtureMappings:
     def test_order_24_two_baby_bottles(self) -> None:
         """Order 113-1031800-1734626 ($8.69) maps to txn 203 - 2 same items."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -447,7 +447,7 @@ class TestIndividualFixtureMappings:
     def test_order_25_large_order_airpods(self) -> None:
         """Order 113-3910520-0532212 ($207.92) maps to txn 202 - 3 items."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act
@@ -463,7 +463,7 @@ class TestMatchRateMetrics:
     def test_fixture_match_rate_is_100_percent(self) -> None:
         """Fixture data achieves 100% match rate."""
         # Input
-        orders = create_csv_orders()
+        orders = create_amazon_orders()
         plaid_txns = create_plaid_transactions()
 
         # Act

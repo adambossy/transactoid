@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import re
 
-from transactoid.adapters.amazon.csv_loader import CSVItem, CSVOrder
+from transactoid.adapters.amazon.csv_loader import AmazonItem, AmazonOrder
 from transactoid.adapters.db.models import PlaidTransaction
 
 
@@ -26,7 +26,7 @@ class MatchResult:
 
     plaid_transaction_id: int
     order_id: str | None
-    items: list[CSVItem] = field(default_factory=list)
+    items: list[AmazonItem] = field(default_factory=list)
     no_match_reason: NoMatchReason | None = None
 
 
@@ -62,7 +62,7 @@ def is_amazon_transaction(merchant_descriptor: str | None) -> bool:
 
 
 def match_orders_to_transactions(
-    amazon_orders: list[CSVOrder],
+    amazon_orders: list[AmazonOrder],
     plaid_txns: list[PlaidTransaction],
     max_date_lag: int = 30,
 ) -> dict[str, int | None]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from transactoid.adapters.amazon.csv_loader import CSVItem, CSVOrder
+from transactoid.adapters.amazon.csv_loader import AmazonItem, AmazonOrder
 from transactoid.adapters.db.models import PlaidTransaction
 
 
@@ -22,8 +22,8 @@ class DerivedTransactionData:
 
 def split_order_to_derived(
     plaid_txn: PlaidTransaction,
-    order: CSVOrder,
-    items: list[CSVItem],
+    order: AmazonOrder,
+    items: list[AmazonItem],
 ) -> list[DerivedTransactionData]:
     """Split an Amazon order into item-level derived transactions.
 

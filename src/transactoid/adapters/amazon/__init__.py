@@ -1,10 +1,10 @@
 """Amazon adapters for CSV loading and Plaid transaction matching."""
 
 from transactoid.adapters.amazon.csv_loader import (
+    AmazonItem,
     AmazonItemsCSVLoader,
+    AmazonOrder,
     AmazonOrdersCSVLoader,
-    CSVItem,
-    CSVOrder,
 )
 from transactoid.adapters.amazon.logger import AmazonMatcherLogger
 from transactoid.adapters.amazon.order_index import AmazonOrderIndex
@@ -24,8 +24,8 @@ __all__ = [
     # CSV loading
     "AmazonItemsCSVLoader",
     "AmazonOrdersCSVLoader",
-    "CSVItem",
-    "CSVOrder",
+    "AmazonItem",
+    "AmazonOrder",
     # Order index
     "AmazonOrderIndex",
     # Matching
