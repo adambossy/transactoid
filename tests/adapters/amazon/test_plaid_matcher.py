@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date
 
-from tests.fixtures.amazon_plaid_matching import (
+from tests.adapters.amazon.fixtures import (
     EXPECTED_MATCHES,
     create_csv_orders,
     create_plaid_transactions,
