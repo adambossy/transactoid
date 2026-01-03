@@ -3,23 +3,12 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import loguru
 from loguru import logger
 
 from models.transaction import Transaction
-from transactoid.adapters.amazon import (
-    AmazonItemsCSVLoader,
-    AmazonOrdersCSVLoader,
-    OrderAmountIndex,
-    ReconcileStats,
-    create_split_derived_transactions,
-    is_amazon_transaction,
-    preserve_enrichments_by_amount,
-)
-from transactoid.adapters.amazon.amazon_reconciler import _reconciler_logger
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
@@ -147,14 +136,6 @@ class SyncToolLogger:
         """Log start of mutation phase."""
         self._logger.bind(count=count).info(
             "Creating derived transactions for {} Plaid transactions", count
-        )
-
-    def amazon_split(self, plaid_id: str, split_count: int) -> None:
-        """Log Amazon transaction split."""
-        self._logger.bind(plaid_id=plaid_id, splits=split_count).debug(
-            "Split Amazon transaction {} into {} derived transactions",
-            plaid_id,
-            split_count,
         )
 
     def pipeline_persist_start(self, batch_size: int, batch_num: int) -> None:
@@ -447,17 +428,15 @@ class SyncTool:
     def _mutate_to_derived(
         self,
         plaid_ids: list[int],
-        amazon_csv_dir: Path | None = None,
     ) -> list[int]:
         """
         Generate derived transactions from Plaid transactions.
 
-        Phase 3 of 5-phase sync workflow. Applies mutations like Amazon
-        splitting and preserves enrichments from old derived transactions.
+        Phase 3 of 5-phase sync workflow. Creates 1:1 derived transactions
+        and preserves enrichments from old derived transactions.
 
         Args:
             plaid_ids: List of plaid_transaction_ids to process
-            amazon_csv_dir: Directory containing Amazon CSV files (optional)
 
         Returns:
             List of derived transaction_ids that were created
@@ -465,18 +444,6 @@ class SyncTool:
         self._logger.mutation_start(len(plaid_ids))
 
         derived_ids: list[int] = []
-        csv_dir = amazon_csv_dir or Path(".transactions/amazon").resolve()
-
-        # Load Amazon CSVs once for the entire batch
-        # Loaders expect a directory and glob for files matching their prefix
-        amazon_orders = AmazonOrdersCSVLoader(csv_dir).load()
-        amazon_items = AmazonItemsCSVLoader(csv_dir).load()
-
-        # Build amount index for O(1) order lookup
-        order_index = OrderAmountIndex(amazon_orders)
-
-        # Track reconciliation stats
-        reconcile_stats = ReconcileStats()
 
         for plaid_id in plaid_ids:
             plaid_txn = self._db.get_plaid_transaction(plaid_id)
@@ -486,48 +453,31 @@ class SyncTool:
             # Get existing derived transactions for preservation
             old_derived = self._db.get_derived_by_plaid_id(plaid_id)
 
-            # Generate new derived transactions
-            if is_amazon_transaction(plaid_txn.merchant_descriptor):
-                new_derived_data, status = create_split_derived_transactions(
-                    plaid_txn,
-                    order_index,
-                    amazon_items,
-                    skip_near_miss_scan=True,
-                )
-                reconcile_stats.record(status)
-                if len(new_derived_data) > 1:
-                    self._logger.amazon_split(
-                        plaid_txn.external_id, len(new_derived_data)
-                    )
-            else:
-                # 1:1 mapping for non-Amazon transactions
-                new_derived_data = [
-                    {
-                        "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-                        "external_id": plaid_txn.external_id,
-                        "amount_cents": plaid_txn.amount_cents,
-                        "posted_at": plaid_txn.posted_at,
-                        "merchant_descriptor": plaid_txn.merchant_descriptor,
-                        "category_id": None,
-                        "is_verified": False,
-                    }
-                ]
+            # 1:1 mapping for all transactions
+            new_derived_data: dict[str, Any] = {
+                "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                "external_id": plaid_txn.external_id,
+                "amount_cents": plaid_txn.amount_cents,
+                "posted_at": plaid_txn.posted_at,
+                "merchant_descriptor": plaid_txn.merchant_descriptor,
+                "category_id": None,
+                "is_verified": False,
+            }
 
-            # Preserve enrichments by amount matching
-            if old_derived:
-                new_derived_data = preserve_enrichments_by_amount(
-                    old_derived, new_derived_data
-                )
+            # Preserve enrichments from old derived if exists
+            if old_derived and len(old_derived) == 1:
+                old = old_derived[0]
+                if old.is_verified and old.category_id is not None:
+                    new_derived_data["category_id"] = old.category_id
+                new_derived_data["is_verified"] = old.is_verified
+                if old.merchant_id is not None:
+                    new_derived_data["merchant_id"] = old.merchant_id
                 # Delete old derived (CASCADE handles tags)
                 self._db.delete_derived_by_plaid_id(plaid_id)
 
-            # Insert new derived transactions
-            for data in new_derived_data:
-                derived_txn = self._db.insert_derived_transaction(data)
-                derived_ids.append(derived_txn.transaction_id)
-
-        # Log reconciliation summary
-        _reconciler_logger.reconciliation_summary(reconcile_stats)
+            # Insert new derived transaction
+            derived_txn = self._db.insert_derived_transaction(new_derived_data)
+            derived_ids.append(derived_txn.transaction_id)
 
         return derived_ids
 
@@ -891,32 +841,16 @@ class SyncTool:
     def _mutate_batch_to_derived(
         self,
         plaid_ids: list[int],
-        amazon_csv_dir: Path | None = None,
     ) -> list[int]:
         """
         Create derived transactions for a batch of plaid_transaction_ids.
 
         Args:
             plaid_ids: List of plaid_transaction_ids to process
-            amazon_csv_dir: Directory containing Amazon CSV files (optional)
 
         Returns:
             List of derived transaction_ids that were created
         """
-        derived_ids: list[int] = []
-        csv_dir = amazon_csv_dir or Path(".transactions/amazon").resolve()
-
-        # Load Amazon CSVs once for the entire batch
-        # Loaders expect a directory and glob for files matching their prefix
-        amazon_orders = AmazonOrdersCSVLoader(csv_dir).load()
-        amazon_items = AmazonItemsCSVLoader(csv_dir).load()
-
-        # Build amount index for O(1) order lookup
-        order_index = OrderAmountIndex(amazon_orders)
-
-        # Track reconciliation stats
-        reconcile_stats = ReconcileStats()
-
         # Batch fetch all plaid transactions and old derived in 2 queries
         plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
         old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
@@ -932,50 +866,35 @@ class SyncTool:
 
             old_derived = old_derived_map.get(plaid_id, [])
 
-            if is_amazon_transaction(plaid_txn.merchant_descriptor):
-                new_derived_data, status = create_split_derived_transactions(
-                    plaid_txn,
-                    order_index,
-                    amazon_items,
-                    skip_near_miss_scan=True,
-                )
-                reconcile_stats.record(status)
-                if len(new_derived_data) > 1:
-                    self._logger.amazon_split(
-                        plaid_txn.external_id, len(new_derived_data)
-                    )
-            else:
-                new_derived_data = [
-                    {
-                        "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-                        "external_id": plaid_txn.external_id,
-                        "amount_cents": plaid_txn.amount_cents,
-                        "posted_at": plaid_txn.posted_at,
-                        "merchant_descriptor": plaid_txn.merchant_descriptor,
-                        "category_id": None,
-                        "is_verified": False,
-                    }
-                ]
+            # 1:1 mapping for all transactions
+            new_derived_data: dict[str, Any] = {
+                "plaid_transaction_id": plaid_txn.plaid_transaction_id,
+                "external_id": plaid_txn.external_id,
+                "amount_cents": plaid_txn.amount_cents,
+                "posted_at": plaid_txn.posted_at,
+                "merchant_descriptor": plaid_txn.merchant_descriptor,
+                "category_id": None,
+                "is_verified": False,
+            }
 
-            if old_derived:
-                new_derived_data = preserve_enrichments_by_amount(
-                    old_derived, new_derived_data
-                )
+            # Preserve enrichments from old derived if exists
+            if old_derived and len(old_derived) == 1:
+                old = old_derived[0]
+                if old.is_verified and old.category_id is not None:
+                    new_derived_data["category_id"] = old.category_id
+                new_derived_data["is_verified"] = old.is_verified
+                if old.merchant_id is not None:
+                    new_derived_data["merchant_id"] = old.merchant_id
                 plaid_ids_to_delete.append(plaid_id)
 
-            all_new_derived_data.extend(new_derived_data)
+            all_new_derived_data.append(new_derived_data)
 
         # Bulk delete old derived in single query
         if plaid_ids_to_delete:
             self._db.delete_derived_by_plaid_ids(plaid_ids_to_delete)
 
         # Bulk insert all new derived in single call
-        derived_ids = self._db.bulk_insert_derived_transactions(all_new_derived_data)
-
-        # Log reconciliation summary
-        _reconciler_logger.reconciliation_summary(reconcile_stats)
-
-        return derived_ids
+        return self._db.bulk_insert_derived_transactions(all_new_derived_data)
 
 
 class SyncTransactionsTool(StandardTool):
