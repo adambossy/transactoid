@@ -18,6 +18,7 @@ from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
+from transactoid.adapters.amazon import AmazonMutationPlugin, AmazonMutationPluginConfig
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
@@ -25,6 +26,7 @@ from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
+from transactoid.tools.sync import MutationRegistry
 from transactoid.tools.sync.sync_tool import SyncTool
 from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
 from transactoid.ui.stream_renderer import EventRouter, StreamRenderer
@@ -280,6 +282,16 @@ class Transactoid:
             plaid_item = plaid_items[0]
             access_token = plaid_item.access_token
 
+            # Create mutation registry with Amazon plugin if CSV dir exists
+            mutation_registry = MutationRegistry()
+            amazon_csv_dir = Path(".transactions/amazon")
+            if amazon_csv_dir.exists():
+                mutation_registry.register(
+                    AmazonMutationPlugin(
+                        AmazonMutationPluginConfig(csv_dir=amazon_csv_dir)
+                    )
+                )
+
             # Create sync tool using instance variables
             sync_tool = SyncTool(
                 plaid_client=self._plaid_client,
@@ -288,6 +300,7 @@ class Transactoid:
                 taxonomy=self._taxonomy,
                 access_token=access_token,
                 cursor=None,  # Start fresh sync
+                mutation_registry=mutation_registry,
             )
 
             # Execute sync
