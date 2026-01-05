@@ -45,7 +45,6 @@ class DB:
         Args:
             url: Database URL (e.g., "sqlite:///transactoid.db")
         """
-        self._url = url
         self._engine = create_engine(url, echo=False)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
 
@@ -752,21 +751,6 @@ class DB:
             session.expunge(item)
             return item
 
-    def get_plaid_item(self, item_id: str) -> PlaidItem | None:
-        """Retrieve a Plaid item by item_id.
-
-        Args:
-            item_id: Plaid item ID
-
-        Returns:
-            PlaidItem instance or None if not found
-        """
-        with self.session() as session:  # type: Session
-            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
-            if item:
-                session.expunge(item)
-            return item
-
     def insert_plaid_item(
         self,
         item_id: str,
@@ -956,33 +940,6 @@ class DB:
             for txn in plaid_txns:
                 session.expunge(txn)
             return {txn.plaid_transaction_id: txn for txn in plaid_txns}
-
-    def get_plaid_transaction_by_external(
-        self,
-        external_id: str,
-        source: str,
-    ) -> PlaidTransaction | None:
-        """Get Plaid transaction by external ID and source.
-
-        Args:
-            external_id: External transaction ID
-            source: Source identifier (e.g., "PLAID", "CSV")
-
-        Returns:
-            PlaidTransaction instance or None if not found
-        """
-        with self.session() as session:  # type: Session
-            plaid_txn = (
-                session.query(PlaidTransaction)
-                .filter(
-                    PlaidTransaction.external_id == external_id,
-                    PlaidTransaction.source == source,
-                )
-                .first()
-            )
-            if plaid_txn:
-                session.expunge(plaid_txn)
-            return plaid_txn
 
     def delete_plaid_transactions_by_external_ids(
         self,
