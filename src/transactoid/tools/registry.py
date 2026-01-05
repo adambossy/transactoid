@@ -73,15 +73,6 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
-    def names(self) -> list[str]:
-        """
-        Get all registered tool names.
-
-        Returns:
-            List of all tool names
-        """
-        return list(self._tools.keys())
-
     def execute(self, name: str, **kwargs: Any) -> dict[str, Any]:
         """
         Execute a tool by name with parameters.
