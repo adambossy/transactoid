@@ -157,22 +157,6 @@ def load_categories(yaml_path: Path | str) -> list[CategoryConfig]:
     return _parse_categories(raw)
 
 
-def _categories_as_rows(
-    categories: Iterable[CategoryConfig],
-) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for category in categories:
-        rows.append(
-            {
-                "key": category.key,
-                "name": category.name,
-                "description": category.description,
-                "parent_key": category.parent_key,
-            }
-        )
-    return rows
-
-
 def _build_category_rows_with_parent_ids(
     configs: Iterable[CategoryConfig],
 ) -> list[CategoryRow]:
