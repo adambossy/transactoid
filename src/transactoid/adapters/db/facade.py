@@ -23,6 +23,7 @@ from transactoid.adapters.db.models import (
     CategoryRow,
     DerivedTransaction,
     Merchant,
+    PlaidAccount,
     PlaidItem,
     PlaidTransaction,
     SaveOutcome,
@@ -1369,3 +1370,169 @@ class DB:
             session.refresh(derived_txn)
             session.expunge(derived_txn)
             return derived_txn
+
+    # Plaid Accounts methods
+
+    def save_plaid_accounts(
+        self,
+        item_id: str,
+        accounts: list[dict[str, Any]],
+    ) -> list[PlaidAccount]:
+        """Save or update Plaid accounts for an item.
+
+        Args:
+            item_id: Plaid item ID
+            accounts: List of account dictionaries with keys:
+                - account_id: Plaid account ID
+                - mask, type, subtype, name, official_name (optional)
+                - institution_id, institution_name (optional)
+
+        Returns:
+            List of created/updated PlaidAccount instances
+        """
+        with self.session() as session:  # type: Session
+            saved_accounts: list[PlaidAccount] = []
+            for account_data in accounts:
+                account_id = account_data["account_id"]
+                existing = (
+                    session.query(PlaidAccount)
+                    .filter(PlaidAccount.account_id == account_id)
+                    .first()
+                )
+
+                if existing is None:
+                    account = PlaidAccount(
+                        account_id=account_id,
+                        item_id=item_id,
+                        mask=account_data.get("mask"),
+                        type=account_data.get("type"),
+                        subtype=account_data.get("subtype"),
+                        name=account_data.get("name"),
+                        official_name=account_data.get("official_name"),
+                        institution_id=account_data.get("institution_id"),
+                        institution_name=account_data.get("institution_name"),
+                    )
+                    session.add(account)
+                else:
+                    existing.item_id = item_id
+                    existing.mask = account_data.get("mask")
+                    existing.type = account_data.get("type")
+                    existing.subtype = account_data.get("subtype")
+                    existing.name = account_data.get("name")
+                    existing.official_name = account_data.get("official_name")
+                    existing.institution_id = account_data.get("institution_id")
+                    existing.institution_name = account_data.get("institution_name")
+                    existing.updated_at = datetime.now()
+                    account = existing
+
+                session.flush()
+                session.refresh(account)
+                session.expunge(account)
+                saved_accounts.append(account)
+
+            return saved_accounts
+
+    def get_plaid_accounts_for_item(self, item_id: str) -> list[PlaidAccount]:
+        """Get all Plaid accounts for an item.
+
+        Args:
+            item_id: Plaid item ID
+
+        Returns:
+            List of PlaidAccount instances for the item
+        """
+        with self.session() as session:  # type: Session
+            accounts = (
+                session.query(PlaidAccount)
+                .filter(PlaidAccount.item_id == item_id)
+                .all()
+            )
+            for account in accounts:
+                session.expunge(account)
+            return accounts
+
+    def find_items_by_dedupe_keys(
+        self,
+        dedupe_keys: list[tuple[str | None, str | None]],
+    ) -> list[PlaidItem]:
+        """Find Plaid items that have accounts matching any of the dedupe keys.
+
+        Dedupe key is (institution_id, mask). Finds items where any account
+        matches the given institution_id AND mask.
+
+        Args:
+            dedupe_keys: List of (institution_id, mask) tuples to search for
+
+        Returns:
+            List of PlaidItem instances with matching accounts
+        """
+        if not dedupe_keys:
+            return []
+
+        with self.session() as session:  # type: Session
+            # Build OR conditions for each dedupe key
+            from sqlalchemy import and_, or_
+
+            conditions = []
+            for institution_id, mask in dedupe_keys:
+                if institution_id is not None and mask is not None:
+                    conditions.append(
+                        and_(
+                            PlaidAccount.institution_id == institution_id,
+                            PlaidAccount.mask == mask,
+                        )
+                    )
+
+            if not conditions:
+                return []
+
+            # Find items with matching accounts
+            matching_item_ids = (
+                session.query(PlaidAccount.item_id)
+                .filter(or_(*conditions))
+                .distinct()
+                .all()
+            )
+
+            if not matching_item_ids:
+                return []
+
+            item_ids = [row[0] for row in matching_item_ids]
+            items = (
+                session.query(PlaidItem)
+                .filter(PlaidItem.item_id.in_(item_ids))
+                .all()
+            )
+            for item in items:
+                session.expunge(item)
+            return items
+
+    def delete_plaid_item(self, item_id: str) -> bool:
+        """Delete a Plaid item and its associated accounts.
+
+        The cascade delete will automatically remove associated PlaidAccount rows.
+
+        Args:
+            item_id: Plaid item ID to delete
+
+        Returns:
+            True if item was deleted, False if not found
+        """
+        with self.session() as session:  # type: Session
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            if item is None:
+                return False
+            session.delete(item)
+            return True
+
+    def get_all_plaid_accounts(self) -> list[PlaidAccount]:
+        """Get all Plaid accounts across all items.
+
+        Returns:
+            List of all PlaidAccount instances
+        """
+        with self.session() as session:  # type: Session
+            accounts = session.query(PlaidAccount).all()
+            for account in accounts:
+                session.expunge(account)
+            return accounts

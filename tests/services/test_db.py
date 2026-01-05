@@ -1000,3 +1000,204 @@ def test_delete_derived_by_plaid_ids_empty_list() -> None:
     db = create_db()
     result = db.delete_derived_by_plaid_ids([])
     assert result == 0
+
+
+# Plaid Accounts and Dedupe Tests
+
+
+def test_save_plaid_accounts_creates_accounts() -> None:
+    """Test save_plaid_accounts creates new accounts for an item."""
+    db = create_db()
+
+    # Create a plaid item first
+    item = db.insert_plaid_item(
+        item_id="item_123",
+        access_token="access_token_123",
+        institution_id="ins_123",
+        institution_name="Test Bank",
+    )
+
+    accounts = [
+        {
+            "account_id": "acc_1",
+            "mask": "1234",
+            "type": "checking",
+            "subtype": "checking",
+            "name": "My Checking",
+            "official_name": "Test Bank Checking",
+            "institution_id": "ins_123",
+            "institution_name": "Test Bank",
+        },
+        {
+            "account_id": "acc_2",
+            "mask": "5678",
+            "type": "savings",
+            "subtype": "savings",
+            "name": "My Savings",
+            "institution_id": "ins_123",
+            "institution_name": "Test Bank",
+        },
+    ]
+
+    saved = db.save_plaid_accounts(item.item_id, accounts)
+
+    assert len(saved) == 2
+    assert saved[0].account_id == "acc_1"
+    assert saved[0].mask == "1234"
+    assert saved[0].item_id == "item_123"
+    assert saved[1].account_id == "acc_2"
+    assert saved[1].mask == "5678"
+
+
+def test_get_plaid_accounts_for_item_returns_accounts() -> None:
+    """Test get_plaid_accounts_for_item returns all accounts for an item."""
+    db = create_db()
+
+    # Create item and accounts
+    db.insert_plaid_item(
+        item_id="item_123",
+        access_token="token",
+        institution_id="ins_123",
+        institution_name="Test Bank",
+    )
+    db.save_plaid_accounts(
+        "item_123",
+        [
+            {"account_id": "acc_1", "mask": "1234", "institution_id": "ins_123"},
+            {"account_id": "acc_2", "mask": "5678", "institution_id": "ins_123"},
+        ],
+    )
+
+    accounts = db.get_plaid_accounts_for_item("item_123")
+
+    assert len(accounts) == 2
+    account_ids = {acc.account_id for acc in accounts}
+    assert account_ids == {"acc_1", "acc_2"}
+
+
+def test_find_items_by_dedupe_keys_finds_matching_items() -> None:
+    """Test find_items_by_dedupe_keys finds items with matching accounts."""
+    db = create_db()
+
+    # Create two items with accounts
+    db.insert_plaid_item(
+        item_id="item_1",
+        access_token="token_1",
+        institution_id="ins_123",
+    )
+    db.save_plaid_accounts(
+        "item_1",
+        [{"account_id": "acc_1", "mask": "1234", "institution_id": "ins_123"}],
+    )
+
+    db.insert_plaid_item(
+        item_id="item_2",
+        access_token="token_2",
+        institution_id="ins_456",
+    )
+    db.save_plaid_accounts(
+        "item_2",
+        [{"account_id": "acc_2", "mask": "5678", "institution_id": "ins_456"}],
+    )
+
+    # Search for first item's dedupe key
+    items = db.find_items_by_dedupe_keys([("ins_123", "1234")])
+
+    assert len(items) == 1
+    assert items[0].item_id == "item_1"
+
+
+def test_find_items_by_dedupe_keys_returns_empty_for_no_match() -> None:
+    """Test find_items_by_dedupe_keys returns empty for non-matching keys."""
+    db = create_db()
+
+    db.insert_plaid_item(
+        item_id="item_1",
+        access_token="token_1",
+        institution_id="ins_123",
+    )
+    db.save_plaid_accounts(
+        "item_1",
+        [{"account_id": "acc_1", "mask": "1234", "institution_id": "ins_123"}],
+    )
+
+    # Search for non-existent dedupe key
+    items = db.find_items_by_dedupe_keys([("ins_999", "9999")])
+
+    assert len(items) == 0
+
+
+def test_find_items_by_dedupe_keys_ignores_none_values() -> None:
+    """Test find_items_by_dedupe_keys ignores keys with None institution_id."""
+    db = create_db()
+
+    db.insert_plaid_item(
+        item_id="item_1",
+        access_token="token_1",
+        institution_id="ins_123",
+    )
+    db.save_plaid_accounts(
+        "item_1",
+        [{"account_id": "acc_1", "mask": "1234", "institution_id": "ins_123"}],
+    )
+
+    # Search with None institution_id should return empty
+    items = db.find_items_by_dedupe_keys([(None, "1234")])
+
+    assert len(items) == 0
+
+
+def test_delete_plaid_item_removes_item_and_accounts() -> None:
+    """Test delete_plaid_item removes item and cascades to accounts."""
+    db = create_db()
+
+    # Create item with accounts
+    db.insert_plaid_item(
+        item_id="item_123",
+        access_token="token",
+        institution_id="ins_123",
+    )
+    db.save_plaid_accounts(
+        "item_123",
+        [{"account_id": "acc_1", "mask": "1234", "institution_id": "ins_123"}],
+    )
+
+    # Delete item
+    result = db.delete_plaid_item("item_123")
+
+    assert result is True
+    assert db.get_plaid_item("item_123") is None
+    assert len(db.get_plaid_accounts_for_item("item_123")) == 0
+
+
+def test_delete_plaid_item_returns_false_for_nonexistent() -> None:
+    """Test delete_plaid_item returns False for non-existent item."""
+    db = create_db()
+
+    result = db.delete_plaid_item("nonexistent_item")
+
+    assert result is False
+
+
+def test_get_all_plaid_accounts_returns_all_accounts() -> None:
+    """Test get_all_plaid_accounts returns accounts across all items."""
+    db = create_db()
+
+    # Create two items with accounts
+    db.insert_plaid_item(item_id="item_1", access_token="token_1")
+    db.save_plaid_accounts(
+        "item_1",
+        [{"account_id": "acc_1", "mask": "1234", "institution_id": "ins_123"}],
+    )
+
+    db.insert_plaid_item(item_id="item_2", access_token="token_2")
+    db.save_plaid_accounts(
+        "item_2",
+        [{"account_id": "acc_2", "mask": "5678", "institution_id": "ins_456"}],
+    )
+
+    all_accounts = db.get_all_plaid_accounts()
+
+    assert len(all_accounts) == 2
+    account_ids = {acc.account_id for acc in all_accounts}
+    assert account_ids == {"acc_1", "acc_2"}
