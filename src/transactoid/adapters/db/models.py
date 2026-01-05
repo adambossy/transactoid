@@ -275,3 +275,60 @@ def normalize_merchant_name(descriptor: str) -> str:
     no_digits = re.sub(r"\d+", "", lowered)
     collapsed = re.sub(r"\s+", " ", no_digits).strip()
     return collapsed
+
+
+class AmazonOrderDB(Base):
+    """Amazon order scraped from order history."""
+
+    __tablename__ = "amazon_orders"
+
+    order_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    order_date: Mapped[date] = mapped_column(Date, nullable=False)
+    order_total_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    shipping_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # Relationship
+    items: Mapped[list["AmazonItemDB"]] = relationship(  # noqa: UP037
+        "AmazonItemDB", back_populates="order"
+    )
+
+
+class AmazonItemDB(Base):
+    """Amazon item scraped from order history."""
+
+    __tablename__ = "amazon_items"
+
+    item_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[str] = mapped_column(
+        String(50), ForeignKey("amazon_orders.order_id"), nullable=False
+    )
+    asin: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # Relationship
+    order: Mapped[AmazonOrderDB] = relationship("AmazonOrderDB", back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("order_id", "asin", name="uq_amazon_item_order_asin"),
+    )
