@@ -403,7 +403,7 @@ class DB:
         """Delete derived transactions by their external IDs (legacy wrapper).
 
         DEPRECATED: Use delete_plaid_transactions_by_external_ids() for full
-        cascade delete, or delete_derived_by_plaid_id() for derived-only.
+        cascade delete, or delete_derived_by_plaid_ids() for derived-only.
 
         Only deletes unverified transactions to respect immutability guarantees.
 
@@ -749,6 +749,21 @@ class DB:
             session.flush()
             session.refresh(item)
             session.expunge(item)
+            return item
+
+    def get_plaid_item(self, item_id: str) -> PlaidItem | None:
+        """Retrieve a Plaid item by item_id.
+
+        Args:
+            item_id: Plaid item ID
+
+        Returns:
+            PlaidItem instance or None if not found
+        """
+        with self.session() as session:  # type: Session
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            if item:
+                session.expunge(item)
             return item
 
     def insert_plaid_item(
@@ -1196,26 +1211,6 @@ class DB:
             for txn in derived_txns:
                 session.expunge(txn)
             return derived_txns
-
-    def delete_derived_by_plaid_id(
-        self,
-        plaid_transaction_id: int,
-    ) -> int:
-        """Delete all derived transactions for a Plaid transaction.
-
-        Args:
-            plaid_transaction_id: Plaid transaction ID
-
-        Returns:
-            Number of transactions deleted
-        """
-        with self.session() as session:  # type: Session
-            result = (
-                session.query(DerivedTransaction)
-                .filter(DerivedTransaction.plaid_transaction_id == plaid_transaction_id)
-                .delete(synchronize_session=False)
-            )
-            return result
 
     def delete_derived_by_plaid_ids(
         self,

@@ -121,18 +121,6 @@ class SyncToolLogger:
             "Deleting {} removed transactions", deletion_count
         )
 
-    def plaid_persist_start(self, count: int) -> None:
-        """Log start of Plaid persistence phase."""
-        self._logger.bind(count=count).info(
-            "Persisting {} transactions to plaid_transactions table", count
-        )
-
-    def mutation_start(self, count: int) -> None:
-        """Log start of mutation phase."""
-        self._logger.bind(count=count).info(
-            "Creating derived transactions for {} Plaid transactions", count
-        )
-
     def pipeline_persist_start(self, batch_size: int, batch_num: int) -> None:
         """Log start of batch persistence in pipeline."""
         self._logger.bind(batch_size=batch_size, batch_num=batch_num).debug(
