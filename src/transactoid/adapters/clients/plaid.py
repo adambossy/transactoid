@@ -533,6 +533,32 @@ class PlaidClient:
             institution_name = item_data["institution_name"]
             institution_id = item_data["institution_id"]
 
+            # Fetch accounts for dedupe check
+            accounts = self.get_accounts(access_token)
+
+            # Build dedupe keys: (institution_id, mask)
+            dedupe_keys: list[tuple[str | None, str | None]] = []
+            for account in accounts:
+                mask = account.get("mask")
+                dedupe_keys.append((institution_id, mask))
+
+            # Check for duplicates
+            existing_items = db.find_items_by_dedupe_keys(dedupe_keys)
+            if existing_items:
+                existing_item = existing_items[0]
+                return {
+                    "status": "duplicate",
+                    "item_id": item_id,
+                    "existing_item_id": existing_item.item_id,
+                    "institution_name": institution_name,
+                    "message": (
+                        f"Duplicate account detected. "
+                        f"An account with the same institution and mask "
+                        f"already exists (item_id={existing_item.item_id[:8]}...). "
+                        f"The new link was not saved."
+                    ),
+                }
+
             # Save to database
             db_error = save_item_to_database(
                 db=db,
@@ -544,10 +570,26 @@ class PlaidClient:
             if db_error:
                 return db_error
 
+            # Save accounts
+            account_data_list: list[dict[str, Any]] = []
+            for account in accounts:
+                account_data_list.append({
+                    "account_id": account["account_id"],
+                    "mask": account.get("mask"),
+                    "type": account.get("type"),
+                    "subtype": account.get("subtype"),
+                    "name": account.get("name"),
+                    "official_name": account.get("official_name"),
+                    "institution_id": institution_id,
+                    "institution_name": institution_name,
+                })
+            db.save_plaid_accounts(item_id, account_data_list)
+
             return {
                 "status": "success",
                 "item_id": item_id,
                 "institution_name": institution_name,
+                "accounts_linked": len(accounts),
                 "message": build_success_message(
                     item_id=item_id,
                     institution_name=institution_name,

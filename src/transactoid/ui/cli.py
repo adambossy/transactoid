@@ -110,6 +110,111 @@ def clear_cache(namespace: str = "default") -> None:
     return None
 
 
+@app.command("plaid-dedupe-items")
+def plaid_dedupe_items(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Actually delete duplicate items. Default is dry-run.",
+    ),
+) -> None:
+    """
+    Find and remove duplicate Plaid items based on (institution_id, mask) dedupe key.
+
+    Groups items by their account dedupe keys and keeps the earliest created item,
+    deleting any duplicates. Items without plaid_accounts are skipped and reported.
+
+    Dry-run by default. Use --apply to actually delete duplicates.
+    """
+    from collections import defaultdict
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    # Get all items and accounts
+    items = db.list_plaid_items()
+    if not items:
+        typer.echo("No Plaid items found.")
+        return
+
+    # Build dedupe key -> items mapping
+    dedupe_groups: dict[tuple[str | None, str | None], list[tuple[str, datetime]]] = (
+        defaultdict(list)
+    )
+    items_without_accounts: list[str] = []
+
+    for item in items:
+        accounts = db.get_plaid_accounts_for_item(item.item_id)
+        if not accounts:
+            items_without_accounts.append(item.item_id)
+            continue
+
+        for account in accounts:
+            dedupe_key = (account.institution_id, account.mask)
+            dedupe_groups[dedupe_key].append((item.item_id, item.created_at))
+
+    # Find duplicates
+    to_keep: set[str] = set()
+    to_delete: set[str] = set()
+
+    for _dedupe_key, item_list in dedupe_groups.items():
+        if len(item_list) <= 1:
+            # No duplicates for this key
+            for item_id, _ in item_list:
+                to_keep.add(item_id)
+            continue
+
+        # Sort by created_at (earliest first), then item_id for tie-breaker
+        sorted_items = sorted(item_list, key=lambda x: (x[1], x[0]))
+        canonical_item_id = sorted_items[0][0]
+        to_keep.add(canonical_item_id)
+
+        for item_id, _ in sorted_items[1:]:
+            to_delete.add(item_id)
+
+    # Report results
+    typer.echo(f"\n{'='*60}")
+    typer.echo("Plaid Item Dedupe Report")
+    typer.echo(f"{'='*60}\n")
+
+    typer.echo(f"Total items scanned: {len(items)}")
+    typer.echo(f"Items to keep: {len(to_keep)}")
+    typer.echo(f"Items to delete: {len(to_delete)}")
+    typer.echo(f"Items without accounts (skipped): {len(items_without_accounts)}")
+
+    if items_without_accounts:
+        skipped = ", ".join(items_without_accounts)
+        typer.echo(f"\nSkipped items (no accounts): {skipped}")
+
+    if to_delete:
+        typer.echo("\nDuplicate items to delete:")
+        for item_id in sorted(to_delete):
+            typer.echo(f"  - {item_id}")
+
+    if to_keep:
+        typer.echo("\nItems to keep:")
+        for item_id in sorted(to_keep):
+            typer.echo(f"  + {item_id}")
+
+    # Apply deletions if requested
+    if to_delete:
+        if apply:
+            typer.echo(f"\n{'='*60}")
+            typer.echo("Applying deletions...")
+            deleted_count = 0
+            for item_id in to_delete:
+                if db.delete_plaid_item(item_id):
+                    deleted_count += 1
+                    typer.echo(f"  Deleted: {item_id}")
+            typer.echo(f"\nDeleted {deleted_count} duplicate items.")
+        else:
+            typer.echo(f"\n{'='*60}")
+            typer.echo("DRY RUN - No changes made.")
+            typer.echo("Run with --apply to delete duplicate items.")
+    else:
+        typer.echo("\nNo duplicates found. Database is clean.")
+
+
 async def _agent_impl(
     *,
     db: DB | None = None,
