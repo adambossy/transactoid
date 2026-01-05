@@ -40,7 +40,6 @@ class TransactoidSession:
     def __init__(self, agent: Agent, session_id: str | None = None) -> None:
         sid = session_id or "transactoid_cli"
         self._agent = agent
-        self._session_id = sid
         self._session = SQLiteSession(sid)
 
     async def run_turn(
