@@ -634,7 +634,12 @@ class DB:
                         "created_at": "TIMESTAMP",
                         "updated_at": "TIMESTAMP",
                     },
-                    "relationships": ["plaid_transaction", "merchant", "category", "tags"],
+                    "relationships": [
+                        "plaid_transaction",
+                        "merchant",
+                        "category",
+                        "tags",
+                    ],
                     "notes": "Primary table for all spending queries and analysis. May have multiple rows per Plaid transaction (Amazon item splits).",
                 },
                 "tags": {
@@ -912,7 +917,9 @@ class DB:
             session.commit()
             return plaid_ids
 
-    def get_plaid_transaction(self, plaid_transaction_id: int) -> PlaidTransaction | None:
+    def get_plaid_transaction(
+        self, plaid_transaction_id: int
+    ) -> PlaidTransaction | None:
         """Get Plaid transaction by ID.
 
         Args:
@@ -949,7 +956,9 @@ class DB:
         with self.session() as session:  # type: Session
             plaid_txns = (
                 session.query(PlaidTransaction)
-                .filter(PlaidTransaction.plaid_transaction_id.in_(plaid_transaction_ids))
+                .filter(
+                    PlaidTransaction.plaid_transaction_id.in_(plaid_transaction_ids)
+                )
                 .all()
             )
             for txn in plaid_txns:
@@ -1066,11 +1075,10 @@ class DB:
             # Step 1: Collect unique merchant descriptors
             descriptors: set[str] = set()
             for data in data_list:
-                if (
-                    data.get("merchant_id") is None
-                    and data.get("merchant_descriptor")
-                ):
-                    descriptors.add(normalize_merchant_name(data["merchant_descriptor"]))
+                if data.get("merchant_id") is None and data.get("merchant_descriptor"):
+                    descriptors.add(
+                        normalize_merchant_name(data["merchant_descriptor"])
+                    )
 
             # Step 2: Fetch existing merchants in single query
             merchant_map: dict[str, int] = {}
@@ -1172,7 +1180,9 @@ class DB:
         with self.session() as session:  # type: Session
             derived_txns = (
                 session.query(DerivedTransaction)
-                .filter(DerivedTransaction.plaid_transaction_id.in_(plaid_transaction_ids))
+                .filter(
+                    DerivedTransaction.plaid_transaction_id.in_(plaid_transaction_ids)
+                )
                 .all()
             )
             for txn in derived_txns:
@@ -1292,7 +1302,9 @@ class DB:
 
             # Resolve merchant if merchant_descriptor is provided
             if "merchant_descriptor" in updates and updates["merchant_descriptor"]:
-                normalized_name = normalize_merchant_name(updates["merchant_descriptor"])
+                normalized_name = normalize_merchant_name(
+                    updates["merchant_descriptor"]
+                )
                 merchant = (
                     session.query(Merchant)
                     .filter(Merchant.normalized_name == normalized_name)
@@ -1451,9 +1463,7 @@ class DB:
 
             item_ids = [row[0] for row in matching_item_ids]
             items = (
-                session.query(PlaidItem)
-                .filter(PlaidItem.item_id.in_(item_ids))
-                .all()
+                session.query(PlaidItem).filter(PlaidItem.item_id.in_(item_ids)).all()
             )
             for item in items:
                 session.expunge(item)

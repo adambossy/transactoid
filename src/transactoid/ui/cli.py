@@ -173,9 +173,9 @@ def plaid_dedupe_items(
             to_delete.add(item_id)
 
     # Report results
-    typer.echo(f"\n{'='*60}")
+    typer.echo(f"\n{'=' * 60}")
     typer.echo("Plaid Item Dedupe Report")
-    typer.echo(f"{'='*60}\n")
+    typer.echo(f"{'=' * 60}\n")
 
     typer.echo(f"Total items scanned: {len(items)}")
     typer.echo(f"Items to keep: {len(to_keep)}")
@@ -199,7 +199,7 @@ def plaid_dedupe_items(
     # Apply deletions if requested
     if to_delete:
         if apply:
-            typer.echo(f"\n{'='*60}")
+            typer.echo(f"\n{'=' * 60}")
             typer.echo("Applying deletions...")
             deleted_count = 0
             for item_id in to_delete:
@@ -208,7 +208,7 @@ def plaid_dedupe_items(
                     typer.echo(f"  Deleted: {item_id}")
             typer.echo(f"\nDeleted {deleted_count} duplicate items.")
         else:
-            typer.echo(f"\n{'='*60}")
+            typer.echo(f"\n{'=' * 60}")
             typer.echo("DRY RUN - No changes made.")
             typer.echo("Run with --apply to delete duplicate items.")
     else:

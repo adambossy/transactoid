@@ -538,16 +538,18 @@ class PlaidClient:
             # Save accounts
             account_data_list: list[dict[str, Any]] = []
             for account in accounts:
-                account_data_list.append({
-                    "account_id": account["account_id"],
-                    "mask": account.get("mask"),
-                    "type": account.get("type"),
-                    "subtype": account.get("subtype"),
-                    "name": account.get("name"),
-                    "official_name": account.get("official_name"),
-                    "institution_id": institution_id,
-                    "institution_name": institution_name,
-                })
+                account_data_list.append(
+                    {
+                        "account_id": account["account_id"],
+                        "mask": account.get("mask"),
+                        "type": account.get("type"),
+                        "subtype": account.get("subtype"),
+                        "name": account.get("name"),
+                        "official_name": account.get("official_name"),
+                        "institution_id": institution_id,
+                        "institution_name": institution_name,
+                    }
+                )
             db.save_plaid_accounts(item_id, account_data_list)
 
             return {
