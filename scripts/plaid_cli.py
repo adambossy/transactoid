@@ -30,19 +30,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-def plaid_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Legacy helper retained for compatibility; delegates to PlaidClient."""
-    client = PlaidClient.from_env()
-    try:
-        return client._post(
-            path,
-            payload,
-        )
-    except PlaidClientError as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
-
-
 def plaid_create_link_token(
     *,
     user_id: str,
