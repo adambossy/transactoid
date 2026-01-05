@@ -183,14 +183,12 @@ class Categorizer:
         *,
         prompt_key: str = "categorize-transactions",
         model: str = "gpt-5.1",
-        confidence_threshold: float = 0.70,
         file_cache: FileCache | None = None,
         max_concurrency: int = 8,
     ) -> None:
         self._taxonomy = taxonomy
         self._prompt_key = prompt_key
         self._model = model
-        self._confidence_threshold = confidence_threshold
         self._file_cache = file_cache or FileCache()
         self._max_concurrency = max_concurrency
         self._semaphore: asyncio.Semaphore | None = None
