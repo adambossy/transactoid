@@ -1,8 +1,7 @@
-"""Amazon order index for O(1) lookup by amount."""
+"""Amazon order index for efficient order and item lookup."""
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
 
 from transactoid.adapters.amazon.csv_loader import (
@@ -14,10 +13,7 @@ from transactoid.adapters.amazon.csv_loader import (
 
 
 class AmazonOrderIndex:
-    """Index of Amazon orders for efficient lookup by amount.
-
-    Provides O(1) lookup of orders by amount_cents using a hash map.
-    """
+    """Index of Amazon orders and items for efficient lookup."""
 
     def __init__(
         self,
@@ -32,11 +28,6 @@ class AmazonOrderIndex:
         """
         self._orders = orders
         self._items_by_order = items_by_order
-        self._by_amount: dict[int, list[AmazonOrder]] = defaultdict(list)
-
-        # Build amount index for O(1) lookup
-        for order in orders.values():
-            self._by_amount[order.order_total_cents].append(order)
 
     @classmethod
     def from_csv_dir(cls, csv_dir: Path) -> AmazonOrderIndex:
@@ -52,17 +43,6 @@ class AmazonOrderIndex:
         orders = AmazonOrdersCSVLoader(csv_dir).load()
         items = AmazonItemsCSVLoader(csv_dir).load()
         return cls(orders, items)
-
-    def get_orders_by_amount(self, amount_cents: int) -> list[AmazonOrder]:
-        """Get all orders with the given amount. O(1) lookup.
-
-        Args:
-            amount_cents: Order total in cents
-
-        Returns:
-            List of orders with matching amount (may be empty)
-        """
-        return self._by_amount.get(amount_cents, [])
 
     def get_items(self, order_id: str) -> list[AmazonItem]:
         """Get items for an order.
