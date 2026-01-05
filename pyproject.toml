@@ -70,7 +70,7 @@ ignore-definitions-if-inherits-from = [
 
 [dependency-groups]
 dev = [
-    "deadcode>=2.4.0",
+    "deadcode>=2.4.1",
     "mypy>=1.18.2",
     "pytest>=9.0.0",
     "ruff>=0.14.4",
