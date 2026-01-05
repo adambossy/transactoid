@@ -3,44 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
-from enum import Enum
 import re
 
-from transactoid.adapters.amazon.csv_loader import AmazonItem, AmazonOrder
+from transactoid.adapters.amazon.csv_loader import AmazonOrder
 from transactoid.adapters.db.models import PlaidTransaction
-
-
-class NoMatchReason(Enum):
-    """Reasons why a Plaid transaction could not be matched to an Amazon order."""
-
-    AMOUNT_NOT_FOUND = "amount_not_found"
-    DATE_TOO_EARLY = "date_too_early"
-    DATE_TOO_LATE = "date_too_late"
-    ALREADY_MATCHED = "already_matched"
-
-
-@dataclass
-class MatchResult:
-    """Result of matching a single Plaid transaction to an Amazon order."""
-
-    plaid_transaction_id: int
-    order_id: str | None
-    items: list[AmazonItem] = field(default_factory=list)
-    no_match_reason: NoMatchReason | None = None
-
-
-@dataclass
-class MatchingReport:
-    """Aggregate report of all matching results."""
-
-    total_amazon_transactions: int
-    matched_count: int
-    unmatched_count: int
-    failure_reasons: dict[NoMatchReason, int]
-    matched_results: list[MatchResult]
-    unmatched_results: list[MatchResult]
-
 
 # Amazon merchant detection patterns
 _AMAZON_PATTERNS = [

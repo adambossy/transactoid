@@ -9,7 +9,6 @@ import loguru
 from loguru import logger
 
 
-
 class AmazonMatcherLogger:
     """Handles all logging for Amazon matching with business logic separated."""
 

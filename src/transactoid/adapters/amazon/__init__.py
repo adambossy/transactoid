@@ -13,9 +13,6 @@ from transactoid.adapters.amazon.mutation_plugin import (
 )
 from transactoid.adapters.amazon.order_index import AmazonOrderIndex
 from transactoid.adapters.amazon.plaid_matcher import (
-    MatchingReport,
-    MatchResult,
-    NoMatchReason,
     is_amazon_transaction,
     match_orders_to_transactions,
 )
@@ -33,9 +30,6 @@ __all__ = [
     # Order index
     "AmazonOrderIndex",
     # Matching
-    "MatchingReport",
-    "MatchResult",
-    "NoMatchReason",
     "is_amazon_transaction",
     "match_orders_to_transactions",
     # Splitting
