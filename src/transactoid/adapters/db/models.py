@@ -117,7 +117,9 @@ class PlaidTransaction(Base):
 
     # Relationships
     derived_transactions: Mapped[list[DerivedTransaction]] = relationship(
-        "DerivedTransaction", back_populates="plaid_transaction", cascade="all, delete-orphan"
+        "DerivedTransaction",
+        back_populates="plaid_transaction",
+        cascade="all, delete-orphan",
     )
 
 
@@ -130,7 +132,9 @@ class DerivedTransaction(Base):
         Integer, primary_key=True, autoincrement=True
     )
     plaid_transaction_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("plaid_transactions.plaid_transaction_id", ondelete="CASCADE"), nullable=False
+        Integer,
+        ForeignKey("plaid_transactions.plaid_transaction_id", ondelete="CASCADE"),
+        nullable=False,
     )
     external_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -194,7 +198,9 @@ class TransactionTag(Base):
     __tablename__ = "transaction_tags"
 
     transaction_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("derived_transactions.transaction_id", ondelete="CASCADE"), primary_key=True
+        Integer,
+        ForeignKey("derived_transactions.transaction_id", ondelete="CASCADE"),
+        primary_key=True,
     )
     tag_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("tags.tag_id"), primary_key=True

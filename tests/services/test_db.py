@@ -804,27 +804,33 @@ def test_get_derived_by_plaid_ids_returns_grouped_dict() -> None:
     )
 
     # Create derived transactions - 2 for plaid1, 1 for plaid2
-    derived1a = db.insert_derived_transaction({
-        "plaid_transaction_id": plaid1.plaid_transaction_id,
-        "external_id": "ext_1-item1",
-        "amount_cents": 2500,
-        "posted_at": date(2024, 1, 15),
-        "merchant_descriptor": "Amazon: Item 1",
-    })
-    derived1b = db.insert_derived_transaction({
-        "plaid_transaction_id": plaid1.plaid_transaction_id,
-        "external_id": "ext_1-item2",
-        "amount_cents": 2500,
-        "posted_at": date(2024, 1, 15),
-        "merchant_descriptor": "Amazon: Item 2",
-    })
-    derived2 = db.insert_derived_transaction({
-        "plaid_transaction_id": plaid2.plaid_transaction_id,
-        "external_id": "ext_2",
-        "amount_cents": 3000,
-        "posted_at": date(2024, 1, 16),
-        "merchant_descriptor": "Walmart",
-    })
+    derived1a = db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid1.plaid_transaction_id,
+            "external_id": "ext_1-item1",
+            "amount_cents": 2500,
+            "posted_at": date(2024, 1, 15),
+            "merchant_descriptor": "Amazon: Item 1",
+        }
+    )
+    derived1b = db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid1.plaid_transaction_id,
+            "external_id": "ext_1-item2",
+            "amount_cents": 2500,
+            "posted_at": date(2024, 1, 15),
+            "merchant_descriptor": "Amazon: Item 2",
+        }
+    )
+    derived2 = db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid2.plaid_transaction_id,
+            "external_id": "ext_2",
+            "amount_cents": 3000,
+            "posted_at": date(2024, 1, 16),
+            "merchant_descriptor": "Walmart",
+        }
+    )
 
     # Fetch in bulk
     result = db.get_derived_by_plaid_ids(
@@ -839,7 +845,9 @@ def test_get_derived_by_plaid_ids_returns_grouped_dict() -> None:
     plaid1_derived_ids = {d.transaction_id for d in result[plaid1.plaid_transaction_id]}
     assert derived1a.transaction_id in plaid1_derived_ids
     assert derived1b.transaction_id in plaid1_derived_ids
-    assert result[plaid2.plaid_transaction_id][0].transaction_id == derived2.transaction_id
+    assert (
+        result[plaid2.plaid_transaction_id][0].transaction_id == derived2.transaction_id
+    )
 
 
 def test_get_derived_by_plaid_ids_empty_for_no_derived() -> None:
@@ -969,18 +977,22 @@ def test_delete_derived_by_plaid_ids_deletes_all() -> None:
     )
 
     # Insert derived transactions
-    db.insert_derived_transaction({
-        "plaid_transaction_id": plaid1.plaid_transaction_id,
-        "external_id": "derived_1",
-        "amount_cents": 1000,
-        "posted_at": date(2024, 1, 15),
-    })
-    db.insert_derived_transaction({
-        "plaid_transaction_id": plaid2.plaid_transaction_id,
-        "external_id": "derived_2",
-        "amount_cents": 2000,
-        "posted_at": date(2024, 1, 16),
-    })
+    db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid1.plaid_transaction_id,
+            "external_id": "derived_1",
+            "amount_cents": 1000,
+            "posted_at": date(2024, 1, 15),
+        }
+    )
+    db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid2.plaid_transaction_id,
+            "external_id": "derived_2",
+            "amount_cents": 2000,
+            "posted_at": date(2024, 1, 16),
+        }
+    )
 
     # Delete only plaid1's derived
     deleted_count = db.delete_derived_by_plaid_ids([plaid1.plaid_transaction_id])
