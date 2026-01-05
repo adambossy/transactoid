@@ -390,36 +390,6 @@ class PlaidClient:
         }
         return info
 
-    def list_transactions(
-        self,
-        access_token: str,
-        *,
-        start_date: date,
-        end_date: date,
-        account_ids: list[str] | None = None,
-        offset: int = 0,
-        limit: int = 500,
-    ) -> list[Transaction]:
-        """Return a page of transactions using Plaid's /transactions/get."""
-        options: dict[str, Any] = {
-            "count": limit,
-            "offset": offset,
-        }
-        if account_ids:
-            options["account_ids"] = account_ids
-
-        payload: dict[str, Any] = {
-            "client_id": self._client_id,
-            "secret": self._secret,
-            "access_token": access_token,
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
-            "options": options,
-        }
-
-        resp = TransactionsGetResponse.parse(self._post("/transactions/get", payload))
-        return [txn.to_typed() for txn in resp.transactions]
-
     def sync_transactions(
         self,
         access_token: str,
@@ -439,11 +409,6 @@ class PlaidClient:
 
         resp = TransactionsSyncResponse.parse(self._post("/transactions/sync", payload))
         return resp.to_sync_result(fallback_cursor=cursor)
-
-    def institution_name_for_item(self, access_token: str) -> str | None:
-        """Convenience helper that returns only the institution name for an item."""
-        info = self.get_item_info(access_token)
-        return info.get("institution_name")
 
     def connect_new_account(
         self,
