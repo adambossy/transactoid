@@ -17,7 +17,6 @@ import yaml
 
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
-from transactoid.orchestrators.openai_adapter import OpenAIAdapter
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
@@ -28,6 +27,7 @@ from transactoid.tools.persist.persist_tool import (
 from transactoid.tools.query.query_tool import RunSQLTool
 from transactoid.tools.registry import ToolRegistry
 from transactoid.tools.sync.sync_tool import SyncTransactionsTool
+from transactoid.ui.chatkit.adapter import OpenAIAdapter
 
 
 class TransactoidChatKitServer(ChatKitServer[Any]):
