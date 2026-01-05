@@ -21,6 +21,7 @@ import yaml
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
+from transactoid.tools.amazon.scraper import scrape_with_playwriter
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.migrate.migration_tool import MigrationTool
 from transactoid.tools.persist.persist_tool import (
@@ -500,6 +501,43 @@ class Transactoid:
                 "summary": result.summary,
             }
 
+        @function_tool
+        def scrape_amazon_orders() -> dict[str, Any]:
+            """
+            Scrape Amazon order history using browser automation.
+
+            This tool guides you through logging into Amazon in your browser,
+            then uses browser automation to scrape your order history and
+            save it to the database.
+
+            Prerequisites:
+            1. Open Chrome and navigate to https://www.amazon.com
+            2. Log in to your Amazon account
+            3. Click the Playwriter extension icon in your browser toolbar
+
+            Returns:
+                Dictionary with scrape status and summary including:
+                - status: "success", "error", or "cancelled"
+                - orders_created: Number of orders scraped
+                - items_created: Number of items scraped
+            """
+            print(
+                """
+=== Amazon Order Scraping Setup ===
+
+1. Open Chrome and navigate to https://www.amazon.com
+2. Log in to your Amazon account
+3. Click the Playwriter extension icon in your browser toolbar
+4. When ready, type 'continue' to proceed with scraping
+"""
+            )
+
+            user_input = input("Type 'continue' when ready: ").strip().lower()
+            if user_input != "continue":
+                return {"status": "cancelled", "message": "Scraping cancelled by user"}
+
+            return scrape_with_playwriter(self._db)
+
         # Create Agent instance
         return Agent(
             name="Transactoid",
@@ -513,6 +551,7 @@ class Transactoid:
                 recategorize_merchant,
                 tag_transactions,
                 migrate_taxonomy,
+                scrape_amazon_orders,
                 WebSearchTool(),
             ],
             model_settings=ModelSettings(
