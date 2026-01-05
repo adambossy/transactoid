@@ -5,13 +5,9 @@ Separates logging logic from business logic per AGENTS.md guidelines.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import loguru
 from loguru import logger
 
-if TYPE_CHECKING:
-    from transactoid.adapters.amazon.plaid_matcher import MatchingReport, NoMatchReason
 
 
 class AmazonMatcherLogger:
@@ -42,33 +38,6 @@ class AmazonMatcherLogger:
             amazon_txn_count,
             total_txn_count,
         )
-
-    def matching_complete(self, report: MatchingReport) -> None:
-        """Log matching completion summary."""
-        if report.total_amazon_transactions == 0:
-            self._logger.info("No Amazon transactions to match")
-            return
-
-        match_rate = report.matched_count / report.total_amazon_transactions * 100
-
-        self._logger.bind(
-            matched=report.matched_count,
-            unmatched=report.unmatched_count,
-            total=report.total_amazon_transactions,
-            match_rate=match_rate,
-        ).info(
-            "Amazon matching complete: {}/{} matched ({:.1f}%)",
-            report.matched_count,
-            report.total_amazon_transactions,
-            match_rate,
-        )
-
-        # Log failure reason breakdown
-        if report.failure_reasons:
-            for reason, count in report.failure_reasons.items():
-                self._logger.bind(reason=reason.value, count=count).debug(
-                    "  {} unmatched: {}", count, reason.value
-                )
 
     def match_found(
         self,
@@ -108,55 +77,3 @@ class AmazonMatcherLogger:
             plaid_id,
         )
 
-    def no_match(
-        self,
-        plaid_id: int,
-        reason: NoMatchReason,
-        amount_cents: int,
-    ) -> None:
-        """Log unmatched Amazon transaction."""
-        self._logger.bind(
-            plaid_id=plaid_id,
-            reason=reason.value,
-            amount_cents=amount_cents,
-        ).debug(
-            "No match for plaid_txn {} (${:.2f}): {}",
-            plaid_id,
-            amount_cents / 100,
-            reason.value,
-        )
-
-    def item_reconciled(
-        self,
-        order_id: str,
-        asin: str,
-        description: str,
-        plaid_id: int,
-    ) -> None:
-        """Log item reconciled to Plaid transaction."""
-        self._logger.bind(
-            order_id=order_id,
-            asin=asin,
-            plaid_id=plaid_id,
-        ).debug(
-            "Item {} ({}) reconciled to plaid_txn {}",
-            asin,
-            description[:30],
-            plaid_id,
-        )
-
-    def item_unreconciled(
-        self,
-        order_id: str,
-        asin: str,
-        description: str,
-    ) -> None:
-        """Log item not reconciled."""
-        self._logger.bind(
-            order_id=order_id,
-            asin=asin,
-        ).debug(
-            "Item {} ({}) not reconciled - order unmatched",
-            asin,
-            description[:30],
-        )
