@@ -181,17 +181,17 @@ class TestUpdateNotifierToolCallUpdate:
         assert "content" not in parsed["params"]["update"]
 
 
-class TestUpdateNotifierMessageDelta:
-    """Tests for UpdateNotifier.message_delta method."""
+class TestUpdateNotifierAgentMessageChunk:
+    """Tests for UpdateNotifier.agent_message_chunk method."""
 
-    def test_message_delta_sends_text_content(self) -> None:
+    def test_agent_message_chunk_sends_text_content(self) -> None:
         transport = StdioTransport()
         notifier = UpdateNotifier(transport)
 
         parsed = _capture_notification(
-            notifier.message_delta(
+            notifier.agent_message_chunk(
                 session_id="sess_abc123",
-                content=[{"type": "text", "text": "Based on your transactions..."}],
+                content={"type": "text", "text": "Based on your transactions..."},
             )
         )
 
@@ -200,30 +200,42 @@ class TestUpdateNotifierMessageDelta:
             "method": "session/update",
             "params": {
                 "update": {
-                    "sessionUpdate": "message_delta",
-                    "content": [
-                        {"type": "text", "text": "Based on your transactions..."}
-                    ],
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {
+                        "type": "text",
+                        "text": "Based on your transactions...",
+                    },
                 }
             },
         }
         assert parsed == expected
 
-    def test_message_delta_with_multiple_content_blocks(self) -> None:
+
+class TestUpdateNotifierAgentThoughtChunk:
+    """Tests for UpdateNotifier.agent_thought_chunk method."""
+
+    def test_agent_thought_chunk_sends_thinking_content(self) -> None:
         transport = StdioTransport()
         notifier = UpdateNotifier(transport)
 
         parsed = _capture_notification(
-            notifier.message_delta(
+            notifier.agent_thought_chunk(
                 session_id="sess_abc123",
-                content=[
-                    {"type": "text", "text": "First part. "},
-                    {"type": "text", "text": "Second part."},
-                ],
+                content={"type": "thinking", "text": "Let me analyze this..."},
             )
         )
 
-        assert len(parsed["params"]["update"]["content"]) == 2
+        expected = {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "thinking", "text": "Let me analyze this..."},
+                }
+            },
+        }
+        assert parsed == expected
 
 
 class TestUpdateNotifierIntegration:
@@ -280,16 +292,16 @@ class TestUpdateNotifierIntegration:
         assert notifications[2]["params"]["update"]["status"] == "completed"
         assert "content" in notifications[2]["params"]["update"]
 
-    def test_interleaved_tool_calls_and_message_deltas(self) -> None:
+    def test_interleaved_tool_calls_and_agent_message_chunks(self) -> None:
         """Test interleaving tool call updates with message streaming."""
         transport = StdioTransport()
         notifier = UpdateNotifier(transport)
         mock_stdout = io.StringIO()
 
         async def run_sequence() -> None:
-            await notifier.message_delta(
+            await notifier.agent_message_chunk(
                 session_id="sess_abc123",
-                content=[{"type": "text", "text": "Let me check that..."}],
+                content={"type": "text", "text": "Let me check that..."},
             )
             await notifier.tool_call(
                 session_id="sess_abc123",
@@ -304,9 +316,9 @@ class TestUpdateNotifierIntegration:
                 status="completed",
                 content=[{"type": "text", "text": "5 results"}],
             )
-            await notifier.message_delta(
+            await notifier.agent_message_chunk(
                 session_id="sess_abc123",
-                content=[{"type": "text", "text": "I found 5 transactions."}],
+                content={"type": "text", "text": "I found 5 transactions."},
             )
 
         with patch("sys.stdout", mock_stdout):
@@ -317,9 +329,10 @@ class TestUpdateNotifierIntegration:
 
         notifications = [json.loads(line) for line in lines]
 
-        assert notifications[0]["params"]["update"]["sessionUpdate"] == "message_delta"
+        update_type = "agent_message_chunk"
+        assert notifications[0]["params"]["update"]["sessionUpdate"] == update_type
         assert notifications[1]["params"]["update"]["sessionUpdate"] == "tool_call"
         assert (
             notifications[2]["params"]["update"]["sessionUpdate"] == "tool_call_update"
         )
-        assert notifications[3]["params"]["update"]["sessionUpdate"] == "message_delta"
+        assert notifications[3]["params"]["update"]["sessionUpdate"] == update_type

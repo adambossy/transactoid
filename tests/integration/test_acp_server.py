@@ -160,18 +160,21 @@ class TestACPServerFullFlow:
 
         notifications = [json.loads(line) for line in lines]
 
-        # Both should be message_delta notifications
+        # Both should be agent_message_chunk notifications
         for notification in notifications:
             assert notification["method"] == "session/update"
-            assert notification["params"]["update"]["sessionUpdate"] == "message_delta"
+            update_type = "agent_message_chunk"
+            assert notification["params"]["update"]["sessionUpdate"] == update_type
 
-        # Check content of deltas
-        assert notifications[0]["params"]["update"]["content"] == [
-            {"type": "text", "text": "Here's your balance..."}
-        ]
-        assert notifications[1]["params"]["update"]["content"] == [
-            {"type": "text", "text": " $1,234.56"}
-        ]
+        # Check content of deltas (now single objects, not lists)
+        assert notifications[0]["params"]["update"]["content"] == {
+            "type": "text",
+            "text": "Here's your balance...",
+        }
+        assert notifications[1]["params"]["update"]["content"] == {
+            "type": "text",
+            "text": " $1,234.56",
+        }
 
         # Verify message was added to session history
         session = session_manager.get(session_id)
@@ -271,7 +274,7 @@ class TestACPServerFullFlow:
         output = mock_stdout.getvalue()
         lines = [line for line in output.strip().split("\n") if line]
         # Expected: tool_call, tool_call_update (in_progress),
-        # tool_call_update (completed), message_delta
+        # tool_call_update (completed), agent_message_chunk
         assert len(lines) == 4
 
         notifications = [json.loads(line) for line in lines]
@@ -298,8 +301,9 @@ class TestACPServerFullFlow:
         assert notifications[2]["params"]["update"]["status"] == "completed"
         assert "content" in notifications[2]["params"]["update"]
 
-        # Fourth: message_delta
-        assert notifications[3]["params"]["update"]["sessionUpdate"] == "message_delta"
+        # Fourth: agent_message_chunk
+        update_type = "agent_message_chunk"
+        assert notifications[3]["params"]["update"]["sessionUpdate"] == update_type
 
 
 class TestACPServerTransportIntegration:
