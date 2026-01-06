@@ -1373,7 +1373,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "deadcode", specifier = ">=2.4.0" },
+    { name = "deadcode", specifier = ">=2.4.1" },
     { name = "mypy", specifier = ">=1.18.2" },
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "ruff", specifier = ">=0.14.4" },
