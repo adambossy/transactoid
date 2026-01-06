@@ -151,14 +151,17 @@ class PromptHandler:
             event: Streaming event from the agent runner
         """
         et = getattr(event, "type", "")
+        logger.debug("Processing event: type=%s, event=%s", et, type(event).__name__)
 
         # Handle raw response events
         if et == "raw_response_event":
             data = getattr(event, "data", None)
             if data is None:
+                logger.debug("raw_response_event with no data, skipping")
                 return
 
             dt = getattr(data, "type", "")
+            logger.debug("raw_response_event data.type=%s", dt)
 
             # Output text -> agent_message_chunk
             if dt == "response.output_text.delta":
@@ -199,6 +202,9 @@ class PromptHandler:
                 name = getattr(item, "name", "unknown")
                 call_id = getattr(item, "call_id", "unknown")
                 self._last_call_id = call_id
+                logger.info(
+                    "Tool call started: name=%s call_id=%s", name, call_id
+                )
 
                 # Track the tool call state
                 self._tool_calls[call_id] = _ToolCallState(call_id, name)
@@ -216,6 +222,11 @@ class PromptHandler:
             # Function call completed (arguments done)
             if dt == "response.output_item.done":
                 call_id = getattr(item, "call_id", None)
+                logger.debug(
+                    "output_item.done: call_id=%s item.type=%s",
+                    call_id,
+                    getattr(item, "type", "?"),
+                )
                 if call_id:
                     # Send in_progress notification
                     await self._notifier.tool_call_update(
@@ -230,10 +241,19 @@ class PromptHandler:
         # Handle run item events (tool execution results)
         if et == "run_item_stream_event":
             item = getattr(event, "item", None)
+            logger.debug(
+                "run_item_stream_event: item type=%s", type(item).__name__
+            )
             if isinstance(item, ToolCallOutputItem):
                 call_id = getattr(item, "call_id", None) or "unknown"
                 output = item.output
                 output_text = str(output) if output is not None else ""
+                logger.info(
+                    "Tool output: call_id=%s output_len=%d",
+                    call_id,
+                    len(output_text),
+                )
+                logger.debug("Tool output text: %s", output_text[:200])
 
                 # Send completed notification with output
                 await self._notifier.tool_call_update(
@@ -246,6 +266,15 @@ class PromptHandler:
                 # Clean up tool call state
                 self._tool_calls.pop(call_id, None)
                 return
+            else:
+                logger.debug(
+                    "run_item_stream_event with non-ToolCallOutputItem: %s",
+                    type(item).__name__,
+                )
+                return
+
+        # Log unhandled event types
+        logger.debug("Unhandled event type: %s", et)
 
     def _get_kind(self, tool_name: str) -> ToolCallKind:
         """Map tool name to ACP tool call kind.
