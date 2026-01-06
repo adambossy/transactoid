@@ -6,6 +6,7 @@ responses back to the client via session/update notifications.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agents import Agent, Runner, SQLiteSession
@@ -14,6 +15,8 @@ from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent
 
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.notifier import ToolCallKind, UpdateNotifier
+
+logger = logging.getLogger(__name__)
 
 
 class PromptHandler:
@@ -73,11 +76,14 @@ class PromptHandler:
                 - stopReason: Why the agent stopped (e.g., "end_turn")
                 Or error dict if session is invalid
         """
+        logger.info("handle_prompt called with params keys: %s", list(params.keys()))
         session_id = params.get("sessionId", "")
         content: list[dict[str, Any]] = params.get("content", [])
+        logger.debug("session_id=%s, content=%s", session_id, content)
 
         session = self._sessions.get(session_id)
         if session is None:
+            logger.warning("Invalid session: %s", session_id)
             return {"error": {"code": -32600, "message": "Invalid session"}}
 
         # Extract text from content blocks
@@ -90,7 +96,10 @@ class PromptHandler:
                     break
 
         if not user_text:
+            logger.warning("No text content in prompt")
             return {"error": {"code": -32602, "message": "No text content provided"}}
+
+        logger.info("User prompt: %s", user_text[:100])
 
         # Add user message to session history
         self._sessions.add_message(session_id, {"role": "user", "content": user_text})
@@ -99,6 +108,7 @@ class PromptHandler:
         sdk_session = SQLiteSession(session_id)
 
         # Run agent with streaming
+        logger.info("Starting agent stream...")
         stream = Runner.run_streamed(
             self._agent,
             user_text,
@@ -106,8 +116,13 @@ class PromptHandler:
         )
 
         # Process streaming events
+        event_count = 0
         async for event in stream.stream_events():
+            event_count += 1
+            logger.debug("Event %d: type=%s", event_count, getattr(event, "type", "?"))
             await self._process_event(session_id, event)
+
+        logger.info("Processed %d events from agent stream", event_count)
 
         # Add assistant response to session history (if available)
         get_final_result = getattr(stream, "get_final_result", None)
@@ -115,11 +130,13 @@ class PromptHandler:
             final_result = get_final_result()
             final_output = getattr(final_result, "final_output", None)
             if final_output:
+                logger.info("Final output: %s", str(final_output)[:100])
                 self._sessions.add_message(
                     session_id,
                     {"role": "assistant", "content": str(final_output)},
                 )
 
+        logger.info("handle_prompt returning end_turn")
         return {"stopReason": "end_turn"}
 
     async def _process_event(self, session_id: str, event: Any) -> None:
