@@ -28,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 transactoid = "transactoid.ui.cli:main"
+transactoid-acp = "transactoid.ui.acp.server:run"
 
 [tool.setuptools]
 package-dir = {"transactoid" = "src/transactoid"}
