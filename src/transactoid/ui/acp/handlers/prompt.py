@@ -222,12 +222,14 @@ class PromptHandler:
             # Function call completed (arguments done)
             if dt == "response.output_item.done":
                 call_id = getattr(item, "call_id", None)
+                item_type = getattr(item, "type", "?")
                 logger.debug(
                     "output_item.done: call_id=%s item.type=%s",
                     call_id,
-                    getattr(item, "type", "?"),
+                    item_type,
                 )
-                if call_id:
+                # Only send update for function calls we're tracking
+                if call_id and call_id in self._tool_calls:
                     # Send in_progress notification
                     await self._notifier.tool_call_update(
                         session_id=session_id,
@@ -249,11 +251,19 @@ class PromptHandler:
                 output = item.output
                 output_text = str(output) if output is not None else ""
                 logger.info(
-                    "Tool output: call_id=%s output_len=%d",
+                    "Tool output: call_id=%s output_len=%d tracked=%s",
                     call_id,
                     len(output_text),
+                    call_id in self._tool_calls,
                 )
                 logger.debug("Tool output text: %s", output_text[:200])
+
+                # Only send update for tool calls we're tracking
+                if call_id not in self._tool_calls:
+                    logger.warning(
+                        "Tool output for unknown call_id=%s, skipping", call_id
+                    )
+                    return
 
                 # Send completed notification with output
                 await self._notifier.tool_call_update(
