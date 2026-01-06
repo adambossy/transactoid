@@ -28,7 +28,6 @@ dependencies = [
 
 [project.scripts]
 transactoid = "transactoid.ui.cli:main"
-transactoid-acp = "transactoid.ui.acp.server:run"
 
 [tool.setuptools]
 package-dir = {"transactoid" = "src/transactoid"}
@@ -76,4 +75,3 @@ dev = [
     "pytest>=9.0.0",
     "ruff>=0.14.4",
 ]
-

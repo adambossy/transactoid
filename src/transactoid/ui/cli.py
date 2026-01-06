@@ -249,6 +249,21 @@ def agent() -> None:
     asyncio.run(_agent_impl())
 
 
+@app.command()
+def acp() -> None:
+    """
+    Run the ACP (Agent Client Protocol) server.
+
+    Starts the Transactoid agent as an ACP server that communicates via
+    JSON-RPC over stdin/stdout. Use this with ACP clients like Toad:
+
+        toad acp "transactoid acp"
+    """
+    from transactoid.ui.acp.server import main as acp_main
+
+    asyncio.run(acp_main())
+
+
 async def _eval_impl(
     questions_path: str,
     questions: str | None,
