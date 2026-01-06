@@ -91,12 +91,12 @@ class UpdateNotifier:
             update["content"] = content
         await self._send_update(update)
 
-    async def message_delta(
+    async def agent_message_chunk(
         self,
         session_id: str,
-        content: list[dict[str, Any]],
+        content: dict[str, Any],
     ) -> None:
-        """Send a message_delta notification.
+        """Send an agent_message_chunk notification.
 
         Reports streaming text content from the agent's response.
         Used to stream partial responses to the client in real-time.
@@ -104,12 +104,35 @@ class UpdateNotifier:
         Args:
             session_id: The session identifier (currently unused but kept
                 for API consistency and future session-scoped notifications).
-            content: Content blocks containing the delta text, typically
-                [{"type": "text", "text": "..."}].
+            content: Content block containing the chunk, typically
+                {"type": "text", "text": "..."}.
         """
         await self._send_update(
             {
-                "sessionUpdate": "message_delta",
+                "sessionUpdate": "agent_message_chunk",
+                "content": content,
+            }
+        )
+
+    async def agent_thought_chunk(
+        self,
+        session_id: str,
+        content: dict[str, Any],
+    ) -> None:
+        """Send an agent_thought_chunk notification.
+
+        Reports streaming thinking/reasoning content from the agent.
+        Used for chain-of-thought or reasoning visibility.
+
+        Args:
+            session_id: The session identifier (currently unused but kept
+                for API consistency and future session-scoped notifications).
+            content: Content block containing the thought chunk, typically
+                {"type": "thinking", "text": "..."}.
+        """
+        await self._send_update(
+            {
+                "sessionUpdate": "agent_thought_chunk",
                 "content": content,
             }
         )

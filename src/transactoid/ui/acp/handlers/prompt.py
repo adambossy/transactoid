@@ -142,23 +142,23 @@ class PromptHandler:
 
             dt = getattr(data, "type", "")
 
-            # Output text -> message_delta
+            # Output text -> agent_message_chunk
             if dt == "response.output_text.delta":
                 delta = getattr(data, "delta", None)
                 if delta:
-                    await self._notifier.message_delta(
+                    await self._notifier.agent_message_chunk(
                         session_id=session_id,
-                        content=[{"type": "text", "text": delta}],
+                        content={"type": "text", "text": delta},
                     )
                 return
 
-            # Reasoning text -> also send as message_delta with reasoning type
+            # Reasoning text -> agent_thought_chunk
             if dt == "response.reasoning_summary_text.delta":
                 delta = getattr(data, "delta", None)
                 if delta:
-                    await self._notifier.message_delta(
+                    await self._notifier.agent_thought_chunk(
                         session_id=session_id,
-                        content=[{"type": "reasoning", "text": delta}],
+                        content={"type": "thinking", "text": delta},
                     )
                 return
 
