@@ -78,7 +78,8 @@ class PromptHandler:
         """
         logger.info("handle_prompt called with params keys: %s", list(params.keys()))
         session_id = params.get("sessionId", "")
-        content: list[dict[str, Any]] = params.get("content", [])
+        # Toad sends "prompt", ACP spec uses "content" - support both
+        content: list[dict[str, Any]] = params.get("prompt") or params.get("content") or []
         logger.debug("session_id=%s, content=%s", session_id, content)
 
         session = self._sessions.get(session_id)
