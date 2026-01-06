@@ -57,6 +57,7 @@ class ACPServer:
         if db_url is None:
             db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
         self._db = DB(db_url)
+        self._db.create_schema()
 
         # Load taxonomy from database
         self._taxonomy = load_taxonomy_from_db(self._db)
