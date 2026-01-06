@@ -5,8 +5,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 import json
+import logging
 import sys
 from typing import Any
+
+# Configure logger to write to stderr (stdout is for JSON-RPC)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -68,14 +72,18 @@ class StdioTransport:
         loop = asyncio.get_running_loop()
         line: str = await loop.run_in_executor(None, sys.stdin.readline)
         if not line:
+            logger.debug("stdin closed (empty line)")
             raise EOFError("stdin closed")
+        logger.debug("RECV: %s", line.strip()[:500])
         data: dict[str, Any] = json.loads(line)
-        return JsonRpcRequest(
+        request = JsonRpcRequest(
             method=str(data.get("method", "")),
             id=data.get("id"),
             params=data.get("params"),
             jsonrpc=str(data.get("jsonrpc", "2.0")),
         )
+        logger.info("← Request: method=%s id=%s", request.method, request.id)
+        return request
 
     async def write_response(self, response: JsonRpcResponse) -> None:
         """Write JSON-RPC response to stdout.
@@ -92,6 +100,8 @@ class StdioTransport:
         if response.error is not None:
             payload["error"] = response.error
         line = json.dumps(payload) + "\n"
+        logger.info("→ Response: id=%s error=%s", response.id, response.error)
+        logger.debug("SEND: %s", line.strip()[:500])
         sys.stdout.write(line)
         sys.stdout.flush()
 
@@ -108,5 +118,7 @@ class StdioTransport:
         if notification.params is not None:
             payload["params"] = notification.params
         line = json.dumps(payload) + "\n"
+        logger.info("→ Notification: %s", notification.method)
+        logger.debug("SEND: %s", line.strip()[:500])
         sys.stdout.write(line)
         sys.stdout.flush()

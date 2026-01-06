@@ -7,10 +7,20 @@ and runs the event loop for processing JSON-RPC requests over stdin/stdout.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
+
+# Configure logging to stderr (stdout is reserved for JSON-RPC)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stderr,
+)
+logger = logging.getLogger(__name__)
 
 from transactoid.adapters.db.facade import DB
 from transactoid.orchestrators.transactoid import Transactoid
@@ -111,6 +121,7 @@ class ACPServer:
         The loop continues until stdin is closed (EOFError) or a
         shutdown is requested.
         """
+        logger.info("ACP server starting event loop")
         while True:
             try:
                 # Read next request from stdin
@@ -119,7 +130,13 @@ class ACPServer:
                 # Dispatch to handler
                 try:
                     params = request.params or {}
+                    logger.info(
+                        "Dispatching %s (id=%s)", request.method, request.id
+                    )
                     result = await self._router.dispatch(request.method, params)
+                    logger.info(
+                        "Handler completed for %s (id=%s)", request.method, request.id
+                    )
 
                     # Send success response
                     response = JsonRpcResponse(
@@ -127,6 +144,7 @@ class ACPServer:
                         result=result,
                     )
                 except MethodNotFoundError as e:
+                    logger.warning("Method not found: %s", e.method)
                     # Send method not found error
                     response = JsonRpcResponse(
                         id=request.id,
@@ -136,6 +154,7 @@ class ACPServer:
                         },
                     )
                 except Exception as e:
+                    logger.exception("Handler error for %s: %s", request.method, e)
                     # Send internal error
                     response = JsonRpcResponse(
                         id=request.id,
@@ -149,14 +168,18 @@ class ACPServer:
                 await self._transport.write_response(response)
 
             except EOFError:
+                logger.info("stdin closed, shutting down")
                 # stdin closed, exit gracefully
                 break
 
 
 async def main() -> None:
     """Entry point for the transactoid-acp command."""
+    logger.info("=== Transactoid ACP Server Starting ===")
     server = ACPServer()
+    logger.info("Server initialized, starting run loop...")
     await server.run()
+    logger.info("=== Transactoid ACP Server Stopped ===")
 
 
 def run() -> None:
