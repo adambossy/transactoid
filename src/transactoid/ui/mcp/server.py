@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
+from transactoid.tools.amazon.scraper import scrape_with_playwriter
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.sync.sync_tool import SyncTool
@@ -232,6 +233,30 @@ def run_sql(query: str) -> dict[str, Any]:
             return {"status": "success", "rows": [], "count": result.rowcount}
     except Exception as e:
         return {"status": "error", "rows": [], "count": 0, "error": str(e)}
+
+
+@mcp.tool()
+def scrape_amazon_orders() -> dict[str, Any]:
+    """
+    Scrape Amazon order history via Playwriter MCP.
+
+    Requires user to:
+    1. Open Amazon in browser and log in
+    2. Navigate to order history page
+    3. Activate Playwriter extension on that tab
+
+    Returns:
+        Dictionary with status, orders_created, items_created counts.
+    """
+    try:
+        return scrape_with_playwriter(db)
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "orders_created": 0,
+            "items_created": 0,
+        }
 
 
 if __name__ == "__main__":
