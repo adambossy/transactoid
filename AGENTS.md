@@ -132,6 +132,25 @@ def test_<unit>_<behavior>():
   - Keep imports at module top level; avoid importing modules inside functions.
   - Do not use banner comments.
 
+- Database access patterns
+  - Avoid N+1 queries. Before writing database code, consider the full data flow and plan batch operations upfront.
+  - N+1 on reads: fetching N parent records then issuing N queries for related data. Fix: use JOINs or batch fetch with `IN` clause.
+  - N+1 on writes: processing N items then issuing N individual INSERT/UPDATE statements. Fix: use bulk insert/update methods.
+  - When designing a function that processes a collection, ask: "Will this hit the database once per item?" If yes, refactor to batch.
+  - Prefer `bulk_insert`, `executemany`, or CASE expressions for bulk updates over loops with individual writes.
+  - Example anti-pattern:
+    ```python
+    # BAD: N+1 writes - opens N transactions, ~100ms overhead each
+    for item in items:
+        db.update_item(item.id, item.value)
+    ```
+  - Example fix:
+    ```python
+    # GOOD: Single bulk operation
+    updates = {item.id: item.value for item in items}
+    db.bulk_update_items(updates)
+    ```
+
 ## Core style principles
 
 - Readability and predictability
