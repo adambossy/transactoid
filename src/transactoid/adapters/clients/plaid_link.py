@@ -137,9 +137,10 @@ def _create_ssl_context() -> ssl.SSLContext:
     The certificate is checked into source control; the private key is expected
     to exist only on the local filesystem and should not be committed.
     """
-    project_root = Path(__file__).resolve().parents[1]
-    cert_path = project_root / "configs" / "plaid_redirect_localhost.crt"
-    default_key_path = project_root / "configs" / "plaid_redirect_localhost.key"
+    # Navigate from src/transactoid/adapters/clients/ to project root
+    project_root = Path(__file__).resolve().parents[4]
+    cert_path = project_root / ".certs" / "plaid_redirect_localhost.crt"
+    default_key_path = project_root / ".certs" / "plaid_redirect_localhost.key"
     key_path = Path(os.getenv("PLAID_REDIRECT_SSL_KEY_PATH", str(default_key_path)))
 
     if not cert_path.is_file():
@@ -165,7 +166,7 @@ def _build_redirect_handler(
     state: dict[str, Any],
 ) -> type[BaseHTTPRequestHandler]:
     class RedirectHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
+        def do_GET(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path != expected_path:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
@@ -199,7 +200,7 @@ def _build_redirect_handler(
             self.end_headers()
             self.wfile.write(body_bytes)
 
-        def do_POST(self) -> None:
+        def do_POST(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path != expected_path:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
