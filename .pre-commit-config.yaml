@@ -22,4 +22,4 @@ repos:
     rev: v1.11.1
     hooks:
       - id: mypy
-
+        exclude: ^db/migrations/
