@@ -252,17 +252,18 @@ class PromptHandler:
 
                 output = item.output
                 output_text = str(output) if output is not None else ""
+                tracked_ids = list(self._tool_calls.keys())
+                is_tracked = call_id in self._tool_calls
                 self._log.tool_output(
                     call_id,
                     len(output_text),
-                    call_id in self._tool_calls,
-                    list(self._tool_calls.keys()),
+                    tracked=is_tracked,
+                    tracked_ids=tracked_ids,
                 )
                 self._log.tool_output_text(output_text)
 
                 # Only send update for tool calls we're tracking
-                if call_id not in self._tool_calls:
-                    tracked_ids = list(self._tool_calls.keys())
+                if not is_tracked:
                     self._log.tool_output_unknown(call_id, tracked_ids)
                     return
 
