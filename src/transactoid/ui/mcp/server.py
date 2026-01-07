@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
-from transactoid.tools.amazon.scraper import scrape_with_playwriter
+from transactoid.tools.amazon.scraper import scrape_amazon_orders as _scrape_amazon
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.sync.sync_tool import SyncTool
@@ -236,20 +236,21 @@ def run_sql(query: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def scrape_amazon_orders() -> dict[str, Any]:
+def scrape_amazon_orders(max_orders: int = 10) -> dict[str, Any]:
     """
-    Scrape Amazon order history via Playwriter MCP.
+    Scrape Amazon order history using Stagehand browser automation.
 
-    Requires user to:
-    1. Open Amazon in browser and log in
-    2. Navigate to order history page
-    3. Activate Playwriter extension on that tab
+    Opens a browser window for the user to log in to Amazon, then
+    automatically scrapes order history and saves to the database.
+
+    Args:
+        max_orders: Maximum number of orders to scrape (default: 10)
 
     Returns:
         Dictionary with status, orders_created, items_created counts.
     """
     try:
-        return scrape_with_playwriter(db)
+        return _scrape_amazon(db, backend="stagehand", max_orders=max_orders)
     except Exception as e:
         return {
             "status": "error",
