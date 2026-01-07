@@ -58,12 +58,13 @@ def test_last_month_spending_fixture_builds_correctly() -> None:
 
     # Assert - total count
     count_result = db.execute_raw_sql("SELECT COUNT(*) FROM derived_transactions")
-    actual_count = count_result.fetchone()[0]  # type: ignore[index]
+    actual_count = count_result.fetchone()[0]
     assert actual_count == expected_count
 
     # Assert - total amount
-    sum_result = db.execute_raw_sql("SELECT SUM(amount_cents) FROM derived_transactions")
-    actual_total_cents = sum_result.fetchone()[0]  # type: ignore[index]
+    sql = "SELECT SUM(amount_cents) FROM derived_transactions"
+    sum_result = db.execute_raw_sql(sql)
+    actual_total_cents = sum_result.fetchone()[0]
     assert actual_total_cents == expected_total_cents
 
 
@@ -88,7 +89,7 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key LIKE 'food_and_dining.%'
     """)
-    actual_food_cents = food_result.fetchone()[0]  # type: ignore[index]
+    actual_food_cents = food_result.fetchone()[0]
     assert actual_food_cents == expected_food_total_cents
 
     # Assert - groceries
@@ -98,7 +99,7 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key = 'food_and_dining.groceries'
     """)
-    actual_groceries_cents = groceries_result.fetchone()[0]  # type: ignore[index]
+    actual_groceries_cents = groceries_result.fetchone()[0]
     assert actual_groceries_cents == expected_groceries_cents
 
     # Assert - restaurants
@@ -108,7 +109,7 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key = 'food_and_dining.restaurants'
     """)
-    actual_restaurants_cents = restaurants_result.fetchone()[0]  # type: ignore[index]
+    actual_restaurants_cents = restaurants_result.fetchone()[0]
     assert actual_restaurants_cents == expected_restaurants_cents
 
 
@@ -131,7 +132,7 @@ def test_last_month_spending_transportation_total_matches() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key LIKE 'transportation_and_auto.%'
     """)
-    actual_cents = result.fetchone()[0]  # type: ignore[index]
+    actual_cents = result.fetchone()[0]
     assert actual_cents == expected_cents
 
 
@@ -154,7 +155,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
         FROM derived_transactions
         WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
-    actual_count = count_result.fetchone()[0]  # type: ignore[index]
+    actual_count = count_result.fetchone()[0]
     assert actual_count == expected_count
 
     # Assert - total
@@ -163,7 +164,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
         FROM derived_transactions
         WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
-    actual_cents = sum_result.fetchone()[0]  # type: ignore[index]
+    actual_cents = sum_result.fetchone()[0]
     assert actual_cents == expected_cents
 
 
