@@ -264,11 +264,17 @@ class PromptHandler:
                     return
 
                 # Send completed notification with output
+                # Toad expects: {"type": "content", "content": {"type": "text", ...}}
                 await self._notifier.tool_call_update(
                     session_id=session_id,
                     tool_call_id=call_id,
                     status="completed",
-                    content=[{"type": "text", "text": output_text}],
+                    content=[
+                        {
+                            "type": "content",
+                            "content": {"type": "text", "text": output_text},
+                        }
+                    ],
                 )
 
                 # Clean up tool call state
