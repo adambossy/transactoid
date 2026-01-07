@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 if TYPE_CHECKING:
@@ -618,7 +618,10 @@ class DB:
                     },
                     "relationships": ["derived_transactions"],
                     "constraints": ["UNIQUE(external_id, source)"],
-                    "notes": "Immutable source data from Plaid. Do NOT query directly for spending analysis.",
+                    "notes": (
+                        "Immutable source data from Plaid. "
+                        "Do NOT query directly for spending analysis."
+                    ),
                 },
                 "derived_transactions": {
                     "columns": {
@@ -640,7 +643,11 @@ class DB:
                         "category",
                         "tags",
                     ],
-                    "notes": "Primary table for all spending queries and analysis. May have multiple rows per Plaid transaction (Amazon item splits).",
+                    "notes": (
+                        "Primary table for all spending queries and analysis. "
+                        "May have multiple rows per Plaid transaction "
+                        "(Amazon item splits)."
+                    ),
                 },
                 "tags": {
                     "columns": {
@@ -847,7 +854,7 @@ class DB:
         external_id: str,
         source: str,
         account_id: str,
-        posted_at,
+        posted_at: date,
         amount_cents: int,
         currency: str,
         merchant_descriptor: str | None,
@@ -924,16 +931,16 @@ class DB:
             return []
 
         with self.session() as session:  # type: Session
-            stmt = pg_insert(PlaidTransaction).values(transactions)
-            stmt = stmt.on_conflict_do_update(
+            insert_stmt = pg_insert(PlaidTransaction).values(transactions)
+            stmt = insert_stmt.on_conflict_do_update(
                 index_elements=["external_id", "source"],
                 set_={
-                    "account_id": stmt.excluded.account_id,
-                    "posted_at": stmt.excluded.posted_at,
-                    "amount_cents": stmt.excluded.amount_cents,
-                    "currency": stmt.excluded.currency,
-                    "merchant_descriptor": stmt.excluded.merchant_descriptor,
-                    "institution": stmt.excluded.institution,
+                    "account_id": insert_stmt.excluded.account_id,
+                    "posted_at": insert_stmt.excluded.posted_at,
+                    "amount_cents": insert_stmt.excluded.amount_cents,
+                    "currency": insert_stmt.excluded.currency,
+                    "merchant_descriptor": insert_stmt.excluded.merchant_descriptor,
+                    "institution": insert_stmt.excluded.institution,
                     "updated_at": datetime.now(),
                 },
             ).returning(PlaidTransaction.plaid_transaction_id)
@@ -1192,7 +1199,7 @@ class DB:
         self,
         plaid_transaction_ids: list[int],
     ) -> dict[int, list[DerivedTransaction]]:
-        """Get all derived transactions for multiple Plaid transactions in a single query.
+        """Get derived transactions for multiple Plaid transactions.
 
         Args:
             plaid_transaction_ids: List of Plaid transaction IDs
@@ -1323,7 +1330,7 @@ class DB:
 
             if derived_txn.is_verified:
                 raise ValueError(
-                    f"Derived transaction {transaction_id} is verified and cannot be updated"
+                    f"Transaction {transaction_id} is verified and immutable"
                 )
 
             # Resolve merchant if merchant_descriptor is provided
