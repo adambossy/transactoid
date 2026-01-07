@@ -240,7 +240,16 @@ class PromptHandler:
             item = getattr(event, "item", None)
             self._log.run_item_stream_event(type(item).__name__, item)
             if isinstance(item, ToolCallOutputItem):
-                call_id = getattr(item, "call_id", None) or "unknown"
+                # Extract call_id from raw_item (FunctionCallOutput),
+                # not from item directly
+                raw_item = getattr(item, "raw_item", None)
+                call_id = getattr(raw_item, "call_id", None) if raw_item else None
+                if call_id is None:
+                    # Fallback: check if it's a dict-like raw_item
+                    if isinstance(raw_item, dict):
+                        call_id = raw_item.get("call_id")
+                call_id = call_id or "unknown"
+
                 output = item.output
                 output_text = str(output) if output is not None else ""
                 self._log.tool_output(
@@ -258,17 +267,11 @@ class PromptHandler:
                     return
 
                 # Send completed notification with output
-                # Toad expects: {"type": "content", "content": {"type": "text", ...}}
                 await self._notifier.tool_call_update(
                     session_id=session_id,
                     tool_call_id=call_id,
                     status="completed",
-                    content=[
-                        {
-                            "type": "content",
-                            "content": {"type": "text", "text": output_text},
-                        }
-                    ],
+                    content=[{"type": "text", "text": output_text}],
                 )
 
                 # Clean up tool call state
