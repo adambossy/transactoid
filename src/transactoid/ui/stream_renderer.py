@@ -160,7 +160,10 @@ class StreamRenderer:
         if "error" in output:
             full_error = str(output["error"])
             # Short summary for the main line
-            error_preview = full_error[:40] + "..." if len(full_error) > 40 else full_error
+            if len(full_error) > 40:
+                error_preview = full_error[:40] + "..."
+            else:
+                error_preview = full_error
             parts.append(f"error: {error_preview}")
         if "accounts" in output:
             parts.append(f"{len(output['accounts'])} accounts")
