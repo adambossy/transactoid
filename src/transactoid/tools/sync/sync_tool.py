@@ -274,9 +274,8 @@ class SyncTool:
         if not to_categorize:
             return
 
-        self._logger.categorization_start(
-            len(to_categorize), len(to_categorize), 0  # All are "added" from perspective
-        )
+        # All are "added" from perspective
+        self._logger.categorization_start(len(to_categorize), len(to_categorize), 0)
 
         # Convert DerivedTransaction to dict format for categorizer
         txn_dicts = [
@@ -299,7 +298,9 @@ class SyncTool:
         external_to_id = {txn.external_id: txn.transaction_id for txn in to_categorize}
 
         # Update category_id for categorized transactions
-        category_lookup = lambda key: get_category_id(self._db, self._taxonomy, key)
+        def category_lookup(key: str) -> int | None:
+            return get_category_id(self._db, self._taxonomy, key)
+
         for cat_txn in categorized:
             external_id = cat_txn.txn.get("transaction_id", "")
             transaction_id = external_to_id.get(external_id)
@@ -341,8 +342,7 @@ class SyncTool:
         *,
         count: int = 25,
     ) -> list[SyncResult]:
-        """
-        Pipelined sync: fetch → persist → mutate run concurrently, then batch categorize.
+        """Pipelined sync: fetch, persist, mutate run concurrently.
 
         Pipeline stages (run concurrently):
         - fetch_producer: Fetches pages from Plaid, pushes to persist_queue
@@ -590,16 +590,18 @@ class SyncTool:
             amount = txn.get("amount", 0.0)
             amount_cents = int(amount * 100)
 
-            txn_dicts.append({
-                "external_id": txn.get("transaction_id", ""),
-                "source": "PLAID",
-                "account_id": txn.get("account_id", ""),
-                "posted_at": posted_at,
-                "amount_cents": amount_cents,
-                "currency": txn.get("iso_currency_code") or "USD",
-                "merchant_descriptor": txn.get("merchant_name") or txn.get("name"),
-                "institution": None,
-            })
+            txn_dicts.append(
+                {
+                    "external_id": txn.get("transaction_id", ""),
+                    "source": "PLAID",
+                    "account_id": txn.get("account_id", ""),
+                    "posted_at": posted_at,
+                    "amount_cents": amount_cents,
+                    "currency": txn.get("iso_currency_code") or "USD",
+                    "merchant_descriptor": txn.get("merchant_name") or txn.get("name"),
+                    "institution": None,
+                }
+            )
 
         if not txn_dicts:
             return []
