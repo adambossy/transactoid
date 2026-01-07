@@ -21,7 +21,7 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S106"]  # S101: assert, S106: hardcoded passwords (test data)
 "evals/core/llm_judge.py" = ["E501"]
 "evals/data/fixtures.py" = ["E501"]
 
@@ -35,4 +35,3 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
