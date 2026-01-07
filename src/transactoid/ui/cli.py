@@ -301,7 +301,7 @@ def eval_cmd(
     questions: str | None = typer.Option(
         None,
         "--questions",
-        help="Comma-separated question IDs to run (e.g., q001,q003,q005). If not provided, runs all.",
+        help="Comma-separated question IDs (e.g., q001,q003). Runs all if omitted.",
     ),
     output_dir: str = typer.Option(
         ".eval_results",
