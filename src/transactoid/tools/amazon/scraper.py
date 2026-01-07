@@ -1,15 +1,15 @@
-"""Amazon order scraper using Playwriter MCP for browser automation."""
+"""Amazon order scraper with multiple browser backend support."""
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from agents import Agent, Runner
-from agents.mcp import MCPServerStdio, MCPServerStdioParams
 from pydantic import BaseModel
 
-from transactoid.adapters.db.facade import DB
+if TYPE_CHECKING:
+    from transactoid.adapters.db.facade import DB
+    from transactoid.tools.amazon.backends.base import AmazonScraperBackend
 
 
 class ScrapedItem(BaseModel):
@@ -38,68 +38,49 @@ class ScrapeResult(BaseModel):
     orders: list[ScrapedOrder]
 
 
-def scrape_with_playwriter(db: DB) -> dict[str, Any]:
-    """Execute Playwriter-powered scraping via OpenAI, then upsert results.
+BackendType = Literal["playwriter", "stagehand"]
 
-    This function:
-    1. Creates an agent with Playwriter MCP access
-    2. Instructs the agent to navigate Amazon and scrape order history
-    3. Receives structured JSON from the agent
-    4. Upserts all orders and items to the database
+
+def _get_backend(backend: BackendType) -> AmazonScraperBackend:
+    """Get the backend instance for the specified type.
 
     Args:
-        db: Database facade for persisting scraped data
+        backend: Backend type to use.
 
     Returns:
-        Dictionary with status and summary of scraped data
+        Backend instance implementing AmazonScraperBackend protocol.
+
+    Raises:
+        ValueError: If backend type is not supported.
     """
-    instructions = """
-    Navigate to https://www.amazon.com/your-orders/orders
+    if backend == "playwriter":
+        from transactoid.tools.amazon.backends.playwriter import PlaywriterBackend
 
-    Scrape all purchase history for the past year. For each order:
-    1. Extract order ID (e.g., "113-5524816-2451403")
-    2. Extract order date (YYYY-MM-DD format)
-    3. Extract order total, tax, and shipping (convert to cents, $49.77 -> 4977)
-    4. For each item: extract ASIN (from URL), description, price (cents), quantity
+        return PlaywriterBackend()
+    elif backend == "stagehand":
+        from transactoid.tools.amazon.backends.stagehand_local import (
+            StagehandLocalBackend,
+        )
 
-    Handle pagination - click "Next" to load more orders until you've
-    scraped a full year of history.
+        return StagehandLocalBackend()
+    else:
+        raise ValueError(f"Unsupported backend: {backend}")
 
-    Return ALL scraped data as structured JSON matching the output schema.
+
+def _persist_orders(db: DB, orders: list[ScrapedOrder]) -> dict[str, int]:
+    """Persist scraped orders to database.
+
+    Args:
+        db: Database facade for persisting data.
+        orders: List of scraped orders to persist.
+
+    Returns:
+        Dictionary with orders_created and items_created counts.
     """
-
-    # Create Playwriter MCP server
-    playwriter_server = MCPServerStdio(
-        params=MCPServerStdioParams(command="npx", args=["playwriter"]),
-        name="playwriter",
-    )
-
-    # Create agent with Playwriter MCP - returns structured JSON
-    agent = Agent(
-        name="AmazonScraper",
-        instructions=instructions,
-        model="gpt-4o",
-        mcp_servers=[playwriter_server],
-        output_type=ScrapeResult,
-    )
-
-    # Run scraper agent - returns ScrapeResult
-    scrape_result = Runner.run_sync(agent, "Begin scraping Amazon orders")
-
-    # Deterministic code: upsert results to database
     orders_created = 0
     items_created = 0
 
-    final_output = scrape_result.final_output
-    if final_output is None:
-        return {
-            "status": "error",
-            "message": "Scraper did not return any results",
-            "orders_created": 0,
-            "items_created": 0,
-        }
-
-    for order in final_output.orders:
+    for order in orders:
         db.upsert_amazon_order(
             order_id=order.order_id,
             order_date=date.fromisoformat(order.order_date),
@@ -119,8 +100,54 @@ def scrape_with_playwriter(db: DB) -> dict[str, Any]:
             )
             items_created += 1
 
+    return {"orders_created": orders_created, "items_created": items_created}
+
+
+def scrape_amazon_orders(
+    db: DB,
+    backend: BackendType = "playwriter",
+    year: int | None = None,
+    max_orders: int | None = None,
+) -> dict[str, Any]:
+    """Scrape Amazon orders using the specified backend.
+
+    Args:
+        db: Database facade for persisting scraped data.
+        backend: Browser backend to use ("playwriter" or "stagehand").
+        year: Optional year to filter orders (e.g., 2024).
+        max_orders: Optional maximum number of orders to scrape.
+
+    Returns:
+        Dictionary with status and summary of scraped data.
+    """
+    backend_instance = _get_backend(backend)
+    orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
+
+    if not orders:
+        return {
+            "status": "error",
+            "message": "Scraper did not return any results",
+            "orders_created": 0,
+            "items_created": 0,
+        }
+
+    counts = _persist_orders(db, orders)
     return {
         "status": "success",
-        "orders_created": orders_created,
-        "items_created": items_created,
+        **counts,
     }
+
+
+def scrape_with_playwriter(db: DB) -> dict[str, Any]:
+    """Execute Playwriter-powered scraping via OpenAI, then upsert results.
+
+    This is a convenience function that uses the Playwriter backend with
+    default settings. For more control, use scrape_amazon_orders() directly.
+
+    Args:
+        db: Database facade for persisting scraped data.
+
+    Returns:
+        Dictionary with status and summary of scraped data.
+    """
+    return scrape_amazon_orders(db, backend="playwriter")
