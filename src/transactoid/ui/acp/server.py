@@ -22,18 +22,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from transactoid.adapters.db.facade import DB
-from transactoid.orchestrators.transactoid import Transactoid
-from transactoid.taxonomy.loader import load_taxonomy_from_db
-from transactoid.ui.acp.handlers import (
+# These imports must be after logging.basicConfig to capture import-time logs
+from transactoid.adapters.db.facade import DB  # noqa: E402
+from transactoid.orchestrators.transactoid import Transactoid  # noqa: E402
+from transactoid.taxonomy.loader import load_taxonomy_from_db  # noqa: E402
+from transactoid.ui.acp.handlers import (  # noqa: E402
     PromptHandler,
     SessionManager,
     handle_initialize,
     handle_session_new,
 )
-from transactoid.ui.acp.notifier import UpdateNotifier
-from transactoid.ui.acp.router import MethodNotFoundError, RequestRouter
-from transactoid.ui.acp.transport import JsonRpcResponse, StdioTransport
+from transactoid.ui.acp.notifier import UpdateNotifier  # noqa: E402
+from transactoid.ui.acp.router import MethodNotFoundError, RequestRouter  # noqa: E402
+from transactoid.ui.acp.transport import JsonRpcResponse, StdioTransport  # noqa: E402
 
 
 class ACPServer:
@@ -130,9 +131,7 @@ class ACPServer:
                 # Dispatch to handler
                 try:
                     params = request.params or {}
-                    logger.info(
-                        "Dispatching %s (id=%s)", request.method, request.id
-                    )
+                    logger.info("Dispatching %s (id=%s)", request.method, request.id)
                     result = await self._router.dispatch(request.method, params)
                     logger.info(
                         "Handler completed for %s (id=%s)", request.method, request.id
