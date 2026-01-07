@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date
-from http.server import ThreadingHTTPServer
 import json
 import os
-import queue
-import threading
 from typing import Any, Literal, Self, TypedDict, cast
 import urllib.error
 import urllib.parse
@@ -16,14 +13,15 @@ from pydantic import BaseModel, Field
 
 from models.transaction import PersonalFinanceCategory, Transaction
 from transactoid.adapters.clients.plaid_link import (
+    PublicTokenTimeoutError,
     build_success_message,
+    clear_token_file,
     create_link_token_and_url,
     exchange_token_and_get_item_info,
+    is_port_in_use,
     open_link_in_browser,
     save_item_to_database,
-    setup_redirect_server,
-    shutdown_redirect_server,
-    wait_for_public_token_safe,
+    wait_for_token_from_file,
 )
 from transactoid.adapters.db.models import PlaidItem
 
@@ -423,6 +421,9 @@ class PlaidClient:
         The function handles the full OAuth flow, exchanges the public token for an
         access token, and stores the connection in the database.
 
+        IMPORTANT: Requires an external redirect server to be running on port 8443.
+        Start the server with: `transactoid plaid-serve`
+
         Args:
             db: Database instance with save_plaid_item method
             timeout_seconds: Timeout for waiting for Plaid Link completion
@@ -435,22 +436,19 @@ class PlaidClient:
             - institution_name: Institution name if available
             - message: Human-readable status message
         """
-        token_queue: queue.Queue[str] = queue.Queue()
-        state: dict[str, Any] = {}
-        server: ThreadingHTTPServer | None = None
-        server_thread: threading.Thread | None = None
-
-        # Set up redirect server
-        server_result = setup_redirect_server(
-            token_queue=token_queue,
-            state=state,
-        )
-        if server_result is None:
+        # Require external redirect server to be running
+        if not is_port_in_use("localhost", 8443):
             return {
                 "status": "error",
-                "message": "Failed to start redirect server",
+                "message": (
+                    "Plaid redirect server not running. "
+                    "Please start it with: transactoid plaid-serve"
+                ),
             }
-        server, server_thread, redirect_uri = server_result
+
+        redirect_uri = "https://localhost:8443/plaid-link-complete"
+        clear_token_file()  # Clear any stale token
+        state: dict[str, Any] = {}
 
         try:
             # Create Link token and URL
@@ -466,12 +464,10 @@ class PlaidClient:
             if browser_error:
                 return browser_error
 
-            # Wait for public token
-            public_token = wait_for_public_token_safe(
-                token_queue=token_queue,
-                timeout_seconds=timeout_seconds,
-            )
-            if public_token is None:
+            # Wait for public token by polling the shared file
+            try:
+                public_token = wait_for_token_from_file(timeout_seconds=timeout_seconds)
+            except PublicTokenTimeoutError:
                 return {
                     "status": "error",
                     "message": (
@@ -577,8 +573,7 @@ class PlaidClient:
                 "message": "Connection cancelled by user.",
             }
         finally:
-            if server is not None and server_thread is not None:
-                shutdown_redirect_server(server, server_thread)
+            clear_token_file()
 
     def list_accounts(
         self,

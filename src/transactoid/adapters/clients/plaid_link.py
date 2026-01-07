@@ -28,6 +28,10 @@ class PublicTokenTimeoutError(PlaidLinkError):
     """Raised when we time out waiting for a Plaid public_token."""
 
 
+# Shared file path for token passing between external server and agent
+TOKEN_FILE_PATH = "/tmp/transactoid_plaid_token"  # noqa: S108, S105
+
+
 REDIRECT_SUCCESS_HTML = """\
 <!DOCTYPE html>
 <html>
@@ -160,6 +164,15 @@ def _create_ssl_context() -> ssl.SSLContext:
     return context
 
 
+def _write_token_to_file(token: str) -> None:
+    """Write the public token to a shared file for external consumers."""
+    try:
+        with open(TOKEN_FILE_PATH, "w") as f:
+            f.write(token)
+    except OSError:
+        pass  # Best effort - queue is primary mechanism
+
+
 def _build_redirect_handler(
     token_queue: queue.Queue[str],
     expected_path: str,
@@ -178,6 +191,7 @@ def _build_redirect_handler(
             # Non-OAuth institutions may return public_token directly.
             if public_token:
                 token_queue.put(public_token)
+                _write_token_to_file(public_token)
                 body = REDIRECT_SUCCESS_HTML
                 status = HTTPStatus.OK
             else:
@@ -222,6 +236,7 @@ def _build_redirect_handler(
 
             if public_token:
                 token_queue.put(public_token)
+                _write_token_to_file(public_token)
                 body = REDIRECT_SUCCESS_HTML
                 status = HTTPStatus.OK
             else:
@@ -502,3 +517,77 @@ def build_success_message(
     institution_part = f" from {institution_name}" if institution_name else ""
     item_part = f" (item_id={item_id[:8]}...)."
     return base_msg + institution_part + item_part
+
+
+def is_port_in_use(host: str, port: int) -> bool:
+    """Check if a port is already in use.
+
+    Args:
+        host: Host to check
+        port: Port number to check
+
+    Returns:
+        True if port is in use, False otherwise
+    """
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return False
+        except OSError:
+            return True
+
+
+def clear_token_file() -> None:
+    """Clear the shared token file before starting a new connection."""
+    try:
+        if os.path.exists(TOKEN_FILE_PATH):
+            os.remove(TOKEN_FILE_PATH)
+    except OSError:
+        pass
+
+
+def read_token_from_file() -> str | None:
+    """Read the public token from the shared file.
+
+    Returns:
+        Token string if file exists and has content, None otherwise.
+    """
+    try:
+        if os.path.exists(TOKEN_FILE_PATH):
+            with open(TOKEN_FILE_PATH) as f:
+                token = f.read().strip()
+                return token if token else None
+    except OSError:
+        pass
+    return None
+
+
+def wait_for_token_from_file(
+    *, timeout_seconds: int, poll_interval: float = 0.5
+) -> str:
+    """Poll the token file until a token appears or timeout.
+
+    Args:
+        timeout_seconds: Maximum time to wait
+        poll_interval: Time between polls in seconds
+
+    Returns:
+        The public token string
+
+    Raises:
+        PublicTokenTimeoutError: If timeout elapses without receiving token
+    """
+    import time
+
+    start_time = time.time()
+    while time.time() - start_time < timeout_seconds:
+        token = read_token_from_file()
+        if token:
+            return token
+        time.sleep(poll_interval)
+
+    raise PublicTokenTimeoutError(
+        "Timed out waiting for Plaid to redirect with a public_token."
+    )
