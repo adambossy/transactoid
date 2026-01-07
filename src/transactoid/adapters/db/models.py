@@ -216,6 +216,7 @@ class PlaidItem(Base):
     access_token: Mapped[str] = mapped_column(Text, nullable=False)
     institution_id: Mapped[str | None] = mapped_column(String, nullable=True)
     institution_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    sync_cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )

@@ -58,7 +58,9 @@ def sync_transactions(count: int = 25) -> dict[str, Any]:
                 "total_removed": 0,
             }
 
-        access_token = plaid_items[0].access_token
+        plaid_item = plaid_items[0]
+        access_token = plaid_item.access_token
+        cursor = db.get_sync_cursor(plaid_item.item_id)
 
         # Create sync tool
         sync_tool = SyncTool(
@@ -67,11 +69,16 @@ def sync_transactions(count: int = 25) -> dict[str, Any]:
             db=db,
             taxonomy=taxonomy,
             access_token=access_token,
-            cursor=None,
+            cursor=cursor,
         )
 
         # Execute sync
         results = sync_tool.sync(count=count)
+
+        # Save the final cursor for incremental syncs
+        if results:
+            final_cursor = results[-1].next_cursor
+            db.set_sync_cursor(plaid_item.item_id, final_cursor)
 
         # Aggregate results
         total_added = sum(r.added_count for r in results)
