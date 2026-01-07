@@ -121,37 +121,53 @@ def plaid_dedupe_items(
     """
     Find and remove duplicate Plaid items based on (institution_id, mask) dedupe key.
 
-    Groups items by their account dedupe keys and keeps the earliest created item,
-    deleting any duplicates. Items without plaid_accounts are skipped and reported.
+    Groups items by their account dedupe keys (fetched live from Plaid API) and
+    keeps the earliest created item, deleting any duplicates.
 
     Dry-run by default. Use --apply to actually delete duplicates.
     """
     from collections import defaultdict
 
+    from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
+
     db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
     db = DB(db_url)
 
-    # Get all items and accounts
+    # Initialize Plaid client
+    try:
+        plaid_client = PlaidClient.from_env()
+    except PlaidClientError as e:
+        typer.echo(f"Error initializing Plaid client: {e}", err=True)
+        raise typer.Exit(1) from None
+
+    # Get all items
     items = db.list_plaid_items()
     if not items:
         typer.echo("No Plaid items found.")
         return
 
-    # Build dedupe key -> items mapping
+    # Build dedupe key -> items mapping by fetching accounts live
     dedupe_groups: dict[tuple[str | None, str | None], list[tuple[str, datetime]]] = (
         defaultdict(list)
     )
-    items_without_accounts: list[str] = []
+    items_with_errors: list[tuple[str, str]] = []
+
+    typer.echo(f"Fetching accounts for {len(items)} items from Plaid API...")
 
     for item in items:
-        accounts = db.get_plaid_accounts_for_item(item.item_id)
-        if not accounts:
-            items_without_accounts.append(item.item_id)
-            continue
+        try:
+            accounts = plaid_client.get_accounts(item.access_token)
+            if not accounts:
+                items_with_errors.append((item.item_id, "No accounts returned"))
+                continue
 
-        for account in accounts:
-            dedupe_key = (account.institution_id, account.mask)
-            dedupe_groups[dedupe_key].append((item.item_id, item.created_at))
+            for account in accounts:
+                dedupe_key = (item.institution_id, account.get("mask"))
+                dedupe_groups[dedupe_key].append((item.item_id, item.created_at))
+
+        except PlaidClientError as e:
+            items_with_errors.append((item.item_id, str(e)))
+            continue
 
     # Find duplicates
     to_keep: set[str] = set()
@@ -180,11 +196,12 @@ def plaid_dedupe_items(
     typer.echo(f"Total items scanned: {len(items)}")
     typer.echo(f"Items to keep: {len(to_keep)}")
     typer.echo(f"Items to delete: {len(to_delete)}")
-    typer.echo(f"Items without accounts (skipped): {len(items_without_accounts)}")
+    typer.echo(f"Items with API errors (skipped): {len(items_with_errors)}")
 
-    if items_without_accounts:
-        skipped = ", ".join(items_without_accounts)
-        typer.echo(f"\nSkipped items (no accounts): {skipped}")
+    if items_with_errors:
+        typer.echo("\nSkipped items (API errors):")
+        for item_id, error in items_with_errors:
+            typer.echo(f"  - {item_id}: {error}")
 
     if to_delete:
         typer.echo("\nDuplicate items to delete:")
