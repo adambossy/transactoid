@@ -18,7 +18,6 @@ from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
-from transactoid.adapters.amazon import AmazonMutationPlugin, AmazonMutationPluginConfig
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
@@ -27,7 +26,6 @@ from transactoid.tools.migrate.migration_tool import MigrationTool
 from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
-from transactoid.tools.sync import MutationRegistry
 from transactoid.tools.sync.sync_tool import SyncTool
 from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
 from transactoid.ui.stream_renderer import EventRouter, StreamRenderer
@@ -253,7 +251,7 @@ class Transactoid:
                 error_factory=lambda e: {
                     "status": "error",
                     "message": f"Failed to initialize Plaid client: {e}",
-                    "pages_processed": 0,
+                    "items_synced": 0,
                     "total_added": 0,
                     "total_modified": 0,
                     "total_removed": 0,
@@ -278,55 +276,22 @@ class Transactoid:
                             "No accounts connected and failed to connect new account: "
                             f"{connection_result.get('message', 'Unknown error')}"
                         ),
-                        "pages_processed": 0,
+                        "items_synced": 0,
                         "total_added": 0,
                         "total_modified": 0,
                         "total_removed": 0,
                     }
-                # Refresh the list after connection
-                plaid_items = self._db.list_plaid_items()
 
-            # Get the first Plaid item's access token
-            # For now, sync the first item. In the future, could sync all items.
-            plaid_item = plaid_items[0]
-            access_token = plaid_item.access_token
-
-            # Create mutation registry with Amazon plugin if CSV dir exists
-            mutation_registry = MutationRegistry()
-            amazon_csv_dir = Path(".transactions/amazon")
-            if amazon_csv_dir.exists():
-                mutation_registry.register(
-                    AmazonMutationPlugin(
-                        AmazonMutationPluginConfig(csv_dir=amazon_csv_dir)
-                    )
-                )
-
-            # Create sync tool using instance variables
+            # SyncTool handles all items, cursor persistence, and Amazon mutations
             sync_tool = SyncTool(
                 plaid_client=self._plaid_client,
                 categorizer=self._categorizer,
                 db=self._db,
                 taxonomy=self._taxonomy,
-                access_token=access_token,
-                cursor=None,  # Start fresh sync
-                mutation_registry=mutation_registry,
             )
 
-            # Execute sync
-            results = sync_tool.sync()
-
-            # Aggregate results
-            total_added = sum(r.added_count for r in results)
-            total_modified = sum(r.modified_count for r in results)
-            total_removed = sum(len(r.removed_transaction_ids) for r in results)
-
-            return {
-                "status": "success",
-                "pages_processed": len(results),
-                "total_added": total_added,
-                "total_modified": total_modified,
-                "total_removed": total_removed,
-            }
+            summary = sync_tool.sync()
+            return {"status": "success", **summary.to_dict()}
 
         @function_tool
         def connect_new_account() -> dict[str, Any]:

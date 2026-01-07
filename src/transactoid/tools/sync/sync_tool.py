@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import loguru
@@ -20,16 +21,38 @@ from transactoid.tools.categorize.categorizer_tool import (
 from transactoid.tools.protocol import ToolInputSchema
 from transactoid.tools.sync.mutation_registry import MutationRegistry
 
+# Default path for Amazon order CSV files
+DEFAULT_AMAZON_CSV_DIR = Path(".transactions/amazon")
+
 
 @dataclass
 class SyncResult:
-    """Result from a single sync page."""
+    """Result from syncing a single Plaid item."""
 
     removed_transaction_ids: list[str]  # Plaid transaction IDs to delete
     next_cursor: str
     has_more: bool
     added_count: int = 0
     modified_count: int = 0
+
+
+@dataclass
+class SyncSummary:
+    """Aggregated results from syncing all Plaid items."""
+
+    total_added: int
+    total_modified: int
+    total_removed: int
+    items_synced: int
+
+    def to_dict(self) -> dict[str, int]:
+        """Convert to JSON-serializable dict."""
+        return {
+            "total_added": self.total_added,
+            "total_modified": self.total_modified,
+            "total_removed": self.total_removed,
+            "items_synced": self.items_synced,
+        }
 
 
 @dataclass
@@ -184,6 +207,9 @@ class SyncTool:
     """
     Sync tool that calls Plaid's transaction sync API and categorizes all
     results using an LLM.
+
+    Syncs ALL connected Plaid items automatically, handling cursor persistence
+    and mutation registry setup internally.
     """
 
     def __init__(
@@ -193,9 +219,7 @@ class SyncTool:
         db: DB,
         taxonomy: Taxonomy,
         *,
-        access_token: str,
-        cursor: str | None = None,
-        mutation_registry: MutationRegistry | None = None,
+        amazon_csv_dir: Path | None = DEFAULT_AMAZON_CSV_DIR,
     ) -> None:
         """
         Initialize the sync tool.
@@ -205,49 +229,109 @@ class SyncTool:
             categorizer: Categorizer instance for LLM-based categorization
             db: Database instance for persisting transactions
             taxonomy: Taxonomy instance for transaction categorization
-            access_token: Plaid access token for the item
-            cursor: Optional cursor for incremental sync (None for initial sync)
-            mutation_registry: Optional registry for mutation plugins (e.g., Amazon)
+            amazon_csv_dir: Path to Amazon order CSV directory for mutation plugin.
+                           Defaults to .transactions/amazon. Pass None to disable.
         """
         self._plaid_client = plaid_client
         self._categorizer = categorizer
         self._db = db
         self._taxonomy = taxonomy
-        self._access_token = access_token
-        self._cursor = cursor
         self._logger = SyncToolLogger()
-        self._mutation_registry = mutation_registry or MutationRegistry()
+
+        # Auto-detect Amazon mutation registry (lazy import to avoid circular import)
+        self._mutation_registry = MutationRegistry()
+        if amazon_csv_dir and amazon_csv_dir.exists():
+            from transactoid.adapters.amazon import (
+                AmazonMutationPlugin,
+                AmazonMutationPluginConfig,
+            )
+
+            self._mutation_registry.register(
+                AmazonMutationPlugin(AmazonMutationPluginConfig(csv_dir=amazon_csv_dir))
+            )
 
     def sync(
         self,
         *,
         count: int = 250,
-    ) -> list[SyncResult]:
+    ) -> SyncSummary:
         """
-        Sync all available transactions with automatic pagination.
+        Sync ALL connected Plaid items with automatic pagination.
 
-        Handles pagination automatically, categorizes each page as it's fetched.
+        For each Plaid item:
+        - Loads cursor from database for incremental sync
+        - Fetches transactions from Plaid with pagination
+        - Persists and categorizes transactions
+        - Saves cursor after successful sync
 
         Args:
             count: Maximum number of transactions per page (default: 250, max: 500)
 
         Returns:
-            List of SyncResult objects, one per page processed
+            SyncSummary with aggregated results across all items
 
         Raises:
             PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
                 and cannot be recovered after retries
+        """
+        plaid_items = self._db.list_plaid_items()
+        if not plaid_items:
+            return SyncSummary(
+                total_added=0, total_modified=0, total_removed=0, items_synced=0
+            )
+
+        all_results: list[SyncResult] = []
+        for item in plaid_items:
+            cursor = self._db.get_sync_cursor(item.item_id)
+            results = self._sync_item(item.access_token, cursor, count)
+
+            # Persist cursor after successful sync
+            if results:
+                self._db.set_sync_cursor(item.item_id, results[-1].next_cursor)
+            all_results.extend(results)
+
+        return self._aggregate_results(all_results, len(plaid_items))
+
+    def _sync_item(
+        self,
+        access_token: str,
+        cursor: str | None,
+        count: int,
+    ) -> list[SyncResult]:
+        """
+        Sync a single Plaid item with automatic pagination.
+
+        Args:
+            access_token: Plaid access token for the item
+            cursor: Optional cursor for incremental sync (None for initial sync)
+            count: Maximum number of transactions per page
+
+        Returns:
+            List of SyncResult objects, one per page processed
         """
         try:
             # Check if there's already an event loop running
             asyncio.get_running_loop()
             # If loop exists, run in a new thread to avoid conflict
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self._sync_async(count=count))
+                future = executor.submit(
+                    asyncio.run, self._sync_item_async(access_token, cursor, count)
+                )
                 return future.result()
         except RuntimeError:
             # No event loop running, safe to use asyncio.run()
-            return asyncio.run(self._sync_async(count=count))
+            return asyncio.run(self._sync_item_async(access_token, cursor, count))
+
+    def _aggregate_results(
+        self, results: list[SyncResult], items_synced: int
+    ) -> SyncSummary:
+        """Aggregate results from all items into a summary."""
+        return SyncSummary(
+            total_added=sum(r.added_count for r in results),
+            total_modified=sum(r.modified_count for r in results),
+            total_removed=sum(len(r.removed_transaction_ids) for r in results),
+            items_synced=items_synced,
+        )
 
     async def _categorize_derived(
         self,
@@ -337,10 +421,11 @@ class SyncTool:
             modified_count=len(accumulated.modified),
         )
 
-    async def _sync_async(
+    async def _sync_item_async(
         self,
-        *,
-        count: int = 25,
+        access_token: str,
+        cursor: str | None,
+        count: int,
     ) -> list[SyncResult]:
         """Pipelined sync: fetch, persist, mutate run concurrently.
 
@@ -353,7 +438,9 @@ class SyncTool:
         - Batch categorization of all derived transactions (for LLM efficiency)
 
         Args:
-            count: Maximum number of transactions per page (default: 25, max: 500)
+            access_token: Plaid access token for the item
+            cursor: Optional cursor for incremental sync
+            count: Maximum number of transactions per page
 
         Returns:
             List containing single SyncResult representing entire sync
@@ -364,11 +451,10 @@ class SyncTool:
         """
         max_retries = 3
         retry_count = 0
-        pagination_start_cursor = self._cursor
 
         while retry_count <= max_retries:
             try:
-                return await self._run_pipeline(count, pagination_start_cursor)
+                return await self._run_pipeline(access_token, cursor, count)
             except PlaidClientError as e:
                 if "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" in str(e):
                     retry_count += 1
@@ -384,15 +470,17 @@ class SyncTool:
 
     async def _run_pipeline(
         self,
-        count: int,
+        access_token: str,
         start_cursor: str | None,
+        count: int,
     ) -> list[SyncResult]:
         """
         Run the pipelined fetch → persist → mutate workflow.
 
         Args:
-            count: Max transactions per page
+            access_token: Plaid access token for the item
             start_cursor: Starting cursor for pagination
+            count: Max transactions per page
 
         Returns:
             List containing single SyncResult
@@ -423,7 +511,7 @@ class SyncTool:
                     self._logger.fetch_start(current_cursor or "")
 
                     sync_result = self._plaid_client.sync_transactions(
-                        self._access_token,
+                        access_token,
                         cursor=current_cursor,
                         count=count,
                     )
@@ -673,12 +761,12 @@ class SyncTransactionsTool(StandardTool):
     _name = "sync_transactions"
     _description = (
         "Trigger synchronization with Plaid to fetch latest transactions. "
-        "Syncs all available transactions with automatic pagination, "
-        "categorizes each page as it's fetched, and persists results to the database."
+        "Syncs ALL connected Plaid items with automatic pagination, "
+        "categorizes transactions, and persists results to the database."
     )
     _input_schema: ToolInputSchema = {
         "type": "object",
-        "properties": {},  # No parameters needed - uses configured access token
+        "properties": {},  # No parameters needed - syncs all items automatically
         "required": [],
     }
 
@@ -688,7 +776,6 @@ class SyncTransactionsTool(StandardTool):
         categorizer: Categorizer,
         db: DB,
         taxonomy: Taxonomy,
-        access_token: str,
     ) -> None:
         """
         Initialize the sync transactions tool.
@@ -698,15 +785,12 @@ class SyncTransactionsTool(StandardTool):
             categorizer: Categorizer instance for LLM-based categorization
             db: Database instance for persisting transactions
             taxonomy: Taxonomy instance for transaction categorization
-            access_token: Plaid access token for the item
         """
         self._sync_tool = SyncTool(
             plaid_client=plaid_client,
             categorizer=categorizer,
             db=db,
             taxonomy=taxonomy,
-            access_token=access_token,
-            cursor=None,
         )
 
     def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
@@ -716,26 +800,14 @@ class SyncTransactionsTool(StandardTool):
         Returns:
             JSON-serializable dict with sync results including:
             - status: "success" or "error"
-            - pages_processed: Number of pages fetched
+            - items_synced: Number of Plaid items synced
             - total_added: Total transactions added
             - total_modified: Total transactions modified
             - total_removed: Total transactions removed
         """
         try:
-            results = self._sync_tool.sync()
-
-            # Aggregate results into JSON-serializable dict
-            total_added = sum(len(r.categorized_added) for r in results)
-            total_modified = sum(len(r.categorized_modified) for r in results)
-            total_removed = sum(len(r.removed_transaction_ids) for r in results)
-
-            return {
-                "status": "success",
-                "pages_processed": len(results),
-                "total_added": total_added,
-                "total_modified": total_modified,
-                "total_removed": total_removed,
-            }
+            summary = self._sync_tool.sync()
+            return {"status": "success", **summary.to_dict()}
         except PlaidClientError as e:
             return {
                 "status": "error",
