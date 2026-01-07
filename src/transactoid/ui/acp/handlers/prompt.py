@@ -79,7 +79,9 @@ class PromptHandler:
         logger.info("handle_prompt called with params keys: %s", list(params.keys()))
         session_id = params.get("sessionId", "")
         # Toad sends "prompt", ACP spec uses "content" - support both
-        content: list[dict[str, Any]] = params.get("prompt") or params.get("content") or []
+        content: list[dict[str, Any]] = (
+            params.get("prompt") or params.get("content") or []
+        )
         logger.debug("session_id=%s, content=%s", session_id, content)
 
         session = self._sessions.get(session_id)
@@ -202,9 +204,7 @@ class PromptHandler:
                 name = getattr(item, "name", "unknown")
                 call_id = getattr(item, "call_id", "unknown")
                 self._last_call_id = call_id
-                logger.info(
-                    "Tool call started: name=%s call_id=%s", name, call_id
-                )
+                logger.info("Tool call started: name=%s call_id=%s", name, call_id)
 
                 # Track the tool call state
                 self._tool_calls[call_id] = _ToolCallState(call_id, name)
@@ -243,9 +243,7 @@ class PromptHandler:
         # Handle run item events (tool execution results)
         if et == "run_item_stream_event":
             item = getattr(event, "item", None)
-            logger.debug(
-                "run_item_stream_event: item type=%s", type(item).__name__
-            )
+            logger.debug("run_item_stream_event: item type=%s", type(item).__name__)
             if isinstance(item, ToolCallOutputItem):
                 call_id = getattr(item, "call_id", None) or "unknown"
                 output = item.output
