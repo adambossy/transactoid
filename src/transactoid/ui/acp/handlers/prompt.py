@@ -243,23 +243,30 @@ class PromptHandler:
         # Handle run item events (tool execution results)
         if et == "run_item_stream_event":
             item = getattr(event, "item", None)
-            logger.debug("run_item_stream_event: item type=%s", type(item).__name__)
+            logger.info(
+                "run_item_stream_event: item type=%s, item=%r",
+                type(item).__name__,
+                item,
+            )
             if isinstance(item, ToolCallOutputItem):
                 call_id = getattr(item, "call_id", None) or "unknown"
                 output = item.output
                 output_text = str(output) if output is not None else ""
                 logger.info(
-                    "Tool output: call_id=%s output_len=%d tracked=%s",
+                    "Tool output: call_id=%s output_len=%d tracked=%s tracked_ids=%s",
                     call_id,
                     len(output_text),
                     call_id in self._tool_calls,
+                    list(self._tool_calls.keys()),
                 )
-                logger.debug("Tool output text: %s", output_text[:200])
+                logger.info("Tool output text: %s", output_text[:500])
 
                 # Only send update for tool calls we're tracking
                 if call_id not in self._tool_calls:
                     logger.warning(
-                        "Tool output for unknown call_id=%s, skipping", call_id
+                        "Tool output for unknown call_id=%s, tracked_ids=%s, skipping",
+                        call_id,
+                        list(self._tool_calls.keys()),
                     )
                     return
 
