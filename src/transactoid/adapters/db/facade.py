@@ -771,6 +771,32 @@ class DB:
                 session.expunge(item)
             return item
 
+    def get_sync_cursor(self, item_id: str) -> str | None:
+        """Get the sync cursor for a Plaid item.
+
+        Args:
+            item_id: Plaid item ID
+
+        Returns:
+            Sync cursor string or None if not set
+        """
+        with self.session() as session:  # type: Session
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            return item.sync_cursor if item else None
+
+    def set_sync_cursor(self, item_id: str, cursor: str) -> None:
+        """Set the sync cursor for a Plaid item.
+
+        Args:
+            item_id: Plaid item ID
+            cursor: Sync cursor string from Plaid
+        """
+        with self.session() as session:  # type: Session
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            if item:
+                item.sync_cursor = cursor
+                item.updated_at = datetime.now()
+
     def insert_plaid_item(
         self,
         item_id: str,

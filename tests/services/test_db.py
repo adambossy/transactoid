@@ -1213,3 +1213,45 @@ def test_get_all_plaid_accounts_returns_all_accounts() -> None:
     assert len(all_accounts) == 2
     account_ids = {acc.account_id for acc in all_accounts}
     assert account_ids == {"acc_1", "acc_2"}
+
+
+def test_get_sync_cursor_returns_none_when_not_set() -> None:
+    """Test get_sync_cursor returns None when cursor is not set."""
+    db = create_db()
+    db.insert_plaid_item(item_id="item_123", access_token="token")
+
+    cursor = db.get_sync_cursor("item_123")
+
+    assert cursor is None
+
+
+def test_get_sync_cursor_returns_none_for_nonexistent_item() -> None:
+    """Test get_sync_cursor returns None for non-existent item."""
+    db = create_db()
+
+    cursor = db.get_sync_cursor("nonexistent")
+
+    assert cursor is None
+
+
+def test_set_sync_cursor_stores_cursor() -> None:
+    """Test set_sync_cursor stores cursor and can be retrieved."""
+    db = create_db()
+    db.insert_plaid_item(item_id="item_123", access_token="token")
+
+    db.set_sync_cursor("item_123", "cursor_abc123")
+
+    cursor = db.get_sync_cursor("item_123")
+    assert cursor == "cursor_abc123"
+
+
+def test_set_sync_cursor_updates_existing_cursor() -> None:
+    """Test set_sync_cursor updates an existing cursor."""
+    db = create_db()
+    db.insert_plaid_item(item_id="item_123", access_token="token")
+
+    db.set_sync_cursor("item_123", "cursor_v1")
+    db.set_sync_cursor("item_123", "cursor_v2")
+
+    cursor = db.get_sync_cursor("item_123")
+    assert cursor == "cursor_v2"
