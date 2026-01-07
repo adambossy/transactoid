@@ -10,6 +10,16 @@ from typing import Any
 import loguru
 from loguru import logger
 
+MAX_LOG_LINE_LENGTH = 1000
+
+
+def _truncate(value: Any, max_len: int = MAX_LOG_LINE_LENGTH) -> str:
+    """Truncate a value's string representation to max_len characters."""
+    s = str(value)
+    if len(s) <= max_len:
+        return s
+    return s[:max_len] + "..."
+
 
 class ACPServerLogger:
     """Handles all logging for ACPServer with business logic separated."""
@@ -73,9 +83,10 @@ class PromptHandlerLogger:
         )
 
     def prompt_details(self, session_id: str, content: list[dict[str, Any]]) -> None:
-        """Log prompt details at debug level."""
-        self._logger.bind(session_id=session_id, content=content).debug(
-            "session_id={}, content={}", session_id, content
+        """Log prompt details at debug level (truncated to 1000 chars)."""
+        content_str = _truncate(content)
+        self._logger.bind(session_id=session_id).debug(
+            "session_id={}, content={}", session_id, content_str
         )
 
     def invalid_session(self, session_id: str) -> None:
@@ -147,9 +158,10 @@ class PromptHandlerLogger:
         )
 
     def run_item_stream_event(self, item_type: str, item: Any) -> None:
-        """Log run item stream event."""
+        """Log run item stream event (item truncated to 1000 chars)."""
+        item_str = _truncate(repr(item))
         self._logger.bind(item_type=item_type).info(
-            "run_item_stream_event: item type={}, item={!r}", item_type, item
+            "run_item_stream_event: item type={}, item={}", item_type, item_str
         )
 
     def tool_output(
