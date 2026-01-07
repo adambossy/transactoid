@@ -1299,6 +1299,44 @@ class DB:
                 derived_txn.category_id = category_id
                 derived_txn.updated_at = datetime.now()
 
+    def bulk_update_derived_categories(
+        self,
+        updates: dict[int, int],
+    ) -> int:
+        """Bulk update categories for multiple derived transactions.
+
+        Performs all updates in a single database transaction for efficiency.
+
+        Args:
+            updates: Dictionary mapping transaction_id to category_id
+
+        Returns:
+            Number of transactions updated
+        """
+        if not updates:
+            return 0
+
+        with self.session() as session:  # type: Session
+            now = datetime.now()
+            # Build CASE expression for category_id
+            case_expr = case(
+                updates,
+                value=DerivedTransaction.transaction_id,
+            )
+            # Update all matching transactions in single query
+            result: int = (
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.transaction_id.in_(updates.keys()))
+                .update(
+                    {
+                        DerivedTransaction.category_id: case_expr,
+                        DerivedTransaction.updated_at: now,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            return result
+
     def update_derived_mutable(
         self,
         transaction_id: int,
