@@ -30,73 +30,38 @@ mcp = FastMCP(name="transactoid")
 
 
 @mcp.tool()
-def sync_transactions(count: int = 25) -> dict[str, Any]:
+def sync_transactions(count: int = 250) -> dict[str, Any]:
     """
     Trigger synchronization with Plaid to fetch latest transactions.
 
-    Syncs transactions, categorizes them, and persists to the database.
+    Syncs ALL connected Plaid items, categorizes transactions, and persists
+    to the database. Handles cursor persistence automatically for incremental
+    syncs.
 
     Args:
-        count: Maximum number of transactions to sync per page (default: 25)
+        count: Maximum number of transactions to sync per page (default: 250)
 
     Returns:
-        Dictionary with sync status and summary including pages_processed,
+        Dictionary with sync status and summary including items_synced,
         total_added, total_modified, and total_removed counts.
     """
     try:
-        # Get PlaidClient and access token
         plaid_client = PlaidClient.from_env()
-        plaid_items = db.list_plaid_items()
 
-        if not plaid_items:
-            return {
-                "status": "error",
-                "message": "No Plaid accounts connected",
-                "pages_processed": 0,
-                "total_added": 0,
-                "total_modified": 0,
-                "total_removed": 0,
-            }
-
-        plaid_item = plaid_items[0]
-        access_token = plaid_item.access_token
-        cursor = db.get_sync_cursor(plaid_item.item_id)
-
-        # Create sync tool
         sync_tool = SyncTool(
             plaid_client=plaid_client,
             categorizer=categorizer,
             db=db,
             taxonomy=taxonomy,
-            access_token=access_token,
-            cursor=cursor,
         )
 
-        # Execute sync
-        results = sync_tool.sync(count=count)
-
-        # Save the final cursor for incremental syncs
-        if results:
-            final_cursor = results[-1].next_cursor
-            db.set_sync_cursor(plaid_item.item_id, final_cursor)
-
-        # Aggregate results
-        total_added = sum(r.added_count for r in results)
-        total_modified = sum(r.modified_count for r in results)
-        total_removed = sum(len(r.removed_transaction_ids) for r in results)
-
-        return {
-            "status": "success",
-            "pages_processed": len(results),
-            "total_added": total_added,
-            "total_modified": total_modified,
-            "total_removed": total_removed,
-        }
+        summary = sync_tool.sync(count=count)
+        return {"status": "success", **summary.to_dict()}
     except Exception as e:
         return {
             "status": "error",
             "message": str(e),
-            "pages_processed": 0,
+            "items_synced": 0,
             "total_added": 0,
             "total_modified": 0,
             "total_removed": 0,
