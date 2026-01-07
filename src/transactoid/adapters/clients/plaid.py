@@ -25,6 +25,7 @@ from transactoid.adapters.clients.plaid_link import (
     shutdown_redirect_server,
     wait_for_public_token_safe,
 )
+from transactoid.adapters.db.models import PlaidItem
 
 PlaidEnv = Literal["sandbox", "development", "production"]
 
@@ -501,30 +502,54 @@ class PlaidClient:
             # Fetch accounts for dedupe check
             accounts = self.get_accounts(access_token)
 
-            # Build dedupe keys: (institution_id, mask)
-            dedupe_keys: list[tuple[str | None, str | None]] = []
+            # Build dedupe keys for new accounts: (institution_id, mask)
+            new_dedupe_keys: set[tuple[str | None, str | None]] = set()
             for account in accounts:
                 mask = account.get("mask")
-                dedupe_keys.append((institution_id, mask))
+                new_dedupe_keys.add((institution_id, mask))
 
-            # Check for duplicates
-            existing_items = db.find_items_by_dedupe_keys(dedupe_keys)
-            if existing_items:
-                existing_item = existing_items[0]
+            # Check for duplicates by fetching accounts live from existing items
+            existing_items = db.list_plaid_items()
+            duplicate_item: PlaidItem | None = None
+
+            for existing_item in existing_items:
+                try:
+                    existing_accounts = self.get_accounts(existing_item.access_token)
+                    for existing_account in existing_accounts:
+                        existing_key = (
+                            existing_item.institution_id,
+                            existing_account.get("mask"),
+                        )
+                        if existing_key in new_dedupe_keys:
+                            duplicate_item = existing_item
+                            break
+                    if duplicate_item:
+                        break
+                except PlaidClientError:
+                    # Skip items with invalid/expired tokens
+                    continue
+
+            if duplicate_item:
+                # Update existing item's access_token (credential refresh)
+                db.save_plaid_item(
+                    item_id=duplicate_item.item_id,
+                    access_token=access_token,
+                    institution_id=institution_id,
+                    institution_name=institution_name,
+                )
                 return {
-                    "status": "duplicate",
-                    "item_id": item_id,
-                    "existing_item_id": existing_item.item_id,
+                    "status": "refreshed",
+                    "item_id": duplicate_item.item_id,
                     "institution_name": institution_name,
+                    "accounts_linked": len(accounts),
                     "message": (
-                        f"Duplicate account detected. "
-                        f"An account with the same institution and mask "
-                        f"already exists (item_id={existing_item.item_id[:8]}...). "
-                        f"The new link was not saved."
+                        f"Existing connection refreshed. "
+                        f"Updated credentials for item {duplicate_item.item_id[:8]}... "
+                        f"at {institution_name or 'institution'}."
                     ),
                 }
 
-            # Save to database
+            # Save new item to database (no account save needed)
             db_error = save_item_to_database(
                 db=db,
                 item_id=item_id,
@@ -534,23 +559,6 @@ class PlaidClient:
             )
             if db_error:
                 return db_error
-
-            # Save accounts
-            account_data_list: list[dict[str, Any]] = []
-            for account in accounts:
-                account_data_list.append(
-                    {
-                        "account_id": account["account_id"],
-                        "mask": account.get("mask"),
-                        "type": account.get("type"),
-                        "subtype": account.get("subtype"),
-                        "name": account.get("name"),
-                        "official_name": account.get("official_name"),
-                        "institution_id": institution_id,
-                        "institution_name": institution_name,
-                    }
-                )
-            db.save_plaid_accounts(item_id, account_data_list)
 
             return {
                 "status": "success",
