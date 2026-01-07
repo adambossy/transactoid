@@ -381,7 +381,9 @@ class SyncTool:
         # Build mapping from external_id to transaction_id
         external_to_id = {txn.external_id: txn.transaction_id for txn in to_categorize}
 
-        # Update category_id for categorized transactions
+        # Collect all category updates for bulk operation
+        category_updates: dict[int, int] = {}
+
         def category_lookup(key: str) -> int | None:
             return get_category_id(self._db, self._taxonomy, key)
 
@@ -400,7 +402,11 @@ class SyncTool:
             category_id = category_lookup(category_key) if category_key else None
 
             if category_id:
-                self._db.update_derived_category(transaction_id, category_id)
+                category_updates[transaction_id] = category_id
+
+        # Bulk update all categories in single DB transaction
+        if category_updates:
+            self._db.bulk_update_derived_categories(category_updates)
 
     def _build_sync_result_from_accumulated(
         self,
