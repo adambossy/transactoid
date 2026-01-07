@@ -112,91 +112,36 @@ def clear_cache(namespace: str = "default") -> None:
 
 @app.command("plaid-serve")
 def plaid_serve(
-    user_id: str | None = typer.Option(
-        None,
-        help="Plaid client_user_id (default: random UUID)",
-    ),
-    client_name: str = typer.Option(
-        "transactoid",
-        help="Label shown inside Plaid Link",
-    ),
-    language: str = typer.Option(
-        "en",
-        help="Plaid Link language code",
-    ),
-    products: list[str] | None = typer.Option(  # noqa: B008
-        None,
-        "--product",
-        help="Plaid product to request (repeat for multiple). Default: transactions",
-    ),
-    country_codes: list[str] | None = typer.Option(  # noqa: B008
-        None,
-        "--country-code",
-        help="Country code (repeat for multiple). Default: US",
-    ),
     host: str = typer.Option(
         "localhost",
         help="Host for the local HTTPS redirect server",
     ),
     port: int = typer.Option(
-        0,
-        help="Port for redirect server (0 for random open port)",
-    ),
-    timeout: int = typer.Option(
-        300,
-        help="Seconds to wait for Plaid Link to complete",
-    ),
-    output: str | None = typer.Option(
-        None,
-        help="Path to save the public_token JSON result",
+        8443,
+        help="Port for redirect server",
     ),
 ) -> None:
     """
-    Launch Plaid Link and capture the public_token via browser redirect.
+    Start the Plaid OAuth redirect server.
 
-    Starts a local HTTPS redirect server, opens Plaid Link in your browser,
-    and waits for the OAuth redirect to capture the public_token.
+    Starts a local HTTPS redirect server that captures OAuth callbacks from
+    Plaid Link. Run this before using the agent to connect new accounts.
 
-    Your browser may warn about a self-signed certificate; bypass it to continue.
+    The redirect URI to register in Plaid dashboard:
+    https://localhost:8443/plaid-link-complete
+
+    Press Ctrl+C to stop the server.
     """
-    from datetime import UTC, datetime
     import ipaddress
-    import json
     import queue
     from typing import Any
-    import urllib.parse
-    import uuid
-    import webbrowser
 
-    from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
     from transactoid.adapters.clients.plaid_link import (
-        PublicTokenTimeoutError,
         RedirectServerError,
         shutdown_redirect_server,
         start_redirect_server,
-        wait_for_public_token,
     )
 
-    # Ensure PLAID_ENV defaults to production
-    env = os.getenv("PLAID_ENV")
-    if env is None:
-        env = "production"
-        os.environ["PLAID_ENV"] = env
-    env = env.lower()
-
-    # Initialize Plaid client
-    try:
-        plaid_client = PlaidClient.from_env()
-    except PlaidClientError as e:
-        typer.echo(f"Error initializing Plaid client: {e}", err=True)
-        raise typer.Exit(1) from None
-
-    # Set defaults
-    effective_user_id = user_id or f"cli-user-{uuid.uuid4()}"
-    effective_products = products or ["transactions"]
-    effective_country_codes = country_codes or ["US"]
-
-    # Setup redirect server
     redirect_path = "/plaid-link-complete"
     token_queue: queue.Queue[str] = queue.Queue()
     state: dict[str, Any] = {}
@@ -213,7 +158,7 @@ def plaid_serve(
         typer.echo(f"Failed to start redirect server on {host}:{port}: {e}", err=True)
         raise typer.Exit(1) from None
 
-    # Build redirect URI
+    # Build redirect URI for display
     redirect_host = host or bound_host
     try:
         host_is_unspecified = ipaddress.ip_address(redirect_host).is_unspecified
@@ -223,71 +168,16 @@ def plaid_serve(
         redirect_host = "localhost"
     redirect_uri = f"https://{redirect_host}:{bound_port}{redirect_path}"
 
+    typer.echo(f"Plaid redirect server running at {redirect_uri}")
+    typer.echo("Press Ctrl+C to stop.")
+
     try:
-        # Create link token
-        try:
-            link_token = plaid_client.create_link_token(
-                user_id=effective_user_id,
-                redirect_uri=redirect_uri,
-                products=effective_products,
-                client_name=client_name,
-                language=language,
-                country_codes=effective_country_codes,
-            )
-        except PlaidClientError as e:
-            typer.echo(f"Error creating link token: {e}", err=True)
-            raise typer.Exit(1) from None
-
-        state["link_token"] = link_token
-        link_url = (
-            "https://cdn.plaid.com/link/v2/stable/link.html?token="
-            + urllib.parse.quote(link_token, safe="")
-        )
-
-        # Open browser
-        typer.echo(f"Listening for Plaid redirect on {redirect_uri}")
-        typer.echo(
-            "Your browser may warn about a self-signed certificate; "
-            "bypass it once to continue."
-        )
-        typer.echo("Opening Plaid Link in your default browser...")
-
-        if not webbrowser.open(link_url, new=1):
-            typer.echo(
-                "Unable to automatically open the browser. Open this URL manually:",
-                err=True,
-            )
-            typer.echo(link_url)
-
-        # Wait for public token
-        typer.echo(f"Waiting for Plaid Link to complete. Timeout: {timeout} seconds.")
-        public_token = wait_for_public_token(token_queue, timeout_seconds=timeout)
-
-    except PublicTokenTimeoutError as e:
-        typer.echo(str(e), err=True)
-        typer.echo("Restart the command to try again.", err=True)
-        raise typer.Exit(1) from None
+        # Keep running until interrupted
+        server_thread.join()
     except KeyboardInterrupt:
-        typer.echo("\nInterrupted before Plaid Link completed.", err=True)
-        raise typer.Exit(1) from None
+        typer.echo("\nShutting down...")
     finally:
         shutdown_redirect_server(server, server_thread)
-
-    # Output result
-    result = {
-        "public_token": public_token,
-        "environment": env,
-        "received_at": datetime.now(UTC).isoformat(),
-    }
-
-    if output:
-        with open(output, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2)
-        typer.echo(f"Wrote public token details to {output}")
-
-    typer.echo("Plaid public_token received. Exchange it for an access token.")
-    typer.echo("\nPublic token (copy securely):")
-    typer.echo(public_token)
 
 
 @app.command("plaid-dedupe-items")
