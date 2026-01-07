@@ -6,7 +6,6 @@ responses back to the client via session/update notifications.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from agents import Agent, Runner, SQLiteSession
@@ -14,9 +13,8 @@ from agents.items import ToolCallOutputItem
 from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent
 
 from transactoid.ui.acp.handlers.session import SessionManager
+from transactoid.ui.acp.logger import PromptHandlerLogger
 from transactoid.ui.acp.notifier import ToolCallKind, UpdateNotifier
-
-logger = logging.getLogger(__name__)
 
 
 class PromptHandler:
@@ -54,6 +52,7 @@ class PromptHandler:
         self._sessions = session_manager
         self._agent = agent
         self._notifier = notifier
+        self._log = PromptHandlerLogger()
         # Track tool call states for args accumulation
         self._tool_calls: dict[str, _ToolCallState] = {}
         # Track the latest call_id for SDKs that don't provide it on every delta
@@ -76,17 +75,17 @@ class PromptHandler:
                 - stopReason: Why the agent stopped (e.g., "end_turn")
                 Or error dict if session is invalid
         """
-        logger.info("handle_prompt called with params keys: %s", list(params.keys()))
+        self._log.prompt_received(params.get("sessionId", ""), list(params.keys()))
         session_id = params.get("sessionId", "")
         # Toad sends "prompt", ACP spec uses "content" - support both
         content: list[dict[str, Any]] = (
             params.get("prompt") or params.get("content") or []
         )
-        logger.debug("session_id=%s, content=%s", session_id, content)
+        self._log.prompt_details(session_id, content)
 
         session = self._sessions.get(session_id)
         if session is None:
-            logger.warning("Invalid session: %s", session_id)
+            self._log.invalid_session(session_id)
             return {"error": {"code": -32600, "message": "Invalid session"}}
 
         # Extract text from content blocks
@@ -99,10 +98,10 @@ class PromptHandler:
                     break
 
         if not user_text:
-            logger.warning("No text content in prompt")
+            self._log.no_text_content()
             return {"error": {"code": -32602, "message": "No text content provided"}}
 
-        logger.info("User prompt: %s", user_text[:100])
+        self._log.user_prompt(session_id, user_text)
 
         # Add user message to session history
         self._sessions.add_message(session_id, {"role": "user", "content": user_text})
@@ -111,7 +110,7 @@ class PromptHandler:
         sdk_session = SQLiteSession(session_id)
 
         # Run agent with streaming
-        logger.info("Starting agent stream...")
+        self._log.agent_stream_starting(session_id)
         stream = Runner.run_streamed(
             self._agent,
             user_text,
@@ -122,10 +121,10 @@ class PromptHandler:
         event_count = 0
         async for event in stream.stream_events():
             event_count += 1
-            logger.debug("Event %d: type=%s", event_count, getattr(event, "type", "?"))
+            self._log.event_received(event_count, getattr(event, "type", "?"))
             await self._process_event(session_id, event)
 
-        logger.info("Processed %d events from agent stream", event_count)
+        self._log.events_processed(session_id, event_count)
 
         # Add assistant response to session history (if available)
         get_final_result = getattr(stream, "get_final_result", None)
@@ -133,13 +132,13 @@ class PromptHandler:
             final_result = get_final_result()
             final_output = getattr(final_result, "final_output", None)
             if final_output:
-                logger.info("Final output: %s", str(final_output)[:100])
+                self._log.final_output(session_id, str(final_output))
                 self._sessions.add_message(
                     session_id,
                     {"role": "assistant", "content": str(final_output)},
                 )
 
-        logger.info("handle_prompt returning end_turn")
+        self._log.returning_end_turn(session_id)
         return {"stopReason": "end_turn"}
 
     async def _process_event(self, session_id: str, event: Any) -> None:
@@ -153,17 +152,17 @@ class PromptHandler:
             event: Streaming event from the agent runner
         """
         et = getattr(event, "type", "")
-        logger.debug("Processing event: type=%s, event=%s", et, type(event).__name__)
+        self._log.processing_event(et, type(event).__name__)
 
         # Handle raw response events
         if et == "raw_response_event":
             data = getattr(event, "data", None)
             if data is None:
-                logger.debug("raw_response_event with no data, skipping")
+                self._log.raw_response_no_data()
                 return
 
             dt = getattr(data, "type", "")
-            logger.debug("raw_response_event data.type=%s", dt)
+            self._log.raw_response_data_type(dt)
 
             # Output text -> agent_message_chunk
             if dt == "response.output_text.delta":
@@ -204,7 +203,7 @@ class PromptHandler:
                 name = getattr(item, "name", "unknown")
                 call_id = getattr(item, "call_id", "unknown")
                 self._last_call_id = call_id
-                logger.info("Tool call started: name=%s call_id=%s", name, call_id)
+                self._log.tool_call_started(name, call_id)
 
                 # Track the tool call state
                 self._tool_calls[call_id] = _ToolCallState(call_id, name)
@@ -223,11 +222,7 @@ class PromptHandler:
             if dt == "response.output_item.done":
                 call_id = getattr(item, "call_id", None)
                 item_type = getattr(item, "type", "?")
-                logger.debug(
-                    "output_item.done: call_id=%s item.type=%s",
-                    call_id,
-                    item_type,
-                )
+                self._log.output_item_done(call_id, item_type)
                 # Only send update for function calls we're tracking
                 if call_id and call_id in self._tool_calls:
                     # Send in_progress notification
@@ -243,31 +238,23 @@ class PromptHandler:
         # Handle run item events (tool execution results)
         if et == "run_item_stream_event":
             item = getattr(event, "item", None)
-            logger.info(
-                "run_item_stream_event: item type=%s, item=%r",
-                type(item).__name__,
-                item,
-            )
+            self._log.run_item_stream_event(type(item).__name__, item)
             if isinstance(item, ToolCallOutputItem):
                 call_id = getattr(item, "call_id", None) or "unknown"
                 output = item.output
                 output_text = str(output) if output is not None else ""
-                logger.info(
-                    "Tool output: call_id=%s output_len=%d tracked=%s tracked_ids=%s",
+                self._log.tool_output(
                     call_id,
                     len(output_text),
                     call_id in self._tool_calls,
                     list(self._tool_calls.keys()),
                 )
-                logger.info("Tool output text: %s", output_text[:500])
+                self._log.tool_output_text(output_text)
 
                 # Only send update for tool calls we're tracking
                 if call_id not in self._tool_calls:
-                    logger.warning(
-                        "Tool output for unknown call_id=%s, tracked_ids=%s, skipping",
-                        call_id,
-                        list(self._tool_calls.keys()),
-                    )
+                    tracked_ids = list(self._tool_calls.keys())
+                    self._log.tool_output_unknown(call_id, tracked_ids)
                     return
 
                 # Send completed notification with output
@@ -288,14 +275,11 @@ class PromptHandler:
                 self._tool_calls.pop(call_id, None)
                 return
             else:
-                logger.debug(
-                    "run_item_stream_event with non-ToolCallOutputItem: %s",
-                    type(item).__name__,
-                )
+                self._log.non_tool_output_item(type(item).__name__)
                 return
 
         # Log unhandled event types
-        logger.debug("Unhandled event type: %s", et)
+        self._log.unhandled_event(et)
 
     def _get_kind(self, tool_name: str) -> ToolCallKind:
         """Map tool name to ACP tool call kind.
