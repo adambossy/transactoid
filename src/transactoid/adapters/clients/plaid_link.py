@@ -347,6 +347,11 @@ def _build_redirect_handler(
                     public_token = raw_body.strip() or None
 
             if public_token:
+                # Log immediately when token is received from Plaid
+                print(  # noqa: T201
+                    f"\n✓ Plaid Link complete! "
+                    f"Received public_token: {public_token[:20]}..."
+                )
                 token_queue.put(public_token)
                 _write_token_to_file(public_token)
                 body = REDIRECT_SUCCESS_HTML
@@ -355,12 +360,7 @@ def _build_redirect_handler(
                 body = REDIRECT_ERROR_HTML
                 status = HTTPStatus.BAD_REQUEST
 
-            body_bytes = body.encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body_bytes)))
-            self.end_headers()
-            self.wfile.write(body_bytes)
+            self._send_html_response(body, status)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
             # Silence default stdout logging to keep CLI output clean.
