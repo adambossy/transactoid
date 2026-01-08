@@ -41,11 +41,17 @@ class ScrapeResult(BaseModel):
 BackendType = Literal["playwriter", "stagehand", "stagehand-browserbase"]
 
 
-def _get_backend(backend: BackendType) -> AmazonScraperBackend:
+def _get_backend(
+    backend: BackendType,
+    *,
+    context_id: str | None = None,
+) -> AmazonScraperBackend:
     """Get the backend instance for the specified type.
 
     Args:
         backend: Backend type to use.
+        context_id: Optional Browserbase context ID for session persistence.
+            Only applicable for "stagehand-browserbase" backend.
 
     Returns:
         Backend instance implementing AmazonScraperBackend protocol.
@@ -68,7 +74,7 @@ def _get_backend(backend: BackendType) -> AmazonScraperBackend:
             StagehandBrowserbaseBackend,
         )
 
-        return StagehandBrowserbaseBackend()
+        return StagehandBrowserbaseBackend(context_id=context_id)
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -114,19 +120,24 @@ def scrape_amazon_orders(
     backend: BackendType = "playwriter",
     year: int | None = None,
     max_orders: int | None = None,
+    context_id: str | None = None,
 ) -> dict[str, Any]:
     """Scrape Amazon orders using the specified backend.
 
     Args:
         db: Database facade for persisting scraped data.
-        backend: Browser backend to use ("playwriter" or "stagehand").
+        backend: Browser backend to use ("playwriter", "stagehand", or
+            "stagehand-browserbase").
         year: Optional year to filter orders (e.g., 2024).
         max_orders: Optional maximum number of orders to scrape.
+        context_id: Optional Browserbase context ID for session persistence.
+            Only applicable for "stagehand-browserbase" backend. Use
+            StagehandBrowserbaseBackend.create_context() to create one.
 
     Returns:
         Dictionary with status and summary of scraped data.
     """
-    backend_instance = _get_backend(backend)
+    backend_instance = _get_backend(backend, context_id=context_id)
     orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
 
     if not orders:

@@ -49,8 +49,10 @@ class StagehandBrowserbaseBackend:
     Amazon order history. Requires BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID
     environment variables.
 
-    Note: Since Browserbase runs in the cloud, authentication must be handled
-    via Browserbase's session persistence or context features.
+    For authenticated scraping, use Browserbase contexts to persist login state:
+    1. Create a context with `create_context()`
+    2. Log in manually via Session Live View
+    3. Reuse the context_id for future scraping sessions
     """
 
     def __init__(
@@ -59,6 +61,8 @@ class StagehandBrowserbaseBackend:
         model_api_key: str | None = None,
         browserbase_api_key: str | None = None,
         browserbase_project_id: str | None = None,
+        context_id: str | None = None,
+        persist_context: bool = True,
     ) -> None:
         """Initialize the Stagehand Browserbase backend.
 
@@ -70,6 +74,10 @@ class StagehandBrowserbaseBackend:
                 BROWSERBASE_API_KEY environment variable.
             browserbase_project_id: Browserbase project ID. If None, reads from
                 BROWSERBASE_PROJECT_ID environment variable.
+            context_id: Optional Browserbase context ID for session persistence.
+                Use `create_context()` to create a new context.
+            persist_context: Whether to persist session changes to context.
+                Defaults to True. Set to False for read-only access.
         """
         self._model_name = model_name
         self._model_api_key = model_api_key or os.getenv(
@@ -81,6 +89,72 @@ class StagehandBrowserbaseBackend:
         self._browserbase_project_id = browserbase_project_id or os.getenv(
             "BROWSERBASE_PROJECT_ID", ""
         )
+        self._context_id = context_id
+        self._persist_context = persist_context
+
+    @classmethod
+    def create_context(
+        cls,
+        browserbase_api_key: str | None = None,
+        browserbase_project_id: str | None = None,
+    ) -> str:
+        """Create a new Browserbase context for session persistence.
+
+        Contexts persist cookies, localStorage, and session tokens across
+        browser sessions. Create a context once, then reuse its ID for
+        future scraping sessions.
+
+        Workflow:
+        1. Call create_context() to get a context_id
+        2. Create a backend with that context_id
+        3. Start an interactive session to log in (use Session Live View)
+        4. Future sessions with same context_id will be pre-authenticated
+
+        Args:
+            browserbase_api_key: Browserbase API key. If None, reads from
+                BROWSERBASE_API_KEY environment variable.
+            browserbase_project_id: Browserbase project ID. If None, reads from
+                BROWSERBASE_PROJECT_ID environment variable.
+
+        Returns:
+            Context ID string to use in future sessions.
+
+        Raises:
+            ImportError: If browserbase package is not installed.
+            ValueError: If API credentials are missing.
+        """
+        try:
+            from browserbase import Browserbase  # type: ignore[import-untyped]
+        except ImportError as e:
+            raise ImportError(
+                "browserbase package not installed. "
+                "Install with: pip install browserbase"
+            ) from e
+
+        api_key = browserbase_api_key or os.getenv("BROWSERBASE_API_KEY", "")
+        project_id = browserbase_project_id or os.getenv("BROWSERBASE_PROJECT_ID", "")
+
+        if not api_key:
+            raise ValueError("BROWSERBASE_API_KEY is required")
+        if not project_id:
+            raise ValueError("BROWSERBASE_PROJECT_ID is required")
+
+        client = Browserbase(api_key=api_key)
+        context = client.contexts.create(project_id=project_id)
+        return str(context.id)
+
+    def get_session_live_view_url(self, session_id: str) -> str:
+        """Get the Live View URL for interactive session access.
+
+        Use this URL to manually log in to Amazon through the browser.
+
+        Args:
+            session_id: Browserbase session ID from a running session.
+
+        Returns:
+            URL to open in your browser for interactive access.
+        """
+        return f"https://www.browserbase.com/sessions/{session_id}"
 
     def scrape_order_history(
         self,
@@ -147,16 +221,37 @@ class StagehandBrowserbaseBackend:
                 "Browserbase backend"
             )
 
+        # Build session create params with optional context
+        session_create_params: dict[str, Any] | None = None
+        if self._context_id:
+            session_create_params = {
+                "browserSettings": {
+                    "context": {
+                        "id": self._context_id,
+                        "persist": self._persist_context,
+                    }
+                }
+            }
+
         config = StagehandConfig(
             env="BROWSERBASE",
-            api_key=self._browserbase_api_key,
-            project_id=self._browserbase_project_id,
-            model_name=self._model_name,
-            model_api_key=self._model_api_key,
+            apiKey=self._browserbase_api_key,
+            projectId=self._browserbase_project_id,
+            modelName=self._model_name,
+            modelApiKey=self._model_api_key,
+            browserbaseSessionCreateParams=session_create_params,
         )
 
         stagehand = Stagehand(config)
         await stagehand.init()
+
+        # Log session URL for debugging
+        session_id = getattr(stagehand, "session_id", None)
+        if session_id:
+            session_url = self.get_session_live_view_url(session_id)
+            print(f"[Browserbase] Session: {session_url}")
+            if self._context_id:
+                print(f"[Browserbase] Using context: {self._context_id}")
 
         try:
             # Build URL with optional year filter
@@ -167,16 +262,28 @@ class StagehandBrowserbaseBackend:
             await stagehand.page.goto(url, timeout=60000)  # 60 second timeout
 
             # Check if login is required
-            # For Browserbase, we need to handle auth differently since it's cloud-based
             page = stagehand.page
             current_url = page.url
 
             if "signin" in current_url or "ap/signin" in current_url:
-                raise RuntimeError(
-                    "Amazon login required. For Browserbase, you need to:\n"
-                    "1. Use Browserbase's context feature to persist login state, or\n"
-                    "2. Use the 'stagehand-local' backend for interactive login"
-                )
+                if self._context_id:
+                    raise RuntimeError(
+                        "Amazon login required despite using a context. "
+                        "The context may have expired. Please:\n"
+                        "1. Create a new context with create_context()\n"
+                        "2. Log in via Session Live View\n"
+                        "3. Retry with the new context_id"
+                    )
+                else:
+                    raise RuntimeError(
+                        "Amazon login required. To use Browserbase:\n"
+                        "1. Create a context: "
+                        "ctx_id = StagehandBrowserbaseBackend.create_context()\n"
+                        "2. Create backend with context: "
+                        "backend = StagehandBrowserbaseBackend(context_id=ctx_id)\n"
+                        "3. Start a session and log in via Session Live View\n"
+                        "4. Reuse the same context_id for automated scraping"
+                    )
 
             # Give the orders page time to fully load
             await asyncio.sleep(2)
@@ -186,18 +293,23 @@ class StagehandBrowserbaseBackend:
 
             while True:
                 page_num += 1
+                print(f"[Browserbase] Extracting orders from page {page_num}...")
 
                 # Extract orders from current page
                 extracted: Any = await stagehand.page.extract(
                     instruction=(
                         "Extract all orders visible on this page. "
-                        "For each order, get the order ID, date (YYYY-MM-DD format), "
+                        "For each order, get the order ID, "
+                        "date (YYYY-MM-DD format), "
                         "total amount in cents, tax in cents, shipping in cents, "
                         "and all items with ASIN, description, price in cents, "
-                        "and quantity. Also check if there's a 'Next' pagination link."
+                        "and quantity. Also check if there's a 'Next' link."
                     ),
                     schema=ExtractedOrders,
                 )
+
+                order_count = len(extracted.orders)
+                print(f"[Browserbase] Found {order_count} orders on page {page_num}")
 
                 # Convert extracted orders to ScrapedOrder objects
                 for order in extracted.orders:
@@ -228,8 +340,10 @@ class StagehandBrowserbaseBackend:
                     break
 
                 # Navigate to next page
+                print("[Browserbase] Clicking 'Next' button...")
                 await stagehand.page.act("Click the 'Next' pagination button")
 
+            print(f"[Browserbase] Finished. Total orders: {len(all_orders)}")
             return all_orders
 
         finally:
