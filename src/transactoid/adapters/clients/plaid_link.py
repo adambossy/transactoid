@@ -135,6 +135,60 @@ OAUTH_REDIRECT_HTML_TEMPLATE = """\
 </html>
 """
 
+PLAID_LINK_START_HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Connect Your Bank Account</title>
+  <style>
+    body {{ font-family: sans-serif; margin: 3rem; }}
+    .card {{
+      max-width: 32rem;
+      padding: 2rem;
+      border: 1px solid #ccc;
+      border-radius: 0.5rem;
+    }}
+  </style>
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+</head>
+<body>
+  <div class="card" id="status">
+    <h1>Connecting to your bank...</h1>
+    <p>Plaid Link will open automatically.</p>
+  </div>
+  <script>
+    (function() {{
+      var handler = Plaid.create({{
+        token: "{link_token}",
+        onSuccess: function(public_token, metadata) {{
+          document.getElementById("status").innerHTML = "<h1>Saving...</h1>";
+          fetch("/plaid-link-complete", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ public_token: public_token }})
+          }}).then(function() {{
+            document.body.innerHTML = `{success_html}`;
+          }}).catch(function() {{
+            document.body.innerHTML = `{error_html}`;
+          }});
+        }},
+        onExit: function(err, metadata) {{
+          if (err) {{
+            document.body.innerHTML = `{error_html}`;
+          }} else {{
+            document.getElementById("status").innerHTML =
+              "<h1>Cancelled</h1><p>You closed Plaid Link.</p>";
+          }}
+        }}
+      }});
+      handler.open();
+    }})();
+  </script>
+</body>
+</html>
+"""
+
 
 def _create_ssl_context() -> ssl.SSLContext:
     """Create an SSL context for the local Plaid redirect HTTPS server.
@@ -214,8 +268,35 @@ def _build_redirect_handler(
     state: dict[str, Any],
 ) -> type[BaseHTTPRequestHandler]:
     class RedirectHandler(BaseHTTPRequestHandler):
+        def _send_html_response(self, body: str, status: HTTPStatus) -> None:
+            """Send an HTML response with proper headers."""
+            body_bytes = body.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+
         def do_GET(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
+
+            # Handle /plaid-link-start - serve page with Plaid SDK
+            if parsed.path == "/plaid-link-start":
+                link_token = state.get("link_token") or read_link_token_from_file()
+                if not link_token:
+                    self._send_html_response(
+                        REDIRECT_ERROR_HTML, HTTPStatus.SERVICE_UNAVAILABLE
+                    )
+                    return
+                body = PLAID_LINK_START_HTML_TEMPLATE.format(
+                    link_token=html_escape(str(link_token)),
+                    success_html=REDIRECT_SUCCESS_HTML,
+                    error_html=REDIRECT_ERROR_HTML,
+                )
+                self._send_html_response(body, HTTPStatus.OK)
+                return
+
+            # Handle /plaid-link-complete - existing redirect completion logic
             if parsed.path != expected_path:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
                 return
@@ -243,12 +324,7 @@ def _build_redirect_handler(
                     )
                     status = HTTPStatus.OK
 
-            body_bytes = body.encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body_bytes)))
-            self.end_headers()
-            self.wfile.write(body_bytes)
+            self._send_html_response(body, status)
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
@@ -402,13 +478,13 @@ def create_link_token_and_url(
     """Create a Plaid Link token and build the Link URL.
 
     Args:
-        redirect_uri: Redirect URI for Plaid Link
+        redirect_uri: Redirect URI for Plaid Link (registered with Plaid)
         state: State dict to store link_token
         create_link_token_fn: Function to create link token
         client_name: Client name for Plaid Link
 
     Returns:
-        Link URL string
+        Link URL string pointing to local server which loads Plaid SDK
     """
     user_id = f"transactoid-user-{uuid.uuid4()}"
     link_token = create_link_token_fn(
@@ -422,10 +498,9 @@ def create_link_token_and_url(
     # Also write to file for external redirect server
     write_link_token_to_file(link_token)
 
-    link_url = (
-        "https://cdn.plaid.com/link/v2/stable/link.html?token="
-        + urllib.parse.quote(link_token, safe="")
-    )
+    # Return URL to local server which serves page with Plaid SDK
+    # This uses Plaid.create().open() with callbacks instead of redirect mode
+    link_url = "https://localhost:8443/plaid-link-start"
     return link_url
 
 
