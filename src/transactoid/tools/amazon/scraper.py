@@ -38,7 +38,7 @@ class ScrapeResult(BaseModel):
     orders: list[ScrapedOrder]
 
 
-BackendType = Literal["playwriter", "stagehand"]
+BackendType = Literal["playwriter", "stagehand", "stagehand-browserbase"]
 
 
 def _get_backend(backend: BackendType) -> AmazonScraperBackend:
@@ -63,6 +63,12 @@ def _get_backend(backend: BackendType) -> AmazonScraperBackend:
         )
 
         return StagehandLocalBackend()
+    elif backend == "stagehand-browserbase":
+        from transactoid.tools.amazon.backends.stagehand_browserbase import (
+            StagehandBrowserbaseBackend,
+        )
+
+        return StagehandBrowserbaseBackend()
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
