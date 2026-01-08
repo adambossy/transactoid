@@ -1,4 +1,4 @@
-"""Stagehand LOCAL backend for Amazon order scraping."""
+"""Stagehand BROWSERBASE backend for Amazon order scraping."""
 
 from __future__ import annotations
 
@@ -42,28 +42,44 @@ class ExtractedOrders(BaseModel):
     )
 
 
-class StagehandLocalBackend:
-    """Amazon scraper backend using Stagehand LOCAL mode.
+class StagehandBrowserbaseBackend:
+    """Amazon scraper backend using Stagehand with Browserbase.
 
-    This backend uses Stagehand with local Playwright to scrape Amazon
-    order history. The browser will be visible for user authentication.
+    This backend uses Stagehand with Browserbase cloud browsers to scrape
+    Amazon order history. Requires BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID
+    environment variables.
+
+    Note: Since Browserbase runs in the cloud, authentication must be handled
+    via Browserbase's session persistence or context features.
     """
 
     def __init__(
         self,
         model_name: str = "google/gemini-2.5-flash-preview-05-20",
         model_api_key: str | None = None,
+        browserbase_api_key: str | None = None,
+        browserbase_project_id: str | None = None,
     ) -> None:
-        """Initialize the Stagehand LOCAL backend.
+        """Initialize the Stagehand Browserbase backend.
 
         Args:
             model_name: LLM model for Stagehand. Defaults to Gemini Flash.
             model_api_key: API key for the model. If None, reads from
                 MODEL_API_KEY or GOOGLE_API_KEY environment variable.
+            browserbase_api_key: Browserbase API key. If None, reads from
+                BROWSERBASE_API_KEY environment variable.
+            browserbase_project_id: Browserbase project ID. If None, reads from
+                BROWSERBASE_PROJECT_ID environment variable.
         """
         self._model_name = model_name
         self._model_api_key = model_api_key or os.getenv(
             "MODEL_API_KEY", os.getenv("GOOGLE_API_KEY", "")
+        )
+        self._browserbase_api_key = browserbase_api_key or os.getenv(
+            "BROWSERBASE_API_KEY", ""
+        )
+        self._browserbase_project_id = browserbase_project_id or os.getenv(
+            "BROWSERBASE_PROJECT_ID", ""
         )
 
     def scrape_order_history(
@@ -71,7 +87,7 @@ class StagehandLocalBackend:
         year: int | None = None,
         max_orders: int | None = None,
     ) -> list[ScrapedOrder]:
-        """Scrape Amazon order history via Stagehand LOCAL mode.
+        """Scrape Amazon order history via Stagehand Browserbase.
 
         Args:
             year: Optional year to filter orders.
@@ -120,20 +136,27 @@ class StagehandLocalBackend:
                 "Stagehand is not installed. Install with: pip install stagehand"
             ) from e
 
-        print(f"[Stagehand] Initializing with model: {self._model_name}")
-        print(f"[Stagehand] API key configured: {bool(self._model_api_key)}")
+        if not self._browserbase_api_key:
+            raise ValueError(
+                "BROWSERBASE_API_KEY environment variable is required for "
+                "Browserbase backend"
+            )
+        if not self._browserbase_project_id:
+            raise ValueError(
+                "BROWSERBASE_PROJECT_ID environment variable is required for "
+                "Browserbase backend"
+            )
 
         config = StagehandConfig(
-            env="LOCAL",
+            env="BROWSERBASE",
+            api_key=self._browserbase_api_key,
+            project_id=self._browserbase_project_id,
             model_name=self._model_name,
             model_api_key=self._model_api_key,
-            headless=False,  # Show browser for authentication
         )
 
         stagehand = Stagehand(config)
-        print("[Stagehand] Config created, initializing browser...")
         await stagehand.init()
-        print("[Stagehand] Browser initialized successfully")
 
         try:
             # Build URL with optional year filter
@@ -143,29 +166,20 @@ class StagehandLocalBackend:
 
             await stagehand.page.goto(url, timeout=60000)  # 60 second timeout
 
-            # Wait for user to authenticate if needed
-            # Check if we're on a login page and wait for user to complete login
+            # Check if login is required
+            # For Browserbase, we need to handle auth differently since it's cloud-based
             page = stagehand.page
-            max_wait_seconds = 300  # 5 minutes to log in
+            current_url = page.url
 
-            for _ in range(max_wait_seconds):
-                current_url = page.url
-                # Check if we're on the orders page (not login/signin)
-                if "your-orders" in current_url and "signin" not in current_url:
-                    print(f"[Stagehand] Detected orders page: {current_url}")
-                    break
-                # Still on login page, wait for user
-                await asyncio.sleep(1)
-            else:
-                raise TimeoutError(
-                    "Timed out waiting for Amazon login. "
-                    "Please log in within 5 minutes."
+            if "signin" in current_url or "ap/signin" in current_url:
+                raise RuntimeError(
+                    "Amazon login required. For Browserbase, you need to:\n"
+                    "1. Use Browserbase's context feature to persist login state, or\n"
+                    "2. Use the 'stagehand-local' backend for interactive login"
                 )
 
             # Give the orders page time to fully load
-            print("[Stagehand] Waiting 2 seconds for page to fully load...")
             await asyncio.sleep(2)
-            print("[Stagehand] Starting extraction loop...")
 
             all_orders: list[ScrapedOrder] = []
             page_num = 0
@@ -174,30 +188,16 @@ class StagehandLocalBackend:
                 page_num += 1
 
                 # Extract orders from current page
-                print(f"[Stagehand] Extracting orders from page {page_num}...")
-                print(f"[Stagehand] Current URL: {page.url}")
-
-                try:
-                    extracted: Any = await stagehand.page.extract(
-                        instruction=(
-                            "Extract all orders visible on this page. "
-                            "For each order, get the order ID, "
-                            "date (YYYY-MM-DD format), "
-                            "total amount in cents, tax in cents, shipping in cents, "
-                            "and all items with ASIN, description, price in cents, "
-                            "and quantity. Also check if there's a 'Next' link."
-                        ),
-                        schema=ExtractedOrders,
-                    )
-                    print(f"[Stagehand] Extraction result: {extracted}")
-                    order_count = len(extracted.orders)
-                    print(f"[Stagehand] Found {order_count} orders on page {page_num}")
-                except Exception as extract_error:
-                    print(f"[Stagehand] ERROR during extraction: {extract_error}")
-                    import traceback
-
-                    traceback.print_exc()
-                    raise
+                extracted: Any = await stagehand.page.extract(
+                    instruction=(
+                        "Extract all orders visible on this page. "
+                        "For each order, get the order ID, date (YYYY-MM-DD format), "
+                        "total amount in cents, tax in cents, shipping in cents, "
+                        "and all items with ASIN, description, price in cents, "
+                        "and quantity. Also check if there's a 'Next' pagination link."
+                    ),
+                    schema=ExtractedOrders,
+                )
 
                 # Convert extracted orders to ScrapedOrder objects
                 for order in extracted.orders:
@@ -228,12 +228,9 @@ class StagehandLocalBackend:
                     break
 
                 # Navigate to next page
-                print("[Stagehand] Clicking 'Next' button...")
                 await stagehand.page.act("Click the 'Next' pagination button")
 
-            print(f"[Stagehand] Finished scraping. Total orders: {len(all_orders)}")
             return all_orders
 
         finally:
-            print("[Stagehand] Closing browser...")
             await stagehand.close()
