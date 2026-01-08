@@ -522,7 +522,7 @@ class Transactoid:
                 WebSearchTool(),
             ],
             model_settings=ModelSettings(
-                reasoning=Reasoning(effort="medium"), verbosity="high"
+                reasoning=Reasoning(effort="medium", summary="auto"), verbosity="high"
             ),
         )
 
