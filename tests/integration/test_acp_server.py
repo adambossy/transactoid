@@ -33,12 +33,12 @@ def _run_async(coro: Any) -> Any:
 class TestACPServerFullFlow:
     """Integration tests for full ACP server flow."""
 
-    @pytest.fixture
+    @pytest.fixture  # type: ignore[misc]
     def session_manager(self) -> SessionManager:
         """Create a fresh SessionManager for each test."""
         return SessionManager()
 
-    @pytest.fixture
+    @pytest.fixture  # type: ignore[misc]
     def router(self, session_manager: SessionManager) -> RequestRouter:
         """Create a router with all handlers registered."""
         router = RequestRouter()
@@ -222,8 +222,10 @@ class TestACPServerFullFlow:
 
             # Tool execution result - use MagicMock that passes isinstance check
             # Create a mock ToolCallOutputItem with the attributes we need
+            # Note: call_id is extracted from raw_item.call_id, not item.call_id
             mock_tool_output = MagicMock(spec=ToolCallOutputItem)
-            mock_tool_output.call_id = "call_001"
+            mock_tool_output.raw_item = MagicMock()
+            mock_tool_output.raw_item.call_id = "call_001"
             mock_tool_output.output = "Query returned 15 rows"
 
             event3 = MagicMock()
