@@ -57,6 +57,9 @@ class PromptHandler:
         self._tool_calls: dict[str, _ToolCallState] = {}
         # Track the latest call_id for SDKs that don't provide it on every delta
         self._last_call_id: str | None = None
+        # Persist SQLiteSession objects per ACP session to maintain conversation memory
+        # (SQLiteSession defaults to :memory: which is lost when object is GC'd)
+        self._sdk_sessions: dict[str, SQLiteSession] = {}
 
     async def handle_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process a user prompt and stream responses.
@@ -106,8 +109,12 @@ class PromptHandler:
         # Add user message to session history
         self._sessions.add_message(session_id, {"role": "user", "content": user_text})
 
-        # Create SDK session for memory persistence
-        sdk_session = SQLiteSession(session_id)
+        # Get or create SDK session for memory persistence
+        # Reuse existing session to maintain conversation history
+        # (SQLiteSession defaults to :memory: which is lost if we create new instances)
+        if session_id not in self._sdk_sessions:
+            self._sdk_sessions[session_id] = SQLiteSession(session_id)
+        sdk_session = self._sdk_sessions[session_id]
 
         # Run agent with streaming
         self._log.agent_stream_starting(session_id)
