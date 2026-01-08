@@ -40,16 +40,10 @@ class MockTool:
     def input_schema(self) -> ToolInputSchema:  # type: ignore[misc]
         return {"type": "object", "properties": {}, "required": []}
 
-    def is_async(self) -> bool:
-        return False
-
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
+    async def execute(self, **kwargs: Any) -> dict[str, Any]:
         if self._raises:
             raise self._raises
         return self._result
-
-    async def execute_async(self, **kwargs: Any) -> dict[str, Any]:
-        return self.execute(**kwargs)
 
 
 def _run_wrapped_tool(
@@ -170,15 +164,9 @@ class TestACPAdapterWrapTool:
             def input_schema(self) -> ToolInputSchema:  # type: ignore[misc]
                 return {"type": "object", "properties": {}, "required": []}
 
-            def is_async(self) -> bool:
-                return False
-
-            def execute(self, **kwargs: Any) -> dict[str, Any]:
+            async def execute(self, **kwargs: Any) -> dict[str, Any]:
                 KwargsCapturingTool.captured_kwargs = kwargs
                 return {"status": "success"}
-
-            async def execute_async(self, **kwargs: Any) -> dict[str, Any]:
-                return self.execute(**kwargs)
 
         registry = ToolRegistry()
         tool = KwargsCapturingTool()

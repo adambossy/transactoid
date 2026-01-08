@@ -15,7 +15,7 @@ class ToolRegistry:
     - Central access to all tools
     - Lookup by name
     - Iteration over tools
-    - Execute tools by name (sync and async)
+    - Execute tools by name
 
     Example:
         registry = ToolRegistry()
@@ -27,11 +27,8 @@ class ToolRegistry:
         # Lookup tool
         tool = registry.get("my_tool")
 
-        # Execute tool (sync)
-        result = registry.execute("my_tool", param1="value")
-
-        # Execute tool (async)
-        result = await registry.execute_async("my_tool", param1="value")
+        # Execute tool
+        result = await registry.execute("my_tool", param1="value")
 
         # Get all tools
         all_tools = registry.all()
@@ -76,11 +73,9 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
-    def execute(self, name: str, **kwargs: Any) -> dict[str, Any]:
+    async def execute(self, name: str, **kwargs: Any) -> dict[str, Any]:
         """
-        Execute a sync tool by name with parameters.
-
-        For async tools, use execute_async() instead.
+        Execute a tool by name with parameters.
 
         Args:
             name: Tool name to execute
@@ -88,31 +83,11 @@ class ToolRegistry:
 
         Returns:
             Tool execution result dict
-
-        Raises:
-            ValueError: If tool not found (returned as error dict, not raised)
-            RuntimeError: If tool is async (use execute_async instead)
         """
         tool = self.get(name)
         if tool is None:
             return {"status": "error", "error": f"Tool '{name}' not found"}
-        return tool.execute(**kwargs)
-
-    async def execute_async(self, name: str, **kwargs: Any) -> dict[str, Any]:
-        """
-        Execute a tool by name with parameters (works for sync and async tools).
-
-        Args:
-            name: Tool name to execute
-            **kwargs: Parameters to pass to tool.execute_async()
-
-        Returns:
-            Tool execution result dict
-        """
-        tool = self.get(name)
-        if tool is None:
-            return {"status": "error", "error": f"Tool '{name}' not found"}
-        return await tool.execute_async(**kwargs)
+        return await tool.execute(**kwargs)
 
     def __len__(self) -> int:
         """Return number of registered tools."""
