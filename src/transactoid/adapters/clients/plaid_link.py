@@ -28,8 +28,9 @@ class PublicTokenTimeoutError(PlaidLinkError):
     """Raised when we time out waiting for a Plaid public_token."""
 
 
-# Shared file path for token passing between external server and agent
+# Shared file paths for token passing between external server and agent
 TOKEN_FILE_PATH = "/tmp/transactoid_plaid_token"  # noqa: S108, S105
+LINK_TOKEN_FILE_PATH = "/tmp/transactoid_plaid_link_token"  # noqa: S108, S105
 
 
 REDIRECT_SUCCESS_HTML = """\
@@ -173,6 +174,40 @@ def _write_token_to_file(token: str) -> None:
         pass  # Best effort - queue is primary mechanism
 
 
+def write_link_token_to_file(link_token: str) -> None:
+    """Write the link token to a shared file for external redirect server."""
+    try:
+        with open(LINK_TOKEN_FILE_PATH, "w") as f:
+            f.write(link_token)
+    except OSError:
+        pass  # Best effort
+
+
+def read_link_token_from_file() -> str | None:
+    """Read the link token from the shared file.
+
+    Returns:
+        Link token string if file exists and has content, None otherwise.
+    """
+    try:
+        if os.path.exists(LINK_TOKEN_FILE_PATH):
+            with open(LINK_TOKEN_FILE_PATH) as f:
+                token = f.read().strip()
+                return token if token else None
+    except OSError:
+        pass
+    return None
+
+
+def clear_link_token_file() -> None:
+    """Clear the shared link token file."""
+    try:
+        if os.path.exists(LINK_TOKEN_FILE_PATH):
+            os.remove(LINK_TOKEN_FILE_PATH)
+    except OSError:
+        pass
+
+
 def _build_redirect_handler(
     token_queue: queue.Queue[str],
     expected_path: str,
@@ -195,7 +230,8 @@ def _build_redirect_handler(
                 body = REDIRECT_SUCCESS_HTML
                 status = HTTPStatus.OK
             else:
-                link_token = state.get("link_token")
+                # Try state dict first, then fall back to shared file
+                link_token = state.get("link_token") or read_link_token_from_file()
                 if not link_token:
                     body = REDIRECT_ERROR_HTML
                     status = HTTPStatus.SERVICE_UNAVAILABLE
@@ -383,6 +419,8 @@ def create_link_token_and_url(
         client_name=client_name,
     )
     state["link_token"] = link_token
+    # Also write to file for external redirect server
+    write_link_token_to_file(link_token)
 
     link_url = (
         "https://cdn.plaid.com/link/v2/stable/link.html?token="

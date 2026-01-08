@@ -15,6 +15,7 @@ from models.transaction import PersonalFinanceCategory, Transaction
 from transactoid.adapters.clients.plaid_link import (
     PublicTokenTimeoutError,
     build_success_message,
+    clear_link_token_file,
     clear_token_file,
     create_link_token_and_url,
     exchange_token_and_get_item_info,
@@ -574,6 +575,7 @@ class PlaidClient:
             }
         finally:
             clear_token_file()
+            clear_link_token_file()
 
     def list_accounts(
         self,
