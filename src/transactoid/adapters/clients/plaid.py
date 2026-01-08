@@ -299,8 +299,15 @@ class PlaidClient:
         country_codes: list[str] | None = None,
         language: str = "en",
         client_name: str | None = None,
+        days_requested: int = 730,
     ) -> str:
-        """Create a Plaid Link token and return it."""
+        """Create a Plaid Link token and return it.
+
+        Args:
+            days_requested: Number of days of transaction history to request.
+                Defaults to 730 (maximum ~2 years). Only applies on initial
+                Item setup; cannot be changed after transactions are initialized.
+        """
         payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
@@ -309,6 +316,7 @@ class PlaidClient:
             "country_codes": country_codes or ["US"],
             "user": {"client_user_id": user_id},
             "products": products or self._products or [],
+            "transactions": {"days_requested": days_requested},
         }
         if redirect_uri is not None:
             payload["redirect_uri"] = redirect_uri
