@@ -52,7 +52,7 @@ REDIRECT_SUCCESS_HTML = """\
 <body>
   <div class="card">
     <h1>Link successful</h1>
-    <p>You can return to the terminal. This window can be closed.</p>
+    <p>You can close this tab and return to the terminal.</p>
   </div>
 </body>
 </html>
