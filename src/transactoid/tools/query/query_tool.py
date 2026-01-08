@@ -44,7 +44,7 @@ class RunSQLTool(StandardTool):
         """
         self._db = db
 
-    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         """
         Execute SQL query and return results.
 

@@ -151,7 +151,7 @@ class RecategorizeTool(StandardTool):
         """
         self._persist_tool = persist_tool
 
-    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         """
         Execute recategorization and return result.
 
@@ -219,7 +219,7 @@ class TagTransactionsTool(StandardTool):
         """
         self._persist_tool = persist_tool
 
-    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         """
         Execute tagging and return result.
 
