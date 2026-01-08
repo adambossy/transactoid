@@ -184,7 +184,7 @@ class Categorizer:
         prompt_key: str = "categorize-transactions",
         model: str = "gpt-5.1",
         file_cache: FileCache | None = None,
-        max_concurrency: int = 8,
+        max_concurrency: int = 16,
     ) -> None:
         self._taxonomy = taxonomy
         self._prompt_key = prompt_key

@@ -50,13 +50,13 @@ class OpenAIAdapter:
             tool: Tool instance to convert
 
         Returns:
-            FunctionTool instance that wraps tool.execute()
+            FunctionTool instance that wraps tool.execute_async()
         """
 
         # Create async invoke handler that parses JSON args and calls the tool
         async def on_invoke(ctx: ToolContext[Any], args_json: str) -> str:
             kwargs: dict[str, Any] = json.loads(args_json) if args_json else {}
-            result = tool.execute(**kwargs)
+            result = await tool.execute_async(**kwargs)
             return json.dumps(result)
 
         # Create FunctionTool with explicit schema from tool.input_schema

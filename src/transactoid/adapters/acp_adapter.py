@@ -85,7 +85,7 @@ class ACPAdapter:
             # Execute tool
             status: ToolCallStatus
             try:
-                result = tool.execute(**kwargs)
+                result = await tool.execute_async(**kwargs)
                 status = "completed"
             except Exception as e:
                 result = {"status": "error", "error": str(e)}

@@ -48,12 +48,12 @@ class OpenAIAdapter:
             tool: Tool instance to convert
 
         Returns:
-            FunctionTool instance that wraps tool.execute()
+            FunctionTool instance that wraps tool.execute_async()
         """
 
-        # Create wrapper function with proper signature
-        def tool_wrapper(**kwargs: Any) -> dict[str, Any]:
-            return tool.execute(**kwargs)
+        # Create async wrapper function with proper signature
+        async def tool_wrapper(**kwargs: Any) -> dict[str, Any]:
+            return await tool.execute_async(**kwargs)
 
         # Set metadata for function_tool
         tool_wrapper.__name__ = tool.name
