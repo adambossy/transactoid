@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from transactoid.tools.protocol import ToolInputSchema
@@ -15,7 +16,7 @@ class StandardTool:
     - _name: Tool name
     - _description: Tool description
     - _input_schema: Parameter schema
-    - _execute_impl: Core execution logic
+    - _execute_impl: Core execution logic (sync or async)
 
     Example:
         class MyTool(StandardTool):
@@ -32,6 +33,12 @@ class StandardTool:
             def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
                 param = kwargs["param"]
                 return {"status": "success", "result": f"Got {param}"}
+
+        # Async tools are also supported:
+        class MyAsyncTool(StandardTool):
+            async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+                result = await some_async_operation()
+                return {"status": "success", "result": result}
     """
 
     _name: str
@@ -53,11 +60,36 @@ class StandardTool:
         """Return the input schema."""
         return self._input_schema
 
+    def is_async(self) -> bool:
+        """Return True if this tool's _execute_impl is async."""
+        return inspect.iscoroutinefunction(self._execute_impl)
+
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         """
-        Validate and execute tool logic.
+        Validate and execute tool logic (sync tools only).
 
-        Override _execute_impl in subclasses to implement custom logic.
+        For async tools, use execute_async() instead.
+
+        Args:
+            **kwargs: Parameters matching input_schema
+
+        Returns:
+            JSON-serializable dict with results
+
+        Raises:
+            RuntimeError: If called on an async tool
+        """
+        if self.is_async():
+            raise RuntimeError(
+                f"{self.__class__.__name__} is async. Use execute_async() instead."
+            )
+        result = self._execute_impl(**kwargs)
+        # Type narrowing: we know it's not a coroutine since is_async() is False
+        return result
+
+    async def execute_async(self, **kwargs: Any) -> dict[str, Any]:
+        """
+        Validate and execute tool logic (works for both sync and async tools).
 
         Args:
             **kwargs: Parameters matching input_schema
@@ -65,12 +97,16 @@ class StandardTool:
         Returns:
             JSON-serializable dict with results
         """
-        # Could add validation here if needed
-        return self._execute_impl(**kwargs)
+        result = self._execute_impl(**kwargs)
+        if inspect.iscoroutine(result):
+            return await result
+        return result
 
     def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         """
         Override in subclass to implement tool logic.
+
+        Can be either sync or async.
 
         Args:
             **kwargs: Parameters matching input_schema

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -250,7 +249,7 @@ class SyncTool:
                 AmazonMutationPlugin(AmazonMutationPluginConfig(csv_dir=amazon_csv_dir))
             )
 
-    def sync(
+    async def sync(
         self,
         *,
         count: int = 250,
@@ -283,7 +282,7 @@ class SyncTool:
         all_results: list[SyncResult] = []
         for item in plaid_items:
             cursor = self._db.get_sync_cursor(item.item_id)
-            results = self._sync_item(item.access_token, cursor, count)
+            results = await self._sync_item_async(item.access_token, cursor, count)
 
             # Persist cursor after successful sync
             if results:
@@ -291,36 +290,6 @@ class SyncTool:
             all_results.extend(results)
 
         return self._aggregate_results(all_results, len(plaid_items))
-
-    def _sync_item(
-        self,
-        access_token: str,
-        cursor: str | None,
-        count: int,
-    ) -> list[SyncResult]:
-        """
-        Sync a single Plaid item with automatic pagination.
-
-        Args:
-            access_token: Plaid access token for the item
-            cursor: Optional cursor for incremental sync (None for initial sync)
-            count: Maximum number of transactions per page
-
-        Returns:
-            List of SyncResult objects, one per page processed
-        """
-        try:
-            # Check if there's already an event loop running
-            asyncio.get_running_loop()
-            # If loop exists, run in a new thread to avoid conflict
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    asyncio.run, self._sync_item_async(access_token, cursor, count)
-                )
-                return future.result()
-        except RuntimeError:
-            # No event loop running, safe to use asyncio.run()
-            return asyncio.run(self._sync_item_async(access_token, cursor, count))
 
     def _aggregate_results(
         self, results: list[SyncResult], items_synced: int
@@ -799,7 +768,7 @@ class SyncTransactionsTool(StandardTool):
             taxonomy=taxonomy,
         )
 
-    def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         """
         Execute sync and return summary dict.
 
@@ -812,7 +781,7 @@ class SyncTransactionsTool(StandardTool):
             - total_removed: Total transactions removed
         """
         try:
-            summary = self._sync_tool.sync()
+            summary = await self._sync_tool.sync()
             return {"status": "success", **summary.to_dict()}
         except PlaidClientError as e:
             return {

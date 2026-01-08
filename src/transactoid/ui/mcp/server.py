@@ -30,7 +30,7 @@ mcp = FastMCP(name="transactoid")
 
 
 @mcp.tool()
-def sync_transactions(count: int = 250) -> dict[str, Any]:
+async def sync_transactions(count: int = 250) -> dict[str, Any]:
     """
     Trigger synchronization with Plaid to fetch latest transactions.
 
@@ -55,7 +55,7 @@ def sync_transactions(count: int = 250) -> dict[str, Any]:
             taxonomy=taxonomy,
         )
 
-        summary = sync_tool.sync(count=count)
+        summary = await sync_tool.sync(count=count)
         return {"status": "success", **summary.to_dict()}
     except Exception as e:
         return {

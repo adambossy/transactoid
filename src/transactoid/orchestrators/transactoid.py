@@ -231,7 +231,7 @@ class Transactoid:
                 return {"rows": [], "count": 0, "error": str(e), "query": query}
 
         @function_tool
-        def sync_transactions() -> dict[str, Any]:
+        async def sync_transactions() -> dict[str, Any]:
             """
             Trigger synchronization with Plaid to fetch latest transactions.
 
@@ -290,7 +290,7 @@ class Transactoid:
                 taxonomy=self._taxonomy,
             )
 
-            summary = sync_tool.sync()
+            summary = await sync_tool.sync()
             return {"status": "success", **summary.to_dict()}
 
         @function_tool
