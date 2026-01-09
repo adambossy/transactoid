@@ -13,7 +13,7 @@ from openai.types.shared import Reasoning
 from promptorium import load_prompt
 import yaml
 
-from transactoid.adapters.clients.plaid import PlaidClient
+# from transactoid.adapters.clients.plaid import PlaidClient  # DISABLED with sync tool
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
@@ -24,7 +24,8 @@ from transactoid.tools.persist.persist_tool import (
 )
 from transactoid.tools.query.query_tool import RunSQLTool
 from transactoid.tools.registry import ToolRegistry
-from transactoid.tools.sync.sync_tool import SyncTransactionsTool
+
+# from transactoid.tools.sync.sync_tool import SyncTransactionsTool  # DISABLED
 from transactoid.ui.chatkit.adapter import OpenAIAdapter
 
 
@@ -61,22 +62,13 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
 
     def _register_tools(self) -> None:
         """Register all tools with the registry."""
-        # Get PlaidClient and access token
-        plaid_client = PlaidClient.from_env()
-        plaid_items = self._db.list_plaid_items()
-
-        if plaid_items:
-            access_token = plaid_items[0].access_token
-
-            # Register sync tool
-            sync_tool = SyncTransactionsTool(
-                plaid_client=plaid_client,
-                categorizer=self._categorizer,
-                db=self._db,
-                taxonomy=self._taxonomy,
-                access_token=access_token,
-            )
-            self._registry.register(sync_tool)
+        # DISABLED: sync tool registration
+        # plaid_client = PlaidClient.from_env()
+        # plaid_items = self._db.list_plaid_items()
+        # if plaid_items:
+        #     access_token = plaid_items[0].access_token
+        #     sync_tool = SyncTransactionsTool(...)
+        #     self._registry.register(sync_tool)
 
         # Register persist tools
         recat_tool = RecategorizeTool(self._persist_tool)

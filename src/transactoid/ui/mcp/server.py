@@ -13,7 +13,8 @@ from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
-from transactoid.tools.sync.sync_tool import SyncTool
+
+# from transactoid.tools.sync.sync_tool import SyncTool  # DISABLED
 
 # Load environment variables
 load_dotenv(override=False)
@@ -29,43 +30,11 @@ persist_tool = PersistTool(db, taxonomy)
 mcp = FastMCP(name="transactoid")
 
 
-@mcp.tool()
-async def sync_transactions(count: int = 250) -> dict[str, Any]:
-    """
-    Trigger synchronization with Plaid to fetch latest transactions.
-
-    Syncs ALL connected Plaid items, categorizes transactions, and persists
-    to the database. Handles cursor persistence automatically for incremental
-    syncs.
-
-    Args:
-        count: Maximum number of transactions to sync per page (default: 250)
-
-    Returns:
-        Dictionary with sync status and summary including items_synced,
-        total_added, total_modified, and total_removed counts.
-    """
-    try:
-        plaid_client = PlaidClient.from_env()
-
-        sync_tool = SyncTool(
-            plaid_client=plaid_client,
-            categorizer=categorizer,
-            db=db,
-            taxonomy=taxonomy,
-        )
-
-        summary = await sync_tool.sync(count=count)
-        return {"status": "success", **summary.to_dict()}
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "items_synced": 0,
-            "total_added": 0,
-            "total_modified": 0,
-            "total_removed": 0,
-        }
+# DISABLED: sync_transactions tool
+# @mcp.tool()
+# async def sync_transactions(count: int = 250) -> dict[str, Any]:
+#     """Trigger synchronization with Plaid to fetch latest transactions."""
+#     ...
 
 
 @mcp.tool()

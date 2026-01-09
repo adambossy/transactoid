@@ -26,8 +26,8 @@ from transactoid.tools.migrate.migration_tool import MigrationTool
 from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
-from transactoid.tools.sync.sync_tool import SyncTool
-from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
+
+# from transactoid.tools.sync.sync_tool import SyncTool  # DISABLED
 from transactoid.ui.stream_renderer import EventRouter, StreamRenderer
 
 load_dotenv()
@@ -230,68 +230,11 @@ class Transactoid:
             except Exception as e:
                 return {"rows": [], "count": 0, "error": str(e), "query": query}
 
-        @function_tool
-        async def sync_transactions() -> dict[str, Any]:
-            """
-            Trigger synchronization with Plaid to fetch latest transactions.
-
-            Syncs all available transactions with automatic pagination, categorizes
-            each page as it's fetched, and persists results to the database.
-
-            Returns:
-                Dictionary with sync status and summary including:
-                - pages_processed: Number of pages synced
-                - total_added: Total transactions added
-                - total_modified: Total transactions modified
-                - total_removed: Total transactions removed
-                - status: "success" or "error"
-            """
-            # Get or create PlaidClient
-            error = self._ensure_plaid_client(
-                error_factory=lambda e: {
-                    "status": "error",
-                    "message": f"Failed to initialize Plaid client: {e}",
-                    "items_synced": 0,
-                    "total_added": 0,
-                    "total_modified": 0,
-                    "total_removed": 0,
-                }
-            )
-            if error is not None:
-                return error
-
-            # After _ensure_plaid_client() returns None, _plaid_client is
-            # guaranteed to be initialized
-            assert self._plaid_client is not None  # noqa: S101
-
-            # Check if at least one account is connected
-            plaid_items = self._db.list_plaid_items()
-            if not plaid_items:
-                # No accounts connected, trigger connection flow
-                connection_result = self._plaid_client.connect_new_account(db=self._db)
-                if connection_result.get("status") != "success":
-                    return {
-                        "status": "error",
-                        "message": (
-                            "No accounts connected and failed to connect new account: "
-                            f"{connection_result.get('message', 'Unknown error')}"
-                        ),
-                        "items_synced": 0,
-                        "total_added": 0,
-                        "total_modified": 0,
-                        "total_removed": 0,
-                    }
-
-            # SyncTool handles all items, cursor persistence, and Amazon mutations
-            sync_tool = SyncTool(
-                plaid_client=self._plaid_client,
-                categorizer=self._categorizer,
-                db=self._db,
-                taxonomy=self._taxonomy,
-            )
-
-            summary = await sync_tool.sync()
-            return {"status": "success", **summary.to_dict()}
+        # DISABLED: sync_transactions tool
+        # @function_tool
+        # async def sync_transactions() -> dict[str, Any]:
+        #     """Trigger synchronization with Plaid to fetch latest transactions."""
+        #     ...
 
         @function_tool
         def connect_new_account() -> dict[str, Any]:
@@ -513,7 +456,7 @@ class Transactoid:
             model="gpt-5.1",
             tools=[
                 run_sql,
-                sync_transactions,
+                # sync_transactions,  # DISABLED
                 connect_new_account,
                 list_accounts,
                 update_category_for_transaction_groups,
@@ -522,43 +465,6 @@ class Transactoid:
                 WebSearchTool(),
             ],
             model_settings=ModelSettings(
-                reasoning=Reasoning(effort="medium", summary="auto"), verbosity="high"
+                reasoning=Reasoning(effort="medium"), verbosity="medium"
             ),
         )
-
-    async def run(self) -> None:
-        """
-        Run the interactive agent loop using OpenAI Agents SDK.
-
-        The agent helps users understand and manage their personal finances
-        through a conversational interface with access to transaction data.
-        """
-        # Create agent using the extracted method
-        agent = self.create_agent()
-
-        # Create session for conversation memory
-        session = TransactoidSession(agent)
-
-        # Interactive loop
-        print("Transactoid Agent - Personal Finance Assistant")
-        print("Type 'exit' or 'quit' to end the session.\n")
-
-        while True:
-            try:
-                user_input = input("You: ").strip()
-
-                if not user_input:
-                    continue
-
-                if user_input.lower() in ("exit", "quit"):
-                    print("Goodbye!")
-                    break
-
-                renderer = MarkdownStreamRenderer()
-                router = EventRouter(renderer)
-
-                await session.run_turn(user_input, renderer, router)
-
-            except KeyboardInterrupt:
-                print("\n\nGoodbye!")
-                break
