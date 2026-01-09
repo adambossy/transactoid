@@ -24,16 +24,43 @@ run_app = typer.Typer(help="Run pipeline workflows.")
 app.add_typer(run_app, name="run")
 
 
-def _launch_toad() -> None:
-    """Launch Toad ACP client connected to Transactoid."""
+def _ensure_toad_installed() -> str:
+    """Ensure Toad is installed, installing it if necessary. Returns toad path."""
+    import subprocess
+
+    toad_path = shutil.which("toad")
+    if toad_path:
+        return toad_path
+
+    typer.echo("Installing Toad ACP client...")
+    result = subprocess.run(  # noqa: S603
+        ["uv", "tool", "install", "-U", "batrachian-toad", "--python", "3.12"],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        typer.echo(f"Failed to install Toad: {result.stderr}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo("Toad installed successfully.\n")
+
+    # Check again after install
     toad_path = shutil.which("toad")
     if not toad_path:
         typer.echo(
-            "Toad is not installed. Run:\n\n"
-            "  uv tool install -U batrachian-toad --python 3.12\n",
+            "Toad was installed but not found in PATH. "
+            "You may need to restart your shell.",
             err=True,
         )
         raise typer.Exit(1)
+
+    return toad_path
+
+
+def _launch_toad() -> None:
+    """Launch Toad ACP client connected to Transactoid."""
+    toad_path = _ensure_toad_installed()
 
     cmd = "uv run transactoid acp 2>/tmp/transactoid.log"
     os.execvp(toad_path, [toad_path, "acp", cmd, "-t", "Transactoid"])  # noqa: S606
