@@ -1,344 +1,291 @@
-<div align="center">
+## Transactoid — personal finance agent (CLI-first)
 
-# Transactoid
+Transactoid ingests your transactions (CSV or Plaid), normalizes them, categorizes each with a taxonomy-aware LLM (single pass with optional self-revision), persists them with dedupe and verified-row immutability, and answers natural-language questions by generating SQL queries. The workflow is intentionally CLI/script-driven—no hidden handoffs.
 
-**The AI Personal Finance Agent**
 
-[Documentation](#documentation) | [Quick Start](#quick-start) | [Contributing](#contributing)
+### Why this exists
+- **LLM-assisted categorization**: High-quality categories via a compact two-level taxonomy and explicit prompt keys.
+- **Deterministic persistence**: Verified rows are immutable; duplicates are de-duplicated by `(external_id, source)`.
+- **Developer ergonomics**: Local JSON file cache for LLM calls; clean interfaces for agents, tools, and services.
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-</div>
+## Status
+Early groundwork is in place. The concrete requirements and interfaces are defined in the plans; implementation will be layered in this order:
+1) `services/file_cache.py`
+2) `services/plaid_client.py`
+3) `services/db.py` (ORM + façade)
+4) `services/taxonomy.py`
+5) `tools/sync/sync_tool.py` → calls Plaid sync API and categorizes transactions
+6) `tools/categorize/categorizer_tool.py` → `CategorizedTransaction`
+7) `tools/persist/persist_tool.py`
+8) CLI and scripts
 
-## What is Transactoid?
+See: `plans/transactoid-requirements.md` and `plans/transactoid-interfaces.md`.
 
-Transactoid is a CLI-first personal finance agent that ingests your transactions (via Plaid or CSV), intelligently categorizes them using LLMs, and answers natural language questions about your spending. Unlike traditional finance apps, Transactoid puts you in control with a transparent, scriptable workflow and no hidden data handoffs.
 
-**Key capabilities:**
-- **Bank Connection**: Connect real bank accounts via Plaid (sandbox or production)
-- **Smart Categorization**: LLM-powered transaction categorization with a compact two-level taxonomy (e.g., `FOOD.GROCERIES`, `TRAVEL.FLIGHTS`)
-- **Natural Language Queries**: Ask questions like "How much did I spend on dining last month?" and get SQL-backed answers
-- **Deterministic Persistence**: Deduplicated storage with immutable verified rows
-- **CLI-First**: Full control via command line — no black box, fully scriptable
+## Features (from the spec)
+- **Sync**: Calls Plaid's transaction sync API and categorizes all results using an LLM.
+- **Categorization**: Single concrete `Categorizer` (batch-only), prompt key `categorize-transactions`.
+- **Taxonomy**: Two-level keys (e.g., `FOOD.GROCERIES`), validation via `taxonomy.is_valid_key(key)`.
+- **Persistence**: Upsert `(external_id, source)`; immutable `is_verified` rows; deterministic merchant normalization; tag and bulk recategorization helpers.
+- **Analytics**: Natural language questions answered by generating SQL queries for `DB.run_sql`.
+- **Database façade**: `DB.run_sql(sql, model, pk_column)` executes SQL queries.
+- **File cache**: Namespaced JSON cache with atomic writes and deterministic keys.
+- **CLI**: `transactoid` with commands for `sync`, `ask`, `recat`, `tag`, `init-db`, `seed-taxonomy`, `clear-cache`.
 
-## Quick Start
+Details and exact types live in the `plans/` docs.
+
+
+## Quickstart
+### Requirements
+- Python 3.12+
+- macOS/Linux recommended
+
+### Setup (development)
+```bash
+# Clone and enter the repo
+git clone <your-fork-or-clone-url> && cd transactoid
+
+# (Optional) Create a virtual environment
+python3.12 -m venv .venv && source .venv/bin/activate
+
+# Install dev tooling (ruff, mypy, deadcode) if not already available
+python -m pip install -U pip
+python -m pip install ruff mypy deadcode
+
+# Run tests
+pytest -q
+```
 
 ```bash
-# Clone the repo
-git clone https://github.com/adambossy/transactoid.git
-cd transactoid
-
-# Install dependencies
-pip install uv
-uv sync
-
-# Set up environment (see detailed setup below)
-cp .env.example .env
-# Edit .env with your API keys
-
-# Run the agent
-transactoid
-```
-
-## Prerequisites
-
-- **Python 3.12+**
-- **PostgreSQL** (or SQLite for development)
-- **OpenAI API key** (for LLM-based categorization)
-- **Plaid account** (for bank connections — free development tier available)
-
-## Detailed Setup
-
-### 1. Install Dependencies
-
-```bash
-# Install uv (modern Python package manager)
-pip install uv
-
-# Install project dependencies
-uv sync
-
-# Install dev dependencies (for running tests and linting)
-uv sync --group dev
-```
-
-### 2. Configure Environment Variables
-
-Create a `.env` file in the project root:
-
-```bash
-# OpenAI (required for categorization)
-OPENAI_API_KEY=sk-...
-
-# Database (defaults to SQLite if not set)
-DATABASE_URL=postgresql://user:password@localhost:5432/transactoid
-
-# Plaid credentials (see Plaid Setup section)
-PLAID_CLIENT_ID=your_client_id
-PLAID_ENV=development  # or: sandbox, production
-PLAID_SANDBOX_SECRET=your_sandbox_secret
-PLAID_DEVELOPMENT_SECRET=your_development_secret
-# PLAID_PRODUCTION_SECRET=your_production_secret  # if using production
-```
-
-### 3. Plaid Setup
-
-Transactoid uses [Plaid](https://plaid.com) to securely connect to your bank accounts. You'll need to set up a Plaid account to use the bank connection features.
-
-#### Creating a Plaid Account
-
-1. **Sign up** at [dashboard.plaid.com](https://dashboard.plaid.com/signup)
-2. **Get your credentials**:
-   - Navigate to **Team Settings > Keys**
-   - Copy your `client_id`
-   - Copy your secrets (Sandbox, Development, and/or Production)
-
-#### Choosing a Plaid Environment
-
-| Environment | Use Case | Data | Cost |
-|-------------|----------|------|------|
-| **Sandbox** | Testing with fake data | Simulated transactions | Free |
-| **Development** | Testing with real banks | Real transactions (100 items free) | Free tier |
-| **Production** | Full deployment | Real transactions | Paid |
-
-For personal use with real bank data, **Development** mode is recommended — it provides access to real financial institutions with a generous free tier.
-
-#### Registering the Redirect URI
-
-Plaid requires OAuth redirect URIs to be registered in your dashboard:
-
-1. Go to **Team Settings > API** in your Plaid dashboard
-2. Under **Allowed redirect URIs**, add:
-   ```
-   https://localhost:8443/plaid-link-complete
-   ```
-3. Save changes
-
-### 4. SSL Certificate Setup (Required for Plaid OAuth)
-
-Plaid's OAuth flow requires HTTPS. Generate a self-signed certificate for local development:
-
-```bash
-# Create the .certs directory
-mkdir -p .certs
-
-# Generate a private key and self-signed certificate
-openssl req -x509 -newkey rsa:4096 \
-  -keyout .certs/plaid_redirect_localhost.key \
-  -out .certs/plaid_redirect_localhost.crt \
-  -days 365 -nodes \
-  -subj "/CN=localhost"
-
-# Verify the files were created
-ls -la .certs/
-```
-
-> **Note**: The certificate (`.crt`) is safe to commit; the private key (`.key`) is gitignored and should never be shared.
-
-### 5. Database Setup
-
-For development, SQLite works out of the box. For production use:
-
-```bash
-# Create PostgreSQL database
-createdb transactoid
-
-# Set DATABASE_URL in .env
-DATABASE_URL=postgresql://localhost/transactoid
-```
-
-### 6. Running Transactoid
-
-#### Start the Plaid Redirect Server
-
-Before connecting bank accounts, start the OAuth redirect server in a separate terminal:
-
-```bash
-transactoid plaid-serve
-```
-
-This starts an HTTPS server on `https://localhost:8443` that handles Plaid OAuth callbacks.
-
-> **Browser Warning**: Your browser will show a security warning for the self-signed certificate. Click "Advanced" and proceed to localhost.
-
-#### Run the Agent
-
-```bash
-# Start the interactive agent
-transactoid
-
-# Or explicitly:
-transactoid agent
-```
-
-The agent will prompt you to connect accounts and answer questions about your finances.
-
-## CLI Commands
-
-```bash
-# Main entry point — starts the interactive agent
-transactoid
-
-# Run pipelines
-transactoid run sync --access-token <token>    # Sync transactions from Plaid
-transactoid run pipeline --access-token <token>  # Full sync → categorize → persist
-
-# Plaid utilities
-transactoid plaid-serve                         # Start OAuth redirect server
-transactoid plaid-dedupe-items [--apply]        # Find/remove duplicate Plaid items
-
-# Agent interfaces
-transactoid agent                               # Interactive CLI agent
-transactoid acp                                 # Agent Client Protocol server
-
-# Evaluation
-transactoid eval --input evals/config/questions.yaml
-```
-
-## Architecture
-
-Transactoid follows a three-layer architecture:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      CLI / UI Layer                         │
-│  transactoid agent | transactoid acp | transactoid plaid-*  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                    Orchestrators Layer                       │
-│         Transactoid agent loop (OpenAI Agents SDK)          │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                       Tools Layer                            │
-│   SyncTool | CategorizeTool | PersistTool | QueryTool       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                     Adapters Layer                           │
-│    PlaidClient | DB Facade | FileCache | Taxonomy           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Directory Structure
-
-```
-transactoid/
-├── src/transactoid/
-│   ├── orchestrators/    # Agent loops and orchestration
-│   ├── tools/            # Sync, categorize, persist, query
-│   ├── adapters/         # Plaid client, DB, cache
-│   ├── taxonomy/         # Two-level category system
-│   └── ui/               # CLI, ACP server, chatkit
-├── configs/              # Taxonomy definitions
-├── scripts/              # Standalone utilities
-├── tests/                # Unit and integration tests
-└── evals/                # Agent evaluation harness
-```
-
-## Taxonomy
-
-Transactoid uses a two-level category taxonomy for transaction categorization:
-
-| Parent Category | Example Children |
-|----------------|------------------|
-| `income` | `salary_and_wages`, `bonus_and_commission`, `interest_and_dividends` |
-| `food_and_dining` | `groceries`, `restaurants`, `coffee_shops`, `delivery_and_takeout` |
-| `housing_and_utilities` | `rent`, `mortgage_payment`, `electricity`, `internet` |
-| `transportation_and_auto` | `fuel`, `public_transit`, `rides_and_taxis`, `parking_and_tolls` |
-| `travel` | `flights`, `lodging`, `hotels`, `activities_and_tours` |
-| `shopping_and_personal_care` | `clothing_and_accessories`, `electronics_and_gadgets` |
-| ... | See `configs/taxonomy.yaml` for full list |
-
-Categories are validated via `taxonomy.is_valid_key(key)` to ensure consistency.
-
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests
-uv run pytest -q
-
-# Run specific test
-uv run pytest tests/path/to/test.py::test_function -v
-
-# Run with coverage
-uv run pytest --cov=transactoid
-```
-
-### Linting and Formatting
-
-```bash
-# Lint
 uv run ruff check .
-
-# Format
-uv run ruff format .
-
-# Type check
+uv run ruff format --check .
 uv run mypy --config-file mypy.ini .
-
-# Dead code detection
 uv run deadcode .
 ```
 
-### Pre-commit Checks
 
-Before committing, ensure all checks pass:
+## CLI (planned)
+`transactoid` (Typer) will expose:
+- `sync --access-token <token> [--cursor <cursor>] [--count N]` — sync and categorize Plaid transactions
+- `ask "<question>"`
+- `recat --merchant-id <id> --to <CATEGORY_KEY>`
+- `tag --rows <ids> --tags "<names>"`
+- `init-db`
+- `seed-taxonomy [yaml]`
+- `clear-cache [namespace]`
+
+Until the CLI lands, use the underlying scripts as they are introduced in `scripts/`.
+
+
+## Running the Agent
+
+Transactoid exposes its agent through three different interfaces, each suited for different use cases. Before running the agent, ensure your environment is configured (see [Quickstart](#quickstart)).
+
+### Option 1: ACP (Agent Client Protocol) — Recommended
+
+ACP is an open protocol that allows any compatible client to communicate with AI agents. We recommend [Toad](https://github.com/batrachianai/toad), a polished terminal UI for AI agents.
+
+#### Install Toad
 
 ```bash
-uv run ruff check . && uv run ruff format --check . && uv run mypy --config-file mypy.ini . && uv run deadcode .
+# Quick install
+curl -fsSL batrachian.ai/install | sh
+
+# Or via UV
+uv tool install -U batrachian-toad --python 3.14
 ```
 
-## Troubleshooting
+#### Run with Toad
 
-### Plaid OAuth Issues
+```bash
+# Start the Plaid redirect server (in a separate terminal)
+transactoid plaid-serve
 
-**"Redirect server not running"**
-- Ensure `transactoid plaid-serve` is running in a separate terminal
+# Launch Toad with Transactoid
+toad acp "uv run transactoid acp 2>/tmp/transactoid.log" -t "Transactoid"
+```
 
-**"Certificate error in browser"**
-- This is expected with self-signed certs
-- Click "Advanced" → "Proceed to localhost" (varies by browser)
+This launches Toad's terminal UI with Transactoid as the backend agent. Logs are written to `/tmp/transactoid.log` (ACP uses stdout for JSON-RPC communication).
 
-**"Invalid redirect URI"**
-- Verify `https://localhost:8443/plaid-link-complete` is registered in your Plaid dashboard
+> **Note**: Toad works with any ACP-compatible agent. See [agentclientprotocol.com](https://agentclientprotocol.com) for the protocol spec.
 
-### Database Issues
+### Option 2: MCP (Model Context Protocol) — For AI Assistants
 
-**"Cannot connect to database"**
-- Check `DATABASE_URL` in your `.env` file
-- For SQLite, ensure the directory is writable
-- For PostgreSQL, ensure the service is running
+MCP exposes Transactoid's tools to AI assistants like Claude Code, allowing them to query your transactions, sync accounts, and run SQL on your behalf.
 
-### LLM Categorization Issues
+#### Configure Claude Code
 
-**"OpenAI API error"**
-- Verify `OPENAI_API_KEY` is set correctly
-- Check your OpenAI account has available credits
+Add Transactoid as an MCP server in your Claude Code settings (`~/.claude/settings.json`):
 
-## Documentation
+```json
+{
+  "mcpServers": {
+    "transactoid": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/transactoid", "python", "-m", "transactoid.ui.mcp.server"],
+      "env": {
+        "DATABASE_URL": "sqlite:///path/to/your/transactoid.db",
+        "PLAID_CLIENT_ID": "your_client_id",
+        "PLAID_ENV": "development",
+        "PLAID_DEVELOPMENT_SECRET": "your_secret"
+      }
+    }
+  }
+}
+```
 
-| Document | Description |
-|----------|-------------|
-| [CLAUDE.md](CLAUDE.md) | Claude Code development guidelines |
-| [AGENTS.md](AGENTS.md) | Unit test structure rules |
-| [docs/ruff-guide.md](docs/ruff-guide.md) | Linting and formatting rules |
-| [docs/mypy-guide.md](docs/mypy-guide.md) | Type checking configuration |
+#### Set a Custom System Prompt (Optional)
+
+To give Claude Code context about your financial data, add a custom system prompt. Create or edit `~/.claude/CLAUDE.md`:
+
+```markdown
+# Transactoid Finance Agent
+
+You have access to Transactoid MCP tools for personal finance analysis:
+
+- `sync_transactions`: Fetch latest transactions from connected Plaid accounts
+- `connect_new_account`: Link a new bank account via Plaid
+- `list_plaid_accounts`: Show all connected accounts
+- `run_sql`: Query the transaction database
+- `recategorize_merchant`: Bulk update categories for a merchant
+- `tag_transactions`: Apply tags to transactions
+
+When answering finance questions, use `run_sql` to query the `derived_transactions`
+table (not `plaid_transactions`). Always filter by category to distinguish spending
+from income/transfers.
+```
+
+#### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `sync_transactions` | Fetch and categorize latest transactions from Plaid |
+| `connect_new_account` | Initiate Plaid Link to connect a new bank |
+| `list_plaid_accounts` | List all connected Plaid items |
+| `run_sql` | Execute read-only SQL queries |
+| `recategorize_merchant` | Bulk update category for a merchant |
+| `tag_transactions` | Apply tags to matching transactions |
+
+> **Note**: MCP works with any MCP-compatible client, not just Claude Code. See [modelcontextprotocol.io](https://modelcontextprotocol.io) for other integrations.
+
+### Option 3: ChatKit — Web UI Integration
+
+ChatKit provides an HTTP server compatible with OpenAI's ChatKit SDK, allowing integration with web-based chat interfaces.
+
+#### Start the Server
+
+```bash
+# Start the Plaid redirect server (in a separate terminal)
+transactoid plaid-serve
+
+# Start the ChatKit server
+uv run python -m transactoid.ui.chatkit.server
+```
+
+The server runs at `http://localhost:8000/chatkit` and accepts ChatKit-formatted requests.
+
+#### Integration
+
+ChatKit is designed for building custom web frontends. It exposes a `/chatkit` endpoint that handles:
+- Conversation threading
+- Streaming responses
+- Tool call execution
+
+See the [OpenAI ChatKit SDK documentation](https://github.com/openai/chatkit) for client integration details.
+
+### Quick Reference
+
+| Interface | Best For | Command |
+|-----------|----------|---------|
+| **ACP + Toad** | Interactive terminal use | `toad acp "uv run transactoid acp 2>/tmp/transactoid.log" -t "Transactoid"` |
+| **MCP + Claude Code** | AI-assisted finance queries | Configure in `~/.claude/settings.json` |
+| **ChatKit** | Web UI integration | `uv run python -m transactoid.ui.chatkit.server` |
+
+
+## Architecture overview
+- **Agents**
+  - `transactoid`: core agent loop
+- **Tools**
+  - `tools/sync/sync_tool.py`: Calls Plaid sync API and categorizes transactions using LLM.
+  - `tools/categorize/categorizer_tool.py`: `Categorizer` produces `CategorizedTransaction`.
+  - `tools/persist/persist_tool.py`: upsert + immutability + tags + bulk recats.
+- **Services**
+  - `services/db.py`: ORM models + façade (`run_sql`, lookups, helpers).
+  - `services/taxonomy.py`: in-memory two-level taxonomy and prompt helpers.
+  - `services/plaid_client.py`: minimal Plaid wrapper.
+  - `services/file_cache.py`: namespaced JSON file cache with atomic writes.
+
+For full signatures and dependencies, see `plans/transactoid-interfaces.md`.
+
+
+## Local development
+### Repo layout (high level)
+```
+transactoid/
+  agents/         # Orchestration for categorization & analytics
+  tools/          # Sync, categorize, persist helpers
+  services/       # DB, taxonomy, plaid client, file cache
+  ui/             # CLI entrypoint
+  scripts/        # Runnable orchestrators
+  prompts/        # Prompt sources for Promptorium
+  db/             # Schema and migrations
+  tests/          # Unit tests
+```
+
+### Coding standards
+- Python 3.12 typing; prefer explicit types on public APIs.
+- Keep functions small, use guard clauses, and avoid deep nesting.
+- Only add comments where they carry non-obvious rationale.
+
+
+## Tooling
+The project ships docs for our tools and their rationale:
+- `docs/ruff-guide.md` — Linting and formatting rules.
+- `docs/mypy-guide.md` — Type-checking modes and overrides.
+- `docs/pre-commit-guide.md` — Suggested hooks and usage.
+- `docs/deadcode-guide.md` — How we detect unused code.
+
+Common commands (local installs or via `uv run`):
+```bash
+# Lint
+ruff check .
+
+# Format (or check formatting)
+ruff format .          # or: ruff format --check .
+
+# Type-check
+mypy --config-file mypy.ini .
+
+# Dead code
+deadcode .
+```
+
+
+## File cache (available now)
+`services/file_cache.py` provides a namespaced JSON cache with atomic writes and deterministic keys. Example:
+```python
+from services.file_cache import FileCache, stable_key
+
+cache = FileCache(base_dir=".cache")
+payload = {"a": 1, "b": 2}
+key = stable_key(payload)
+
+cache.set("llm", key, {"result": "ok"})
+assert cache.get("llm", key) == {"result": "ok"}
+```
+
+Default cache directory is `.cache/`. Keys and namespaces are validated to prevent path traversal.
+
+For the authoritative spec, consult:
+- `plans/transactoid-requirements.md`
+- `plans/transactoid-interfaces.md`
+- `plans/file-cache.md`
+
 
 ## Contributing
-
-Contributions are welcome! Before submitting a PR:
-
-1. Ensure all lint checks pass (`ruff check .`)
-2. Ensure formatting is correct (`ruff format .`)
-3. Ensure type checks pass (`mypy --config-file mypy.ini .`)
-4. Ensure tests pass (`pytest -q`)
-5. Keep commits focused with clear messages
-
-## License
-
-This project is currently unlicensed. Please contact the maintainers for usage terms.
+Issues and PRs are welcome. Keep commits focused and ensure:
+- Ruff passes (including format).
+- Mypy passes (`mypy.ini` settings).
+- Dead code checks are clean.
+- Tests pass and are easy to read (concise test names, clear input/output).
