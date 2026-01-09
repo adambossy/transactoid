@@ -3,15 +3,13 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import os
+import shutil
 
 from dotenv import load_dotenv
 import typer
 
 from scripts import run
 from transactoid.adapters.db.facade import DB
-from transactoid.orchestrators.transactoid import Transactoid
-from transactoid.taxonomy.core import Taxonomy
-from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 # Load environment variables from .env
 load_dotenv()
@@ -26,34 +24,41 @@ run_app = typer.Typer(help="Run pipeline workflows.")
 app.add_typer(run_app, name="run")
 
 
+def _launch_toad() -> None:
+    """Launch Toad ACP client connected to Transactoid."""
+    toad_path = shutil.which("toad")
+    if not toad_path:
+        typer.echo(
+            "Toad is not installed. Run:\n\n"
+            "  uv tool install -U batrachian-toad --python 3.12\n",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    cmd = "uv run transactoid acp 2>/tmp/transactoid.log"
+    os.execvp(toad_path, [toad_path, "acp", cmd, "-t", "Transactoid"])  # noqa: S606
+
+
 @app.callback()
 def main_callback(ctx: typer.Context) -> None:
-    """CLI callback that runs agent by default when no subcommand is provided."""
-    # If no subcommand was invoked, run the agent
+    """CLI callback that runs Toad UI by default when no subcommand is provided."""
+    # If no subcommand was invoked, launch Toad
     if ctx.invoked_subcommand is None:
-        asyncio.run(_agent_impl())
+        _launch_toad()
 
 
 @run_app.command("sync")
 def run_sync_cmd(
-    access_token: str = typer.Option(..., help="Plaid access token for the item"),
-    cursor: str | None = typer.Option(
-        None, help="Optional cursor for incremental sync"
-    ),
     count: int = typer.Option(
         500, help="Maximum number of transactions to fetch per request"
     ),
 ) -> None:
-    """Sync transactions from Plaid and categorize them using an LLM."""
-    run.run_sync(access_token=access_token, cursor=cursor, count=count)
+    """Sync transactions from all Plaid items and categorize them using an LLM."""
+    run.run_sync(count=count)
 
 
 @run_app.command("pipeline")
 def run_pipeline_cmd(
-    access_token: str = typer.Option(..., help="Plaid access token for the item"),
-    cursor: str | None = typer.Option(
-        None, help="Optional cursor for incremental sync"
-    ),
     count: int = typer.Option(
         500, help="Maximum number of transactions to fetch per request"
     ),
@@ -62,9 +67,7 @@ def run_pipeline_cmd(
     ),
 ) -> None:
     """Run the full pipeline: sync → categorize → persist."""
-    run.run_pipeline(
-        access_token=access_token, cursor=cursor, count=count, questions=questions
-    )
+    run.run_pipeline(count=count, questions=questions)
 
 
 @app.command("sync")
@@ -302,38 +305,14 @@ def plaid_dedupe_items(
         typer.echo("\nNo duplicates found. Database is clean.")
 
 
-async def _agent_impl(
-    *,
-    db: DB | None = None,
-    taxonomy: Taxonomy | None = None,
-) -> None:
-    """
-    Run the interactive agent loop using OpenAI Agents SDK.
-
-    The agent helps users understand and manage their personal finances
-    through a conversational interface with access to transaction data.
-    """
-    # Initialize services
-    if db is None:
-        db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
-        db = DB(db_url)
-
-    if taxonomy is None:
-        taxonomy = load_taxonomy_from_db(db)
-
-    agent_instance = Transactoid(db=db, taxonomy=taxonomy)
-    await agent_instance.run()
-
-
 @app.command()
 def agent() -> None:
     """
-    Run the interactive Transactoid agent.
+    Run the interactive Transactoid agent via Toad UI.
 
-    The agent helps you understand and manage your personal finances
-    through a conversational interface with access to transaction data.
+    Launches Toad ACP client connected to the Transactoid ACP server.
     """
-    asyncio.run(_agent_impl())
+    _launch_toad()
 
 
 @app.command()
