@@ -282,7 +282,9 @@ class SyncTool:
         all_results: list[SyncResult] = []
         for item in plaid_items:
             cursor = self._db.get_sync_cursor(item.item_id)
-            results = await self._sync_item_async(item.access_token, cursor, count)
+            results = await self._sync_item_async(
+                item.access_token, item.item_id, cursor, count
+            )
 
             # Persist cursor after successful sync
             if results:
@@ -399,6 +401,7 @@ class SyncTool:
     async def _sync_item_async(
         self,
         access_token: str,
+        item_id: str,
         cursor: str | None,
         count: int,
     ) -> list[SyncResult]:
@@ -414,6 +417,7 @@ class SyncTool:
 
         Args:
             access_token: Plaid access token for the item
+            item_id: Plaid item ID for FK relationship
             cursor: Optional cursor for incremental sync
             count: Maximum number of transactions per page
 
@@ -429,7 +433,7 @@ class SyncTool:
 
         while retry_count <= max_retries:
             try:
-                return await self._run_pipeline(access_token, cursor, count)
+                return await self._run_pipeline(access_token, item_id, cursor, count)
             except PlaidClientError as e:
                 if "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" in str(e):
                     retry_count += 1
@@ -446,6 +450,7 @@ class SyncTool:
     async def _run_pipeline(
         self,
         access_token: str,
+        item_id: str,
         start_cursor: str | None,
         count: int,
     ) -> list[SyncResult]:
@@ -454,6 +459,7 @@ class SyncTool:
 
         Args:
             access_token: Plaid access token for the item
+            item_id: Plaid item ID for FK relationship
             start_cursor: Starting cursor for pagination
             count: Max transactions per page
 
@@ -548,7 +554,7 @@ class SyncTool:
                     batch_num += 1
                     self._logger.pipeline_persist_start(len(batch), batch_num)
                     start_time = time.monotonic()
-                    plaid_ids = self._persist_batch_to_plaid(batch)
+                    plaid_ids = self._persist_batch_to_plaid(batch, item_id)
                     elapsed_ms = int((time.monotonic() - start_time) * 1000)
                     self._logger.pipeline_persist_complete(
                         len(batch),
@@ -627,7 +633,9 @@ class SyncTool:
 
         return [self._build_sync_result_from_accumulated(accumulated)]
 
-    def _persist_batch_to_plaid(self, batch: list[Transaction]) -> list[int]:
+    def _persist_batch_to_plaid(
+        self, batch: list[Transaction], item_id: str
+    ) -> list[int]:
         """
         Persist a batch of transactions to plaid_transactions table.
 
@@ -635,6 +643,7 @@ class SyncTool:
 
         Args:
             batch: List of Plaid transactions to persist
+            item_id: Plaid item ID for FK relationship
 
         Returns:
             List of plaid_transaction_ids that were created/updated
@@ -658,6 +667,7 @@ class SyncTool:
                     "external_id": txn.get("transaction_id", ""),
                     "source": "PLAID",
                     "account_id": txn.get("account_id", ""),
+                    "item_id": item_id,
                     "posted_at": posted_at,
                     "amount_cents": amount_cents,
                     "currency": txn.get("iso_currency_code") or "USD",

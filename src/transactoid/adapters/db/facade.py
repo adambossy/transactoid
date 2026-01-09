@@ -917,7 +917,7 @@ class DB:
         """Bulk insert or update Plaid transactions using PostgreSQL ON CONFLICT.
 
         Each dict should have keys:
-            external_id, source, account_id, posted_at, amount_cents,
+            external_id, source, account_id, item_id, posted_at, amount_cents,
             currency, merchant_descriptor, institution
 
         Args:
@@ -935,6 +935,7 @@ class DB:
                 index_elements=["external_id", "source"],
                 set_={
                     "account_id": insert_stmt.excluded.account_id,
+                    "item_id": insert_stmt.excluded.item_id,
                     "posted_at": insert_stmt.excluded.posted_at,
                     "amount_cents": insert_stmt.excluded.amount_cents,
                     "currency": insert_stmt.excluded.currency,
@@ -1420,7 +1421,6 @@ class DB:
                 return False
             session.delete(item)
             return True
-
 
     # Migration methods
 
