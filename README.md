@@ -1,7 +1,27 @@
-## Transactoid — personal finance agent (CLI-first)
+<div align="center">
 
-Transactoid ingests your transactions (CSV or Plaid), normalizes them, categorizes each with a taxonomy-aware LLM (single pass with optional self-revision), persists them with dedupe and verified-row immutability, and answers natural-language questions by generating SQL queries. The workflow is intentionally CLI/script-driven—no hidden handoffs.
+# transactoid
 
+CLI-first personal finance agent: ingest transactions via Plaid, categorize with LLMs, and query your spending with natural language.
+
+<p align="center">
+  <a href="https://github.com/adambossy/transactoid/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
+  &middot;
+  <a href="https://github.com/adambossy/transactoid/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+  <br />
+  <br />
+</p>
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-%E2%89%A53.12-blue)
+![CLI](https://img.shields.io/badge/CLI-Typer-4E9A06)
+![Plaid](https://img.shields.io/badge/Banking-Plaid-00D096)
+![OpenAI](https://img.shields.io/badge/LLM-OpenAI-412991)
+[![Twitter](https://img.shields.io/badge/Twitter-@abossy-1DA1F2?logo=twitter&logoColor=white)](https://twitter.com/abossy)
+
+</div>
+
+---
 
 ### Why this exists
 - **LLM-assisted categorization**: High-quality categories via a compact two-level taxonomy and explicit prompt keys.
@@ -260,27 +280,6 @@ mypy --config-file mypy.ini .
 # Dead code
 deadcode .
 ```
-
-
-## File cache (available now)
-`services/file_cache.py` provides a namespaced JSON cache with atomic writes and deterministic keys. Example:
-```python
-from services.file_cache import FileCache, stable_key
-
-cache = FileCache(base_dir=".cache")
-payload = {"a": 1, "b": 2}
-key = stable_key(payload)
-
-cache.set("llm", key, {"result": "ok"})
-assert cache.get("llm", key) == {"result": "ok"}
-```
-
-Default cache directory is `.cache/`. Keys and namespaces are validated to prevent path traversal.
-
-For the authoritative spec, consult:
-- `plans/transactoid-requirements.md`
-- `plans/transactoid-interfaces.md`
-- `plans/file-cache.md`
 
 
 ## Contributing
