@@ -27,7 +27,6 @@ from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
 from transactoid.tools.sync.sync_tool import SyncTool
-from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
 from transactoid.ui.stream_renderer import EventRouter, StreamRenderer
 
 load_dotenv()
@@ -525,40 +524,3 @@ class Transactoid:
                 reasoning=Reasoning(effort="medium", summary="auto"), verbosity="high"
             ),
         )
-
-    async def run(self) -> None:
-        """
-        Run the interactive agent loop using OpenAI Agents SDK.
-
-        The agent helps users understand and manage their personal finances
-        through a conversational interface with access to transaction data.
-        """
-        # Create agent using the extracted method
-        agent = self.create_agent()
-
-        # Create session for conversation memory
-        session = TransactoidSession(agent)
-
-        # Interactive loop
-        print("Transactoid Agent - Personal Finance Assistant")
-        print("Type 'exit' or 'quit' to end the session.\n")
-
-        while True:
-            try:
-                user_input = input("You: ").strip()
-
-                if not user_input:
-                    continue
-
-                if user_input.lower() in ("exit", "quit"):
-                    print("Goodbye!")
-                    break
-
-                renderer = MarkdownStreamRenderer()
-                router = EventRouter(renderer)
-
-                await session.run_turn(user_input, renderer, router)
-
-            except KeyboardInterrupt:
-                print("\n\nGoodbye!")
-                break
