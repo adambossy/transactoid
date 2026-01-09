@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/transactoid-icon.png" alt="Transactoid" width="80" height="80" style="vertical-align: middle;" />
+
 # transactoid
 
 CLI-first personal finance agent: ingest transactions via Plaid, categorize with LLMs, and query your spending with natural language.
