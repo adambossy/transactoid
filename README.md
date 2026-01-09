@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/transactoid-icon.png" alt="Transactoid"  style="vertical-align: middle;" />
+<img src="assets/transactoid-icon.png" alt="Transactoid" style="vertical-align: middle;" />
 
 <br />
 
@@ -84,12 +84,7 @@ Add Transactoid as an MCP server in your Claude Code settings (`~/.claude/settin
   "mcpServers": {
     "transactoid": {
       "command": "uv",
-      "args": [
-        "run",
-        "python",
-        "-m",
-        "transactoid.ui.mcp.server"
-      ]
+      "args": ["run", "python", "-m", "transactoid.ui.mcp.server"]
     }
   }
 }
