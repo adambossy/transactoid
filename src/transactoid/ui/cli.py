@@ -6,9 +6,13 @@ import os
 import shutil
 
 from dotenv import load_dotenv
+from loguru import logger
 import typer
 
 from scripts import run
+
+# TODO: Remove after demo recording
+logger.disable("transactoid")
 from transactoid.adapters.db.facade import DB
 
 # Load environment variables from .env
