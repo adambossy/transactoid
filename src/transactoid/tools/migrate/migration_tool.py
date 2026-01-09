@@ -398,9 +398,9 @@ class MigrationTool:
         """Convert DB transaction to categorizer input format."""
         return {
             "transaction_id": str(txn.transaction_id),
-            "account_id": txn.account_id,
+            "account_id": txn.plaid_transaction.account_id,
             "amount": txn.amount_cents / 100.0,
-            "iso_currency_code": txn.currency,
+            "iso_currency_code": txn.plaid_transaction.currency,
             "date": str(txn.posted_at),
             "name": txn.merchant_descriptor or "",
             "merchant_name": txn.merchant_descriptor,
