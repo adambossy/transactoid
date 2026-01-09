@@ -33,6 +33,19 @@ Transactoid is an AI agent that analyzes your personal finances with meticulous 
 
 Transactoid exposes its agent through three different interfaces, each suited for different use cases.
 
+### Plaid Setup
+
+Transactoid uses [Plaid](https://plaid.com) to connect to your bank accounts. You'll need to create a Plaid account and request **Limited Production** access:
+
+1. Sign up at [dashboard.plaid.com](https://dashboard.plaid.com)
+2. Request **Limited Production** access from the Dashboard
+
+Limited Production gives you free access to real bank data for testing purposes. It has some restrictions (capped API calls, limited access to certain large institutions), but it's sufficient for personal use. Full Production access requires additional approval and is usage-based.
+
+Once approved, grab your credentials from the Plaid Dashboard:
+- **Client ID** (found in Keys section)
+- **Production Secret** (found in Keys section)
+
 ### Environment Setup
 
 Create a `.env` file in the project root with the following variables:
