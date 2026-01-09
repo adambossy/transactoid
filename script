@@ -1,0 +1,19 @@
+Here's a demo of Transactoid, the world's most powerful personal finance tool.
+
+For a few years I've been wondering where on earth my money is going and it's almost impossible to glean from existing bank account UIs. So I created Transactoid to lets me make infinitely complex queries into my personal finances.
+
+I'll just show you what it does. I first asked: What is my monthly spending every month for the last two months? I'll be honest, I dread looking at my bank account, so let's see what kind of horrors we are going to uncover Before you judge, I've been married, had a kid, and had a pet emergency before I got around to getting pet insurance.
+
+This gives me a month-over-month breakdown of my spending across bank accounts, which is pretty cool but not totally impossible to do today. This gets really cool by really going deep.
+
+I have some pretty astounding spending months here like a way over baseline as the agent identified. So I'm gonna ask it to Go deep on each month individually. Ask what expenses there are that are unusual relative to normal months. For each month write a report of what happened and what I need to do differently. At the end of the report show me how much excess spending this adds up to per year.
+
+So obviously this has never been possible before but reasoning models enable it and with the advances in reasoning models lately the results are just really good 
+
+I hope this will be my saving grace. We shall see. If you need help setting this up, please reach out.
+
+Also, please clone the repo and improve upon this. It has all kinds of rough edges and there's a lot that can be improved. For instance we can add support to scrape financial sources that aren't supported on Plaid. I'd love to feed it my tax returns. Somebody should also just make this ambient and have it notify you when your spending is going out of budget. 
+
+---
+
+for the spikey months, go deep on analyzing the expenses of each of those months individually. what expenses were made on those months that put us above the baseline of a usual month? for each month, write a report containing those expenses. at the end of the full report, show me how much above baseline spending i went each year because of this spending.
