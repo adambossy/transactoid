@@ -154,34 +154,34 @@ See the [OpenAI ChatKit SDK documentation](https://github.com/openai/chatkit) fo
 
 ## Architecture overview
 
-- **Agents**
-  - `transactoid`: core agent loop
-- **Tools**
-  - `tools/sync/sync_tool.py`: Calls Plaid sync API and categorizes transactions using LLM.
-  - `tools/categorize/categorizer_tool.py`: `Categorizer` produces `CategorizedTransaction`.
-  - `tools/persist/persist_tool.py`: upsert + immutability + tags + bulk recats.
-- **Services**
-  - `services/db.py`: ORM models + façade (`run_sql`, lookups, helpers).
-  - `services/taxonomy.py`: in-memory two-level taxonomy and prompt helpers.
-  - `services/plaid_client.py`: minimal Plaid wrapper.
-  - `services/file_cache.py`: namespaced JSON file cache with atomic writes.
-
-For full signatures and dependencies, see `plans/transactoid-interfaces.md`.
+- **Tools** (`src/transactoid/tools/`)
+  - `sync/`: Calls Plaid sync API and categorizes transactions using LLM.
+  - `categorize/`: `Categorizer` produces `CategorizedTransaction`.
+  - `persist/`: upsert + immutability + tags + bulk recats.
+  - `query/`: SQL query execution.
+- **Adapters** (`src/transactoid/adapters/`)
+  - `db/`: ORM models + façade (`run_sql`, lookups, helpers).
+  - `clients/`: Plaid API wrapper.
+  - `cache/`: Namespaced JSON file cache with atomic writes.
+- **Taxonomy** (`src/transactoid/taxonomy/`): Two-level category taxonomy and prompt helpers.
+- **UI** (`src/transactoid/ui/`): ACP, MCP, and ChatKit servers.
 
 ## Local development
 
 ### Repo layout (high level)
 
 ```
-transactoid/
-  agents/         # Orchestration for categorization & analytics
-  tools/          # Sync, categorize, persist helpers
-  services/       # DB, taxonomy, plaid client, file cache
-  ui/             # CLI entrypoint
-  scripts/        # Runnable orchestrators
+src/transactoid/
+  adapters/       # External service adapters (DB, Plaid, cache)
+  tools/          # Domain tools (sync, categorize, persist, query)
+  taxonomy/       # Category taxonomy and validation
+  ui/             # Interface servers (ACP, MCP, ChatKit)
   prompts/        # Prompt sources for Promptorium
-  db/             # Schema and migrations
-  tests/          # Unit tests
+tests/            # Unit tests
+web/              # Next.js ChatKit frontend
+scripts/          # Runnable orchestrators
+configs/          # Configuration files (taxonomy.yaml)
+docs/             # Tool guides
 ```
 
 ### Coding standards
