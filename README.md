@@ -27,6 +27,8 @@ The world's smartest personal finance tool
 
 ---
 
+Transactoid is an AI agent that analyzes your personal finances with meticulous fidelity and a side of sass. It connects to your bank accounts using Plaid, intelligently categorizes your transactions using the power of LLMs and gives you detailed reports for each and every question you have. Gone are boring, rigid dashboards with piss-poor transaction categorization. Transactoid replaces them with an untethered, occasionally unhinged, curiosity-driven analyst that understands your spending habits better than a bank ever could.
+
 ## Running the Agent
 
 Transactoid exposes its agent through three different interfaces, each suited for different use cases.
