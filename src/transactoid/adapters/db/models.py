@@ -103,6 +103,9 @@ class PlaidTransaction(Base):
     external_id: Mapped[str] = mapped_column(String, nullable=False)
     source: Mapped[str] = mapped_column(String, nullable=False)  # "PLAID" or "CSV"
     account_id: Mapped[str] = mapped_column(String, nullable=False)
+    item_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("plaid_items.item_id", ondelete="CASCADE"), nullable=True
+    )
     posted_at: Mapped[date] = mapped_column(Date, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False)
@@ -116,6 +119,9 @@ class PlaidTransaction(Base):
     )
 
     # Relationships
+    plaid_item: Mapped[PlaidItem | None] = relationship(
+        "PlaidItem", back_populates="transactions"
+    )
     derived_transactions: Mapped[list[DerivedTransaction]] = relationship(
         "DerivedTransaction",
         back_populates="plaid_transaction",
@@ -222,6 +228,11 @@ class PlaidItem(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # Relationships
+    transactions: Mapped[list[PlaidTransaction]] = relationship(
+        "PlaidTransaction", back_populates="plaid_item", cascade="all, delete-orphan"
     )
 
 
