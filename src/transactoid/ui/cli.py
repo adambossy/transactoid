@@ -212,6 +212,84 @@ def plaid_serve(
         shutdown_redirect_server(server, server_thread)
 
 
+@app.command("scrape-amazon")
+def scrape_amazon(
+    max_orders: int = typer.Option(10, help="Maximum number of orders to scrape"),
+    backend: str = typer.Option(
+        "stagehand",
+        help="Backend: stagehand (local), stagehand-browserbase (cloud), playwriter",
+    ),
+    context_id: str | None = typer.Option(
+        None, help="Browserbase context ID for pre-authenticated sessions"
+    ),
+    create_context: bool = typer.Option(
+        False,
+        "--create-context",
+        help="Create a new Browserbase context and exit",
+    ),
+) -> None:
+    """
+    Scrape Amazon order history using browser automation.
+
+    Examples:
+        # Local browser (opens visible window for login)
+        transactoid scrape-amazon --backend stagehand
+
+        # Create a Browserbase context (one-time setup)
+        transactoid scrape-amazon --backend stagehand-browserbase --create-context
+
+        # Use Browserbase with existing context
+        transactoid scrape-amazon --backend stagehand-browserbase --context-id <id>
+    """
+    from transactoid.tools.amazon.scraper import scrape_amazon_orders
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    if create_context:
+        if backend != "stagehand-browserbase":
+            typer.echo("Error: --create-context only works with stagehand-browserbase")
+            raise typer.Exit(1)
+
+        from transactoid.tools.amazon.backends.stagehand_browserbase import (
+            StagehandBrowserbaseBackend,
+        )
+
+        typer.echo("Creating new Browserbase context...")
+        new_context_id = StagehandBrowserbaseBackend.create_context()
+        typer.echo("\nContext created successfully!")
+        typer.echo(f"Context ID: {new_context_id}")
+        typer.echo("\nUse this context for future scrapes:")
+        typer.echo(
+            f"  transactoid scrape-amazon --backend stagehand-browserbase "
+            f"--context-id {new_context_id}"
+        )
+        return
+
+    if backend not in ("stagehand", "stagehand-browserbase", "playwriter"):
+        typer.echo(f"Error: Invalid backend '{backend}'")
+        raise typer.Exit(1)
+
+    typer.echo(f"Scraping Amazon orders (backend={backend}, max_orders={max_orders})")
+    if context_id:
+        typer.echo(f"Using context: {context_id}")
+
+    result = scrape_amazon_orders(
+        db,
+        backend=backend,  # type: ignore[arg-type]
+        max_orders=max_orders,
+        context_id=context_id,
+    )
+
+    if result.get("status") == "success":
+        typer.echo("\nSuccess!")
+        typer.echo(f"  Orders created: {result.get('orders_created', 0)}")
+        typer.echo(f"  Items created: {result.get('items_created', 0)}")
+    else:
+        typer.echo(f"\nError: {result.get('message', 'Unknown error')}")
+        raise typer.Exit(1)
+
+
 @app.command("plaid-dedupe-items")
 def plaid_dedupe_items(
     apply: bool = typer.Option(
