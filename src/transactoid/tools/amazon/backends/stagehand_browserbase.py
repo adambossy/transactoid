@@ -57,12 +57,13 @@ class StagehandBrowserbaseBackend:
 
     def __init__(
         self,
-        model_name: str = "google/gemini-2.5-flash-preview-05-20",
+        model_name: str = "google/gemini-2.5-flash",
         model_api_key: str | None = None,
         browserbase_api_key: str | None = None,
         browserbase_project_id: str | None = None,
         context_id: str | None = None,
         persist_context: bool = True,
+        login_mode: bool = False,
     ) -> None:
         """Initialize the Stagehand Browserbase backend.
 
@@ -78,6 +79,9 @@ class StagehandBrowserbaseBackend:
                 Use `create_context()` to create a new context.
             persist_context: Whether to persist session changes to context.
                 Defaults to True. Set to False for read-only access.
+            login_mode: If True, wait for manual login via Session Live View
+                instead of erroring when login is required. Use for first-time
+                authentication setup.
         """
         self._model_name = model_name
         self._model_api_key = model_api_key or os.getenv(
@@ -91,6 +95,7 @@ class StagehandBrowserbaseBackend:
         )
         self._context_id = context_id
         self._persist_context = persist_context
+        self._login_mode = login_mode
 
     @classmethod
     def create_context(
@@ -266,12 +271,34 @@ class StagehandBrowserbaseBackend:
             current_url = page.url
 
             if "signin" in current_url or "ap/signin" in current_url:
-                if self._context_id:
+                if self._login_mode:
+                    # Wait for user to log in via Session Live View
+                    print("[Browserbase] Login required. Please log in via Live View.")
+                    if session_id:
+                        live_url = self.get_session_live_view_url(session_id)
+                        print(f"[Browserbase] Open: {live_url}")
+                    print("[Browserbase] Waiting up to 5 minutes for login...")
+
+                    max_wait_seconds = 300  # 5 minutes
+                    for i in range(max_wait_seconds):
+                        current_url = page.url
+                        if "your-orders" in current_url and "signin" not in current_url:
+                            print("[Browserbase] Login successful! On orders page.")
+                            break
+                        if i > 0 and i % 30 == 0:
+                            print(f"[Browserbase] Still waiting for login... ({i}s)")
+                        await asyncio.sleep(1)
+                    else:
+                        raise TimeoutError(
+                            "Timed out waiting for Amazon login. "
+                            "Please log in within 5 minutes via Session Live View."
+                        )
+                elif self._context_id:
                     raise RuntimeError(
                         "Amazon login required despite using a context. "
                         "The context may have expired. Please:\n"
                         "1. Create a new context with create_context()\n"
-                        "2. Log in via Session Live View\n"
+                        "2. Log in via Session Live View using --login flag\n"
                         "3. Retry with the new context_id"
                     )
                 else:
@@ -279,10 +306,8 @@ class StagehandBrowserbaseBackend:
                         "Amazon login required. To use Browserbase:\n"
                         "1. Create a context: "
                         "ctx_id = StagehandBrowserbaseBackend.create_context()\n"
-                        "2. Create backend with context: "
-                        "backend = StagehandBrowserbaseBackend(context_id=ctx_id)\n"
-                        "3. Start a session and log in via Session Live View\n"
-                        "4. Reuse the same context_id for automated scraping"
+                        "2. Run with --login flag to authenticate\n"
+                        "3. Reuse the same context_id for automated scraping"
                     )
 
             # Give the orders page time to fully load

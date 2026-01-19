@@ -51,7 +51,7 @@ class StagehandLocalBackend:
 
     def __init__(
         self,
-        model_name: str = "google/gemini-2.5-flash-preview-05-20",
+        model_name: str = "google/gemini-2.5-flash",
         model_api_key: str | None = None,
     ) -> None:
         """Initialize the Stagehand LOCAL backend.

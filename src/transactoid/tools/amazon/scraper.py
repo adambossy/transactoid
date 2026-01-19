@@ -45,12 +45,15 @@ def _get_backend(
     backend: BackendType,
     *,
     context_id: str | None = None,
+    login_mode: bool = False,
 ) -> AmazonScraperBackend:
     """Get the backend instance for the specified type.
 
     Args:
         backend: Backend type to use.
         context_id: Optional Browserbase context ID for session persistence.
+            Only applicable for "stagehand-browserbase" backend.
+        login_mode: If True, wait for manual login via Session Live View.
             Only applicable for "stagehand-browserbase" backend.
 
     Returns:
@@ -74,7 +77,7 @@ def _get_backend(
             StagehandBrowserbaseBackend,
         )
 
-        return StagehandBrowserbaseBackend(context_id=context_id)
+        return StagehandBrowserbaseBackend(context_id=context_id, login_mode=login_mode)
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -121,6 +124,7 @@ def scrape_amazon_orders(
     year: int | None = None,
     max_orders: int | None = None,
     context_id: str | None = None,
+    login_mode: bool = False,
 ) -> dict[str, Any]:
     """Scrape Amazon orders using the specified backend.
 
@@ -133,11 +137,15 @@ def scrape_amazon_orders(
         context_id: Optional Browserbase context ID for session persistence.
             Only applicable for "stagehand-browserbase" backend. Use
             StagehandBrowserbaseBackend.create_context() to create one.
+        login_mode: If True, wait for manual login via Session Live View.
+            Only applicable for "stagehand-browserbase" backend.
 
     Returns:
         Dictionary with status and summary of scraped data.
     """
-    backend_instance = _get_backend(backend, context_id=context_id)
+    backend_instance = _get_backend(
+        backend, context_id=context_id, login_mode=login_mode
+    )
     orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
 
     if not orders:
