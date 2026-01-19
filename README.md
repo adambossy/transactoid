@@ -9,9 +9,7 @@
 The world's smartest personal finance tool
 
 <p align="center">
-  <a href="https://github.com/adambossy/transactoid/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
-  &middot;
-  <a href="https://github.com/adambossy/transactoid/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+  <a href="https://adambossy.com/blog/transactoid-worlds-smartest-personal-finance-tool/">Building Transactoid: The Shift Away From Determinism</a>
   <br />
   <br />
 </p>
