@@ -11,7 +11,10 @@ from mcp.server.fastmcp import FastMCP
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
-from transactoid.tools.amazon.scraper import scrape_amazon_orders as _scrape_amazon
+from transactoid.tools.amazon.scraper import (
+    BackendType,
+    scrape_amazon_orders as _scrape_amazon,
+)
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.sync.sync_tool import SyncTool
@@ -236,7 +239,11 @@ def run_sql(query: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def scrape_amazon_orders(max_orders: int = 10) -> dict[str, Any]:
+def scrape_amazon_orders(
+    max_orders: int = 10,
+    backend: str = "stagehand",
+    context_id: str | None = None,
+) -> dict[str, Any]:
     """
     Scrape Amazon order history using Stagehand browser automation.
 
@@ -245,12 +252,30 @@ def scrape_amazon_orders(max_orders: int = 10) -> dict[str, Any]:
 
     Args:
         max_orders: Maximum number of orders to scrape (default: 10)
+        backend: Backend to use - "stagehand" (local browser) or
+            "stagehand-browserbase" (cloud with session persistence)
+        context_id: Browserbase context ID for pre-authenticated sessions.
+            Only used with "stagehand-browserbase" backend.
 
     Returns:
         Dictionary with status, orders_created, items_created counts.
     """
     try:
-        return _scrape_amazon(db, backend="stagehand", max_orders=max_orders)
+        if backend not in ("stagehand", "stagehand-browserbase", "playwriter"):
+            return {
+                "status": "error",
+                "message": f"Invalid backend: {backend}",
+                "orders_created": 0,
+                "items_created": 0,
+            }
+        # Cast is safe after validation above
+        validated_backend: BackendType = backend  # type: ignore[assignment]
+        return _scrape_amazon(
+            db,
+            backend=validated_backend,
+            max_orders=max_orders,
+            context_id=context_id,
+        )
     except Exception as e:
         return {
             "status": "error",
