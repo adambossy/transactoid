@@ -227,6 +227,11 @@ def scrape_amazon(
         "--create-context",
         help="Create a new Browserbase context and exit",
     ),
+    login: bool = typer.Option(
+        False,
+        "--login",
+        help="Wait for manual login via Session Live View (for first-time auth)",
+    ),
 ) -> None:
     """
     Scrape Amazon order history using browser automation.
@@ -238,7 +243,11 @@ def scrape_amazon(
         # Create a Browserbase context (one-time setup)
         transactoid scrape-amazon --backend stagehand-browserbase --create-context
 
-        # Use Browserbase with existing context
+        # First-time login with Browserbase (opens Live View for auth)
+        transactoid scrape-amazon --backend stagehand-browserbase --context-id ID \\
+            --login
+
+        # Use Browserbase with existing authenticated context
         transactoid scrape-amazon --backend stagehand-browserbase --context-id <id>
     """
     from transactoid.tools.amazon.scraper import scrape_amazon_orders
@@ -270,15 +279,22 @@ def scrape_amazon(
         typer.echo(f"Error: Invalid backend '{backend}'")
         raise typer.Exit(1)
 
+    if login and backend != "stagehand-browserbase":
+        typer.echo("Error: --login only works with stagehand-browserbase backend")
+        raise typer.Exit(1)
+
     typer.echo(f"Scraping Amazon orders (backend={backend}, max_orders={max_orders})")
     if context_id:
         typer.echo(f"Using context: {context_id}")
+    if login:
+        typer.echo("Login mode: waiting for manual auth via Session Live View")
 
     result = scrape_amazon_orders(
         db,
         backend=backend,  # type: ignore[arg-type]
         max_orders=max_orders,
         context_id=context_id,
+        login_mode=login,
     )
 
     if result.get("status") == "success":
