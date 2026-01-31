@@ -509,7 +509,7 @@ class Transactoid:
         return Agent(
             name="Transactoid",
             instructions=instructions,
-            model="gpt-5.1",
+            model="gpt-5.2",
             tools=[
                 run_sql,
                 sync_transactions,
