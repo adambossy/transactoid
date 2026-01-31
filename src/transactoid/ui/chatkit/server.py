@@ -61,20 +61,16 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
 
     def _register_tools(self) -> None:
         """Register all tools with the registry."""
-        # Get PlaidClient and access token
         plaid_client = PlaidClient.from_env()
         plaid_items = self._db.list_plaid_items()
 
         if plaid_items:
-            access_token = plaid_items[0].access_token
-
-            # Register sync tool
+            # Register sync tool (syncs all items automatically)
             sync_tool = SyncTransactionsTool(
                 plaid_client=plaid_client,
                 categorizer=self._categorizer,
                 db=self._db,
                 taxonomy=self._taxonomy,
-                access_token=access_token,
             )
             self._registry.register(sync_tool)
 
