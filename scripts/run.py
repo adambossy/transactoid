@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
 from transactoid.adapters.clients.plaid import PlaidClient
@@ -9,14 +10,12 @@ from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.sync.sync_tool import SyncTool
 
 
-def run_sync(
+async def _run_sync_async(
     *,
     count: int = 500,
 ) -> None:
     """
-    Sync transactions from ALL Plaid items and categorize them using an LLM.
-
-    SyncTool handles cursor persistence and Amazon mutation plugin automatically.
+    Async implementation of sync logic.
 
     Args:
         count: Maximum number of transactions to fetch per request
@@ -36,13 +35,28 @@ def run_sync(
         taxonomy=taxonomy,
     )
 
-    summary = sync_tool.sync(count=count)
+    summary = await sync_tool.sync(count=count)
 
     # Display results
     print(f"Sync complete: {summary.items_synced} item(s)")
     print(f"  Added: {summary.total_added}")
     print(f"  Modified: {summary.total_modified}")
     print(f"  Removed: {summary.total_removed}")
+
+
+def run_sync(
+    *,
+    count: int = 500,
+) -> None:
+    """
+    Sync transactions from ALL Plaid items and categorize them using an LLM.
+
+    SyncTool handles cursor persistence and Amazon mutation plugin automatically.
+
+    Args:
+        count: Maximum number of transactions to fetch per request
+    """
+    asyncio.run(_run_sync_async(count=count))
 
 
 def run_pipeline(
