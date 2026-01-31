@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from transactoid.adapters.cache.file_cache import FileCache
 from transactoid.adapters.db.facade import DB
@@ -11,10 +12,33 @@ from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from transactoid.tools.categorize.categorizer_tool import (
         CategorizedTransaction,
         Categorizer,
     )
+
+T = TypeVar("T")
+
+
+def _run_async_safely(coro: Coroutine[object, object, T]) -> T:
+    """
+    Run an async coroutine from sync code, handling nested event loops.
+
+    This handles the case where the calling code is already running in an
+    async context (e.g., when called from an Agent SDK function tool).
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop - safe to use asyncio.run()
+        return asyncio.run(coro)
+    else:
+        # Already in async context - run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
 
 
 @dataclass
@@ -431,10 +455,8 @@ class MigrationTool:
             txn_dict = self._db_txn_to_categorizer_input(txn)
             txn_dicts.append(txn_dict)  # type: ignore[arg-type]
 
-        # Run categorization
-        categorized = asyncio.get_event_loop().run_until_complete(
-            self._categorizer.categorize(txn_dicts)
-        )
+        # Run categorization (handles both sync and async calling contexts)
+        categorized = _run_async_safely(self._categorizer.categorize(txn_dicts))
 
         return self._apply_categorization_results(transactions, categorized, target_key)
 
@@ -453,8 +475,8 @@ class MigrationTool:
             txn_dict = self._db_txn_to_categorizer_input(txn)
             txn_dicts.append(txn_dict)  # type: ignore[arg-type]
 
-        # Run constrained categorization
-        categorized = asyncio.get_event_loop().run_until_complete(
+        # Run constrained categorization (handles both sync and async calling contexts)
+        categorized = _run_async_safely(
             self._categorizer.categorize_constrained(txn_dicts, allowed_keys)
         )
 
