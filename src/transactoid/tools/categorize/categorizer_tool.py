@@ -182,7 +182,7 @@ class Categorizer:
         taxonomy: Taxonomy,
         *,
         prompt_key: str = "categorize-transactions",
-        model: str = "gpt-5.1",
+        model: str = "gpt-5.2",
         file_cache: FileCache | None = None,
         max_concurrency: int = 16,
     ) -> None:
