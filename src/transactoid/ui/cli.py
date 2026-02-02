@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import os
+from pathlib import Path
 import shutil
+from typing import Any
 
 from dotenv import load_dotenv
 import typer
+import yaml
 
 from scripts import run
 from transactoid.adapters.db.facade import DB
@@ -164,7 +167,6 @@ def plaid_serve(
     """
     import ipaddress
     import queue
-    from typing import Any
 
     from transactoid.adapters.clients.plaid_link import (
         RedirectServerError,
@@ -406,6 +408,204 @@ def eval_cmd(
     asyncio.run(
         _eval_impl(questions_path=input, questions=questions, output_dir=output_dir)
     )
+
+
+def _load_report_config(config_path: str) -> dict[str, Any]:
+    """Load report configuration from YAML file."""
+    path = Path(config_path)
+    if not path.exists():
+        typer.echo(f"Config file not found: {config_path}", err=True)
+        raise typer.Exit(1)
+
+    with open(path) as f:
+        config: dict[str, Any] = yaml.safe_load(f)
+        return config
+
+
+def _markdown_to_html(markdown_text: str) -> str:
+    """Convert markdown to basic HTML for email.
+
+    Simple conversion without external dependencies.
+    """
+    import re
+
+    html = markdown_text
+
+    # Headers
+    html = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
+    html = re.sub(r"^## (.+)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
+    html = re.sub(r"^# (.+)$", r"<h1>\1</h1>", html, flags=re.MULTILINE)
+
+    # Bold and italic
+    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
+    html = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
+
+    # Code blocks
+    html = re.sub(r"`(.+?)`", r"<code>\1</code>", html)
+
+    # Line breaks (convert double newlines to paragraphs)
+    paragraphs = html.split("\n\n")
+    html = "".join(f"<p>{p}</p>" for p in paragraphs if p.strip())
+
+    return f"<html><body>{html}</body></html>"
+
+
+async def _report_impl(
+    send_email: bool,
+    output_file: str | None,
+    config_path: str,
+) -> None:
+    """Generate spending report implementation."""
+    from transactoid.jobs.report.email_service import EmailService
+    from transactoid.jobs.report.runner import ReportRunner
+    from transactoid.taxonomy.loader import load_taxonomy_from_db
+
+    # Load config
+    config = _load_report_config(config_path)
+    email_config = config.get("email", {})
+    error_config = config.get("error_notification", {})
+
+    # Initialize database
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    # Load taxonomy
+    taxonomy = load_taxonomy_from_db(db)
+
+    # Create report runner
+    runner = ReportRunner(db=db, taxonomy=taxonomy)
+
+    typer.echo("Generating spending report...")
+    result = await runner.generate_report()
+
+    if result.success:
+        typer.echo(f"Report generated in {result.duration_seconds:.1f}s")
+
+        # Output to file if requested
+        if output_file:
+            with open(output_file, "w") as f:
+                f.write(result.report_text)
+            typer.echo(f"Report saved to: {output_file}")
+
+        # Send email if requested
+        if send_email:
+            recipients = email_config.get("recipients", [])
+            if not recipients:
+                typer.echo("No recipients configured in report.yaml", err=True)
+                raise typer.Exit(1)
+
+            # Override from env if set
+            env_recipients = os.environ.get("REPORT_RECIPIENTS")
+            if env_recipients:
+                recipients = [r.strip() for r in env_recipients.split(",")]
+
+            # Build subject
+            now = datetime.now()
+            subject_template = email_config.get(
+                "subject_template", "Transactoid Spending Report - {month} {year}"
+            )
+            subject = subject_template.format(month=now.strftime("%B"), year=now.year)
+
+            # Initialize email service
+            try:
+                email_service = EmailService(
+                    from_address=email_config.get(
+                        "from_address", "reports@transactoid.com"
+                    ),
+                    from_name=email_config.get("from_name", "Transactoid Reports"),
+                )
+            except ValueError as e:
+                typer.echo(f"Email service error: {e}", err=True)
+                raise typer.Exit(1) from None
+
+            # Send report
+            html_content = _markdown_to_html(result.report_text)
+            email_result = email_service.send_report(
+                to=recipients,
+                subject=subject,
+                html_content=html_content,
+                text_content=result.report_text,
+            )
+
+            if email_result.success:
+                typer.echo(f"Report sent to: {', '.join(recipients)}")
+            else:
+                typer.echo(f"Failed to send email: {email_result.error}", err=True)
+                raise typer.Exit(1)
+        else:
+            # Print report to stdout if not emailing and no output file
+            if not output_file:
+                typer.echo("\n" + "=" * 60)
+                typer.echo(result.report_text)
+                typer.echo("=" * 60)
+
+    else:
+        typer.echo(f"Report generation failed: {result.error}", err=True)
+
+        # Send error notification if configured
+        if error_config.get("enabled", False) and send_email:
+            error_recipients = error_config.get("recipients", [])
+            if error_recipients:
+                try:
+                    email_service = EmailService(
+                        from_address=email_config.get(
+                            "from_address", "reports@transactoid.com"
+                        ),
+                        from_name=email_config.get("from_name", "Transactoid Reports"),
+                    )
+                    email_service.send_error_notification(
+                        to=error_recipients,
+                        error=result.error or "Unknown error",
+                        job_metadata=result.metadata,
+                    )
+                    recipients_str = ", ".join(error_recipients)
+                    typer.echo(f"Error notification sent to: {recipients_str}")
+                except Exception as e:
+                    typer.echo(f"Failed to send error notification: {e}", err=True)
+
+        raise typer.Exit(1)
+
+
+@app.command("report")
+def report_cmd(
+    send_email: bool = typer.Option(
+        True,
+        "--send-email/--no-send-email",
+        help="Send report via email (default: True)",
+    ),
+    output_file: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write report to file instead of (or in addition to) email",
+    ),
+    config_path: str = typer.Option(
+        "configs/report.yaml",
+        "--config",
+        "-c",
+        help="Path to report configuration file",
+    ),
+) -> None:
+    """Generate and send a spending report.
+
+    Runs the Transactoid agent headlessly with a detailed spending analysis
+    prompt and emails the resulting report.
+
+    Examples:
+
+        # Generate and email report (default)
+        transactoid report
+
+        # Generate report without sending email (prints to stdout)
+        transactoid report --no-send-email
+
+        # Save report to file
+        transactoid report --output /tmp/report.md
+
+        # Save to file and email
+        transactoid report --output /tmp/report.md --send-email
+    """
+    asyncio.run(_report_impl(send_email, output_file, config_path))
 
 
 def main() -> None:

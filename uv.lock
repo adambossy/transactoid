@@ -1078,6 +1078,19 @@ wheels = [
 ]
 
 [[package]]
+name = "resend"
+version = "2.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/89/5e/b38788ca9b69233b247ddcf3678a25e761ce0b69d04a743e2e355e43c176/resend-2.21.0.tar.gz", hash = "sha256:765288c2015c2c4dd0fb3c8596af4007709b790336eda2966593194377546d11", size = 30751, upload_time = "2026-01-22T23:49:35.993Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/f9/0d93391ec2c1b3b984571d5c1de3078721c34619d96a6c658a4bf2cf2e24/resend-2.21.0-py2.py3-none-any.whl", hash = "sha256:906d1916298e7b6b9a0f2a8e81a123f12cda5fd07683ecbfa53b54e8ec58f5f4", size = 51156, upload_time = "2026-01-22T23:49:34.457Z" },
+]
+
+[[package]]
 name = "rich"
 version = "14.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1338,6 +1351,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "resend" },
     { name = "rich" },
     { name = "sqlalchemy" },
     { name = "typer" },
@@ -1365,6 +1379,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.8" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "resend", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "typer", specifier = ">=0.20.0" },

@@ -1,0 +1,23 @@
+# Report job configuration
+# Note: Budget and spending thresholds are defined in the prompt template,
+# not here. This file only contains email delivery settings.
+
+email:
+  # Recipients for the spending report
+  recipients:
+    - user@example.com
+
+  # Sender information
+  from_address: "reports@transactoid.com"
+  from_name: "Transactoid Reports"
+
+  # Subject line template (supports {month} and {year} placeholders)
+  subject_template: "Transactoid Spending Report - {month} {year}"
+
+error_notification:
+  # Whether to send error notifications when report generation fails
+  enabled: true
+
+  # Recipients for error notifications (can be different from report recipients)
+  recipients:
+    - admin@example.com
