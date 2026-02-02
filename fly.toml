@@ -1,0 +1,39 @@
+# Fly.io configuration for Transactoid report job
+# This is a scheduled job, not a web service
+
+app = "transactoid-report"
+primary_region = "iad"  # US East - close to Supabase
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+
+# No HTTP service - this is a scheduled job
+# The machine will start, run the report command, and exit
+
+# Machine configuration for the job
+# Use the smallest machine size since this is an infrequent job
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# Note: Secrets should be set via CLI:
+#   fly secrets set DATABASE_URL="postgresql://..."
+#   fly secrets set OPENAI_API_KEY="..."
+#   fly secrets set RESEND_API_KEY="..."
+#   fly secrets set PLAID_CLIENT_ID="..."
+#   fly secrets set PLAID_SECRET="..."
+#   fly secrets set REPORT_RECIPIENTS="user@example.com"  # Optional override
+
+# To run manually:
+#   fly machine run transactoid-report --entrypoint "transactoid report"
+
+# To schedule (7 AM UTC daily):
+#   fly machine run transactoid-report \
+#     --schedule "0 7 * * *" \
+#     --entrypoint "transactoid report"
+
+# Alternative: Use Fly Cron Manager for more control
+# See: https://fly.io/docs/blueprints/task-scheduling/
