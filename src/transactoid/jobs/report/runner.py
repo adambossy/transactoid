@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 from datetime import datetime
 import time
@@ -52,8 +53,11 @@ class ReportRunner:
         self._plaid_client = plaid_client
         self._prompt_key = prompt_key
 
-    async def generate_report(self) -> ReportResult:
+    async def generate_report(self, report_month: str | None = None) -> ReportResult:
         """Generate a spending report using the headless agent.
+
+        Args:
+            report_month: Optional month in YYYY-MM format. If None, uses current month.
 
         Returns:
             ReportResult with report content and metadata
@@ -62,6 +66,7 @@ class ReportRunner:
         metadata: dict[str, Any] = {
             "started_at": datetime.now().isoformat(),
             "prompt_key": self._prompt_key,
+            "report_month": report_month or "current",
         }
 
         try:
@@ -87,7 +92,7 @@ class ReportRunner:
             agent = transactoid.create_agent(sql_dialect="postgresql")
 
             # Load the report prompt
-            prompt = self._load_report_prompt()
+            prompt = self._load_report_prompt(report_month)
             metadata["prompt_length"] = len(prompt)
 
             # Run the agent with the report prompt
@@ -117,8 +122,11 @@ class ReportRunner:
                 metadata=metadata,
             )
 
-    def _load_report_prompt(self) -> str:
+    def _load_report_prompt(self, report_month: str | None = None) -> str:
         """Load and prepare the report prompt template.
+
+        Args:
+            report_month: Optional month in YYYY-MM format. If None, uses current month.
 
         Returns:
             Rendered prompt string
@@ -126,11 +134,25 @@ class ReportRunner:
         # Load base prompt from promptorium
         prompt = load_prompt(self._prompt_key)
 
-        # Inject current date information
-        now = datetime.now()
-        prompt = prompt.replace("{{CURRENT_DATE}}", now.strftime("%Y-%m-%d"))
-        prompt = prompt.replace("{{CURRENT_MONTH}}", now.strftime("%B"))
-        prompt = prompt.replace("{{CURRENT_YEAR}}", str(now.year))
+        # Determine the target month
+        if report_month:
+            # Parse YYYY-MM format
+            year, month = map(int, report_month.split("-"))
+            month_name = calendar.month_name[month]
+            # Use last day of the month as reference date
+            last_day = calendar.monthrange(year, month)[1]
+            date_str = f"{year}-{month:02d}-{last_day:02d}"
+        else:
+            # Use current date
+            now = datetime.now()
+            year = now.year
+            month_name = now.strftime("%B")
+            date_str = now.strftime("%Y-%m-%d")
+
+        # Inject date information
+        prompt = prompt.replace("{{CURRENT_DATE}}", date_str)
+        prompt = prompt.replace("{{CURRENT_MONTH}}", month_name)
+        prompt = prompt.replace("{{CURRENT_YEAR}}", str(year))
 
         return prompt
 
