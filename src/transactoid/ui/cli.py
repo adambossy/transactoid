@@ -422,34 +422,6 @@ def _load_report_config(config_path: str) -> dict[str, Any]:
         return config
 
 
-def _markdown_to_html(markdown_text: str) -> str:
-    """Convert markdown to basic HTML for email.
-
-    Simple conversion without external dependencies.
-    """
-    import re
-
-    html = markdown_text
-
-    # Headers
-    html = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
-    html = re.sub(r"^## (.+)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
-    html = re.sub(r"^# (.+)$", r"<h1>\1</h1>", html, flags=re.MULTILINE)
-
-    # Bold and italic
-    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    html = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
-
-    # Code blocks
-    html = re.sub(r"`(.+?)`", r"<code>\1</code>", html)
-
-    # Line breaks (convert double newlines to paragraphs)
-    paragraphs = html.split("\n\n")
-    html = "".join(f"<p>{p}</p>" for p in paragraphs if p.strip())
-
-    return f"<html><body>{html}</body></html>"
-
-
 async def _report_impl(
     send_email: bool,
     output_file: str | None,
@@ -457,6 +429,7 @@ async def _report_impl(
 ) -> None:
     """Generate spending report implementation."""
     from transactoid.jobs.report.email_service import EmailService
+    from transactoid.jobs.report.html_renderer import render_report_html
     from transactoid.jobs.report.runner import ReportRunner
     from transactoid.taxonomy.loader import load_taxonomy_from_db
 
@@ -481,11 +454,24 @@ async def _report_impl(
     if result.success:
         typer.echo(f"Report generated in {result.duration_seconds:.1f}s")
 
-        # Output to file if requested
+        # Generate styled HTML version
+        html_content = render_report_html(result.report_text)
+
+        # Output to file if requested (both .md and .html)
         if output_file:
-            with open(output_file, "w") as f:
+            # Write markdown version
+            md_path = output_file
+            if not md_path.endswith(".md"):
+                md_path = f"{output_file}.md"
+            with open(md_path, "w") as f:
                 f.write(result.report_text)
-            typer.echo(f"Report saved to: {output_file}")
+            typer.echo(f"Markdown report saved to: {md_path}")
+
+            # Write HTML version
+            html_path = md_path.replace(".md", ".html")
+            with open(html_path, "w") as f:
+                f.write(html_content)
+            typer.echo(f"HTML report saved to: {html_path}")
 
         # Send email if requested
         if send_email:
@@ -518,8 +504,7 @@ async def _report_impl(
                 typer.echo(f"Email service error: {e}", err=True)
                 raise typer.Exit(1) from None
 
-            # Send report
-            html_content = _markdown_to_html(result.report_text)
+            # Send report (using styled HTML generated above)
             email_result = email_service.send_report(
                 to=recipients,
                 subject=subject,
