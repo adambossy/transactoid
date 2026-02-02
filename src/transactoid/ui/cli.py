@@ -426,6 +426,7 @@ async def _report_impl(
     send_email: bool,
     output_file: str | None,
     config_path: str,
+    report_month: str | None = None,
 ) -> None:
     """Generate spending report implementation."""
     from transactoid.jobs.report.email_service import EmailService
@@ -448,8 +449,9 @@ async def _report_impl(
     # Create report runner
     runner = ReportRunner(db=db, taxonomy=taxonomy)
 
-    typer.echo("Generating spending report...")
-    result = await runner.generate_report()
+    month_str = f" for {report_month}" if report_month else ""
+    typer.echo(f"Generating spending report{month_str}...")
+    result = await runner.generate_report(report_month=report_month)
 
     if result.success:
         typer.echo(f"Report generated in {result.duration_seconds:.1f}s")
@@ -570,6 +572,12 @@ def report_cmd(
         "-c",
         help="Path to report configuration file",
     ),
+    month: str | None = typer.Option(
+        None,
+        "--month",
+        "-m",
+        help="Report month in YYYY-MM format (e.g., 2026-01)",
+    ),
 ) -> None:
     """Generate and send a spending report.
 
@@ -589,8 +597,11 @@ def report_cmd(
 
         # Save to file and email
         transactoid report --output /tmp/report.md --send-email
+
+        # Generate report for a specific month
+        transactoid report --month 2026-01 --output /tmp/january-report
     """
-    asyncio.run(_report_impl(send_email, output_file, config_path))
+    asyncio.run(_report_impl(send_email, output_file, config_path, month))
 
 
 def main() -> None:
