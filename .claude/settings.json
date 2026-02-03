@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run transactoid run sync 2>&1 || true",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
