@@ -274,7 +274,7 @@ class Transactoid:
             # SyncTool handles all items, cursor persistence, and Amazon mutations
             sync_tool = SyncTool(
                 plaid_client=self._plaid_client,
-                categorizer=self._categorizer,
+                categorizer_factory=lambda: self._categorizer,
                 db=self._db,
                 taxonomy=self._taxonomy,
             )
