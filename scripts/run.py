@@ -3,11 +3,16 @@ from __future__ import annotations
 import asyncio
 import os
 
+from dotenv import load_dotenv
+
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.sync.sync_tool import SyncTool
+
+# Load environment variables from .env
+load_dotenv(override=False)
 
 
 async def _run_sync_async(
