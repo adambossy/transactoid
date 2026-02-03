@@ -68,7 +68,7 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
             # Register sync tool (syncs all items automatically)
             sync_tool = SyncTransactionsTool(
                 plaid_client=plaid_client,
-                categorizer=self._categorizer,
+                categorizer_factory=lambda: self._categorizer,
                 db=self._db,
                 taxonomy=self._taxonomy,
             )
