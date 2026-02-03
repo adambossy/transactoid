@@ -66,16 +66,6 @@ class TransactoidSession:
         renderer.end_turn(final_result)
 
 
-class TransactionFilter(BaseModel):
-    """Filter criteria for selecting transactions."""
-
-    date_range: str | None = None
-    category_prefix: str | None = None
-    merchant: str | None = None
-    amount_min: float | None = None
-    amount_max: float | None = None
-
-
 class TargetCategory(BaseModel):
     """Target category for split operations."""
 
@@ -356,59 +346,64 @@ class Transactoid:
             return self._plaid_client.list_accounts(db=self._db)
 
         @function_tool
-        def update_category_for_transaction_groups(
-            filter: TransactionFilter,
-            new_category: str,
+        def recategorize_merchant(
+            merchant_id: int,
+            category_key: str,
         ) -> dict[str, Any]:
             """
-            Update categories for groups of transactions matching specified criteria.
+            Recategorize all transactions for a specific merchant.
 
             Args:
-                filter: Dictionary with filter criteria (e.g., date_range,
-                    category_prefix)
-                new_category: Category key to apply (must be valid from
-                    taxonomy)
+                merchant_id: The merchant ID to recategorize
+                category_key: The new category key (e.g., "food.groceries")
 
             Returns:
-                Dictionary with update summary
+                Dictionary with recategorization results
             """
-            if not self._taxonomy.is_valid_key(new_category):
+            if not self._taxonomy.is_valid_key(category_key):
                 return {
-                    "error": f"Invalid category key: {new_category}",
+                    "status": "error",
+                    "error": f"Invalid category key: {category_key}",
                     "updated": 0,
                 }
 
-            # Note: This is a simplified implementation.
-            # The actual implementation should parse the filter and update transactions.
-            return {
-                "status": "not_implemented",
-                "message": "Bulk category update requires filter parsing",
-                "category": new_category,
-            }
+            try:
+                updated = self._persist_tool.bulk_recategorize_by_merchant(
+                    merchant_id, category_key
+                )
+                return {
+                    "status": "success",
+                    "updated": updated,
+                    "message": f"Recategorized {updated} transactions",
+                }
+            except ValueError as e:
+                return {
+                    "status": "error",
+                    "error": str(e),
+                    "updated": 0,
+                }
 
         @function_tool
         def tag_transactions(
-            filter: TransactionFilter,
-            tag: str,
+            transaction_ids: list[int],
+            tags: list[str],
         ) -> dict[str, Any]:
             """
-            Apply user-defined tags to transactions matching specified criteria.
+            Apply tags to specific transactions.
 
             Args:
-                filter: Filter criteria for selecting transactions
-                tag: Tag name to apply
+                transaction_ids: List of transaction IDs to tag
+                tags: List of tag names to apply
 
             Returns:
-                Dictionary with tagging summary
+                Dictionary with tagging results
             """
-            # Note: This is a simplified implementation.
-            # The actual implementation should parse the filter and apply tags.
-            result = self._persist_tool.apply_tags([], [tag])
+            result = self._persist_tool.apply_tags(transaction_ids, tags)
             return {
+                "status": "success",
                 "applied": result.applied,
                 "created_tags": result.created_tags,
-                "status": "not_implemented",
-                "message": "Tagging requires filter parsing",
+                "message": f"Applied {len(tags)} tags to {result.applied} transactions",
             }
 
         @function_tool
@@ -515,7 +510,7 @@ class Transactoid:
                 sync_transactions,
                 connect_new_account,
                 list_accounts,
-                update_category_for_transaction_groups,
+                recategorize_merchant,
                 tag_transactions,
                 migrate_taxonomy,
                 WebSearchTool(),
