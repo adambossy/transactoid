@@ -13,7 +13,6 @@ from models.transaction import Transaction
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.taxonomy.core import Taxonomy
-from transactoid.taxonomy.loader import get_category_id
 from transactoid.tools.base import StandardTool
 from transactoid.tools.categorize.categorizer_tool import (
     Categorizer,
@@ -360,11 +359,21 @@ class SyncTool:
         # Build mapping from external_id to transaction_id
         external_to_id = {txn.external_id: txn.transaction_id for txn in to_categorize}
 
+        # Collect unique category keys and resolve them in one bulk query
+        unique_keys: set[str] = set()
+        for cat_txn in categorized:
+            key = (
+                cat_txn.revised_category_key
+                if cat_txn.revised_category_key
+                else cat_txn.category_key
+            )
+            if key:
+                unique_keys.add(key)
+
+        category_id_map = self._db.get_category_ids_by_keys(list(unique_keys))
+
         # Collect all category updates for bulk operation
         category_updates: dict[int, int] = {}
-
-        def category_lookup(key: str) -> int | None:
-            return get_category_id(self._db, self._taxonomy, key)
 
         for cat_txn in categorized:
             external_id = cat_txn.txn.get("transaction_id", "")
@@ -378,7 +387,7 @@ class SyncTool:
                 if cat_txn.revised_category_key
                 else cat_txn.category_key
             )
-            category_id = category_lookup(category_key) if category_key else None
+            category_id = category_id_map.get(category_key) if category_key else None
 
             if category_id:
                 category_updates[transaction_id] = category_id
