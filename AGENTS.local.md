@@ -1,6 +1,8 @@
 # AGENTS.local.md
 
-Project-specific guidance for working with this repository. See AGENTS.md for general coding guidelines.
+@AGENTS.md
+
+Project-specific guidance for working with this repository.
 
 ## Project Overview
 
