@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import loguru
 from loguru import logger
@@ -19,6 +19,9 @@ from transactoid.tools.categorize.categorizer_tool import (
 )
 from transactoid.tools.protocol import ToolInputSchema
 from transactoid.tools.sync.mutation_registry import MutationRegistry
+
+if TYPE_CHECKING:
+    from transactoid.adapters.db.models import DerivedTransaction
 
 # Default path for Amazon order CSV files
 DEFAULT_AMAZON_CSV_DIR = Path(".transactions/amazon")
@@ -728,6 +731,7 @@ class SyncTool:
         # Collect all derived data and plaid_ids to delete
         all_new_derived_data: list[dict[str, Any]] = []
         plaid_ids_to_delete: list[int] = []
+        unchanged_derived_ids: list[int] = []
 
         for plaid_id in plaid_ids:
             plaid_txn = plaid_txns_map.get(plaid_id)
@@ -738,6 +742,17 @@ class SyncTool:
 
             # Use registry to process (returns N derived for plugins, 1 for default)
             result = self._mutation_registry.process(plaid_txn, old_derived)
+
+            # Skip delete+reinsert when derived data is unchanged (1:1 only)
+            if (
+                old_derived
+                and len(old_derived) == 1
+                and len(result.derived_data_list) == 1
+                and self._derived_unchanged(old_derived[0], result.derived_data_list[0])
+            ):
+                unchanged_derived_ids.append(old_derived[0].transaction_id)
+                continue
+
             all_new_derived_data.extend(result.derived_data_list)
 
             # Mark for deletion if there were old derived
@@ -749,7 +764,24 @@ class SyncTool:
             self._db.delete_derived_by_plaid_ids(plaid_ids_to_delete)
 
         # Bulk insert all new derived in single call
-        return self._db.bulk_insert_derived_transactions(all_new_derived_data)
+        new_ids = self._db.bulk_insert_derived_transactions(all_new_derived_data)
+        return unchanged_derived_ids + new_ids
+
+    @staticmethod
+    def _derived_unchanged(
+        old: DerivedTransaction,
+        new_data: dict[str, Any],
+    ) -> bool:
+        """Check if derived transaction data is unchanged.
+
+        Compares the core fields that come from Plaid (amount, date,
+        merchant descriptor). If all match, the mutation can be skipped.
+        """
+        return (
+            old.amount_cents == new_data.get("amount_cents")
+            and old.posted_at == new_data.get("posted_at")
+            and old.merchant_descriptor == new_data.get("merchant_descriptor")
+        )
 
 
 class SyncTransactionsTool(StandardTool):
