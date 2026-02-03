@@ -21,7 +21,7 @@ from transactoid.tools.protocol import ToolInputSchema
 from transactoid.tools.sync.mutation_registry import MutationRegistry
 
 if TYPE_CHECKING:
-    from transactoid.adapters.db.models import DerivedTransaction
+    from transactoid.adapters.db.models import DerivedTransaction, PlaidItem
 
 # Default path for Amazon order CSV files
 DEFAULT_AMAZON_CSV_DIR = Path(".transactions/amazon")
@@ -263,6 +263,9 @@ class SyncTool:
         """
         Sync ALL connected Plaid items with automatic pagination.
 
+        Items are synced in parallel for maximum performance. Each item has its
+        own independent cursor, so there are no cross-item dependencies.
+
         For each Plaid item:
         - Loads cursor from database for incremental sync
         - Fetches transactions from Plaid with pagination
@@ -285,19 +288,47 @@ class SyncTool:
                 total_added=0, total_modified=0, total_removed=0, items_synced=0
             )
 
-        all_results: list[SyncResult] = []
-        for item in plaid_items:
-            cursor = self._db.get_sync_cursor(item.item_id)
-            results = await self._sync_item_async(
-                item.access_token, item.item_id, cursor, count
-            )
+        # Sync all items in parallel (each has independent cursor)
+        tasks = [
+            self._sync_item_with_cursor(item, count) for item in plaid_items
+        ]
+        all_results_nested = await asyncio.gather(*tasks)
 
-            # Persist cursor after successful sync
-            if results:
-                self._db.set_sync_cursor(item.item_id, results[-1].next_cursor)
+        # Flatten results from all items
+        all_results: list[SyncResult] = []
+        for results in all_results_nested:
             all_results.extend(results)
 
         return self._aggregate_results(all_results, len(plaid_items))
+
+    async def _sync_item_with_cursor(
+        self,
+        item: PlaidItem,
+        count: int,
+    ) -> list[SyncResult]:
+        """
+        Sync a single Plaid item with cursor management.
+
+        Loads cursor, syncs item, saves cursor atomically per item.
+        Safe to run in parallel with other items.
+
+        Args:
+            item: PlaidItem with access_token and item_id
+            count: Maximum number of transactions per page
+
+        Returns:
+            List of SyncResult for this item
+        """
+        cursor = self._db.get_sync_cursor(item.item_id)
+        results = await self._sync_item_async(
+            item.access_token, item.item_id, cursor, count
+        )
+
+        # Persist cursor after successful sync
+        if results:
+            self._db.set_sync_cursor(item.item_id, results[-1].next_cursor)
+
+        return results
 
     def _aggregate_results(
         self, results: list[SyncResult], items_synced: int
@@ -511,7 +542,9 @@ class SyncTool:
                 while True:
                     self._logger.fetch_start(current_cursor or "")
 
-                    sync_result = self._plaid_client.sync_transactions(
+                    # Run sync Plaid call in thread pool to avoid blocking event loop
+                    sync_result = await asyncio.to_thread(
+                        self._plaid_client.sync_transactions,
                         access_token,
                         cursor=current_cursor,
                         count=count,
