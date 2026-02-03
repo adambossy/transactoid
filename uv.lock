@@ -772,8 +772,8 @@ wheels = [
 
 [[package]]
 name = "promptorium-python"
-version = "0.1.2"
-source = { git = "https://github.com/adambossy/promptorium-python?rev=main#21e7b2fa1876229122cc81c2d5520ff1b8a8a50e" }
+version = "0.1.4"
+source = { git = "https://github.com/adambossy/promptorium-python?rev=main#3f47854aa3ef8e6e01216f9338c7ed394077860a" }
 dependencies = [
     { name = "rich" },
     { name = "typer" },
