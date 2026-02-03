@@ -175,6 +175,26 @@ class DB:
             category = session.query(Category).filter(Category.key == key).first()
             return category.category_id if category else None
 
+    def get_category_ids_by_keys(self, keys: list[str]) -> dict[str, int]:
+        """Get category IDs for multiple keys in a single query.
+
+        Args:
+            keys: List of category keys
+
+        Returns:
+            Dict mapping category key to category_id (missing keys omitted)
+        """
+        if not keys:
+            return {}
+
+        with self.session() as session:  # type: Session
+            categories = (
+                session.query(Category)
+                .filter(Category.key.in_(keys))
+                .all()
+            )
+            return {cat.key: cat.category_id for cat in categories}
+
     def find_merchant_by_normalized_name(self, normalized_name: str) -> Merchant | None:
         """Find merchant by normalized name.
 
