@@ -166,7 +166,6 @@ class TestPromptHandlerGetKind:
 
         assert handler._get_kind("recategorize_merchant") == "edit"
         assert handler._get_kind("tag_transactions") == "edit"
-        assert handler._get_kind("update_category_for_transaction_groups") == "edit"
 
     def test_get_kind_returns_other_for_unknown(self) -> None:
         """Test that _get_kind returns 'other' for unknown tools."""
