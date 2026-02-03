@@ -210,9 +210,9 @@ class TestACPAdapterGetKind:
 
         assert notifications[0]["params"]["update"]["kind"] == "execute"
 
-    def test_get_kind_recategorize_by_merchant_returns_edit(self) -> None:
+    def test_get_kind_recategorize_merchant_returns_edit(self) -> None:
         registry = ToolRegistry()
-        tool = MockTool("recategorize_by_merchant")
+        tool = MockTool("recategorize_merchant")
         registry.register(tool)
 
         transport = StdioTransport()

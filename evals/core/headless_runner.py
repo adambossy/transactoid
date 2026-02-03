@@ -305,9 +305,9 @@ class HeadlessAgentRunner:
         if "status" in keys and "item_id" in keys:
             return "connect_new_account"
 
-        # update_category_for_transaction_groups has 'updated' and 'error'
+        # recategorize_merchant has 'updated' and 'error'
         if "updated" in keys and "error" in keys:
-            return "update_category_for_transaction_groups"
+            return "recategorize_merchant"
 
         # tag_transactions has 'applied' and 'created_tags'
         if "applied" in keys and "created_tags" in keys:

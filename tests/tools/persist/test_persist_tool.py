@@ -215,7 +215,7 @@ def test_apply_tags_applies_multiple_tags_to_multiple_transactions() -> None:
     assert set(outcome.created_tags) == {"groceries", "essential", "recurring"}
 
 
-def test_bulk_recategorize_by_merchant_updates_unverified_transactions() -> None:
+def test_recategorize_merchant_updates_unverified_transactions() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
     persist_tool = PersistTool(db, taxonomy)
@@ -251,9 +251,7 @@ def test_bulk_recategorize_by_merchant_updates_unverified_transactions() -> None
     assert txn1.category_id is None
     assert txn2.category_id is None
 
-    updated_count = persist_tool.bulk_recategorize_by_merchant(
-        merchant_id, "food", only_unverified=True
-    )
+    updated_count = persist_tool.recategorize_merchant(merchant_id, "food")
 
     assert updated_count == 2
 
@@ -264,7 +262,7 @@ def test_bulk_recategorize_by_merchant_updates_unverified_transactions() -> None
     assert [t.category_id for t in refreshed_txns] == [category_id, category_id]
 
 
-def test_bulk_recategorize_by_merchant_skips_verified_transactions() -> None:
+def test_recategorize_merchant_skips_verified_transactions() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
     persist_tool = PersistTool(db, taxonomy)
@@ -300,9 +298,7 @@ def test_bulk_recategorize_by_merchant_skips_verified_transactions() -> None:
     category_id = db.get_category_id_by_key("food")
     assert category_id is not None
 
-    updated_count = persist_tool.bulk_recategorize_by_merchant(
-        merchant_id, "food", only_unverified=True
-    )
+    updated_count = persist_tool.recategorize_merchant(merchant_id, "food")
 
     assert updated_count == 1
 
@@ -319,7 +315,7 @@ def test_bulk_recategorize_by_merchant_skips_verified_transactions() -> None:
     assert refreshed_unverified.category_id == category_id
 
 
-def test_bulk_recategorize_by_merchant_raises_for_invalid_category_key() -> None:
+def test_recategorize_merchant_raises_for_invalid_category_key() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
     persist_tool = PersistTool(db, taxonomy)
@@ -342,32 +338,4 @@ def test_bulk_recategorize_by_merchant_raises_for_invalid_category_key() -> None
     import pytest
 
     with pytest.raises(ValueError):
-        persist_tool.bulk_recategorize_by_merchant(merchant_id, "invalid-key")
-
-
-def test_bulk_recategorize_by_merchant_rejects_only_unverified_false() -> None:
-    db = create_db()
-    taxonomy = create_sample_taxonomy(db)
-    persist_tool = PersistTool(db, taxonomy)
-
-    descriptor = "Another Shop"
-    txn = db.insert_transaction(
-        {
-            "external_id": "ext_1",
-            "source": "PLAID",
-            "account_id": "acc_1",
-            "posted_at": date(2024, 1, 15),
-            "amount_cents": 1000,
-            "currency": "USD",
-            "merchant_descriptor": descriptor,
-        }
-    )
-    merchant_id = _get_merchant_id_for_descriptor(db, descriptor)
-    assert txn.category_id is None
-
-    import pytest
-
-    with pytest.raises(ValueError):
-        persist_tool.bulk_recategorize_by_merchant(
-            merchant_id, "food", only_unverified=False
-        )
+        persist_tool.recategorize_merchant(merchant_id, "invalid-key")

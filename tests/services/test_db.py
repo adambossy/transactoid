@@ -580,8 +580,8 @@ def test_attach_tags_skips_duplicates() -> None:
     assert count2 == 0
 
 
-def test_recategorize_unverified_by_merchant() -> None:
-    """Test recategorize_unverified_by_merchant updates unverified transactions."""
+def test_recategorize_merchant() -> None:
+    """Test recategorize_merchant updates unverified transactions."""
     db = create_db()
     create_sample_taxonomy(db)
 
@@ -614,7 +614,7 @@ def test_recategorize_unverified_by_merchant() -> None:
 
     groceries_id = db.get_category_id_by_key("food.groceries")
     assert groceries_id is not None
-    count = db.recategorize_unverified_by_merchant(merchant.merchant_id, groceries_id)
+    count = db.recategorize_merchant(merchant.merchant_id, groceries_id)
 
     assert count == 1
 
