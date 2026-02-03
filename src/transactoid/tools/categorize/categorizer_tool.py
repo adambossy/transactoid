@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from models.transaction import Transaction
 from transactoid.adapters.cache.file_cache import FileCache, stable_key
+from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.utils.yaml import dump_yaml_basic
 
@@ -33,6 +34,9 @@ class CategorizedTransaction:
     revised_category_confidence: float | None = None
     revised_category_rationale: str | None = None
     merchant_summary: str | None = None
+    rule_matched: bool = False
+    rule_name: str | None = None
+    is_verified: bool = False
 
 
 class CategorizationResult(BaseModel):
@@ -56,6 +60,10 @@ class CategorizationResult(BaseModel):
         description="3-5 bullet points summarizing merchant findings from web search",
     )
     citations: list[str] | None = Field(None, description="Web pages used for revision")
+    rule_matched: bool | None = Field(
+        None, description="True if a merchant rule was applied"
+    )
+    rule_name: str | None = Field(None, description="Name of matched merchant rule")
 
 
 class CategorizationResponse(BaseModel):
@@ -185,6 +193,7 @@ class Categorizer:
         model: str = "gpt-5.2",
         file_cache: FileCache | None = None,
         max_concurrency: int = 16,
+        rules_loader: MerchantRulesLoader | None = None,
     ) -> None:
         self._taxonomy = taxonomy
         self._prompt_key = prompt_key
@@ -194,6 +203,12 @@ class Categorizer:
         self._semaphore: asyncio.Semaphore | None = None
         self._logger = CategorizerLogger()
         self._api_logger = CategorizerAPILogger()
+        self._rules_loader = rules_loader
+        self._rules_content: str | None = None
+
+        # Load merchant rules if loader is provided
+        if self._rules_loader is not None:
+            self._rules_content = self._rules_loader.load()
 
         # Initialize promptorium service for version lookup
         storage = FileSystemPromptStorage(find_repo_root())
@@ -407,9 +422,11 @@ class Categorizer:
         taxonomy_text = self._serialize_taxonomy(taxonomy_dict)
         txn_json_str = json.dumps(txn_json_list, ensure_ascii=False, indent=2)
         taxonomy_rules = load_prompt("taxonomy-rules")
+        merchant_rules = self._rules_content or ""
 
         rendered = template.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text)
         rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
+        rendered = rendered.replace("{{MERCHANT_RULES}}", merchant_rules)
         rendered = rendered.replace("{{CTV_JSON}}", txn_json_str)
         return rendered
 
@@ -418,10 +435,12 @@ class Categorizer:
     ) -> str:
         """Create deterministic cache key from transactions and taxonomy."""
         taxonomy_rules = load_prompt("taxonomy-rules")
+        merchant_rules = self._rules_content or ""
         cache_payload = {
             "txns": txn_json_list,
             "taxonomy": taxonomy_dict,
             "taxonomy_rules": taxonomy_rules,
+            "merchant_rules": merchant_rules,
             "model": self._model,
         }
         return stable_key(cache_payload)
@@ -472,6 +491,8 @@ class Categorizer:
                                         {"type": "array", "items": {"type": "string"}},
                                     ]
                                 },
+                                "rule_matched": {"type": ["boolean", "null"]},
+                                "rule_name": {"type": ["string", "null"]},
                             },
                             "required": [
                                 "idx",
@@ -483,6 +504,8 @@ class Categorizer:
                                 "revised_rationale",
                                 "merchant_summary",
                                 "citations",
+                                "rule_matched",
+                                "rule_name",
                             ],
                             "additionalProperties": False,
                         },
@@ -575,6 +598,8 @@ class Categorizer:
         """Build CategorizedTransaction from result and validate category keys."""
         category_key = self._resolve_category_key(result)
         revised_category = self._validate_revised_category(result.revised_category)
+        rule_matched = result.rule_matched is True
+        is_verified = rule_matched  # Auto-verify transactions matching merchant rules
         return CategorizedTransaction(
             txn=txns[result.idx],
             category_key=category_key,
@@ -584,6 +609,9 @@ class Categorizer:
             revised_category_confidence=result.revised_score,
             revised_category_rationale=result.revised_rationale,
             merchant_summary=result.merchant_summary,
+            rule_matched=rule_matched,
+            rule_name=result.rule_name,
+            is_verified=is_verified,
         )
 
     def _resolve_category_key(self, result: CategorizationResult) -> str:
@@ -657,6 +685,9 @@ class Categorizer:
                 "revised_score": cat_txn.revised_category_confidence,
                 "revised_rationale": cat_txn.revised_category_rationale,
                 "merchant_summary": cat_txn.merchant_summary,
+                "rule_matched": cat_txn.rule_matched,
+                "rule_name": cat_txn.rule_name,
+                "is_verified": cat_txn.is_verified,
             }
 
             transaction_pairs.append({"input": input_txn, "output": output})

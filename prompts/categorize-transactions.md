@@ -6,6 +6,8 @@ You will receive a list of credit card transactions formatted as JSON. For each 
 
 Important: 'score' is your initial confidence BEFORE using any tools. Do not update or overwrite 'score' after searching. If your initial confidence is less than 0.7, use your built-in 'web_search' tool to query the web for clues. Use the 'description' as the core of the search query, biasing toward unique tokens over generic provider tokens. When you use web search, include 'revised_category', 'revised_score', 'revised_rationale', 'merchant_summary', and 'citations' that reflect your POST-search reassessment. The 'merchant_summary' should be a markdown-formatted string with 3-5 bullet points (each starting with "- ") summarizing what you learned about this merchant descriptor from the web search—include details like business type, location (if relevant), industry category, or distinguishing characteristics. Keep 'score' as the PRE-search value; never copy 'revised_score' into 'score'. If you used web_search, then 'score' must be < 0.7 and 'revised_*' plus 'merchant_summary' must be non-null. If you did not use web_search, set 'revised_category', 'revised_score', 'revised_rationale', 'merchant_summary', and 'citations' to null.
 
+Merchant Rules: If a transaction matches one of the Merchant Rules below, set `rule_matched` to true and `rule_name` to the rule's name (e.g., "Costco Gas"). When a rule matches, use the rule's specified category with high confidence (score >= 0.95). If no rule matches, set both `rule_matched` and `rule_name` to null.
+
 Keep the input order and align each result by the provided page-relative 'idx'. Choose exactly one category per transaction. Never invent categories; use only those from the taxonomy.
 
 **CRITICAL**: The 'category' field in your JSON response MUST be an exact key from the taxonomy YAML below (e.g., "housing_and_utilities.home_decor"), NOT a constructed key or display name. The taxonomy rules below use human-readable display names (e.g., "Housing & Utilities → Home Decor"), but you must return the corresponding 'key' field from the taxonomy YAML. Always cross-reference the display names in the rules with the 'key' values in the taxonomy.
@@ -19,6 +21,12 @@ Transactions JSON (UTF-8). Begin after the next line with BEGIN_TRANSACTIONS_JSO
 BEGIN_TRANSACTIONS_JSON
 {{CTV_JSON}}
 END_TRANSACTIONS_JSON
+
+## Merchant Rules
+
+The following merchant rules define explicit mappings for specific merchant descriptors. When a transaction matches one of these rules, use the specified category and set `rule_matched` to true with the rule name in `rule_name`. These rules take precedence over general categorization logic.
+
+{{MERCHANT_RULES}}
 
 ## Category Taxonomy Rules
 

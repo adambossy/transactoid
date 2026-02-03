@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, TypeVar
 from transactoid.adapters.cache.file_cache import FileCache
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.db.models import DerivedTransaction as DBTransaction
+from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id
 
@@ -72,12 +73,14 @@ class MigrationTool:
         *,
         confidence_threshold: float = 0.70,
         file_cache: FileCache | None = None,
+        rules_loader: MerchantRulesLoader | None = None,
     ) -> None:
         self._db = db
         self._taxonomy = taxonomy
         self._categorizer = categorizer
         self._confidence_threshold = confidence_threshold
         self._file_cache = file_cache
+        self._rules_loader = rules_loader
 
     @property
     def taxonomy(self) -> Taxonomy:
@@ -185,6 +188,10 @@ class MigrationTool:
                 txn_ids = [t.transaction_id for t in transactions]
                 self._db.reassign_transactions_to_category(txn_ids, fallback_id)
 
+            # Update merchant rules if loader is configured and there's a fallback
+            if self._rules_loader is not None and fallback_key is not None:
+                self._rules_loader.update_category_keys({key: fallback_key})
+
             # Update taxonomy
             new_taxonomy = self._taxonomy.remove_category(key)
 
@@ -235,6 +242,10 @@ class MigrationTool:
 
             # Update database
             self._db.update_category_key(old_key, new_key)
+
+            # Update merchant rules if loader is configured
+            if self._rules_loader is not None:
+                self._rules_loader.update_category_keys({old_key: new_key})
 
             # Update internal reference
             self._taxonomy = new_taxonomy
@@ -316,6 +327,11 @@ class MigrationTool:
                         1 for _, was_verified in all_transactions if was_verified
                     ),
                 )
+
+            # Update merchant rules if loader is configured
+            if self._rules_loader is not None:
+                mappings = dict.fromkeys(source_keys, target_key)
+                self._rules_loader.update_category_keys(mappings)
 
             # Update taxonomy (remove source categories)
             new_taxonomy = self._taxonomy.merge_categories(source_keys, target_key)
