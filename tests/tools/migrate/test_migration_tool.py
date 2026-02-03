@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.db.models import CategoryRow
+from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.migrate.migration_tool import MigrationTool
@@ -461,3 +463,100 @@ def test_split_category_fails_for_existing_target_key() -> None:
 
     assert result.success is False
     assert "already exists" in result.errors[0]
+
+
+# --- Merchant Rules Integration Tests ---
+
+
+def create_rules_file(tmp_path: Path, content: str) -> Path:
+    """Create a merchant rules file with the given content."""
+    rules_path = tmp_path / "merchant-rules.md"
+    rules_path.write_text(content)
+    return rules_path
+
+
+def test_rename_category_updates_merchant_rules(tmp_path: Path) -> None:
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+
+    rules_content = """# Rules
+
+## Rule: Travel Rule
+
+**Category:** `travel`
+
+Travel transactions.
+"""
+    rules_path = create_rules_file(tmp_path, rules_content)
+    rules_loader = MerchantRulesLoader(rules_path)
+
+    tool = MigrationTool(db, taxonomy, categorizer, rules_loader=rules_loader)
+
+    tool.rename_category("travel", "trips")
+
+    updated_content = rules_path.read_text()
+    assert "**Category:** `trips`" in updated_content
+    assert "travel" not in updated_content.replace("Travel", "")
+
+
+def test_remove_category_with_fallback_updates_merchant_rules(tmp_path: Path) -> None:
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+
+    rules_content = """# Rules
+
+## Rule: Restaurants Rule
+
+**Category:** `food.restaurants`
+
+Restaurant transactions.
+"""
+    rules_path = create_rules_file(tmp_path, rules_content)
+    rules_loader = MerchantRulesLoader(rules_path)
+
+    tool = MigrationTool(db, taxonomy, categorizer, rules_loader=rules_loader)
+
+    tool.remove_category("food.restaurants", fallback_key="food.groceries")
+
+    updated_content = rules_path.read_text()
+    assert "**Category:** `food.groceries`" in updated_content
+    assert "`food.restaurants`" not in updated_content
+
+
+def test_merge_categories_updates_merchant_rules(tmp_path: Path) -> None:
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+
+    rules_content = """# Rules
+
+## Rule: Restaurant Rule
+
+**Category:** `food.restaurants`
+
+Restaurant transactions.
+"""
+    rules_path = create_rules_file(tmp_path, rules_content)
+    rules_loader = MerchantRulesLoader(rules_path)
+
+    tool = MigrationTool(db, taxonomy, categorizer, rules_loader=rules_loader)
+
+    tool.merge_categories(["food.restaurants"], "food.groceries")
+
+    updated_content = rules_path.read_text()
+    assert "**Category:** `food.groceries`" in updated_content
+    assert "`food.restaurants`" not in updated_content
+
+
+def test_operations_without_rules_loader_succeed() -> None:
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+
+    tool = MigrationTool(db, taxonomy, categorizer)
+
+    result = tool.rename_category("travel", "trips")
+
+    assert result.success is True
