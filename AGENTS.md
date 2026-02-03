@@ -124,6 +124,14 @@ def test_<unit>_<behavior>():
   - Types: `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`.
   - Example: `feature/add-plaid-sync`, `fix/transaction-dedupe`.
 
+- Commit practices
+  - Keep commits small and focused. Large commits are harder to review, harder to bisect, and harder to revert.
+  - When you have many unstaged changes, analyze the dependency relationships between them. Identify which changes are self-contained and which depend on others.
+  - Commit standalone changes first. If file A can be committed independently but file B depends on changes in file A, commit A before B.
+  - Each commit must leave the repository in a working state. All tests should pass, and the code should be functional. Changes that depend on each other must be committed together.
+  - Group related commits sequentially. If you're making commits A, B, and C where B and C both relate to a feature but A is an unrelated fix, commit in the order A → B → C (not A → B → A-related → C) so the history reads cleanly.
+  - When in doubt, err on the side of smaller commits. A series of five small commits is preferable to one large commit containing the same changes.
+
 - Scale assumptions
   - This app targets a single-user workflow. Do not assume external clients, observability stacks, or production-grade frills by default.
 
