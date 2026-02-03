@@ -1,8 +1,23 @@
 {
-  "schema": 1,
-  "custom_dirs": {
-    "agent-loop": "src/transactoid/prompts/agent-loop",
-    "categorize-transactions": "src/transactoid/prompts/categorize-transactions",
-    "taxonomy-rules": "src/transactoid/prompts/taxonomy-rules"
+  "schema": 2,
+  "prompts": {
+    "agent-loop": {
+      "source_file": "prompts/agent-loop.md",
+      "version_dir": "src/transactoid/prompts/agent-loop",
+      "last_hash": "sha256:68a55f4dc1acb7f4141b7c015d4e839094c7104c14b6a95e80a33465fdec840c",
+      "last_version": 7
+    },
+    "categorize-transactions": {
+      "source_file": "prompts/categorize-transactions.md",
+      "version_dir": "src/transactoid/prompts/categorize-transactions",
+      "last_hash": "sha256:c3474a4042c6d36c4bb72ced289e5ff163c304c07001abc354b1394465f878e3",
+      "last_version": 3
+    },
+    "taxonomy-rules": {
+      "source_file": "prompts/taxonomy-rules.md",
+      "version_dir": "src/transactoid/prompts/taxonomy-rules",
+      "last_hash": "sha256:20e296294d1ad4d9f7ad8954da83784479ad4ad86501440690821d1ba81087fc",
+      "last_version": 1
+    }
   }
 }
