@@ -188,11 +188,7 @@ class DB:
             return {}
 
         with self.session() as session:  # type: Session
-            categories = (
-                session.query(Category)
-                .filter(Category.key.in_(keys))
-                .all()
-            )
+            categories = session.query(Category).filter(Category.key.in_(keys)).all()
             return {cat.key: cat.category_id for cat in categories}
 
     def find_merchant_by_normalized_name(self, normalized_name: str) -> Merchant | None:
