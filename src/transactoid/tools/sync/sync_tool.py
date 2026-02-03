@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -214,7 +215,7 @@ class SyncTool:
     def __init__(
         self,
         plaid_client: PlaidClient,
-        categorizer: Categorizer,
+        categorizer_factory: Callable[[], Categorizer],
         db: DB,
         taxonomy: Taxonomy,
         *,
@@ -225,14 +226,17 @@ class SyncTool:
 
         Args:
             plaid_client: Plaid client instance
-            categorizer: Categorizer instance for LLM-based categorization
+            categorizer_factory: Factory callable that creates a Categorizer on demand.
+                Defers OpenAI client init, promptorium scan, and merchant rule loading
+                until categorization is actually needed.
             db: Database instance for persisting transactions
             taxonomy: Taxonomy instance for transaction categorization
             amazon_csv_dir: Path to Amazon order CSV directory for mutation plugin.
                            Defaults to .transactions/amazon. Pass None to disable.
         """
         self._plaid_client = plaid_client
-        self._categorizer = categorizer
+        self._categorizer_factory = categorizer_factory
+        self._categorizer: Categorizer | None = None
         self._db = db
         self._taxonomy = taxonomy
         self._logger = SyncToolLogger()
@@ -345,6 +349,10 @@ class SyncTool:
             }
             for txn in to_categorize
         ]
+
+        # Lazily initialize categorizer on first use
+        if self._categorizer is None:
+            self._categorizer = self._categorizer_factory()
 
         # Categorize in batches
         categorized = await self._categorizer.categorize(txn_dicts, batch_size=25)
@@ -758,7 +766,7 @@ class SyncTransactionsTool(StandardTool):
     def __init__(
         self,
         plaid_client: PlaidClient,
-        categorizer: Categorizer,
+        categorizer_factory: Callable[[], Categorizer],
         db: DB,
         taxonomy: Taxonomy,
     ) -> None:
@@ -767,13 +775,13 @@ class SyncTransactionsTool(StandardTool):
 
         Args:
             plaid_client: Plaid client instance
-            categorizer: Categorizer instance for LLM-based categorization
+            categorizer_factory: Factory callable that creates a Categorizer on demand
             db: Database instance for persisting transactions
             taxonomy: Taxonomy instance for transaction categorization
         """
         self._sync_tool = SyncTool(
             plaid_client=plaid_client,
-            categorizer=categorizer,
+            categorizer_factory=categorizer_factory,
             db=db,
             taxonomy=taxonomy,
         )
