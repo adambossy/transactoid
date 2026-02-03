@@ -5,7 +5,7 @@
 email:
   # Recipients for the spending report
   recipients:
-    - user@example.com
+    - adambossy@gmail.com
 
   # Sender information
   from_address: "reports@transactoid.com"
