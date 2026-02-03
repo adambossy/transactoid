@@ -25,12 +25,10 @@ async def _run_sync_async(
     db = DB(db_url)
     taxonomy = load_taxonomy_from_db(db)
     plaid_client = PlaidClient.from_env()
-    categorizer = Categorizer(taxonomy)
-
     # SyncTool handles all items, cursor persistence, and Amazon mutations
     sync_tool = SyncTool(
         plaid_client=plaid_client,
-        categorizer=categorizer,
+        categorizer_factory=lambda: Categorizer(taxonomy),
         db=db,
         taxonomy=taxonomy,
     )

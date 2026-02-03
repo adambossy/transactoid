@@ -22,7 +22,6 @@ load_dotenv(override=False)
 db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
 db = DB(db_url)
 taxonomy = load_taxonomy_from_db(db)
-categorizer = Categorizer(taxonomy)
 persist_tool = PersistTool(db, taxonomy)
 
 # Create FastMCP server
@@ -50,7 +49,7 @@ async def sync_transactions(count: int = 250) -> dict[str, Any]:
 
         sync_tool = SyncTool(
             plaid_client=plaid_client,
-            categorizer=categorizer,
+            categorizer_factory=lambda: Categorizer(taxonomy),
             db=db,
             taxonomy=taxonomy,
         )
