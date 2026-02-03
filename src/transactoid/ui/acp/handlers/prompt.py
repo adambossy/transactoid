@@ -308,7 +308,6 @@ class PromptHandler:
             "tag_transactions": "edit",
             "connect_new_account": "other",
             "list_accounts": "fetch",
-            "update_category_for_transaction_groups": "edit",
         }
         return kind_map.get(tool_name, "other")
 

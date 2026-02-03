@@ -125,7 +125,7 @@ class ACPAdapter:
         kind_map: dict[str, ToolCallKind] = {
             "sync_transactions": "fetch",
             "run_sql": "execute",
-            "recategorize_by_merchant": "edit",
+            "recategorize_merchant": "edit",
             "tag_transactions": "edit",
         }
         return kind_map.get(tool_name, "other")

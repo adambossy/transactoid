@@ -368,7 +368,7 @@ class Transactoid:
                 }
 
             try:
-                updated = self._persist_tool.bulk_recategorize_by_merchant(
+                updated = self._persist_tool.recategorize_merchant(
                     merchant_id, category_key
                 )
                 return {

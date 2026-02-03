@@ -308,7 +308,7 @@ class DB:
         """
         return self.update_derived_mutable(transaction_id, data)
 
-    def recategorize_unverified_by_merchant(
+    def recategorize_merchant(
         self,
         merchant_id: int,
         category_id: int,

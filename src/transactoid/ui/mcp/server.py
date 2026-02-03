@@ -88,7 +88,7 @@ def recategorize_merchant(merchant_id: int, category_key: str) -> dict[str, Any]
                 "updated": 0,
             }
 
-        updated_count = persist_tool.bulk_recategorize_by_merchant(
+        updated_count = persist_tool.recategorize_merchant(
             merchant_id=merchant_id, category_key=category_key
         )
 
