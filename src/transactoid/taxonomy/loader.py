@@ -39,8 +39,14 @@ def load_taxonomy_from_db(db: DB) -> Taxonomy:
     return Taxonomy.from_nodes(nodes)
 
 
+_category_id_cache: dict[str, int | None] = {}
+
+
 def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
-    """Get category ID for a key.
+    """Get category ID for a key, with in-process caching.
+
+    Category keys are stable for the process lifetime, so each key is
+    looked up at most once per process.
 
     Args:
         db: Database facade instance
@@ -50,4 +56,16 @@ def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
     Returns:
         Category ID or None if not found
     """
-    return db.get_category_id_by_key(key)
+    if key in _category_id_cache:
+        return _category_id_cache[key]
+    category_id = db.get_category_id_by_key(key)
+    _category_id_cache[key] = category_id
+    return category_id
+
+
+def clear_category_id_cache() -> None:
+    """Clear the in-process category ID cache.
+
+    Useful after taxonomy changes or in tests.
+    """
+    _category_id_cache.clear()
