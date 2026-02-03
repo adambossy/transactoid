@@ -7,13 +7,18 @@
     "transactoid": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "python", "frontends/mcp_server.py"]
+      "args": ["run", "python", "-m", "transactoid.ui.mcp.server"]
     },
     "playwriter": {
       "command": "npx",
       "args": [
         "playwriter"
       ]
+    },
+    "promptorium-python": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "prompts-mcp"]
     }
   }
 }
