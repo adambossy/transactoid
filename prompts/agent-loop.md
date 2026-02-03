@@ -102,15 +102,15 @@ WHERE c.key LIKE 'food.%' AND dt.posted_at >= '2025-01-01';
    - Arguments: none
    - Purpose: Return list of connected accounts with details.
 
-5. **update_category_for_transaction_groups**
-   - Action: `update_category_for_transaction_groups`
-   - Arguments: `filter` (TransactionFilter object), `new_category` (str, exact key from taxonomy)
-   - Purpose: Suggest bulk category update (triggers UI confirmation).
+5. **recategorize_merchant**
+   - Action: `recategorize_merchant`
+   - Arguments: `merchant_id` (int), `category_key` (str, exact key from taxonomy)
+   - Purpose: Recategorize all unverified transactions for a merchant.
 
 6. **tag_transactions**
    - Action: `tag_transactions`
-   - Arguments: `filter` (TransactionFilter object), `tag` (str)
-   - Purpose: Apply custom tag to matching transactions (triggers UI confirmation).
+   - Arguments: `transaction_ids` (list[int]), `tags` (list[str])
+   - Purpose: Apply tags to specific transactions.
 
 #### Database Schema
 <database_schema>
