@@ -52,6 +52,74 @@ transactoid
 # transactoid clear-cache [namespace]
 ```
 
+## Project Conventions
+
+### CLI Framework
+New CLI entry points and any CLI refactors must use Typer. Expose commands via a Typer app; do not hand-roll argparse or custom parsers.
+
+### Environment Loading
+Load environment variables from a `.env` file using `python-dotenv`. Call `load_dotenv(override=False)` once in the CLI entrypoint before command execution; do not override variables that are already set.
+
+### Git Worktrees
+- Always work in a dedicated worktree located in `.worktrees/<branch-name>` unless already in one. Check the current directory path; if not in `.worktrees/`, create a new worktree and switch to its working directory before starting work.
+- Stay inside the worktree for all development work. If you need to switch to main (e.g., to check something), always return to the worktree directory afterward.
+- When instructed to clean up a worktree:
+  1. Ensure the worktree's branch is pushed to remote
+  2. Switch to the main branch worktree
+  3. Remove the worktree using `git worktree remove <path>`
+
+### Git Stacking with Graphite
+- Track branches in the stack using `gt branch track` after creating a new worktree and checking out the branch
+- Before starting work, run `gt sync` to pull remote changes and maintain stack relationships
+- Create atomic changesets: treat each branch as a single logical change with one commit. Use `gt modify -a` to amend existing commits rather than adding new commits
+- Stage and create new stacked branches with `gt create -am "description"` or `gt c -am "description"` for rapid iteration
+- Push stacked changes with `gt submit` or `gt submit --stack` to push all branches in the stack
+- Navigate between branches: use `gt up`/`gt down` for adjacent branches or `gt checkout` for interactive selection
+- When modifying mid-stack branches, Graphite auto-rebases all dependent branches above
+- For concurrent agent work, each agent operates on its own worktree/branch in the stack
+
+### Scale Assumptions
+This app targets a single-user workflow. Do not assume external clients, observability stacks, or production-grade frills by default.
+
+### Error Handling
+Define the root exception `AppError` in `errors.py` and derive specific subtypes per domain. Raise `AppError` subclasses (not bare `Exception`) so the public surface exposes a consistent error taxonomy.
+
+### Logging
+Use loguru for structured logging:
+- Import: `import loguru` and `from loguru import logger`
+- Type hint: `loguru.Logger` (not `Any`)
+- Default instance: Use the pre-configured `logger` object
+- Use `.bind()` to attach contextual data for queryable logs
+- `logger.success()` is available for positive outcomes
+
+Example pattern for separating logging from business logic:
+
+```python
+import loguru
+from loguru import logger
+
+class MyComponentLogger:
+    """Handles all logging for MyComponent with business logic separated."""
+
+    def __init__(self, logger_instance: loguru.Logger = logger) -> None:
+        self._logger = logger_instance
+
+    def operation_start(self, item_count: int, config: str) -> None:
+        """Log operation start with context."""
+        self._logger.bind(
+            item_count=item_count,
+            config=config
+        ).info("Starting operation with {} items (config: {})", item_count, config)
+
+class MyComponent:
+    def __init__(self):
+        self._logger = MyComponentLogger()
+
+    def process(self, items: list) -> None:
+        self._logger.operation_start(len(items), "default")
+        # Business logic here without logging concerns
+```
+
 ## Architecture
 
 ### Three-Layer Structure

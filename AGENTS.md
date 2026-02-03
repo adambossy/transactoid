@@ -91,33 +91,9 @@ def test_<unit>_<behavior>():
 
 ## Purpose
 
-- This section provides coding style guidelines for this repository. It governs how we name things, structure code for readability, and express common boilerplate. It also captures a few project constraints (CLI, env loading). Keep changes minimal and focused; prefer small, intentional diffs.
+- General coding style guidelines that govern naming, structure, readability, and common patterns. Keep changes minimal and focused; prefer small, intentional diffs.
 
-## Project conventions and constraints
-
-- CLI
-  - New CLI entry points and any CLI refactors must use Typer. Expose commands via a Typer app; do not hand-roll argparse or custom parsers.
-
-- Environment loading
-  - Load environment variables from a `.env` file using `python-dotenv`. Call `load_dotenv(override=False)` once in the CLI entrypoint before command execution; do not override variables that are already set.
-
-- Git worktrees
-  - Always work in a dedicated worktree located in `.worktrees/<branch-name>` unless already in one. Check the current directory path; if not in `.worktrees/`, create a new worktree and switch to its working directory before starting work.
-  - Stay inside the worktree for all development work. If you need to switch to main (e.g., to check something), always return to the worktree directory afterward.
-  - When instructed to clean up a worktree:
-    1. Ensure the worktree's branch is pushed to remote
-    2. Switch to the main branch worktree
-    3. Remove the worktree using `git worktree remove <path>`
-
-- Git stacking with Graphite
-  - Track branches in the stack using `gt branch track` after creating a new worktree and checking out the branch
-  - Before starting work, run `gt sync` to pull remote changes and maintain stack relationships
-  - Create atomic changesets: treat each branch as a single logical change with one commit. Use `gt modify -a` to amend existing commits rather than adding new commits
-  - Stage and create new stacked branches with `gt create -am "description"` or `gt c -am "description"` for rapid iteration
-  - Push stacked changes with `gt submit` or `gt submit --stack` to push all branches in the stack
-  - Navigate between branches: use `gt up`/`gt down` for adjacent branches or `gt checkout` for interactive selection
-  - When modifying mid-stack branches, Graphite auto-rebases all dependent branches above
-  - For concurrent agent work, each agent operates on its own worktree/branch in the stack
+## Development workflow
 
 - Branch naming
   - Use `<type>/<description>` format with lowercase and hyphens (kebab-case).
@@ -131,9 +107,6 @@ def test_<unit>_<behavior>():
   - Each commit must leave the repository in a working state. All tests should pass, and the code should be functional. Changes that depend on each other must be committed together.
   - Group related commits sequentially. If you're making commits A, B, and C where B and C both relate to a feature but A is an unrelated fix, commit in the order A → B → C (not A → B → A-related → C) so the history reads cleanly.
   - When in doubt, err on the side of smaller commits. A series of five small commits is preferable to one large commit containing the same changes.
-
-- Scale assumptions
-  - This app targets a single-user workflow. Do not assume external clients, observability stacks, or production-grade frills by default.
 
 - General code quality
   - Prefer small functions with descriptive names; split large nested logic into helpers or modules instead of defining nested functions.
@@ -174,15 +147,15 @@ def test_<unit>_<behavior>():
 - Graceful extension (open–closed)
   - Provide hooks/adapters so behavior can be extended without changing internals.
   - Layer abstractions cleanly (e.g., transport, serialization, error handling).
-  - Define a repository-specific root exception (e.g., `AppError`) in a shared `errors.py` and derive specific subtypes per domain.
-  - Do not raise bare `Exception`. Wrap external exceptions and raise `AppError` subclasses so the public surface exposes a consistent error taxonomy.
-  - When wrapping external exceptions, chain the original using `raise ... from e` to preserve the cause and traceback. For example, raise a domain-specific subclass of `AppError`:
+  - Define a repository-specific root exception and derive specific subtypes per domain.
+  - Do not raise bare `Exception`. Wrap external exceptions so the public surface exposes a consistent error taxonomy.
+  - When wrapping external exceptions, chain the original using `raise ... from e` to preserve the cause and traceback:
 
     ```py
     try:
         do_the_thing()
     except ExternalError as e:
-        raise DomainOperationError("Failed to do the thing") from e
+        raise DomainError("Failed to do the thing") from e
     ```
 
 - Maintainability and process hygiene
@@ -254,60 +227,21 @@ def test_<unit>_<behavior>():
 
 ## Logging
 
-- Use loguru for structured logging
-  - Import: `import loguru` and `from loguru import logger`
-  - Type hint: `loguru.Logger` (not `Any`)
-  - Default instance: Use the pre-configured `logger` object
-
 - Separate logging logic from business logic
-  - Extract logging concerns into a dedicated logger class
+  - Extract logging concerns into a dedicated logger class when logging is non-trivial
   - Keep formatting and presentation logic out of core business methods
-  - Example pattern:
 
-    ```python
-    import loguru
-    from loguru import logger
-
-    class MyComponentLogger:
-        """Handles all logging for MyComponent with business logic separated."""
-
-        def __init__(self, logger_instance: loguru.Logger = logger) -> None:
-            self._logger = logger_instance
-
-        def operation_start(self, item_count: int, config: str) -> None:
-            """Log operation start with context."""
-            self._logger.bind(
-                item_count=item_count,
-                config=config
-            ).info("Starting operation with {} items (config: {})", item_count, config)
-
-        def _format_details(self, items: list) -> str:
-            """Helper to format details for logging."""
-            # Business logic for formatting stays in logger class
-            return f"items: {len(items)}"
-
-    class MyComponent:
-        def __init__(self):
-            self._logger = MyComponentLogger()
-
-        def process(self, items: list) -> None:
-            self._logger.operation_start(len(items), "default")
-            # Business logic here without logging concerns
-    ```
-
-- Use structured logging with bind()
-  - Attach contextual data using `.bind()` for queryable logs
-  - Example: `logger.bind(user_id=123, action="login").info("User logged in")`
+- Use structured logging
+  - Attach contextual data for queryable logs rather than interpolating into message strings
 
 - Choose appropriate log levels
-  - `logger.info()` for normal operations and progress
-  - `logger.debug()` for detailed diagnostic information
-  - `logger.warning()` for recoverable issues
-  - `logger.error()` for errors that need attention
-  - `logger.success()` for positive outcomes (loguru-specific)
+  - INFO for normal operations and progress
+  - DEBUG for detailed diagnostic information
+  - WARNING for recoverable issues
+  - ERROR for errors that need attention
 
 - Avoid print() in production code
   - Use logger methods instead of print statements
-  - Reserve print() only for CLI interaction or testing output
+  - Reserve print() only for CLI user interaction or test output
 
 When in doubt, choose the option that improves local readability for the next reader and keeps the public surface simple and predictable.
