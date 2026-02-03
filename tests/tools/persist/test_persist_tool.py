@@ -46,7 +46,8 @@ def _get_merchant_id_for_descriptor(db: DB, descriptor: str) -> int:
     normalized = normalize_merchant_name(descriptor)
     merchant = db.find_merchant_by_normalized_name(normalized)
     assert merchant is not None
-    return merchant.merchant_id
+    merchant_id: int = merchant.merchant_id
+    return merchant_id
 
 
 def test_apply_tags_creates_tags_and_attaches_to_transactions() -> None:
