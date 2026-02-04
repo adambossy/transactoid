@@ -289,9 +289,7 @@ class SyncTool:
             )
 
         # Sync all items in parallel (each has independent cursor)
-        tasks = [
-            self._sync_item_with_cursor(item, count) for item in plaid_items
-        ]
+        tasks = [self._sync_item_with_cursor(item, count) for item in plaid_items]
         all_results_nested = await asyncio.gather(*tasks)
 
         # Flatten results from all items
@@ -538,6 +536,15 @@ class SyncTool:
             current_cursor = start_cursor
             pages_fetched = 0
 
+            # Get excluded account_id for "CORP Account - JOIA"
+            excluded_account_id = await asyncio.to_thread(
+                self._get_excluded_account_id, access_token
+            )
+            if excluded_account_id:
+                self._logger._logger.debug(
+                    "Filtering transactions from account: {}", excluded_account_id
+                )
+
             try:
                 while True:
                     self._logger.fetch_start(current_cursor or "")
@@ -560,6 +567,24 @@ class SyncTool:
                     self._logger.fetch_complete(
                         len(added), len(modified), len(removed), pages_fetched
                     )
+
+                    # Filter out excluded account if needed
+                    if excluded_account_id:
+                        added = [
+                            t
+                            for t in added
+                            if t.get("account_id") != excluded_account_id
+                        ]
+                        modified = [
+                            t
+                            for t in modified
+                            if t.get("account_id") != excluded_account_id
+                        ]
+                        removed = [
+                            t
+                            for t in removed
+                            if t.get("account_id") != excluded_account_id
+                        ]
 
                     # Accumulate for result building
                     accumulated.added.extend(added)
@@ -815,6 +840,25 @@ class SyncTool:
             and old.posted_at == new_data.get("posted_at")
             and old.merchant_descriptor == new_data.get("merchant_descriptor")
         )
+
+    def _get_excluded_account_id(self, access_token: str) -> str | None:
+        """Get account_id for 'CORP Account - JOIA' if it exists.
+
+        Args:
+            access_token: Plaid access token for the item
+
+        Returns:
+            Account ID if found, None otherwise
+        """
+        try:
+            accounts = self._plaid_client.get_accounts(access_token)
+            for account in accounts:
+                if account.get("name") == "CORP Account - JOIA":
+                    return account["account_id"]
+        except Exception as e:
+            # If we can't fetch accounts, don't filter (fail open)
+            self._logger._logger.debug("Failed to fetch accounts for filtering: {}", e)
+        return None
 
 
 class SyncTransactionsTool(StandardTool):

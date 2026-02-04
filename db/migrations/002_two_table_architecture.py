@@ -11,6 +11,7 @@ Refactor from single transactions table to two tables:
 This enables Amazon transaction splitting (1 Plaid → N derived) and
 preserves user edits during regeneration.
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
