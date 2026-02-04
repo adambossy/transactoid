@@ -27,6 +27,11 @@ dependencies = [
     "resend>=2.0.0",
 ]
 
+[project.optional-dependencies]
+stagehand = [
+    "stagehand>=0.5.9",
+]
+
 [project.scripts]
 transactoid = "transactoid.ui.cli:main"
 
