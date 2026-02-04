@@ -14,31 +14,49 @@ from transactoid.tools.amazon.scraper import ScrapedItem, ScrapedOrder
 class ExtractedItem(BaseModel):
     """Schema for extracting a single item from Amazon order."""
 
+    model_config = {"populate_by_name": True}
+
     asin: str = Field(..., description="Amazon Standard Identification Number")
     description: str = Field(..., description="Item name/description")
-    price_cents: int = Field(..., description="Price in cents (e.g., $49.77 = 4977)")
+    price_cents: int = Field(
+        ..., alias="priceCents", description="Price in cents (e.g., $49.77 = 4977)"
+    )
     quantity: int = Field(default=1, description="Quantity ordered")
 
 
 class ExtractedOrder(BaseModel):
     """Schema for extracting a single Amazon order."""
 
-    order_id: str = Field(..., description="Order ID (e.g., 113-5524816-2451403)")
-    order_date: str = Field(..., description="Order date in YYYY-MM-DD format")
-    order_total_cents: int = Field(..., description="Total in cents")
-    tax_cents: int = Field(default=0, description="Tax amount in cents")
-    shipping_cents: int = Field(default=0, description="Shipping in cents")
+    model_config = {"populate_by_name": True}
+
+    order_id: str = Field(
+        ..., alias="orderId", description="Order ID (e.g., 113-5524816-2451403)"
+    )
+    order_date: str = Field(
+        ..., alias="orderDate", description="Order date in YYYY-MM-DD format"
+    )
+    order_total_cents: int = Field(
+        ..., alias="orderTotalCents", description="Total in cents"
+    )
+    tax_cents: int = Field(
+        default=0, alias="taxCents", description="Tax amount in cents"
+    )
+    shipping_cents: int = Field(
+        default=0, alias="shippingCents", description="Shipping in cents"
+    )
     items: list[ExtractedItem] = Field(default_factory=list, description="Order items")
 
 
 class ExtractedOrders(BaseModel):
     """Schema for extracting multiple orders from a page."""
 
+    model_config = {"populate_by_name": True}
+
     orders: list[ExtractedOrder] = Field(
         default_factory=list, description="List of orders on current page"
     )
     has_next_page: bool = Field(
-        default=False, description="Whether there are more orders"
+        default=False, alias="hasNextPage", description="Whether there are more orders"
     )
 
 
@@ -96,6 +114,12 @@ class StagehandBrowserbaseBackend:
         self._context_id = context_id
         self._persist_context = persist_context
         self._login_mode = login_mode
+        self._collected_orders: list[ScrapedOrder] = []  # Stores partial results
+
+    @property
+    def collected_orders(self) -> list[ScrapedOrder]:
+        """Get orders collected so far (useful for partial recovery on failure)."""
+        return self._collected_orders
 
     @classmethod
     def create_context(
@@ -313,7 +337,8 @@ class StagehandBrowserbaseBackend:
             # Give the orders page time to fully load
             await asyncio.sleep(2)
 
-            all_orders: list[ScrapedOrder] = []
+            # Reset collected orders for this run
+            self._collected_orders = []
             page_num = 0
 
             while True:
@@ -354,11 +379,11 @@ class StagehandBrowserbaseBackend:
                             for item in order.items
                         ],
                     )
-                    all_orders.append(scraped_order)
+                    self._collected_orders.append(scraped_order)
 
                     # Check max_orders limit
-                    if max_orders and len(all_orders) >= max_orders:
-                        return all_orders[:max_orders]
+                    if max_orders and len(self._collected_orders) >= max_orders:
+                        return self._collected_orders[:max_orders]
 
                 # Check for next page
                 if not extracted.has_next_page:
@@ -368,8 +393,9 @@ class StagehandBrowserbaseBackend:
                 print("[Browserbase] Clicking 'Next' button...")
                 await stagehand.page.act("Click the 'Next' pagination button")
 
-            print(f"[Browserbase] Finished. Total orders: {len(all_orders)}")
-            return all_orders
+            total = len(self._collected_orders)
+            print(f"[Browserbase] Finished. Total orders: {total}")
+            return self._collected_orders
 
         finally:
             await stagehand.close()
