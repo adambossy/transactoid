@@ -75,4 +75,3 @@ class AmazonMatcherLogger:
             derived_count,
             plaid_id,
         )
-
