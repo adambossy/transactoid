@@ -18,6 +18,8 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
 from transactoid.adapters.db.models import (
+    AmazonItemDB,
+    AmazonOrderDB,
     Base,
     Category,
     CategoryRow,
@@ -1604,3 +1606,153 @@ class DB:
                     session.add(cat)
                     session.flush()
                     parent_id_map[node.key] = cat.category_id
+
+    # Amazon Order methods
+
+    def upsert_amazon_order(
+        self,
+        order_id: str,
+        order_date: date,
+        order_total_cents: int,
+        tax_cents: int = 0,
+        shipping_cents: int = 0,
+    ) -> AmazonOrderDB:
+        """Upsert an Amazon order.
+
+        Args:
+            order_id: Amazon order ID (e.g., "113-5524816-2451403")
+            order_date: Date of the order
+            order_total_cents: Total amount in cents
+            tax_cents: Tax amount in cents
+            shipping_cents: Shipping amount in cents
+
+        Returns:
+            Created or updated AmazonOrderDB instance
+        """
+        with self.session() as session:  # type: Session
+            order = (
+                session.query(AmazonOrderDB)
+                .filter(AmazonOrderDB.order_id == order_id)
+                .first()
+            )
+
+            if order is None:
+                order = AmazonOrderDB(
+                    order_id=order_id,
+                    order_date=order_date,
+                    order_total_cents=order_total_cents,
+                    tax_cents=tax_cents,
+                    shipping_cents=shipping_cents,
+                )
+                session.add(order)
+            else:
+                order.order_date = order_date
+                order.order_total_cents = order_total_cents
+                order.tax_cents = tax_cents
+                order.shipping_cents = shipping_cents
+                order.updated_at = datetime.now()
+
+            session.flush()
+            session.refresh(order)
+            session.expunge(order)
+            return order
+
+    def upsert_amazon_item(
+        self,
+        order_id: str,
+        asin: str,
+        description: str,
+        price_cents: int,
+        quantity: int = 1,
+    ) -> AmazonItemDB:
+        """Upsert an Amazon item.
+
+        Args:
+            order_id: Amazon order ID this item belongs to
+            asin: Amazon Standard Identification Number
+            description: Item description
+            price_cents: Price per item in cents
+            quantity: Number of items
+
+        Returns:
+            Created or updated AmazonItemDB instance
+        """
+        with self.session() as session:  # type: Session
+            item = (
+                session.query(AmazonItemDB)
+                .filter(
+                    AmazonItemDB.order_id == order_id,
+                    AmazonItemDB.asin == asin,
+                )
+                .first()
+            )
+
+            if item is None:
+                item = AmazonItemDB(
+                    order_id=order_id,
+                    asin=asin,
+                    description=description,
+                    price_cents=price_cents,
+                    quantity=quantity,
+                )
+                session.add(item)
+            else:
+                item.description = description
+                item.price_cents = price_cents
+                item.quantity = quantity
+                item.updated_at = datetime.now()
+
+            session.flush()
+            session.refresh(item)
+            session.expunge(item)
+            return item
+
+    def get_amazon_order(self, order_id: str) -> AmazonOrderDB | None:
+        """Get an Amazon order by ID.
+
+        Args:
+            order_id: Amazon order ID
+
+        Returns:
+            AmazonOrderDB instance or None if not found
+        """
+        with self.session() as session:  # type: Session
+            order = (
+                session.query(AmazonOrderDB)
+                .filter(AmazonOrderDB.order_id == order_id)
+                .first()
+            )
+            if order:
+                session.expunge(order)
+            return order
+
+    def list_amazon_orders(self) -> list[AmazonOrderDB]:
+        """List all Amazon orders.
+
+        Returns:
+            List of AmazonOrderDB instances
+        """
+        with self.session() as session:  # type: Session
+            orders = session.query(AmazonOrderDB).all()
+            for order in orders:
+                session.expunge(order)
+            return orders
+
+    def get_amazon_items_for_order(self, order_id: str) -> list[AmazonItemDB]:
+        """Get all items for an Amazon order.
+
+        Args:
+            order_id: Amazon order ID
+
+        Returns:
+            List of AmazonItemDB instances
+        """
+        with self.session() as session:  # type: Session
+            items = (
+                session.query(AmazonItemDB)
+                .filter(AmazonItemDB.order_id == order_id)
+                .all()
+            )
+            for item in items:
+                session.expunge(item)
+            return items
