@@ -214,7 +214,10 @@ def plaid_serve(
 
 @app.command("scrape-amazon")
 def scrape_amazon(
-    max_orders: int = typer.Option(10, help="Maximum number of orders to scrape"),
+    max_orders: int | None = typer.Option(
+        None, help="Max orders to scrape (all if not set)"
+    ),
+    year: int | None = typer.Option(None, help="Filter orders by year (e.g., 2025)"),
     backend: str = typer.Option(
         "stagehand",
         help="Backend: stagehand (local), stagehand-browserbase (cloud), playwriter",
@@ -284,6 +287,8 @@ def scrape_amazon(
         raise typer.Exit(1)
 
     typer.echo(f"Scraping Amazon orders (backend={backend}, max_orders={max_orders})")
+    if year:
+        typer.echo(f"Filtering by year: {year}")
     if context_id:
         typer.echo(f"Using context: {context_id}")
     if login:
@@ -292,6 +297,7 @@ def scrape_amazon(
     result = scrape_amazon_orders(
         db,
         backend=backend,  # type: ignore[arg-type]
+        year=year,
         max_orders=max_orders,
         context_id=context_id,
         login_mode=login,

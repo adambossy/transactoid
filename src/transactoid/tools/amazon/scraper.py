@@ -146,20 +146,49 @@ def scrape_amazon_orders(
     backend_instance = _get_backend(
         backend, context_id=context_id, login_mode=login_mode
     )
-    orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
 
-    if not orders:
+    orders: list[ScrapedOrder] = []
+    error_message: str | None = None
+
+    try:
+        orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
+    except Exception as e:
+        error_message = str(e)
+        # Try to recover partial results from backend
+        if hasattr(backend_instance, "collected_orders"):
+            orders = backend_instance.collected_orders
+            if orders:
+                print(f"[Scraper] Recovered {len(orders)} orders before failure")
+
+    # Persist whatever we collected (even on partial failure)
+    if orders:
+        counts = _persist_orders(db, orders)
+        if error_message:
+            msg = f"Scraped {len(orders)} orders before error: {error_message}"
+            return {
+                "status": "partial",
+                "message": msg,
+                **counts,
+            }
+        return {
+            "status": "success",
+            **counts,
+        }
+
+    # No orders at all
+    if error_message:
         return {
             "status": "error",
-            "message": "Scraper did not return any results",
+            "message": error_message,
             "orders_created": 0,
             "items_created": 0,
         }
 
-    counts = _persist_orders(db, orders)
     return {
-        "status": "success",
-        **counts,
+        "status": "error",
+        "message": "Scraper did not return any results",
+        "orders_created": 0,
+        "items_created": 0,
     }
 
 
