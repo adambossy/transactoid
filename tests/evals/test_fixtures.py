@@ -41,6 +41,19 @@ def _load_full_taxonomy(db: DB) -> Taxonomy:
     return load_taxonomy_from_db(db)
 
 
+def _fetch_required_scalar(result: object) -> int:
+    """Fetch first-column integer from a query result, asserting presence."""
+    if not hasattr(result, "fetchone"):
+        raise TypeError(f"Expected SQL result with fetchone(); got {type(result)}")
+    row = result.fetchone()
+    if row is None:
+        raise AssertionError("Expected query to return one row")
+    value = row[0]
+    if not isinstance(value, int):
+        raise AssertionError(f"Expected int scalar result; got {type(value).__name__}")
+    return value
+
+
 def test_last_month_spending_fixture_builds_correctly() -> None:
     """Test last_month_spending fixture populates DB with correct totals."""
     # Setup
@@ -58,13 +71,13 @@ def test_last_month_spending_fixture_builds_correctly() -> None:
 
     # Assert - total count
     count_result = db.execute_raw_sql("SELECT COUNT(*) FROM derived_transactions")
-    actual_count = count_result.fetchone()[0]
+    actual_count = _fetch_required_scalar(count_result)
     assert actual_count == expected_count
 
     # Assert - total amount
     sql = "SELECT SUM(amount_cents) FROM derived_transactions"
     sum_result = db.execute_raw_sql(sql)
-    actual_total_cents = sum_result.fetchone()[0]
+    actual_total_cents = _fetch_required_scalar(sum_result)
     assert actual_total_cents == expected_total_cents
 
 
@@ -89,7 +102,7 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key LIKE 'food_and_dining.%'
     """)
-    actual_food_cents = food_result.fetchone()[0]
+    actual_food_cents = _fetch_required_scalar(food_result)
     assert actual_food_cents == expected_food_total_cents
 
     # Assert - groceries
@@ -99,7 +112,7 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key = 'food_and_dining.groceries'
     """)
-    actual_groceries_cents = groceries_result.fetchone()[0]
+    actual_groceries_cents = _fetch_required_scalar(groceries_result)
     assert actual_groceries_cents == expected_groceries_cents
 
     # Assert - restaurants
@@ -109,7 +122,7 @@ def test_last_month_spending_food_totals_match_ground_truth() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key = 'food_and_dining.restaurants'
     """)
-    actual_restaurants_cents = restaurants_result.fetchone()[0]
+    actual_restaurants_cents = _fetch_required_scalar(restaurants_result)
     assert actual_restaurants_cents == expected_restaurants_cents
 
 
@@ -132,7 +145,7 @@ def test_last_month_spending_transportation_total_matches() -> None:
         JOIN categories c ON dt.category_id = c.category_id
         WHERE c.key LIKE 'transportation_and_auto.%'
     """)
-    actual_cents = result.fetchone()[0]
+    actual_cents = _fetch_required_scalar(result)
     assert actual_cents == expected_cents
 
 
@@ -155,7 +168,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
         FROM derived_transactions
         WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
-    actual_count = count_result.fetchone()[0]
+    actual_count = _fetch_required_scalar(count_result)
     assert actual_count == expected_count
 
     # Assert - total
@@ -164,7 +177,7 @@ def test_last_month_spending_date_range_totals_match() -> None:
         FROM derived_transactions
         WHERE posted_at >= '2025-11-01' AND posted_at <= '2025-11-15'
     """)
-    actual_cents = sum_result.fetchone()[0]
+    actual_cents = _fetch_required_scalar(sum_result)
     assert actual_cents == expected_cents
 
 
