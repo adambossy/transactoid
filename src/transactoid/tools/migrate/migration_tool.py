@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from transactoid.adapters.cache.file_cache import FileCache
 from transactoid.adapters.db.facade import DB
@@ -20,10 +20,10 @@ if TYPE_CHECKING:
         Categorizer,
     )
 
-T = TypeVar("T")
 
-
-def _run_async_safely(coro: Coroutine[object, object, T]) -> T:
+def _run_async_safely(
+    coro: Coroutine[object, object, list[CategorizedTransaction]],
+) -> list[CategorizedTransaction]:
     """
     Run an async coroutine from sync code, handling nested event loops.
 
