@@ -6,8 +6,9 @@
 
 Skips entire paths that only contain generated or third-party code so they do not pollute the report.
 
-Current project excludes include `.venv/` and `.worktrees/` so local environments
-and auxiliary worktrees are not analyzed.
+Current project excludes include `.venv/`, `.worktrees/`, and migration
+directories (`db/migrations/`, `**/migrations/**`) so local environments,
+auxiliary worktrees, and framework migration files are not analyzed.
 
 **Without (`docs/` not excluded)**
 
