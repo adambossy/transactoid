@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 from typing import Any
 
@@ -153,12 +154,13 @@ class StagehandBrowserbaseBackend:
             ValueError: If API credentials are missing.
         """
         try:
-            from browserbase import Browserbase  # type: ignore[import-untyped]
+            browserbase_module = importlib.import_module("browserbase")
         except ImportError as e:
             raise ImportError(
                 "browserbase package not installed. "
                 "Install with: pip install browserbase"
             ) from e
+        browserbase_class = browserbase_module.Browserbase
 
         api_key = browserbase_api_key or os.getenv("BROWSERBASE_API_KEY", "")
         project_id = browserbase_project_id or os.getenv("BROWSERBASE_PROJECT_ID", "")
@@ -168,7 +170,7 @@ class StagehandBrowserbaseBackend:
         if not project_id:
             raise ValueError("BROWSERBASE_PROJECT_ID is required")
 
-        client = Browserbase(api_key=api_key)
+        client = browserbase_class(api_key=api_key)
         context = client.contexts.create(project_id=project_id)
         return str(context.id)
 
@@ -203,9 +205,10 @@ class StagehandBrowserbaseBackend:
             # Check if we're already in an async context
             loop = asyncio.get_running_loop()
             # Already in async context - use nest_asyncio to allow nested loops
-            import nest_asyncio  # type: ignore[import-untyped]
-
-            nest_asyncio.apply()
+            nest_asyncio_module = importlib.import_module("nest_asyncio")
+            apply = getattr(nest_asyncio_module, "apply", None)
+            if callable(apply):
+                apply()
             return loop.run_until_complete(
                 self._scrape_order_history_async(year=year, max_orders=max_orders)
             )
@@ -230,14 +233,13 @@ class StagehandBrowserbaseBackend:
             List of ScrapedOrder objects.
         """
         try:
-            from stagehand import (  # type: ignore[import-untyped]
-                Stagehand,
-                StagehandConfig,
-            )
+            stagehand_module = importlib.import_module("stagehand")
         except ImportError as e:
             raise ImportError(
                 "Stagehand is not installed. Install with: pip install stagehand"
             ) from e
+        stagehand_class = stagehand_module.Stagehand
+        stagehand_config_class = stagehand_module.StagehandConfig
 
         if not self._browserbase_api_key:
             raise ValueError(
@@ -262,7 +264,7 @@ class StagehandBrowserbaseBackend:
                 }
             }
 
-        config = StagehandConfig(
+        config = stagehand_config_class(
             env="BROWSERBASE",
             apiKey=self._browserbase_api_key,
             projectId=self._browserbase_project_id,
@@ -271,7 +273,7 @@ class StagehandBrowserbaseBackend:
             browserbaseSessionCreateParams=session_create_params,
         )
 
-        stagehand = Stagehand(config)
+        stagehand = stagehand_class(config)
         await stagehand.init()
 
         # Log session URL for debugging
