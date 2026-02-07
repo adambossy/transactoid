@@ -51,7 +51,7 @@ To address these gaps, I've created three comprehensive migration documents:
 - **Special focus**: How `services/db.py` splits into:
   - `infrastructure/db/models.py` (pure ORM schema)
   - `infrastructure/db/facade.py` (refactored service layer)
-- **Solution to circular dependency**: 
+- **Solution to circular dependency**:
   - Remove `Taxonomy.from_db()` and `Taxonomy.category_id_for_key()`
   - Refactor `DB.save_transactions()` to accept injected `category_lookup` callback
   - Create **new `taxonomy/loader.py`** as the single bridge between Taxonomy and DB
@@ -319,4 +319,3 @@ The original REORGANIZATION_PLAN.md had the right direction but was incomplete. 
 The proposed solution maintains the original plan's good principles while addressing the critical gaps, providing a complete, executable roadmap for reorganization with no circular dependencies.
 
 **Estimated total effort**: 4-5 hours for full migration with testing, or staged approach for lower risk.
-

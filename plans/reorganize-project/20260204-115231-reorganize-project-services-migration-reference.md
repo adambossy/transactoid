@@ -40,9 +40,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict
-from sqlalchemy import (TIMESTAMP, Boolean, Date, ForeignKey, Integer, String, Text, 
+from sqlalchemy import (TIMESTAMP, Boolean, Date, ForeignKey, Integer, String, Text,
                         UniqueConstraint, create_engine, text)
-from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, mapped_column, 
+from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, mapped_column,
                             relationship, sessionmaker)
 ```
 
@@ -96,7 +96,7 @@ from datetime import date, datetime
 import re
 from typing import Any, TypeVar, cast
 
-from sqlalchemy import (TIMESTAMP, Boolean, Date, ForeignKey, Integer, String, Text, 
+from sqlalchemy import (TIMESTAMP, Boolean, Date, ForeignKey, Integer, String, Text,
                         UniqueConstraint, case, create_engine, text)
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import (Session, sessionmaker)
@@ -246,13 +246,13 @@ from src.transactoid.infrastructure.db.facade import DB
 
 def load_taxonomy_from_db(db: DB) -> Taxonomy:
     """Load taxonomy from database.
-    
+
     Args:
         db: Database facade instance
-        
+
     Returns:
         Constructed Taxonomy object
-        
+
     Raises:
         Exception: If database fetch fails
     """
@@ -282,15 +282,15 @@ def load_taxonomy_from_db(db: DB) -> Taxonomy:
 
 def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
     """Look up category ID from DB using Taxonomy validation.
-    
+
     This method replaces Taxonomy.category_id_for_key(self, db).
     Now it's explicit: you need both Taxonomy AND DB together.
-    
+
     Args:
         db: Database facade instance
         taxonomy: Taxonomy instance (used for key validation)
         key: Category key to look up
-        
+
     Returns:
         Category ID or None if key is invalid or not found
     """
@@ -532,4 +532,3 @@ Assuming systematic, tested migration:
 9. **Test run**: 10 min (`pytest`, `ruff`, `mypy`, etc.)
 
 **Total**: ~3-4 hours for complete, tested migration.
-

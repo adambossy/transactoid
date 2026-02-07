@@ -38,9 +38,9 @@ class PlaidItem(Base): ...
 
 **What imports it needs**:
 ```python
-from sqlalchemy import (TIMESTAMP, Boolean, Date, ForeignKey, Integer, String, Text, 
+from sqlalchemy import (TIMESTAMP, Boolean, Date, ForeignKey, Integer, String, Text,
                         UniqueConstraint, case, create_engine, text)
-from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, mapped_column, 
+from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, mapped_column,
                             relationship, sessionmaker)
 ```
 
@@ -153,10 +153,10 @@ from src.transactoid.taxonomy.core import Taxonomy, CategoryNode
 
 def load_taxonomy_from_db(db: DB) -> Taxonomy:
     """Load taxonomy from database.
-    
+
     Args:
         db: Database facade instance
-        
+
     Returns:
         Constructed Taxonomy object
     """
@@ -166,11 +166,11 @@ def load_taxonomy_from_db(db: DB) -> Taxonomy:
             key=str(row["key"]),
             name=str(row["name"]),
             description=(
-                None if row.get("description") is None 
+                None if row.get("description") is None
                 else str(row["description"])
             ),
             parent_key=(
-                None if row.get("parent_key") is None 
+                None if row.get("parent_key") is None
                 else str(row["parent_key"])
             ),
         )
@@ -183,16 +183,16 @@ def load_taxonomy_from_db(db: DB) -> Taxonomy:
 
 def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
     """Look up category ID from DB using key.
-    
+
     This is the inverse of DB's get_category_id_by_key():
     - DB knows how to fetch by key
     - This function knows how to use Taxonomy + DB together
-    
+
     Args:
         db: Database facade
         taxonomy: Taxonomy instance (unused directly, but validates key)
         key: Category key to look up
-        
+
     Returns:
         Category ID or None if not found
     """
@@ -281,7 +281,7 @@ src/transactoid/
 ├── models/transaction.py           → (nothing)
 │   ├── Transaction (TypedDict)
 │   └── PersonalFinanceCategory (TypedDict)
-│   
+│  
 ├── core/
 │   └── errors.py                   → models/
 │
@@ -502,4 +502,3 @@ YAML utils are pure utility functions with no infrastructure dependencies:
 - **Import consistency**: Package name stays `transactoid` (moving to `src/` is transparent after pyproject.toml update)
 - **Alembic migrations**: Update import in `alembic/env.py` to use new DB path
 - **Circular imports resolved**: No TYPE_CHECKING tricks needed; clear one-directional flow
-
