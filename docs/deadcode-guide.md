@@ -6,6 +6,9 @@
 
 Skips entire paths that only contain generated or third-party code so they do not pollute the report.
 
+Current project excludes include `.venv/` and `.worktrees/` so local environments
+and auxiliary worktrees are not analyzed.
+
 **Without (`docs/` not excluded)**
 
 ```shell
@@ -136,4 +139,3 @@ class User(BaseModel):
 $ deadcode app/models/user.py
 Well done! ✨ 🚀 ✨
 ```
-
