@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import Mock, patch
-
-import pytest
 
 from transactoid.ui.markdown_renderer import MarkdownStreamRenderer
 from transactoid.ui.stream_renderer import StreamRenderer
@@ -100,9 +99,7 @@ def test_markdown_renderer_handles_incomplete_markdown() -> None:
         renderer.on_output_text(sample)
 
 
-def test_markdown_renderer_fallback_when_no_tty(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_markdown_renderer_fallback_when_no_tty(monkeypatch: Any) -> None:
     """Renderer should fallback to plain text when not TTY."""
     # Input
     monkeypatch.setenv("NO_COLOR", "1")
@@ -172,7 +169,7 @@ def test_markdown_renderer_cleans_up_on_turn_end() -> None:
     # Expected
     expected_mode = False
     expected_live = None
-    expected_buffer = []
+    expected_buffer: list[str] = []
 
     # Assert
     assert renderer._in_markdown_mode == expected_mode
