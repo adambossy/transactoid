@@ -3,14 +3,29 @@
 from __future__ import annotations
 
 from datetime import date
-
-import pytest
+from pathlib import Path
+from typing import TypedDict
 
 from transactoid.adapters.db.facade import DB
 
 
-@pytest.fixture
-def db(tmp_path):
+class AmazonOrderInput(TypedDict):
+    order_id: str
+    order_date: date
+    order_total_cents: int
+    tax_cents: int
+    shipping_cents: int
+
+
+class AmazonItemInput(TypedDict):
+    order_id: str
+    asin: str
+    description: str
+    price_cents: int
+    quantity: int
+
+
+def create_db(tmp_path: Path) -> DB:
     """Create a test database."""
     db_path = tmp_path / "test.db"
     db = DB(f"sqlite:///{db_path}")
@@ -21,8 +36,9 @@ def db(tmp_path):
 class TestAmazonOrderDB:
     """Tests for AmazonOrderDB model and upsert methods."""
 
-    def test_upsert_amazon_order_creates_new_order(self, db: DB) -> None:
-        input_data = {
+    def test_upsert_amazon_order_creates_new_order(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
+        input_data: AmazonOrderInput = {
             "order_id": "112-5793878-2607402",
             "order_date": date(2024, 1, 15),
             "order_total_cents": 3927,
@@ -38,7 +54,8 @@ class TestAmazonOrderDB:
         assert order.tax_cents == input_data["tax_cents"]
         assert order.shipping_cents == input_data["shipping_cents"]
 
-    def test_upsert_amazon_order_updates_existing_order(self, db: DB) -> None:
+    def test_upsert_amazon_order_updates_existing_order(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -62,7 +79,8 @@ class TestAmazonOrderDB:
         assert updated_order.tax_cents == 400
         assert updated_order.shipping_cents == 100
 
-    def test_get_amazon_order_returns_order(self, db: DB) -> None:
+    def test_get_amazon_order_returns_order(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -77,12 +95,14 @@ class TestAmazonOrderDB:
         assert order is not None
         assert order.order_id == order_id
 
-    def test_get_amazon_order_returns_none_for_missing(self, db: DB) -> None:
+    def test_get_amazon_order_returns_none_for_missing(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         order = db.get_amazon_order("nonexistent-order")
 
         assert order is None
 
-    def test_list_amazon_orders_returns_all_orders(self, db: DB) -> None:
+    def test_list_amazon_orders_returns_all_orders(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         db.upsert_amazon_order(
             order_id="order-1",
             order_date=date(2024, 1, 15),
@@ -104,13 +124,14 @@ class TestAmazonOrderDB:
 class TestAmazonItemDB:
     """Tests for AmazonItemDB model and upsert methods."""
 
-    def test_upsert_amazon_item_creates_new_item(self, db: DB) -> None:
+    def test_upsert_amazon_item_creates_new_item(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         db.upsert_amazon_order(
             order_id="112-5793878-2607402",
             order_date=date(2024, 1, 15),
             order_total_cents=3927,
         )
-        input_data = {
+        input_data: AmazonItemInput = {
             "order_id": "112-5793878-2607402",
             "asin": "B0725BK81G",
             "description": "Gillette Mach3 Turbo Men's Razor Blade Refill Cartridges",
@@ -126,7 +147,8 @@ class TestAmazonItemDB:
         assert item.price_cents == input_data["price_cents"]
         assert item.quantity == input_data["quantity"]
 
-    def test_upsert_amazon_item_updates_existing_item(self, db: DB) -> None:
+    def test_upsert_amazon_item_updates_existing_item(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         order_id = "112-5793878-2607402"
         asin = "B0725BK81G"
         db.upsert_amazon_order(
@@ -156,7 +178,8 @@ class TestAmazonItemDB:
         assert updated_item.price_cents == 4000
         assert updated_item.quantity == 2
 
-    def test_get_amazon_items_for_order_returns_items(self, db: DB) -> None:
+    def test_get_amazon_items_for_order_returns_items(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -183,8 +206,9 @@ class TestAmazonItemDB:
         assert asins == {"ASIN1", "ASIN2"}
 
     def test_get_amazon_items_for_order_returns_empty_for_no_items(
-        self, db: DB
+        self, tmp_path: Path
     ) -> None:
+        db = create_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -196,7 +220,8 @@ class TestAmazonItemDB:
 
         assert items == []
 
-    def test_unique_constraint_order_asin(self, db: DB) -> None:
+    def test_unique_constraint_order_asin(self, tmp_path: Path) -> None:
+        db = create_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
