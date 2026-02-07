@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 from typing import Any
 
@@ -84,9 +85,10 @@ class StagehandLocalBackend:
             # Check if we're already in an async context
             loop = asyncio.get_running_loop()
             # Already in async context - use nest_asyncio to allow nested loops
-            import nest_asyncio  # type: ignore[import-untyped]
-
-            nest_asyncio.apply()
+            nest_asyncio_module = importlib.import_module("nest_asyncio")
+            apply = getattr(nest_asyncio_module, "apply", None)
+            if callable(apply):
+                apply()
             return loop.run_until_complete(
                 self._scrape_order_history_async(year=year, max_orders=max_orders)
             )
@@ -111,26 +113,25 @@ class StagehandLocalBackend:
             List of ScrapedOrder objects.
         """
         try:
-            from stagehand import (  # type: ignore[import-untyped]
-                Stagehand,
-                StagehandConfig,
-            )
+            stagehand_module = importlib.import_module("stagehand")
         except ImportError as e:
             raise ImportError(
                 "Stagehand is not installed. Install with: pip install stagehand"
             ) from e
+        stagehand_class = stagehand_module.Stagehand
+        stagehand_config_class = stagehand_module.StagehandConfig
 
         print(f"[Stagehand] Initializing with model: {self._model_name}")
         print(f"[Stagehand] API key configured: {bool(self._model_api_key)}")
 
-        config = StagehandConfig(
+        config = stagehand_config_class(
             env="LOCAL",
             model_name=self._model_name,
             model_api_key=self._model_api_key,
             headless=False,  # Show browser for authentication
         )
 
-        stagehand = Stagehand(config)
+        stagehand = stagehand_class(config)
         print("[Stagehand] Config created, initializing browser...")
         await stagehand.init()
         print("[Stagehand] Browser initialized successfully")
