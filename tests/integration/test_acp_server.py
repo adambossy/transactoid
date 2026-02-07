@@ -12,8 +12,6 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from transactoid.ui.acp.handlers.initialize import handle_initialize
 from transactoid.ui.acp.handlers.prompt import PromptHandler
 from transactoid.ui.acp.handlers.session import SessionManager, handle_session_new
@@ -33,13 +31,11 @@ def _run_async(coro: Any) -> Any:
 class TestACPServerFullFlow:
     """Integration tests for full ACP server flow."""
 
-    @pytest.fixture  # type: ignore[misc]
-    def session_manager(self) -> SessionManager:
+    def _create_session_manager(self) -> SessionManager:
         """Create a fresh SessionManager for each test."""
         return SessionManager()
 
-    @pytest.fixture  # type: ignore[misc]
-    def router(self, session_manager: SessionManager) -> RequestRouter:
+    def _create_router(self, session_manager: SessionManager) -> RequestRouter:
         """Create a router with all handlers registered."""
         router = RequestRouter()
 
@@ -56,10 +52,10 @@ class TestACPServerFullFlow:
 
     def test_full_flow_initialize_to_session_creation(
         self,
-        router: RequestRouter,
-        session_manager: SessionManager,
     ) -> None:
         """Test initialize → session/new flow through router."""
+        session_manager = self._create_session_manager()
+        router = self._create_router(session_manager)
 
         async def run_flow() -> tuple[dict[str, Any], dict[str, Any]]:
             # Step 1: Initialize
@@ -89,9 +85,9 @@ class TestACPServerFullFlow:
 
     def test_full_flow_with_prompt_and_updates(
         self,
-        session_manager: SessionManager,
     ) -> None:
         """Test full flow: init → new → prompt with streaming updates."""
+        session_manager = self._create_session_manager()
         mock_stdout = io.StringIO()
         transport = StdioTransport()
         notifier = UpdateNotifier(transport)
@@ -186,9 +182,9 @@ class TestACPServerFullFlow:
 
     def test_full_flow_with_tool_call(
         self,
-        session_manager: SessionManager,
     ) -> None:
         """Test full flow with tool call: init → new → prompt with tool."""
+        session_manager = self._create_session_manager()
         mock_stdout = io.StringIO()
         transport = StdioTransport()
         notifier = UpdateNotifier(transport)
