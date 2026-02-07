@@ -30,17 +30,6 @@ class JudgeResult:
     overall_score: float  # average of all criteria
     passed: bool  # overall_score >= 0.80
 
-    @property
-    def all_scores(self) -> dict[str, float]:
-        """Return all criterion scores as a dict."""
-        return {
-            "numerical_consistency": self.numerical_consistency.score,
-            "conciseness": self.conciseness.score,
-            "use_of_tables": self.use_of_tables.score,
-            "accurate_formatting": self.accurate_formatting.score,
-            "snide_personality": self.snide_personality.score,
-        }
-
 
 class LLMJudge:
     """LLM-based evaluator for agent responses."""
