@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 import uuid
 
-from chatkit.store import Store
 from chatkit.types import Page, ThreadItem, ThreadMetadata
 
+if TYPE_CHECKING:
 
-class SimpleInMemoryStore(Store[Any]):
+    class _StoreBase:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None: ...
+
+else:
+    from chatkit.store import Store as _StoreBase
+
+
+class SimpleInMemoryStore(_StoreBase):
     """Simple in-memory store implementation for ChatKit."""
 
     def __init__(self) -> None:
