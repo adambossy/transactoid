@@ -23,7 +23,11 @@ def _capture_notification(notifier_call: Any) -> dict[str, Any]:
         asyncio.run(run())
 
     output = mock_stdout.getvalue()
-    return json.loads(output.strip())
+    parsed: Any = json.loads(output.strip())
+    if not isinstance(parsed, dict):
+        msg = f"Expected notification payload dict; got {type(parsed).__name__}"
+        raise TypeError(msg)
+    return parsed
 
 
 class TestUpdateNotifierToolCall:
