@@ -13,19 +13,17 @@ class TestScrapedItem:
     """Tests for ScrapedItem Pydantic model."""
 
     def test_scraped_item_creation(self) -> None:
-        input_data = {
-            "asin": "B0725BK81G",
-            "description": "Gillette Mach3 Turbo Men's Razor",
-            "price_cents": 3797,
-            "quantity": 1,
-        }
+        item = ScrapedItem(
+            asin="B0725BK81G",
+            description="Gillette Mach3 Turbo Men's Razor",
+            price_cents=3797,
+            quantity=1,
+        )
 
-        item = ScrapedItem(**input_data)
-
-        assert item.asin == input_data["asin"]
-        assert item.description == input_data["description"]
-        assert item.price_cents == input_data["price_cents"]
-        assert item.quantity == input_data["quantity"]
+        assert item.asin == "B0725BK81G"
+        assert item.description == "Gillette Mach3 Turbo Men's Razor"
+        assert item.price_cents == 3797
+        assert item.quantity == 1
 
     def test_scraped_item_serialization(self) -> None:
         item = ScrapedItem(
@@ -50,29 +48,27 @@ class TestScrapedOrder:
     """Tests for ScrapedOrder Pydantic model."""
 
     def test_scraped_order_creation(self) -> None:
-        input_data = {
-            "order_id": "112-5793878-2607402",
-            "order_date": "2024-01-15",
-            "order_total_cents": 3927,
-            "tax_cents": 320,
-            "shipping_cents": 0,
-            "items": [
-                {
-                    "asin": "B0725BK81G",
-                    "description": "Test item",
-                    "price_cents": 3797,
-                    "quantity": 1,
-                }
+        order = ScrapedOrder(
+            order_id="112-5793878-2607402",
+            order_date="2024-01-15",
+            order_total_cents=3927,
+            tax_cents=320,
+            shipping_cents=0,
+            items=[
+                ScrapedItem(
+                    asin="B0725BK81G",
+                    description="Test item",
+                    price_cents=3797,
+                    quantity=1,
+                )
             ],
-        }
+        )
 
-        order = ScrapedOrder(**input_data)
-
-        assert order.order_id == input_data["order_id"]
-        assert order.order_date == input_data["order_date"]
-        assert order.order_total_cents == input_data["order_total_cents"]
-        assert order.tax_cents == input_data["tax_cents"]
-        assert order.shipping_cents == input_data["shipping_cents"]
+        assert order.order_id == "112-5793878-2607402"
+        assert order.order_date == "2024-01-15"
+        assert order.order_total_cents == 3927
+        assert order.tax_cents == 320
+        assert order.shipping_cents == 0
         assert len(order.items) == 1
         assert order.items[0].asin == "B0725BK81G"
 
