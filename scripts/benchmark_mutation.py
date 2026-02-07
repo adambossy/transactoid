@@ -9,8 +9,10 @@ import time
 from transactoid.adapters.amazon import (
     AmazonItemsCSVLoader,
     AmazonOrdersCSVLoader,
-    OrderAmountIndex,
+    is_amazon_transaction,
 )
+from transactoid.adapters.amazon.order_index import AmazonOrderIndex
+from transactoid.adapters.amazon.splitter import split_order_to_derived
 from transactoid.adapters.db.facade import DB
 
 
@@ -49,18 +51,13 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
     start = time.monotonic()
     amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
     amazon_items = AmazonItemsCSVLoader(items_csv).load()
-    order_index = OrderAmountIndex(amazon_orders)
+    order_index = AmazonOrderIndex(amazon_orders, amazon_items)
     csv_load_ms = (time.monotonic() - start) * 1000
 
     # Benchmark individual DB reads
     db_read_total_ms = 0.0
     amazon_reconcile_ms = 0.0
     amazon_count = 0
-
-    from transactoid.adapters.amazon import (
-        create_split_derived_transactions,
-        is_amazon_transaction,
-    )
 
     for plaid_id in plaid_ids:
         # Time DB reads
@@ -71,8 +68,23 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
 
         if plaid_txn and is_amazon_transaction(plaid_txn.merchant_descriptor):
             amazon_count += 1
+            matching_order = next(
+                (
+                    order
+                    for order in amazon_orders.values()
+                    if order.order_total_cents == plaid_txn.amount_cents
+                ),
+                None,
+            )
+            if matching_order is None:
+                continue
+
             start = time.monotonic()
-            _ = create_split_derived_transactions(plaid_txn, order_index, amazon_items)
+            _ = split_order_to_derived(
+                plaid_txn,
+                matching_order,
+                order_index.get_items(matching_order.order_id),
+            )
             amazon_reconcile_ms += (time.monotonic() - start) * 1000
 
     db_read_avg = db_read_total_ms / len(plaid_ids) if plaid_ids else 0
