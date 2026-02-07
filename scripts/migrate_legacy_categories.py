@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 import typer
 import yaml
 
-from transactoid.adapters.db.facade import DB, CategoryRow
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import CategoryRow
 
 app = typer.Typer(
     help=(
@@ -256,7 +257,6 @@ def _print_preview(
         typer.echo(f"  • {code} → {key}")
 
 
-@app.command("migrate")
 def migrate_command(
     input_path: Path = INPUT_PATH_OPTION,
     output_yaml: Path | None = OUTPUT_YAML_OPTION,
@@ -292,6 +292,9 @@ def migrate_command(
         typer.echo("Dry run only (database not touched).")
 
     _print_preview(key_by_code, rows)
+
+
+app.command("migrate")(migrate_command)
 
 
 def main() -> None:

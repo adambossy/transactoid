@@ -8,7 +8,8 @@ from typing import TypedDict, cast
 
 from yaml import safe_load
 
-from transactoid.adapters.db.facade import DB, CategoryRow
+from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import CategoryRow
 
 
 class RawCategoryRecord(TypedDict, total=False):
