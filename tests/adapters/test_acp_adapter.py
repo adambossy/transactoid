@@ -24,21 +24,15 @@ class MockTool:
         result: dict[str, Any] | None = None,
         raises: Exception | None = None,
     ) -> None:
-        self._name = name
+        self.name = name
+        self.description = f"Mock tool: {name}"
+        self.input_schema: ToolInputSchema = {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
         self._result = result or {"status": "success"}
         self._raises = raises
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def description(self) -> str:
-        return f"Mock tool: {self._name}"
-
-    @property
-    def input_schema(self) -> ToolInputSchema:  # type: ignore[misc]
-        return {"type": "object", "properties": {}, "required": []}
 
     async def execute(self, **kwargs: Any) -> dict[str, Any]:
         if self._raises:
@@ -151,18 +145,13 @@ class TestACPAdapterWrapTool:
             """Tool that captures kwargs for verification."""
 
             captured_kwargs: dict[str, Any] = {}
-
-            @property
-            def name(self) -> str:
-                return "kwargs_tool"
-
-            @property
-            def description(self) -> str:
-                return "Captures kwargs"
-
-            @property
-            def input_schema(self) -> ToolInputSchema:  # type: ignore[misc]
-                return {"type": "object", "properties": {}, "required": []}
+            name = "kwargs_tool"
+            description = "Captures kwargs"
+            input_schema: ToolInputSchema = {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
 
             async def execute(self, **kwargs: Any) -> dict[str, Any]:
                 KwargsCapturingTool.captured_kwargs = kwargs
