@@ -13,120 +13,117 @@ from transactoid.ui.acp.transport import JsonRpcRequest
 class TestACPServerInit:
     """Tests for ACPServer initialization."""
 
-    @patch("transactoid.ui.acp.server.DB")
-    @patch("transactoid.ui.acp.server.load_taxonomy_from_db")
-    @patch("transactoid.ui.acp.server.Transactoid")
-    def test_init_creates_db_with_provided_url(
-        self,
-        mock_transactoid: MagicMock,
-        mock_load_taxonomy: MagicMock,
-        mock_db: MagicMock,
-    ) -> None:
+    def test_init_creates_db_with_provided_url(self) -> None:
         """ACPServer initializes DB with provided URL."""
-        mock_db_instance = MagicMock()
-        mock_db.return_value = mock_db_instance
-        mock_taxonomy = MagicMock()
-        mock_load_taxonomy.return_value = mock_taxonomy
-        mock_agent = MagicMock()
-        mock_transactoid.return_value.create_agent.return_value = mock_agent
+        with (
+            patch("transactoid.ui.acp.server.DB") as mock_db,
+            patch(
+                "transactoid.ui.acp.server.load_taxonomy_from_db"
+            ) as mock_load_taxonomy,
+            patch("transactoid.ui.acp.server.Transactoid") as mock_transactoid,
+        ):
+            mock_db_instance = MagicMock()
+            mock_db.return_value = mock_db_instance
+            mock_taxonomy = MagicMock()
+            mock_load_taxonomy.return_value = mock_taxonomy
+            mock_agent = MagicMock()
+            mock_transactoid.return_value.create_agent.return_value = mock_agent
 
-        server = ACPServer(db_url="postgresql://test:test@localhost/testdb")
+            server = ACPServer(db_url="postgresql://test:test@localhost/testdb")
 
-        mock_db.assert_called_once_with("postgresql://test:test@localhost/testdb")
-        assert server._db == mock_db_instance
+            mock_db.assert_called_once_with("postgresql://test:test@localhost/testdb")
+            assert server._db == mock_db_instance
 
-    @patch("transactoid.ui.acp.server.DB")
-    @patch("transactoid.ui.acp.server.load_taxonomy_from_db")
-    @patch("transactoid.ui.acp.server.Transactoid")
-    @patch.dict("os.environ", {"DATABASE_URL": "postgresql://env:env@localhost/envdb"})
-    def test_init_uses_env_db_url_when_not_provided(
-        self,
-        mock_transactoid: MagicMock,
-        mock_load_taxonomy: MagicMock,
-        mock_db: MagicMock,
-    ) -> None:
+    def test_init_uses_env_db_url_when_not_provided(self) -> None:
         """ACPServer uses DATABASE_URL env var when db_url not provided."""
-        mock_db_instance = MagicMock()
-        mock_db.return_value = mock_db_instance
-        mock_taxonomy = MagicMock()
-        mock_load_taxonomy.return_value = mock_taxonomy
-        mock_agent = MagicMock()
-        mock_transactoid.return_value.create_agent.return_value = mock_agent
+        with (
+            patch("transactoid.ui.acp.server.DB") as mock_db,
+            patch(
+                "transactoid.ui.acp.server.load_taxonomy_from_db"
+            ) as mock_load_taxonomy,
+            patch("transactoid.ui.acp.server.Transactoid") as mock_transactoid,
+            patch.dict(
+                "os.environ", {"DATABASE_URL": "postgresql://env:env@localhost/envdb"}
+            ),
+        ):
+            mock_db_instance = MagicMock()
+            mock_db.return_value = mock_db_instance
+            mock_taxonomy = MagicMock()
+            mock_load_taxonomy.return_value = mock_taxonomy
+            mock_agent = MagicMock()
+            mock_transactoid.return_value.create_agent.return_value = mock_agent
 
-        server = ACPServer()
+            server = ACPServer()
 
-        mock_db.assert_called_once_with("postgresql://env:env@localhost/envdb")
-        assert server._db == mock_db_instance
+            mock_db.assert_called_once_with("postgresql://env:env@localhost/envdb")
+            assert server._db == mock_db_instance
 
-    @patch("transactoid.ui.acp.server.DB")
-    @patch("transactoid.ui.acp.server.load_taxonomy_from_db")
-    @patch("transactoid.ui.acp.server.Transactoid")
-    def test_init_loads_taxonomy(
-        self,
-        mock_transactoid: MagicMock,
-        mock_load_taxonomy: MagicMock,
-        mock_db: MagicMock,
-    ) -> None:
+    def test_init_loads_taxonomy(self) -> None:
         """ACPServer loads taxonomy from database."""
-        mock_db_instance = MagicMock()
-        mock_db.return_value = mock_db_instance
-        mock_taxonomy = MagicMock()
-        mock_load_taxonomy.return_value = mock_taxonomy
-        mock_agent = MagicMock()
-        mock_transactoid.return_value.create_agent.return_value = mock_agent
+        with (
+            patch("transactoid.ui.acp.server.DB") as mock_db,
+            patch(
+                "transactoid.ui.acp.server.load_taxonomy_from_db"
+            ) as mock_load_taxonomy,
+            patch("transactoid.ui.acp.server.Transactoid") as mock_transactoid,
+        ):
+            mock_db_instance = MagicMock()
+            mock_db.return_value = mock_db_instance
+            mock_taxonomy = MagicMock()
+            mock_load_taxonomy.return_value = mock_taxonomy
+            mock_agent = MagicMock()
+            mock_transactoid.return_value.create_agent.return_value = mock_agent
 
-        server = ACPServer(db_url="sqlite:///:memory:")
+            server = ACPServer(db_url="sqlite:///:memory:")
 
-        mock_load_taxonomy.assert_called_once_with(mock_db_instance)
-        assert server._taxonomy == mock_taxonomy
+            mock_load_taxonomy.assert_called_once_with(mock_db_instance)
+            assert server._taxonomy == mock_taxonomy
 
-    @patch("transactoid.ui.acp.server.DB")
-    @patch("transactoid.ui.acp.server.load_taxonomy_from_db")
-    @patch("transactoid.ui.acp.server.Transactoid")
-    def test_init_creates_agent(
-        self,
-        mock_transactoid: MagicMock,
-        mock_load_taxonomy: MagicMock,
-        mock_db: MagicMock,
-    ) -> None:
+    def test_init_creates_agent(self) -> None:
         """ACPServer creates agent from Transactoid orchestrator."""
-        mock_db_instance = MagicMock()
-        mock_db.return_value = mock_db_instance
-        mock_taxonomy = MagicMock()
-        mock_load_taxonomy.return_value = mock_taxonomy
-        mock_transactoid_instance = MagicMock()
-        mock_agent = MagicMock()
-        mock_transactoid_instance.create_agent.return_value = mock_agent
-        mock_transactoid.return_value = mock_transactoid_instance
+        with (
+            patch("transactoid.ui.acp.server.DB") as mock_db,
+            patch(
+                "transactoid.ui.acp.server.load_taxonomy_from_db"
+            ) as mock_load_taxonomy,
+            patch("transactoid.ui.acp.server.Transactoid") as mock_transactoid,
+        ):
+            mock_db_instance = MagicMock()
+            mock_db.return_value = mock_db_instance
+            mock_taxonomy = MagicMock()
+            mock_load_taxonomy.return_value = mock_taxonomy
+            mock_transactoid_instance = MagicMock()
+            mock_agent = MagicMock()
+            mock_transactoid_instance.create_agent.return_value = mock_agent
+            mock_transactoid.return_value = mock_transactoid_instance
 
-        server = ACPServer(db_url="sqlite:///:memory:")
+            server = ACPServer(db_url="sqlite:///:memory:")
 
-        mock_transactoid.assert_called_once_with(
-            db=mock_db_instance, taxonomy=mock_taxonomy
-        )
-        mock_transactoid_instance.create_agent.assert_called_once()
-        assert server._agent == mock_agent
+            mock_transactoid.assert_called_once_with(
+                db=mock_db_instance, taxonomy=mock_taxonomy
+            )
+            mock_transactoid_instance.create_agent.assert_called_once()
+            assert server._agent == mock_agent
 
-    @patch("transactoid.ui.acp.server.DB")
-    @patch("transactoid.ui.acp.server.load_taxonomy_from_db")
-    @patch("transactoid.ui.acp.server.Transactoid")
-    def test_init_registers_handlers(
-        self,
-        mock_transactoid: MagicMock,
-        mock_load_taxonomy: MagicMock,
-        mock_db: MagicMock,
-    ) -> None:
+    def test_init_registers_handlers(self) -> None:
         """ACPServer registers all protocol handlers."""
-        mock_db.return_value = MagicMock()
-        mock_load_taxonomy.return_value = MagicMock()
-        mock_transactoid.return_value.create_agent.return_value = MagicMock()
+        with (
+            patch("transactoid.ui.acp.server.DB") as mock_db,
+            patch(
+                "transactoid.ui.acp.server.load_taxonomy_from_db"
+            ) as mock_load_taxonomy,
+            patch("transactoid.ui.acp.server.Transactoid") as mock_transactoid,
+        ):
+            mock_db.return_value = MagicMock()
+            mock_load_taxonomy.return_value = MagicMock()
+            mock_transactoid.return_value.create_agent.return_value = MagicMock()
 
-        server = ACPServer(db_url="sqlite:///:memory:")
+            server = ACPServer(db_url="sqlite:///:memory:")
 
-        # Verify handlers are registered
-        assert server._router.has_method("initialize")
-        assert server._router.has_method("session/new")
-        assert server._router.has_method("session/prompt")
+            # Verify handlers are registered
+            assert server._router.has_method("initialize")
+            assert server._router.has_method("session/new")
+            assert server._router.has_method("session/prompt")
 
 
 def _create_mock_server() -> ACPServer:
@@ -146,15 +143,22 @@ def _run_server_with_requests(
     """Run server with mock requests and collect responses."""
     responses: list[Any] = []
 
-    # First calls return requests, final raises EOF
-    server._transport.read_message = AsyncMock(side_effect=[*requests, EOFError()])
-
     async def capture_response(response: Any) -> None:
         responses.append(response)
 
-    server._transport.write_response = AsyncMock(side_effect=capture_response)
-
-    asyncio.run(server.run())
+    with (
+        patch.object(
+            server._transport,
+            "read_message",
+            AsyncMock(side_effect=[*requests, EOFError()]),
+        ),
+        patch.object(
+            server._transport,
+            "write_response",
+            AsyncMock(side_effect=capture_response),
+        ),
+    ):
+        asyncio.run(server.run())
 
     return responses
 
@@ -165,10 +169,11 @@ class TestACPServerRun:
     def test_run_exits_on_eof(self) -> None:
         """ACPServer run loop exits gracefully on EOFError."""
         server = _create_mock_server()
-        server._transport.read_message = AsyncMock(side_effect=EOFError)
-
-        # Should complete without error
-        asyncio.run(server.run())
+        with patch.object(
+            server._transport, "read_message", AsyncMock(side_effect=EOFError)
+        ):
+            # Should complete without error
+            asyncio.run(server.run())
 
     def test_run_dispatches_initialize(self) -> None:
         """ACPServer dispatches initialize requests."""
