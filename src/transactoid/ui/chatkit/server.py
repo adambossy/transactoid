@@ -2,11 +2,10 @@
 
 from collections.abc import AsyncIterator
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents import Agent, ModelSettings, Runner
 from chatkit.agents import AgentContext, simple_to_agent_input, stream_agent_response
-from chatkit.server import ChatKitServer
 from chatkit.types import ThreadItem, ThreadMetadata, ThreadStreamEvent, UserMessageItem
 from dotenv import load_dotenv
 from openai.types.shared import Reasoning
@@ -27,8 +26,21 @@ from transactoid.tools.registry import ToolRegistry
 from transactoid.tools.sync.sync_tool import SyncTransactionsTool
 from transactoid.ui.chatkit.adapter import OpenAIAdapter
 
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
-class TransactoidChatKitServer(ChatKitServer[Any]):
+    class _ChatKitServerBase:
+        store: Any
+
+        def __init__(self, store: Any) -> None: ...
+
+        async def process(self, body: bytes, context: Any) -> Any: ...
+
+else:
+    from chatkit.server import ChatKitServer as _ChatKitServerBase
+
+
+class TransactoidChatKitServer(_ChatKitServerBase):
     """ChatKit server exposing Transactoid tools."""
 
     def __init__(self) -> None:
@@ -88,7 +100,7 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
     def _load_instructions(self) -> str:
         """Load agent instructions from prompts."""
         # Load prompt template
-        template = load_prompt("agent-loop")
+        template = str(load_prompt("agent-loop"))
         schema_hint = self._db.compact_schema_hint()
         taxonomy_dict = self._taxonomy.to_prompt()
 
@@ -101,7 +113,7 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
         )
 
         # Load taxonomy rules prompt
-        taxonomy_rules = load_prompt("taxonomy-rules")
+        taxonomy_rules = str(load_prompt("taxonomy-rules"))
 
         # Replace placeholders
         rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
@@ -178,7 +190,7 @@ class TransactoidChatKitServer(ChatKitServer[Any]):
             yield event
 
 
-def create_app():
+def create_app() -> "FastAPI":
     """Create and configure the FastAPI application."""
     from chatkit.server import StreamingResult
     from fastapi import FastAPI, Request, Response
@@ -209,16 +221,18 @@ def create_app():
     @app.get("/debug")
     async def debug_routes() -> dict[str, list[str]]:
         """List all registered routes."""
-        routes = [r.path for r in app.routes]
+        routes = [
+            getattr(route, "path", route.__class__.__name__) for route in app.routes
+        ]
         return {"routes": routes}
 
     @app.post("/chatkit")
-    async def chatkit_endpoint(req: Request):
+    async def chatkit_endpoint(req: "Request") -> "Response":
         """ChatKit endpoint that processes requests."""
         body = await req.body()
         print(f"Request method: {req.method}")
         print(f"Request headers: {dict(req.headers)}")
-        print(f"Request body: {body[:500] if body else b'empty'}")
+        print(f"Request body: {body[:500]!r}" if body else "Request body: empty")
 
         if not body:
             return Response(
