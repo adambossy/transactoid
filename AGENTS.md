@@ -20,6 +20,11 @@ uv run deadcode .
 uv run pytest -q
 ```
 
+### Planning artifacts
+
+Whenever you create a plan, record it in a `.md` file named with a sortable timestamp (to the second) plus a unique plan name so files sort from earliest to latest.
+Examples: `20260207-143522-refactor-dedupe.md`, `20260207-143522-eval-runner-cleanup.md`.
+
 ### Unit test structure rules
 
 - Input first
