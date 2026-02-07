@@ -45,6 +45,9 @@ include = ["transactoid*", "models", "evals*", "scripts"]
 [tool.deadcode]
 exclude = [
     ".venv/",
+    ".venv/**",
+    ".worktrees/",
+    ".worktrees/**",
     "build/",
     "dist/",
     "**/site-packages/",
