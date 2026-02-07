@@ -71,7 +71,7 @@ class Taxonomy:
     def from_db(cls, db: DB) -> Taxonomy:
         rows = db.fetch_categories()  # ← USE
         ...
-    
+
     def category_id_for_key(self, db: DB, key: str) -> int | None:
         return db.get_category_id_by_key(key)  # ← USE
 ```
@@ -116,21 +116,21 @@ class Taxonomy:
     def __init__(self, nodes: Sequence[CategoryNode]) -> None:
         self._nodes_by_key: dict[str, CategoryNode] = {n.key: n for n in nodes}
         # ... build tree structure ...
-    
+
     @classmethod
     def from_nodes(cls, nodes: Sequence[CategoryNode]) -> Taxonomy:
         """Build from pre-loaded nodes (dependency injection)."""
         return cls(sorted(nodes, key=lambda n: n.key))
-    
+
     def is_valid_key(self, key: str) -> bool:
         return key in self._nodes_by_key
-    
+
     def get(self, key: str) -> CategoryNode | None:
         return self._nodes_by_key.get(key)
-    
+
     def children(self, key: str) -> list[CategoryNode]:
         return list(self._children.get(key, []))
-    
+
     def to_prompt(self, include_keys: Iterable[str] | None = None) -> dict[str, object]:
         # ... format for LLM ...
 ```
@@ -147,7 +147,7 @@ from src.transactoid.infrastructure.db.facade import DB
 
 def load_taxonomy_from_db(db: DB) -> Taxonomy:
     """Load taxonomy from database.
-    
+
     Single point of responsibility for DB ↔ Taxonomy interaction.
     Neither Taxonomy nor DB need to know about each other.
     """
@@ -166,7 +166,7 @@ def load_taxonomy_from_db(db: DB) -> Taxonomy:
 
 def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
     """Look up category ID using taxonomy and DB together.
-    
+
     This replaces Taxonomy.category_id_for_key(self, db).
     Now it's clear: you need both Taxonomy AND DB to look up category IDs.
     """
@@ -190,27 +190,27 @@ from sqlalchemy.orm import Session
 class DB:
     def __init__(self, url: str) -> None:
         # ... setup engine, sessions ...
-    
+
     def get_category_id_by_key(self, key: str) -> int | None:
         """Lookup category by key. Caller handles validation."""
         with self.session() as session:
             category = session.query(Category).filter(Category.key == key).first()
             return category.category_id if category else None
-    
+
     def save_transactions(
         self,
         category_lookup: Callable[[str], int | None],  # ← INJECTED CALLBACK
         txns: Iterable[CategorizedTransaction],
     ) -> SaveOutcome:
         """Save categorized transactions.
-        
+
         Uses injected category_lookup callback instead of Taxonomy object.
         DB doesn't care HOW the lookup works — just calls the callback.
         """
         for cat_txn in txns:
             category_id = category_lookup(category_key)  # ← INJECT, DON'T KNOW TYPE
             # ... rest of save logic ...
-    
+
     def fetch_categories(self) -> list[CategoryRow]:
         """Fetch all categories as dicts. Caller handles instantiation."""
         with self.session() as session:
@@ -282,7 +282,7 @@ services/db.py
   ├── from typing import TYPE_CHECKING
   └── if TYPE_CHECKING:
       └── from services/taxonomy import Taxonomy  ← ONLY IMPORT FOR TYPES
-  
+
 Problem: Mixing TYPE_CHECKING with runtime usage creates confusion
 ```
 
@@ -385,4 +385,3 @@ The refactoring is structural; runtime behavior is identical:
 | Testing Taxonomy | Need DB setup | Just nodes (no DB) |
 | Circular imports | YES (TYPE_CHECKING) | NO |
 | Clear responsibility | NO (mixed) | YES (loader owns bridge) |
-

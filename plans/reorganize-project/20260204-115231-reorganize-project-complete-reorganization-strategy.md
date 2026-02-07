@@ -13,7 +13,7 @@ Before starting, confirm the current state:
 ```bash
 # Verify services/ exists with expected files
 ls -la services/
-# Expected: __init__.py, db.py, file_cache.py, plaid_client.py, plaid_link_flow.py, 
+# Expected: __init__.py, db.py, file_cache.py, plaid_client.py, plaid_link_flow.py,
 #           README.md, taxonomy.py, taxonomy_generator.py, yaml_utils.py
 
 # Count import sites
@@ -843,4 +843,3 @@ git checkout HEAD -- adapters/
 ✓ Better testability (domain logic decoupled from infra)  
 ✓ Single source of truth for types (models/)  
 ✓ Clear dependency direction (tools → infra → core → models)  
-
