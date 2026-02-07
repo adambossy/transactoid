@@ -26,18 +26,10 @@ def store_generated(markdown: str) -> None:
     key = "taxonomy-rules"
     storage = FileSystemPromptStorage(find_repo_root())
     svc = PromptService(storage)
-    # Try updating directly; if key doesn't exist, add then retry.
-    try:
+    if storage.key_exists(key):
         svc.update_prompt(key, markdown)
         return
-    except Exception:
-        try:
-            storage.add_prompt(key, custom_dir=None)
-        except Exception:  # noqa: S110
-            # If add_prompt fails because it already exists or any race,
-            # ignore and retry update.
-            pass
-        svc.update_prompt(key, markdown)
+    storage.write_new_version(key, markdown)
 
 
 # ----------------------------
