@@ -269,3 +269,4 @@ Early implementation phase. Core infrastructure (file cache, taxonomy) is in pla
 - Never commit `.env` files (contains Plaid tokens)
 - Verified transactions (`is_verified=True`) are immutable in DB
 - Use `uv run` prefix for all dev tools to ensure proper environment
+Use 'bd' for task tracking
