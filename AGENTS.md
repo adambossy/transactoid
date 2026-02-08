@@ -107,6 +107,29 @@ def test_<unit>_<behavior>():
   - Types: `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`.
   - Example: `feature/add-plaid-sync`, `fix/transaction-dedupe`.
 
+- Worktree cleanup
+  - Remove the worktree directory:
+    ```bash
+    git worktree remove <worktree-path>
+    ```
+  - Delete the local branch:
+    ```bash
+    git branch -d <branch-name>
+    ```
+  - Delete the remote branch (if it exists):
+    ```bash
+    git push origin --delete <branch-name>
+    ```
+  - Prune stale worktree metadata:
+    ```bash
+    git worktree prune
+    ```
+  - Optional verification:
+    ```bash
+    git worktree list
+    git branch --list
+    ```
+
 - Commit practices
   - Keep commits small and focused. Large commits are harder to review, harder to bisect, and harder to revert.
   - When you have many unstaged changes, analyze the dependency relationships between them. Identify which changes are self-contained and which depend on others.
