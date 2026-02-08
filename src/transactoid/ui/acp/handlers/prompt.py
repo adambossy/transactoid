@@ -1,6 +1,6 @@
 """Prompt processing handler for ACP protocol.
 
-Handles 'session/prompt' requests by running the agent and streaming
+Handles 'session/prompt' requests by running the core runtime and streaming
 responses back to the client via session/update notifications.
 """
 
@@ -8,80 +8,39 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents import Agent, Runner, SQLiteSession
-from agents.items import ToolCallOutputItem
-from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent
-
-from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
+from transactoid.core.runtime import (
+    CoreRuntime,
+    TextDeltaEvent,
+    ThoughtDeltaEvent,
+    ToolCallCompletedEvent,
+    ToolCallStartedEvent,
+    ToolOutputEvent,
+    TurnCompletedEvent,
+)
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.logger import PromptHandlerLogger
-from transactoid.ui.acp.notifier import ToolCallKind, UpdateNotifier
+from transactoid.ui.acp.notifier import UpdateNotifier
 
 
 class PromptHandler:
-    """Handle session/prompt requests by running the agent.
-
-    Processes user prompts through the Transactoid agent and streams
-    responses back via the UpdateNotifier. Translates OpenAI Agents SDK
-    streaming events into ACP session/update notifications.
-
-    Example:
-        handler = PromptHandler(
-            session_manager=sessions,
-            agent=transactoid.create_agent(),
-            notifier=notifier,
-        )
-        result = await handler.handle_prompt({
-            "sessionId": "sess_abc123",
-            "content": [{"type": "text", "text": "How much did I spend?"}],
-        })
-    """
+    """Handle session/prompt requests by running the provider-agnostic runtime."""
 
     def __init__(
         self,
         session_manager: SessionManager,
-        agent: Agent,
+        runtime: CoreRuntime,
         notifier: UpdateNotifier,
     ) -> None:
-        """Initialize the prompt handler.
-
-        Args:
-            session_manager: SessionManager for session lookup
-            agent: Configured Agent instance for processing prompts
-            notifier: UpdateNotifier for sending session updates
-        """
         self._sessions = session_manager
-        self._agent = agent
+        self._runtime = runtime
         self._notifier = notifier
         self._log = PromptHandlerLogger()
-        # Track tool call states for args accumulation
-        self._tool_calls: dict[str, _ToolCallState] = {}
-        # Track the latest call_id for SDKs that don't provide it on every delta
-        self._last_call_id: str | None = None
-        # Persist SQLiteSession objects per ACP session to maintain conversation memory
-        # (SQLiteSession defaults to :memory: which is lost when object is GC'd)
-        self._sdk_sessions: dict[str, SQLiteSession] = {}
+        self._runtime_sessions: dict[str, Any] = {}
 
     async def handle_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Process a user prompt and stream responses.
-
-        Extracts the user message from content blocks, runs it through
-        the agent, and streams tool calls and message deltas as
-        session/update notifications.
-
-        Args:
-            params: Request parameters containing:
-                - sessionId: The session to run the prompt in
-                - content: List of content blocks (text, image, etc.)
-
-        Returns:
-            Response dict containing:
-                - stopReason: Why the agent stopped (e.g., "end_turn")
-                Or error dict if session is invalid
-        """
+        """Process a user prompt and stream responses."""
         self._log.prompt_received(params.get("sessionId", ""), list(params.keys()))
         session_id = params.get("sessionId", "")
-        # Toad sends "prompt", ACP spec uses "content" - support both
         content: list[dict[str, Any]] = (
             params.get("prompt") or params.get("content") or []
         )
@@ -92,7 +51,6 @@ class PromptHandler:
             self._log.invalid_session(session_id)
             return {"error": {"code": -32600, "message": "Invalid session"}}
 
-        # Extract text from content blocks
         user_text = ""
         for block in content:
             if block.get("type") == "text":
@@ -106,218 +64,85 @@ class PromptHandler:
             return {"error": {"code": -32602, "message": "No text content provided"}}
 
         self._log.user_prompt(session_id, user_text)
-
-        # Add user message to session history
         self._sessions.add_message(session_id, {"role": "user", "content": user_text})
 
-        # Get or create SDK session for memory persistence
-        # Reuse existing session to maintain conversation history
-        # (SQLiteSession defaults to :memory: which is lost if we create new instances)
-        if session_id not in self._sdk_sessions:
-            self._sdk_sessions[session_id] = SQLiteSession(session_id)
-        sdk_session = self._sdk_sessions[session_id]
+        if session_id not in self._runtime_sessions:
+            self._runtime_sessions[session_id] = self._runtime.start_session(session_id)
+        runtime_session = self._runtime_sessions[session_id]
 
-        # Run agent with streaming
         self._log.agent_stream_starting(session_id)
-        stream = Runner.run_streamed(
-            self._agent,
-            user_text,
-            session=sdk_session,
-            max_turns=DEFAULT_AGENT_MAX_TURNS,
-        )
-
-        # Process streaming events
         event_count = 0
-        async for event in stream.stream_events():
+        final_output = ""
+
+        async for event in self._runtime.run_streamed(
+            input_text=user_text,
+            session=runtime_session,
+        ):
             event_count += 1
-            self._log.event_received(event_count, getattr(event, "type", "?"))
-            await self._process_event(session_id, event)
+            self._log.event_received(event_count, type(event).__name__)
+            maybe_final = await self._process_event(session_id=session_id, event=event)
+            if maybe_final is not None:
+                final_output = maybe_final
 
         self._log.events_processed(session_id, event_count)
 
-        # Add assistant response to session history (if available)
-        get_final_result = getattr(stream, "get_final_result", None)
-        if callable(get_final_result):
-            final_result = get_final_result()
-            final_output = getattr(final_result, "final_output", None)
-            if final_output:
-                self._log.final_output(session_id, str(final_output))
-                self._sessions.add_message(
-                    session_id,
-                    {"role": "assistant", "content": str(final_output)},
-                )
+        if final_output:
+            self._log.final_output(session_id, final_output)
+            self._sessions.add_message(
+                session_id,
+                {"role": "assistant", "content": final_output},
+            )
 
         self._log.returning_end_turn(session_id)
         return {"stopReason": "end_turn"}
 
-    async def _process_event(self, session_id: str, event: Any) -> None:
-        """Convert an agent streaming event to ACP notifications.
+    async def _process_event(self, session_id: str, event: Any) -> str | None:
+        """Convert runtime stream events to ACP notifications."""
+        if isinstance(event, TextDeltaEvent):
+            await self._notifier.agent_message_chunk(
+                session_id=session_id,
+                content={"type": "text", "text": event.text},
+            )
+            return None
 
-        Translates OpenAI Agents SDK events into the appropriate
-        session/update notification types.
+        if isinstance(event, ThoughtDeltaEvent):
+            await self._notifier.agent_thought_chunk(
+                session_id=session_id,
+                content={"type": "thinking", "text": event.text},
+            )
+            return None
 
-        Args:
-            session_id: The session to send updates for
-            event: Streaming event from the agent runner
-        """
-        et = getattr(event, "type", "")
-        self._log.processing_event(et, type(event).__name__)
+        if isinstance(event, ToolCallStartedEvent):
+            self._log.tool_call_started(event.tool_name, event.call_id)
+            await self._notifier.tool_call(
+                session_id=session_id,
+                tool_call_id=event.call_id,
+                title=event.tool_name,
+                kind=event.kind,
+                status="pending",
+            )
+            return None
 
-        # Handle raw response events
-        if et == "raw_response_event":
-            data = getattr(event, "data", None)
-            if data is None:
-                self._log.raw_response_no_data()
-                return
+        if isinstance(event, ToolCallCompletedEvent):
+            await self._notifier.tool_call_update(
+                session_id=session_id,
+                tool_call_id=event.call_id,
+                status="in_progress",
+            )
+            return None
 
-            dt = getattr(data, "type", "")
-            self._log.raw_response_data_type(dt)
+        if isinstance(event, ToolOutputEvent):
+            output_text = str(event.output)
+            await self._notifier.tool_call_update(
+                session_id=session_id,
+                tool_call_id=event.call_id,
+                status="completed",
+                content=[{"type": "text", "text": output_text}],
+            )
+            return None
 
-            # Output text -> agent_message_chunk
-            if dt == "response.output_text.delta":
-                delta = getattr(data, "delta", None)
-                if delta:
-                    await self._notifier.agent_message_chunk(
-                        session_id=session_id,
-                        content={"type": "text", "text": delta},
-                    )
-                return
+        if isinstance(event, TurnCompletedEvent):
+            return event.final_text
 
-            # Reasoning text -> agent_thought_chunk
-            if dt == "response.reasoning_summary_text.delta":
-                delta = getattr(data, "delta", None)
-                if delta:
-                    await self._notifier.agent_thought_chunk(
-                        session_id=session_id,
-                        content={"type": "thinking", "text": delta},
-                    )
-                return
-
-            # Function call arguments delta
-            if isinstance(data, ResponseFunctionCallArgumentsDeltaEvent):
-                call_id = (
-                    getattr(data, "call_id", None) or self._last_call_id or "unknown"
-                )
-                state = self._tool_calls.get(call_id)
-                if state:
-                    state.args_chunks.append(data.delta or "")
-                return
-
-            # Function call started
-            item = getattr(data, "item", None)
-            if (
-                dt == "response.output_item.added"
-                and getattr(item, "type", "") == "function_call"
-            ):
-                name = getattr(item, "name", "unknown")
-                call_id = getattr(item, "call_id", "unknown")
-                self._last_call_id = call_id
-                self._log.tool_call_started(name, call_id)
-
-                # Track the tool call state
-                self._tool_calls[call_id] = _ToolCallState(call_id, name)
-
-                # Send pending notification
-                await self._notifier.tool_call(
-                    session_id=session_id,
-                    tool_call_id=call_id,
-                    title=name,
-                    kind=self._get_kind(name),
-                    status="pending",
-                )
-                return
-
-            # Function call completed (arguments done)
-            if dt == "response.output_item.done":
-                call_id = getattr(item, "call_id", None)
-                item_type = getattr(item, "type", "?")
-                self._log.output_item_done(call_id, item_type)
-                # Only send update for function calls we're tracking
-                if call_id and call_id in self._tool_calls:
-                    # Send in_progress notification
-                    await self._notifier.tool_call_update(
-                        session_id=session_id,
-                        tool_call_id=call_id,
-                        status="in_progress",
-                    )
-                    if self._last_call_id == call_id:
-                        self._last_call_id = None
-                return
-
-        # Handle run item events (tool execution results)
-        if et == "run_item_stream_event":
-            item = getattr(event, "item", None)
-            self._log.run_item_stream_event(type(item).__name__, item)
-            if isinstance(item, ToolCallOutputItem):
-                # Extract call_id from raw_item (FunctionCallOutput),
-                # not from item directly
-                raw_item = getattr(item, "raw_item", None)
-                call_id = getattr(raw_item, "call_id", None) if raw_item else None
-                if call_id is None:
-                    # Fallback: check if it's a dict-like raw_item
-                    if isinstance(raw_item, dict):
-                        call_id = raw_item.get("call_id")
-                call_id = call_id or "unknown"
-
-                output = item.output
-                output_text = str(output) if output is not None else ""
-                tracked_ids = list(self._tool_calls.keys())
-                is_tracked = call_id in self._tool_calls
-                self._log.tool_output(
-                    call_id,
-                    len(output_text),
-                    tracked=is_tracked,
-                    tracked_ids=tracked_ids,
-                )
-                self._log.tool_output_text(output_text)
-
-                # Only send update for tool calls we're tracking
-                if not is_tracked:
-                    self._log.tool_output_unknown(call_id, tracked_ids)
-                    return
-
-                # Send completed notification with output
-                await self._notifier.tool_call_update(
-                    session_id=session_id,
-                    tool_call_id=call_id,
-                    status="completed",
-                    content=[{"type": "text", "text": output_text}],
-                )
-
-                # Clean up tool call state
-                self._tool_calls.pop(call_id, None)
-                return
-            else:
-                self._log.non_tool_output_item(type(item).__name__)
-                return
-
-        # Log unhandled event types
-        self._log.unhandled_event(et)
-
-    def _get_kind(self, tool_name: str) -> ToolCallKind:
-        """Map tool name to ACP tool call kind.
-
-        Args:
-            tool_name: Name of the tool being called
-
-        Returns:
-            The ACP tool call kind classification
-        """
-        kind_map: dict[str, ToolCallKind] = {
-            "sync_transactions": "fetch",
-            "run_sql": "execute",
-            "recategorize_merchant": "edit",
-            "tag_transactions": "edit",
-            "connect_new_account": "other",
-            "list_accounts": "fetch",
-        }
-        return kind_map.get(tool_name, "other")
-
-
-class _ToolCallState:
-    """Track state for a streaming tool call."""
-
-    def __init__(self, call_id: str, name: str) -> None:
-        self.call_id = call_id
-        self.name = name
-        self.args_chunks: list[str] = []
+        self._log.unhandled_event(type(event).__name__)
+        return None
