@@ -7,8 +7,6 @@ from typing import Any
 from agents import (
     Agent,
     ModelSettings,
-    Runner,
-    SQLiteSession,
     WebSearchTool,
     function_tool,
 )
@@ -28,43 +26,8 @@ from transactoid.tools.persist.persist_tool import (
     PersistTool,
 )
 from transactoid.tools.sync.sync_tool import SyncTool
-from transactoid.ui.stream_renderer import EventRouter, StreamRenderer
 
 load_dotenv()
-
-
-class TransactoidSession:
-    """In-memory session for a Transactoid agent conversation."""
-
-    def __init__(self, agent: Agent, session_id: str | None = None) -> None:
-        sid = session_id or "transactoid_cli"
-        self._agent = agent
-        self._session = SQLiteSession(sid)
-
-    async def run_turn(
-        self,
-        user_input: str,
-        renderer: StreamRenderer,
-        router: EventRouter,
-    ) -> None:
-        """Run a single streamed turn, reusing the same session for memory."""
-        stream = Runner.run_streamed(
-            self._agent,
-            user_input,
-            session=self._session,
-        )
-
-        renderer.begin_turn(user_input)
-
-        async for event in stream.stream_events():
-            router.handle(event)
-
-        final_result = None
-        get_final_result = getattr(stream, "get_final_result", None)
-        if callable(get_final_result):
-            final_result = get_final_result()
-
-        renderer.end_turn(final_result)
 
 
 class TargetCategory(BaseModel):

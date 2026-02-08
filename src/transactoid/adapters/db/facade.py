@@ -1297,27 +1297,6 @@ class DB:
             )
             return result
 
-    def update_derived_category(
-        self,
-        transaction_id: int,
-        category_id: int | None,
-    ) -> None:
-        """Update category of a derived transaction.
-
-        Args:
-            transaction_id: Transaction ID
-            category_id: Category ID to set
-        """
-        with self.session() as session:  # type: Session
-            derived_txn = (
-                session.query(DerivedTransaction)
-                .filter(DerivedTransaction.transaction_id == transaction_id)
-                .first()
-            )
-            if derived_txn:
-                derived_txn.category_id = category_id
-                derived_txn.updated_at = datetime.now()
-
     def bulk_update_derived_categories(
         self,
         updates: dict[int, int],

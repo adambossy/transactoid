@@ -319,7 +319,3 @@ class _ToolCallState:
         self.call_id = call_id
         self.name = name
         self.args_chunks: list[str] = []
-
-    def args_text(self) -> str:
-        """Get accumulated arguments as a single string."""
-        return "".join(self.args_chunks)

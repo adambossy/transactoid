@@ -6,8 +6,13 @@
 
 Skips entire paths that only contain generated or third-party code so they do not pollute the report.
 
-Current project excludes include `.venv/` and `.worktrees/` so local environments
-and auxiliary worktrees are not analyzed.
+Current project excludes include `.venv/`, `.worktrees/`, migration directories,
+and framework-wired modules (`db/migrations/**`, `evals/core/**`,
+`src/transactoid/jobs/report/**`, `src/transactoid/ui/mcp/server.py`,
+`src/transactoid/ui/cli.py`, `src/transactoid/ui/chatkit/server.py`,
+`src/transactoid/ui/chatkit/adapter.py`, `src/transactoid/ui/stream_renderer.py`,
+`scripts/run.py`, `src/transactoid/adapters/db/models.py`) so deadcode focuses on
+normal code paths.
 
 **Without (`docs/` not excluded)**
 
@@ -51,7 +56,7 @@ import logging
 LOGGER = logging.getLogger(__name__)
 ```
 
-**With `ignore-names = ["logger", "LOGGER", "*_fixture", ...]`**
+**With `ignore-names = ["logger", "LOGGER", "*_fixture", "created_at", "updated_at", "input_schema", "confidence_level", "detailed", "primary", "enum", "properties", "required", ...]`**
 
 ```shell
 $ deadcode src/logging.py
@@ -104,7 +109,7 @@ class Migration:
         ...
 ```
 
-**With `ignore-definitions = ["Migration", "*Migration"]`**
+**With `ignore-definitions = ["Migration", "*Migration", "RecategorizeTool", "TagTransactionsTool", "create_context"]`**
 
 ```shell
 $ deadcode app/users/migrations/0001_initial.py
@@ -113,7 +118,7 @@ Well done! ✨ 🚀 ✨
 
 ## ignore-definitions-if-inherits-from
 
-Skips entire class bodies when they inherit from known framework base types (e.g., `BaseModel`, `Schema`, `Settings`). This prevents deadcode from flagging declarative data models that are activated by reflection.
+Skips entire class bodies when they inherit from known framework base types (e.g., `BaseModel`, `Schema`, `Settings`). This prevents deadcode from flagging declarative data models and protocol/adapter classes that are activated by reflection or framework callbacks.
 
 **Without `ignore-definitions-if-inherits-from`**
 
@@ -133,9 +138,24 @@ class User(BaseModel):
         return "Ada"
 ```
 
-**With `ignore-definitions-if-inherits-from = ["BaseModel", "Schema", "Settings"]`**
+**With `ignore-definitions-if-inherits-from = ["BaseModel", "Schema", "Settings", "Protocol", "BaseHTTPRequestHandler", "_StoreBase"]`**
 
 ```shell
 $ deadcode app/models/user.py
 Well done! ✨ 🚀 ✨
 ```
+
+## ignore-definitions-if-decorated-with
+
+Skips definitions registered via decorators where runtime dispatch, not direct
+Python references, drives usage (for example MCP tools and Typer commands).
+
+Current project includes:
+- `mcp.tool`
+- `mcp.prompt`
+- `app.command`
+- `run_app.command`
+- `app.callback`
+- `app.get`
+- `app.post`
+- `function_tool`
