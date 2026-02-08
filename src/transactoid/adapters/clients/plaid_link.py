@@ -419,35 +419,6 @@ def shutdown_redirect_server(
     server_thread.join(timeout=1)
 
 
-def setup_redirect_server(
-    *,
-    token_queue: queue.Queue[str],
-    state: dict[str, Any],
-) -> tuple[ThreadingHTTPServer, threading.Thread, str] | None:
-    """Set up the HTTPS redirect server for Plaid Link.
-
-    Returns:
-        Tuple of (server, server_thread, redirect_uri) on success, None on error.
-    """
-    redirect_path = "/plaid-link-complete"
-    try:
-        server, server_thread, actual_host, actual_port = start_redirect_server(
-            host="localhost",
-            port=8443,
-            path=redirect_path,
-            token_queue=token_queue,
-            state=state,
-        )
-        redirect_uri = f"https://{actual_host}:{actual_port}{redirect_path}"
-        # Ensure we use 'localhost' instead of '127.0.0.1' to match Plaid
-        # allowlists commonly set to localhost.
-        if actual_host == "127.0.0.1":
-            redirect_uri = f"https://localhost:{actual_port}{redirect_path}"
-        return server, server_thread, redirect_uri
-    except (RedirectServerError, OSError):
-        return None
-
-
 class CreateLinkTokenFn(Protocol):
     """Protocol for create_link_token function signature."""
 
@@ -520,25 +491,6 @@ def open_link_in_browser(link_url: str) -> dict[str, Any] | None:
             ),
         }
     return None
-
-
-def wait_for_public_token_safe(
-    *,
-    token_queue: queue.Queue[str],
-    timeout_seconds: int,
-) -> str | None:
-    """Wait for public token from Plaid Link.
-
-    Returns:
-        Public token string on success, None on timeout.
-    """
-    try:
-        return wait_for_public_token(
-            token_queue,
-            timeout_seconds=timeout_seconds,
-        )
-    except PublicTokenTimeoutError:
-        return None
 
 
 def exchange_token_and_get_item_info(

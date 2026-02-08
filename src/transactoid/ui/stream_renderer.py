@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from decimal import Decimal
 import json
 import sys
 from typing import Any
 
 from agents.items import (
-    ItemHelpers,
     MessageOutputItem,
     ToolCallOutputItem,
 )
@@ -42,15 +40,6 @@ def colorize(text: str, key: str) -> str:
         return text
     code = COLORS.get(key, "0")
     return f"\033[{code}m{text}\033[0m"
-
-
-class _JsonEncoder(json.JSONEncoder):
-    """JSON encoder that handles Decimal and other non-serializable types."""
-
-    def default(self, obj: Any) -> Any:
-        if isinstance(obj, Decimal):
-            return float(obj)
-        return super().default(obj)
 
 
 class ToolCallState:
@@ -207,13 +196,6 @@ class StreamRenderer:
             print(colorize(full_text, "faint"))
 
         print()
-
-    def on_message_output(self, item: MessageOutputItem) -> None:
-        """Display final message output if needed."""
-        msg = ItemHelpers.text_message_output(item)
-        if msg:
-            print(colorize(msg, "text"))
-            print()
 
     def on_unknown(self, _event: Any) -> None:
         """Handle unknown events safely."""

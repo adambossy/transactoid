@@ -80,17 +80,6 @@ class FileCache:
                     logger.debug("FileCache clear failed at %s: %s", entry, exc)
         return removed
 
-    def list_keys(self, namespace: str) -> list[str]:
-        ns_dir = self._namespace_dir(namespace)
-        if not ns_dir.exists():
-            return []
-        keys: list[str] = []
-        for entry in ns_dir.iterdir():
-            if entry.is_file() and entry.suffix == ".json":
-                keys.append(entry.stem)
-        keys.sort()
-        return keys
-
     def path_for(self, namespace: str, key: str) -> str:
         return str(self._key_path(namespace, key))
 
