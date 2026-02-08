@@ -8,13 +8,12 @@ from datetime import datetime
 import time
 from typing import Any
 
-from agents import Runner, SQLiteSession
-from agents.items import MessageOutputItem
 from promptorium import load_prompt
 
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
+from transactoid.core.runtime.protocol import CoreRuntime
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.core import Taxonomy
 
@@ -84,23 +83,25 @@ class ReportRunner:
                         metadata=metadata,
                     )
 
-            # Create agent with PostgreSQL dialect
+            # Create runtime with PostgreSQL dialect
             transactoid = Transactoid(
                 db=self._db,
                 taxonomy=self._taxonomy,
                 plaid_client=self._plaid_client,
             )
-            agent = transactoid.create_agent(sql_dialect="postgresql")
+            runtime: CoreRuntime = transactoid.create_runtime(sql_dialect="postgresql")
 
             # Load the report prompt
             prompt = self._load_report_prompt(report_month)
             metadata["prompt_length"] = len(prompt)
 
-            # Run the agent with the report prompt
+            # Run the runtime with the report prompt
             # Allow more turns since report generation involves multiple SQL queries
-            session = SQLiteSession(session_id="report_job")
-            result = await Runner.run(
-                agent, input=prompt, session=session, max_turns=DEFAULT_AGENT_MAX_TURNS
+            session = runtime.start_session("report_job")
+            result = await runtime.run(
+                input_text=prompt,
+                session=session,
+                max_turns=DEFAULT_AGENT_MAX_TURNS,
             )
 
             # Extract response
@@ -159,21 +160,6 @@ class ReportRunner:
 
     def _extract_response(self, result: Any) -> str:
         """Extract final response text from agent result."""
-        # Try to get from final_output first (standard way)
-        if hasattr(result, "final_output") and result.final_output:
-            if isinstance(result.final_output, str):
-                return result.final_output
-            # If final_output is a dict or object, try to get text
-            if hasattr(result.final_output, "text"):
-                return str(result.final_output.text)
-
-        # Fallback: Find MessageOutputItem in result.new_items
-        for item in result.new_items:
-            if isinstance(item, MessageOutputItem):
-                # Get text from content
-                if hasattr(item, "content") and item.content:
-                    for content_item in item.content:
-                        if hasattr(content_item, "text"):
-                            text: str = str(content_item.text)
-                            return text
+        if hasattr(result, "final_text"):
+            return str(result.final_text)
         return ""

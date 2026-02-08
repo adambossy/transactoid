@@ -76,9 +76,9 @@ class ACPServer:
         # Load taxonomy from database
         self._taxonomy = load_taxonomy_from_db(self._db)
 
-        # Create Transactoid orchestrator and agent
+        # Create Transactoid orchestrator and core runtime
         self._transactoid = Transactoid(db=self._db, taxonomy=self._taxonomy)
-        self._agent = self._transactoid.create_agent()
+        self._runtime = self._transactoid.create_runtime()
 
         # Initialize transport layer
         self._transport = StdioTransport()
@@ -92,7 +92,7 @@ class ACPServer:
         # Initialize prompt handler
         self._prompt_handler = PromptHandler(
             session_manager=self._sessions,
-            agent=self._agent,
+            runtime=self._runtime,
             notifier=self._notifier,
         )
 

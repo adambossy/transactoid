@@ -1,31 +1,27 @@
 """ChatKit server exposing Transactoid tools via OpenAI ChatKit SDK."""
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 import os
 from typing import TYPE_CHECKING, Any
 
-from agents import Agent, ModelSettings, Runner
-from chatkit.agents import AgentContext, simple_to_agent_input, stream_agent_response
-from chatkit.types import ThreadItem, ThreadMetadata, ThreadStreamEvent, UserMessageItem
-from dotenv import load_dotenv
-from openai.types.shared import Reasoning
-from promptorium import load_prompt
-import yaml
-
-from transactoid.adapters.clients.plaid import PlaidClient
-from transactoid.adapters.db.facade import DB
-from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
-from transactoid.taxonomy.loader import load_taxonomy_from_db
-from transactoid.tools.categorize.categorizer_tool import Categorizer
-from transactoid.tools.persist.persist_tool import (
-    PersistTool,
-    RecategorizeTool,
-    TagTransactionsTool,
+from chatkit.types import (
+    AssistantMessageContent,
+    AssistantMessageContentPartTextDelta,
+    AssistantMessageItem,
+    ThreadItemAddedEvent,
+    ThreadItemDoneEvent,
+    ThreadItemUpdatedEvent,
+    ThreadMetadata,
+    ThreadStreamEvent,
+    UserMessageItem,
 )
-from transactoid.tools.query.query_tool import RunSQLTool
-from transactoid.tools.registry import ToolRegistry
-from transactoid.tools.sync.sync_tool import SyncTransactionsTool
-from transactoid.ui.chatkit.adapter import OpenAIAdapter
+from dotenv import load_dotenv
+
+from transactoid.adapters.db.facade import DB
+from transactoid.core.runtime import CoreSession, TextDeltaEvent
+from transactoid.orchestrators.transactoid import Transactoid
+from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -53,75 +49,15 @@ class TransactoidChatKitServer(_ChatKitServerBase):
         db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
         self._db = DB(db_url)
         self._taxonomy = load_taxonomy_from_db(self._db)
-        self._categorizer = Categorizer(self._taxonomy)
-        self._persist_tool = PersistTool(self._db, self._taxonomy)
+        self._transactoid = Transactoid(db=self._db, taxonomy=self._taxonomy)
+        self._runtime = self._transactoid.create_runtime()
+        self._runtime_sessions: dict[str, CoreSession] = {}
 
         # Create store (required by ChatKitServer)
         store = SimpleInMemoryStore()
 
         # Initialize ChatKitServer with store
         super().__init__(store)
-
-        # Initialize registry and register tools
-        self._registry = ToolRegistry()
-        self._register_tools()
-
-        # Create OpenAI adapter (ChatKit uses OpenAI Agents SDK)
-        self._adapter = OpenAIAdapter(self._registry)
-
-        # Load instructions
-        self._instructions = self._load_instructions()
-
-    def _register_tools(self) -> None:
-        """Register all tools with the registry."""
-        plaid_client = PlaidClient.from_env()
-        plaid_items = self._db.list_plaid_items()
-
-        if plaid_items:
-            # Register sync tool (syncs all items automatically)
-            sync_tool = SyncTransactionsTool(
-                plaid_client=plaid_client,
-                categorizer_factory=lambda: self._categorizer,
-                db=self._db,
-                taxonomy=self._taxonomy,
-            )
-            self._registry.register(sync_tool)
-
-        # Register persist tools
-        recat_tool = RecategorizeTool(self._persist_tool)
-        self._registry.register(recat_tool)
-
-        tag_tool = TagTransactionsTool(self._persist_tool)
-        self._registry.register(tag_tool)
-
-        # Register query tool
-        sql_tool = RunSQLTool(self._db)
-        self._registry.register(sql_tool)
-
-    def _load_instructions(self) -> str:
-        """Load agent instructions from prompts."""
-        # Load prompt template
-        template = str(load_prompt("agent-loop"))
-        schema_hint = self._db.compact_schema_hint()
-        taxonomy_dict = self._taxonomy.to_prompt()
-
-        # Format database schema as readable text
-        schema_text = yaml.dump(schema_hint, default_flow_style=False, sort_keys=False)
-
-        # Format taxonomy as readable text
-        taxonomy_text = yaml.dump(
-            taxonomy_dict, default_flow_style=False, sort_keys=False
-        )
-
-        # Load taxonomy rules prompt
-        taxonomy_rules = str(load_prompt("taxonomy-rules"))
-
-        # Replace placeholders
-        rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
-        rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
-        rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
-
-        return rendered
 
     async def respond(
         self,
@@ -140,56 +76,49 @@ class TransactoidChatKitServer(_ChatKitServerBase):
         Yields:
             Thread stream events for ChatKit
         """
-        # Use OpenAI Agents SDK with adapted tools
-        tools = self._adapter.adapt_all()
-
-        agent = Agent(
-            name="Transactoid",
-            instructions=self._instructions,
-            model="gpt-5.1",
-            tools=tools,
-            model_settings=ModelSettings(
-                reasoning=Reasoning(effort="medium"), verbosity="high"
-            ),
-        )
-
-        # Get the user message text
         if input_user_message is None:
             return
 
-        # Load conversation history from store
-        history_page = await self.store.load_thread_items(
-            thread.id,
-            after=None,
-            limit=100,  # Load up to 100 previous items
-            order="asc",
-            context=context,
+        user_text = self._extract_user_text(input_user_message)
+        if not user_text:
+            return
+
+        runtime_session = self._runtime_sessions.get(thread.id)
+        if runtime_session is None:
+            runtime_session = self._runtime.start_session(thread.id)
+            self._runtime_sessions[thread.id] = runtime_session
+
+        assistant_message = AssistantMessageItem(
+            id=self.store.generate_item_id("message", thread, context),
+            thread_id=thread.id,
+            created_at=datetime.now(),
+            content=[AssistantMessageContent(text="", annotations=[])],
         )
-        history_items: list[ThreadItem] = history_page.data
+        yield ThreadItemAddedEvent(item=assistant_message)
 
-        # Add the new user message to history
-        history_items.append(input_user_message)
+        async for runtime_event in self._runtime.run_streamed(
+            input_text=user_text,
+            session=runtime_session,
+        ):
+            if isinstance(runtime_event, TextDeltaEvent):
+                assistant_message.content[0].text += runtime_event.text
+                yield ThreadItemUpdatedEvent(
+                    item_id=assistant_message.id,
+                    update=AssistantMessageContentPartTextDelta(
+                        content_index=0,
+                        delta=runtime_event.text,
+                    ),
+                )
 
-        # Convert thread items to agent input format
-        agent_input = await simple_to_agent_input(history_items)
+        yield ThreadItemDoneEvent(item=assistant_message)
 
-        # Run agent with streaming, passing full conversation history
-        result = Runner.run_streamed(
-            starting_agent=agent,
-            input=agent_input,
-            max_turns=DEFAULT_AGENT_MAX_TURNS,
-        )
-
-        # Create AgentContext for chatkit integration
-        agent_context = AgentContext(
-            thread=thread,
-            store=self.store,
-            request_context=context,
-        )
-
-        # Stream agent response using chatkit helper
-        async for event in stream_agent_response(agent_context, result):
-            yield event
+    def _extract_user_text(self, user_message: UserMessageItem) -> str:
+        for content in user_message.content:
+            if content.type == "input_text":
+                text_value = content.text
+                if isinstance(text_value, str):
+                    return text_value
+        return ""
 
 
 def create_app() -> "FastAPI":
