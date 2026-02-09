@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from transactoid.adapters.amazon.logger import AmazonMatcherLogger
@@ -16,6 +15,7 @@ from transactoid.adapters.amazon.splitter import split_order_to_derived
 from transactoid.tools.sync.mutation_plugin import MutationResult
 
 if TYPE_CHECKING:
+    from transactoid.adapters.db.facade import DB
     from transactoid.adapters.db.models import DerivedTransaction, PlaidTransaction
 
 
@@ -24,11 +24,9 @@ class AmazonMutationPluginConfig:
     """Configuration for Amazon mutation plugin.
 
     Attributes:
-        csv_dir: Directory containing Amazon CSV exports.
         max_date_lag: Maximum days between order_date and posted_at (default: 30).
     """
 
-    csv_dir: Path
     max_date_lag: int = 30
 
 
@@ -47,12 +45,14 @@ class AmazonMutationPlugin:
     name: str = "amazon_order_split"
     priority: int = 10
 
-    def __init__(self, config: AmazonMutationPluginConfig) -> None:
+    def __init__(self, db: DB, config: AmazonMutationPluginConfig) -> None:
         """Initialize plugin with configuration.
 
         Args:
-            config: Plugin configuration with CSV directory and date lag.
+            db: Database facade for loading scraped Amazon data.
+            config: Plugin configuration.
         """
+        self._db = db
         self._config = config
         self._index: AmazonOrderIndex | None = None
         self._plaid_id_to_order_id: dict[int, str] = {}
@@ -66,13 +66,11 @@ class AmazonMutationPlugin:
         Args:
             plaid_txns: All Plaid transactions in the current batch.
         """
-        # Load Amazon order index from CSV
-        if not self._config.csv_dir.exists():
-            self._index = None
+        # Load Amazon order index from DB tables populated by browser scraping.
+        self._index = AmazonOrderIndex.from_db(self._db)
+        if self._index.order_count == 0:
             self._plaid_id_to_order_id = {}
             return
-
-        self._index = AmazonOrderIndex.from_csv_dir(self._config.csv_dir)
         self._logger.index_loaded(self._index.order_count, self._index.item_count)
 
         # Filter to Amazon transactions only

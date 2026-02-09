@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 import re
 
-from transactoid.adapters.amazon.csv_loader import AmazonOrder
+from transactoid.adapters.amazon.entities import AmazonOrder
 from transactoid.adapters.db.models import PlaidTransaction
 
 # Amazon merchant detection patterns

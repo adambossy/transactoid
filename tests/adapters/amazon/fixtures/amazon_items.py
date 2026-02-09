@@ -4,7 +4,7 @@ These are real items from Amazon CSV exports corresponding to the
 orders in amazon_orders.py.
 """
 
-from transactoid.adapters.amazon.csv_loader import AmazonItem
+from transactoid.adapters.amazon.entities import AmazonItem
 
 
 def create_amazon_items() -> list[AmazonItem]:

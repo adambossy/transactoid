@@ -1,11 +1,6 @@
-"""Amazon adapters for CSV loading and Plaid transaction matching."""
+"""Amazon adapters for scraped-order matching and Plaid mutation."""
 
-from transactoid.adapters.amazon.csv_loader import (
-    AmazonItem,
-    AmazonItemsCSVLoader,
-    AmazonOrder,
-    AmazonOrdersCSVLoader,
-)
+from transactoid.adapters.amazon.entities import AmazonItem, AmazonOrder
 from transactoid.adapters.amazon.logger import AmazonMatcherLogger
 from transactoid.adapters.amazon.mutation_plugin import (
     AmazonMutationPlugin,
@@ -22,9 +17,7 @@ from transactoid.adapters.amazon.splitter import (
 )
 
 __all__ = [
-    # CSV loading
-    "AmazonItemsCSVLoader",
-    "AmazonOrdersCSVLoader",
+    # Entities
     "AmazonItem",
     "AmazonOrder",
     # Order index

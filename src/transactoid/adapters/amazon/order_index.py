@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from transactoid.adapters.amazon.csv_loader import (
-    AmazonItem,
-    AmazonItemsCSVLoader,
-    AmazonOrder,
-    AmazonOrdersCSVLoader,
-)
+from transactoid.adapters.amazon.entities import AmazonItem, AmazonOrder
+from transactoid.adapters.db.facade import DB
 
 
 class AmazonOrderIndex:
@@ -30,18 +24,41 @@ class AmazonOrderIndex:
         self._items_by_order = items_by_order
 
     @classmethod
-    def from_csv_dir(cls, csv_dir: Path) -> AmazonOrderIndex:
-        """Load index from CSV directory.
+    def from_db(cls, db: DB) -> AmazonOrderIndex:
+        """Load index from persisted Amazon order/item tables.
 
         Args:
-            csv_dir: Directory containing Amazon CSV exports
-                     (amazon-order-history-orders*.csv, amazon-order-history-items*.csv)
+            db: Database facade used to read Amazon orders and items.
 
         Returns:
-            AmazonOrderIndex populated from CSV files
+            AmazonOrderIndex populated from database rows.
         """
-        orders = AmazonOrdersCSVLoader(csv_dir).load()
-        items = AmazonItemsCSVLoader(csv_dir).load()
+        orders_by_id: dict[str, AmazonOrder] = {}
+        items_by_order: dict[str, list[AmazonItem]] = {}
+
+        for order in db.list_amazon_orders():
+            orders_by_id[order.order_id] = AmazonOrder(
+                order_id=order.order_id,
+                order_date=order.order_date,
+                order_total_cents=order.order_total_cents,
+                tax_cents=order.tax_cents,
+                shipping_cents=order.shipping_cents,
+            )
+            raw_items = db.get_amazon_items_for_order(order.order_id)
+            if raw_items:
+                items_by_order[order.order_id] = [
+                    AmazonItem(
+                        order_id=item.order_id,
+                        asin=item.asin,
+                        description=item.description,
+                        price_cents=item.price_cents,
+                        quantity=item.quantity,
+                    )
+                    for item in raw_items
+                ]
+
+        orders = orders_by_id
+        items = items_by_order
         return cls(orders, items)
 
     def get_items(self, order_id: str) -> list[AmazonItem]:
@@ -65,6 +82,10 @@ class AmazonOrderIndex:
             AmazonOrder if found, None otherwise
         """
         return self._orders.get(order_id)
+
+    def list_orders(self) -> list[AmazonOrder]:
+        """Get all indexed orders."""
+        return list(self._orders.values())
 
     @property
     def order_count(self) -> int:

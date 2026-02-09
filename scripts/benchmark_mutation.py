@@ -3,12 +3,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import time
 
 from transactoid.adapters.amazon import (
-    AmazonItemsCSVLoader,
-    AmazonOrdersCSVLoader,
     is_amazon_transaction,
 )
 from transactoid.adapters.amazon.order_index import AmazonOrderIndex
@@ -43,16 +40,9 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
 
     print(f"Benchmarking with {len(plaid_ids)} plaid_ids...")
 
-    # Load Amazon data once
-    csv_dir = Path(".transactions/amazon")
-    orders_csv = csv_dir / "amazon-order-history-orders.csv"
-    items_csv = csv_dir / "amazon-order-history-items.csv"
-
     start = time.monotonic()
-    amazon_orders = AmazonOrdersCSVLoader(orders_csv).load()
-    amazon_items = AmazonItemsCSVLoader(items_csv).load()
-    order_index = AmazonOrderIndex(amazon_orders, amazon_items)
-    csv_load_ms = (time.monotonic() - start) * 1000
+    order_index = AmazonOrderIndex.from_db(db)
+    index_load_ms = (time.monotonic() - start) * 1000
 
     # Benchmark individual DB reads
     db_read_total_ms = 0.0
@@ -71,7 +61,7 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
             matching_order = next(
                 (
                     order
-                    for order in amazon_orders.values()
+                    for order in order_index.list_orders()
                     if order.order_total_cents == plaid_txn.amount_cents
                 ),
                 None,
@@ -92,7 +82,7 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
     metrics = {
         "plaid_ids_processed": len(plaid_ids),
         "amazon_transactions": amazon_count,
-        "csv_load_ms": csv_load_ms,
+        "index_load_ms": index_load_ms,
         "db_read_total_ms": db_read_total_ms,
         "db_read_avg_ms": db_read_avg,
         "amazon_reconcile_total_ms": amazon_reconcile_ms,
@@ -102,7 +92,7 @@ def benchmark_mutation(db_url: str, limit: int = 100) -> dict[str, float]:
     print("\n=== Mutation Benchmark Results ===")
     print(f"Plaid IDs processed: {metrics['plaid_ids_processed']}")
     print(f"Amazon transactions: {metrics['amazon_transactions']}")
-    print(f"CSV load time: {metrics['csv_load_ms']:.1f}ms")
+    print(f"Index load time: {metrics['index_load_ms']:.1f}ms")
     print(f"DB reads total: {metrics['db_read_total_ms']:.1f}ms")
     print(f"DB reads avg: {metrics['db_read_avg_ms']:.2f}ms per transaction")
     print(f"Amazon reconcile total: {metrics['amazon_reconcile_total_ms']:.1f}ms")

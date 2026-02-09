@@ -6,7 +6,7 @@ the matching algorithm against Plaid transactions.
 
 from datetime import date
 
-from transactoid.adapters.amazon.csv_loader import AmazonOrder
+from transactoid.adapters.amazon.entities import AmazonOrder
 
 
 def create_amazon_orders() -> list[AmazonOrder]:
