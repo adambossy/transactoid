@@ -7,7 +7,7 @@ from tests.adapters.amazon.fixtures import (
     create_amazon_orders,
     create_plaid_transactions,
 )
-from transactoid.adapters.amazon.csv_loader import AmazonOrder
+from transactoid.adapters.amazon.entities import AmazonOrder
 from transactoid.adapters.amazon.plaid_matcher import match_orders_to_transactions
 from transactoid.adapters.db.models import PlaidTransaction
 

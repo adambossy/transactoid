@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import loguru
@@ -22,9 +21,6 @@ from transactoid.tools.sync.mutation_registry import MutationRegistry
 
 if TYPE_CHECKING:
     from transactoid.adapters.db.models import DerivedTransaction, PlaidItem
-
-# Default path for Amazon order CSV files
-DEFAULT_AMAZON_CSV_DIR = Path(".transactions/amazon")
 
 
 @dataclass
@@ -220,8 +216,6 @@ class SyncTool:
         categorizer_factory: Callable[[], Categorizer],
         db: DB,
         taxonomy: Taxonomy,
-        *,
-        amazon_csv_dir: Path | None = DEFAULT_AMAZON_CSV_DIR,
     ) -> None:
         """
         Initialize the sync tool.
@@ -233,8 +227,6 @@ class SyncTool:
                 until categorization is actually needed.
             db: Database instance for persisting transactions
             taxonomy: Taxonomy instance for transaction categorization
-            amazon_csv_dir: Path to Amazon order CSV directory for mutation plugin.
-                           Defaults to .transactions/amazon. Pass None to disable.
         """
         self._plaid_client = plaid_client
         self._categorizer_factory = categorizer_factory
@@ -243,17 +235,16 @@ class SyncTool:
         self._taxonomy = taxonomy
         self._logger = SyncToolLogger()
 
-        # Auto-detect Amazon mutation registry (lazy import to avoid circular import)
+        # Register Amazon mutation plugin; it reads scraped orders from DB tables.
         self._mutation_registry = MutationRegistry()
-        if amazon_csv_dir and amazon_csv_dir.exists():
-            from transactoid.adapters.amazon import (
-                AmazonMutationPlugin,
-                AmazonMutationPluginConfig,
-            )
+        from transactoid.adapters.amazon import (
+            AmazonMutationPlugin,
+            AmazonMutationPluginConfig,
+        )
 
-            self._mutation_registry.register(
-                AmazonMutationPlugin(AmazonMutationPluginConfig(csv_dir=amazon_csv_dir))
-            )
+        self._mutation_registry.register(
+            AmazonMutationPlugin(db, AmazonMutationPluginConfig())
+        )
 
     async def sync(
         self,

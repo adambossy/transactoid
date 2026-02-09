@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from transactoid.adapters.amazon.csv_loader import AmazonItem, AmazonOrder
+from transactoid.adapters.amazon.entities import AmazonItem, AmazonOrder
 from transactoid.adapters.db.models import PlaidTransaction
 
 
