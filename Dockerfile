@@ -6,8 +6,8 @@
 # =============================================================================
 FROM python:3.12-slim AS builder
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Install uv from PyPI to avoid GHCR pull failures in remote builders
+RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
