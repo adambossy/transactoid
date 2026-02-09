@@ -107,7 +107,21 @@ def test_<unit>_<behavior>():
   - Types: `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`.
   - Example: `feature/add-plaid-sync`, `fix/transaction-dedupe`.
 
-- Worktree cleanup
+- Worktree merge and cleanup
+  - Prefer rebasing the worktree branch onto `main` before merging:
+    ```bash
+    # In the worktree
+    git fetch origin
+    git rebase origin/main
+    ```
+  - Prefer fast-forward merges to avoid merge commits:
+    ```bash
+    # In the primary repo
+    git switch main
+    git pull --ff-only
+    git merge --ff-only <branch-name>
+    ```
+  - If fast-forward fails, rebase again and retry `--ff-only` merge instead of creating a merge commit.
   - Remove the worktree directory:
     ```bash
     git worktree remove <worktree-path>
@@ -129,7 +143,6 @@ def test_<unit>_<behavior>():
     git worktree list
     git branch --list
     ```
-
 - Commit practices
   - Keep commits small and focused. Large commits are harder to review, harder to bisect, and harder to revert.
   - When you have many unstaged changes, analyze the dependency relationships between them. Identify which changes are self-contained and which depend on others.
