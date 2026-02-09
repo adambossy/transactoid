@@ -1,7 +1,7 @@
 # Fly.io configuration for Transactoid report job
 # This is a scheduled job, not a web service
 
-app = "transactoid-report"
+app = "transactoid"
 primary_region = "iad"  # US East - close to Supabase
 
 [build]
@@ -28,10 +28,10 @@ primary_region = "iad"  # US East - close to Supabase
 #   fly secrets set REPORT_RECIPIENTS="user@example.com"  # Optional override
 
 # To run manually:
-#   fly machine run transactoid-report --entrypoint "transactoid report"
+#   fly machine run transactoid --entrypoint "transactoid report"
 
 # To schedule (7 AM UTC daily):
-#   fly machine run transactoid-report \
+#   fly machine run transactoid \
 #     --schedule "0 7 * * *" \
 #     --entrypoint "transactoid report"
 
