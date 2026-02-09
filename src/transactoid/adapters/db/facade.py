@@ -1365,7 +1365,7 @@ class DB:
 
             if derived_txn.is_verified:
                 raise ValueError(
-                    f"Transaction {transaction_id} is verified and immutable"
+                    f"Transaction {transaction_id} is verified and cannot be updated"
                 )
 
             # Resolve merchant if merchant_descriptor is provided
