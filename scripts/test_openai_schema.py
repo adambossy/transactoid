@@ -70,7 +70,7 @@ def build_response_schema(valid_keys: list[str]) -> dict[str, object]:
     }
 
 
-async def test_schema() -> None:
+async def _run_schema_test() -> None:
     """Test the schema with a simple API call."""
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -133,4 +133,9 @@ Valid categories: food.groceries, food.restaurants, shopping.general, income.sal
 
 
 if __name__ == "__main__":
-    asyncio.run(test_schema())
+    asyncio.run(_run_schema_test())
+
+
+def test_schema() -> None:
+    """Pytest entrypoint that executes the async schema test."""
+    asyncio.run(_run_schema_test())
