@@ -125,7 +125,10 @@ def load_legacy_categories(
 
 def slugify_label(label: str) -> str:
     normalized = (
-        label.lower().replace("&", " ").replace("@", " at ").replace("%", " percent ")
+        label.lower()
+        .replace("&", " and ")
+        .replace("@", " at ")
+        .replace("%", " percent ")
     )
     normalized = re.sub(r"[^\w\s]", " ", normalized)
     slug = re.sub(r"\s+", "_", normalized).strip("_")
