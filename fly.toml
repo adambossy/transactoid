@@ -19,23 +19,6 @@ primary_region = "iad"  # US East - close to Supabase
   size = "shared-cpu-1x"
   memory = "512mb"
 
-# Note: Secrets should be set via CLI:
-#   fly secrets set DATABASE_URL="postgresql://..."
-#   fly secrets set OPENAI_API_KEY="..."
-#   fly secrets set ANTHROPIC_API_KEY="..."
-#   fly secrets set GOOGLE_API_KEY="..."
-#   fly secrets set RESEND_API_KEY="..."
-#   fly secrets set PLAID_CLIENT_ID="..."
-#   fly secrets set PLAID_PRODUCTION_SECRET="..."
-#   fly secrets set PLAID_SANDBOX_SECRET="..."
-#   fly secrets set PLAID_ACCESS_TOKEN="..."
-#   fly secrets set PLAID_ENV="production"
-#   fly secrets set BROWSERBASE_PROJECT_ID="..."
-#   fly secrets set BROWSERBASE_API_KEY="..."
-#   fly secrets set TRANSACTOID_AGENT_PROVIDER="gemini"
-#   fly secrets set TRANSACTOID_AGENT_MODEL="gemini-3.0-pro"
-#   fly secrets set REPORT_RECIPIENTS="user@example.com"  # Optional override
-
 # To run manually:
 #   fly machine run transactoid --entrypoint "transactoid report"
 
