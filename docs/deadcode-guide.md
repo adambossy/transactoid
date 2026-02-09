@@ -10,9 +10,9 @@ Current project excludes include `.venv/`, `.worktrees/`, migration directories,
 and framework-wired modules (`db/migrations/**`, `evals/core/**`,
 `src/transactoid/jobs/report/**`, `src/transactoid/ui/mcp/server.py`,
 `src/transactoid/ui/cli.py`, `src/transactoid/ui/chatkit/server.py`,
-`src/transactoid/ui/chatkit/adapter.py`, `src/transactoid/ui/stream_renderer.py`,
-`scripts/run.py`, `src/transactoid/adapters/db/models.py`) so deadcode focuses on
-normal code paths.
+`src/transactoid/ui/chatkit/adapter.py`, `scripts/run.py`,
+`src/transactoid/adapters/db/models.py`) so deadcode focuses on normal code
+paths.
 
 **Without (`docs/` not excluded)**
 

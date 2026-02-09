@@ -57,7 +57,6 @@ exclude = [
     "src/transactoid/ui/cli.py",
     "src/transactoid/ui/chatkit/server.py",
     "src/transactoid/ui/chatkit/adapter.py",
-    "src/transactoid/ui/stream_renderer.py",
     "scripts/run.py",
     "src/transactoid/jobs/report/",
     "src/transactoid/jobs/report/**",
