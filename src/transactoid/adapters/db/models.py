@@ -172,6 +172,7 @@ class DerivedTransaction(Base):
     category_assigned_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP, nullable=True
     )
+    web_search_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )

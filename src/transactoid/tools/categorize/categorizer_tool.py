@@ -69,6 +69,7 @@ class CategorizedTransaction:
     revised_category_confidence: float | None = None
     revised_category_rationale: str | None = None
     merchant_summary: str | None = None
+    used_web_search: bool = False
     rule_matched: bool = False
     rule_name: str | None = None
     is_verified: bool = False
@@ -757,6 +758,7 @@ class Categorizer:
         """Build CategorizedTransaction from result and validate category keys."""
         category_key = self._resolve_category_key(result)
         revised_category = self._validate_revised_category(result.revised_category)
+        used_web_search = self._did_use_web_search(result)
         rule_matched = result.rule_matched is True
         is_verified = rule_matched  # Auto-verify transactions matching merchant rules
         return CategorizedTransaction(
@@ -769,9 +771,22 @@ class Categorizer:
             revised_category_confidence=result.revised_score,
             revised_category_rationale=result.revised_rationale,
             merchant_summary=result.merchant_summary,
+            used_web_search=used_web_search,
             rule_matched=rule_matched,
             rule_name=result.rule_name,
             is_verified=is_verified,
+        )
+
+    def _did_use_web_search(self, result: CategorizationResult) -> bool:
+        """Infer web search usage from fields only present in post-search flow."""
+        return any(
+            (
+                result.revised_category is not None,
+                result.revised_score is not None,
+                result.revised_rationale is not None,
+                result.merchant_summary is not None,
+                result.citations is not None,
+            )
         )
 
     def _resolve_category_key(self, result: CategorizationResult) -> str:
@@ -847,6 +862,7 @@ class Categorizer:
                 "revised_score": cat_txn.revised_category_confidence,
                 "revised_rationale": cat_txn.revised_category_rationale,
                 "merchant_summary": cat_txn.merchant_summary,
+                "used_web_search": cat_txn.used_web_search,
                 "rule_matched": cat_txn.rule_matched,
                 "rule_name": cat_txn.rule_name,
                 "is_verified": cat_txn.is_verified,

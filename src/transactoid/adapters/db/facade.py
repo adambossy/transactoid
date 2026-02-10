@@ -441,6 +441,7 @@ class DB:
             "category_model": data.get("category_model"),
             "category_method": data.get("category_method"),
             "category_assigned_at": data.get("category_assigned_at"),
+            "web_search_summary": data.get("web_search_summary"),
             "is_verified": data.get("is_verified", False),
         }
         return self.insert_derived_transaction(derived_data)
@@ -624,6 +625,11 @@ class DB:
                 else cat_txn.category_key
             )
             category_id = category_lookup(category_key) if category_key else None
+            llm_research_summary = (
+                cat_txn.merchant_summary if cat_txn.used_web_search else None
+            )
+            if llm_research_summary is not None and not llm_research_summary.strip():
+                llm_research_summary = None
 
             # Extract transaction data
             # Map from Transaction TypedDict to database fields
@@ -684,6 +690,7 @@ class DB:
                     "category_reason": "save_transactions",
                     "merchant_descriptor": merchant_descriptor,
                     "amount_cents": amount_cents,
+                    "web_search_summary": llm_research_summary,
                 }
                 try:
                     updated_txn = self.update_transaction_mutable(
@@ -730,6 +737,7 @@ class DB:
                     "category_reason": (
                         "save_transactions" if category_id is not None else None
                     ),
+                    "web_search_summary": llm_research_summary,
                     "institution": None,  # Should come from ingest tool context
                 }
                 new_txn = self.insert_transaction(insert_data)
@@ -1293,7 +1301,9 @@ class DB:
             data: Derived transaction data dictionary with fields:
                 - plaid_transaction_id, external_id, amount_cents, posted_at
                 - merchant_descriptor (optional), merchant_id (optional)
-                - category_id (optional), is_verified (default: False)
+                - category_id (optional)
+                - web_search_summary (optional)
+                - is_verified (default: False)
 
         Returns:
             Created DerivedTransaction instance
@@ -1341,6 +1351,7 @@ class DB:
                 category_model=data.get("category_model"),
                 category_method=category_method,
                 category_assigned_at=category_assigned_at,
+                web_search_summary=data.get("web_search_summary"),
                 is_verified=data.get("is_verified", False),
             )
             session.add(derived_txn)
@@ -1384,7 +1395,9 @@ class DB:
             data_list: List of derived transaction data dictionaries with fields:
                 - plaid_transaction_id, external_id, amount_cents, posted_at
                 - merchant_descriptor (optional), merchant_id (optional)
-                - category_id (optional), is_verified (default: False)
+                - category_id (optional)
+                - web_search_summary (optional)
+                - is_verified (default: False)
 
         Returns:
             List of created transaction IDs
@@ -1460,6 +1473,7 @@ class DB:
                     category_model=data.get("category_model"),
                     category_method=category_method,
                     category_assigned_at=category_assigned_at,
+                    web_search_summary=data.get("web_search_summary"),
                     is_verified=data.get("is_verified", False),
                 )
                 derived_txns.append(derived_txn)
@@ -1702,6 +1716,40 @@ class DB:
             )
             return result
 
+    def bulk_update_derived_web_search_summaries(
+        self,
+        updates: dict[int, str | None],
+    ) -> int:
+        """Bulk update LLM merchant research summaries for derived transactions.
+
+        Args:
+            updates: Dictionary mapping transaction_id to summary text (or None)
+
+        Returns:
+            Number of transactions updated
+        """
+        if not updates:
+            return 0
+
+        with self.session() as session:  # type: Session
+            now = datetime.now()
+            case_expr = case(
+                updates,
+                value=DerivedTransaction.transaction_id,
+            )
+            result: int = (
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.transaction_id.in_(updates.keys()))
+                .update(
+                    {
+                        DerivedTransaction.web_search_summary: case_expr,
+                        DerivedTransaction.updated_at: now,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            return result
+
     def update_derived_mutable(
         self,
         transaction_id: int,
@@ -1775,6 +1823,7 @@ class DB:
                     "merchant_id",
                     "amount_cents",
                     "merchant_descriptor",
+                    "web_search_summary",
                 ):
                     setattr(derived_txn, key, value)
 

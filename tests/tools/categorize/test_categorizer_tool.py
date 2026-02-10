@@ -6,6 +6,7 @@ from models.transaction import Transaction
 from transactoid.tools.categorize.categorizer_tool import (
     CategorizationResult,
     CategorizedTransaction,
+    Categorizer,
 )
 
 
@@ -96,3 +97,59 @@ def test_categorized_transaction_includes_merchant_summary() -> None:
         == "- Local diner\n- Family owned\n- American cuisine"
     )
     assert categorized.category_model == "gpt-5.2"
+
+
+def test_categorizer_used_web_search_true_when_revised_or_summary_present() -> None:
+    # input
+    input_data = {
+        "idx": 0,
+        "category": "food_and_dining.restaurants",
+        "score": 0.55,
+        "rationale": "Initial low confidence",
+        "revised_category": "food_and_dining.restaurants",
+        "revised_score": 0.82,
+        "revised_rationale": "Web search matched merchant identity",
+        "merchant_summary": "- Local cafe in Austin",
+        "citations": ["https://example.com"],
+    }
+
+    # helper setup
+    categorizer = object.__new__(Categorizer)
+    result = CategorizationResult.model_validate(input_data)
+
+    # act
+    output = categorizer._did_use_web_search(result)
+
+    # expected
+    expected_output = True
+
+    # assert
+    assert output == expected_output
+
+
+def test_categorizer_used_web_search_false_without_revised_fields() -> None:
+    # input
+    input_data = {
+        "idx": 0,
+        "category": "food_and_dining.groceries",
+        "score": 0.91,
+        "rationale": "High confidence direct match",
+        "revised_category": None,
+        "revised_score": None,
+        "revised_rationale": None,
+        "merchant_summary": None,
+        "citations": None,
+    }
+
+    # helper setup
+    categorizer = object.__new__(Categorizer)
+    result = CategorizationResult.model_validate(input_data)
+
+    # act
+    output = categorizer._did_use_web_search(result)
+
+    # expected
+    expected_output = False
+
+    # assert
+    assert output == expected_output
