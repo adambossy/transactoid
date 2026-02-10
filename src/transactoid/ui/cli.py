@@ -527,33 +527,29 @@ def _upload_report_artifacts(markdown_text: str, html_content: str) -> None:
 
     Raises typer.Exit(1) on upload failure so the report job fails visibly.
     """
-    from transactoid.adapters.storage.r2 import (
-        R2StorageError,
-        make_artifact_key,
-        store_object_in_r2,
-    )
+    from transactoid.adapters.storage.r2 import R2StorageError
+    from transactoid.tools.storage.upload_tool import upload_artifact
 
     timestamp = datetime.now(tz=UTC)
 
-    md_key = make_artifact_key(artifact_type="report-md", timestamp=timestamp)
-    html_key = make_artifact_key(artifact_type="report-html", timestamp=timestamp)
-
     try:
-        store_object_in_r2(
-            key=md_key,
+        md_result = upload_artifact(
+            artifact_type="report-md",
             body=markdown_text.encode("utf-8"),
             content_type="text/markdown; charset=utf-8",
+            timestamp=timestamp,
         )
-        store_object_in_r2(
-            key=html_key,
+        html_result = upload_artifact(
+            artifact_type="report-html",
             body=html_content.encode("utf-8"),
             content_type="text/html; charset=utf-8",
+            timestamp=timestamp,
         )
     except R2StorageError as exc:
         typer.echo(f"R2 upload failed: {exc}", err=True)
         raise typer.Exit(1) from None
 
-    typer.echo(f"Artifacts uploaded: {md_key}, {html_key}")
+    typer.echo(f"Artifacts uploaded: {md_result.key}, {html_result.key}")
 
 
 async def _report_impl(
