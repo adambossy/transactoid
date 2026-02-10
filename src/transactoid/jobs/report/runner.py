@@ -10,11 +10,11 @@ from typing import Any
 
 from agents import Runner, SQLiteSession
 from agents.items import MessageOutputItem
+from promptorium import load_prompt
 
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.orchestrators.transactoid import Transactoid
-from transactoid.prompts.loader import load_transactoid_prompt
 from transactoid.taxonomy.core import Taxonomy
 
 
@@ -132,7 +132,7 @@ class ReportRunner:
             Rendered prompt string
         """
         # Load base prompt from promptorium
-        prompt = load_transactoid_prompt(self._prompt_key)
+        prompt = load_prompt(self._prompt_key)
 
         # Determine the target month
         if report_month:
