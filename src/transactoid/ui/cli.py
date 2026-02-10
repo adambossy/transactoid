@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 import os
 from pathlib import Path
 import shutil
@@ -522,6 +522,40 @@ def _load_report_config(config_path: str) -> dict[str, Any]:
         return config
 
 
+def _upload_report_artifacts(markdown_text: str, html_content: str) -> None:
+    """Upload markdown and HTML report artifacts to Cloudflare R2.
+
+    Raises typer.Exit(1) on upload failure so the report job fails visibly.
+    """
+    from transactoid.adapters.storage.r2 import (
+        R2StorageError,
+        make_artifact_key,
+        store_object_in_r2,
+    )
+
+    timestamp = datetime.now(tz=UTC)
+
+    md_key = make_artifact_key(artifact_type="report-md", timestamp=timestamp)
+    html_key = make_artifact_key(artifact_type="report-html", timestamp=timestamp)
+
+    try:
+        store_object_in_r2(
+            key=md_key,
+            body=markdown_text.encode("utf-8"),
+            content_type="text/markdown; charset=utf-8",
+        )
+        store_object_in_r2(
+            key=html_key,
+            body=html_content.encode("utf-8"),
+            content_type="text/html; charset=utf-8",
+        )
+    except R2StorageError as exc:
+        typer.echo(f"R2 upload failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    typer.echo(f"Artifacts uploaded: {md_key}, {html_key}")
+
+
 async def _report_impl(
     send_email: bool,
     output_file: str | None,
@@ -558,6 +592,9 @@ async def _report_impl(
 
         # Generate styled HTML version
         html_content = render_report_html(result.report_text)
+
+        # Upload artifacts to R2
+        _upload_report_artifacts(result.report_text, html_content)
 
         # Output to file if requested (both .md and .html)
         if output_file:
