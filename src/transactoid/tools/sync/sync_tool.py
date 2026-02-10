@@ -623,7 +623,12 @@ class SyncTool:
 
         # Bulk update all categories in single DB transaction
         if category_updates:
-            self._db.bulk_update_derived_categories(category_updates)
+            self._db.bulk_update_derived_categories(
+                category_updates,
+                method="llm",
+                model=self._categorizer.model_name,
+                reason="sync_categorize",
+            )
 
     def _build_sync_result_from_accumulated(
         self,

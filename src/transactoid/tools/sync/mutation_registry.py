@@ -108,6 +108,9 @@ class MutationRegistry:
             old = old_derived[0]
             if old.is_verified and old.category_id is not None:
                 new_derived_data["category_id"] = old.category_id
+                new_derived_data["category_model"] = old.category_model
+                new_derived_data["category_method"] = old.category_method
+                new_derived_data["category_assigned_at"] = old.category_assigned_at
             new_derived_data["is_verified"] = old.is_verified
             if old.merchant_id is not None:
                 new_derived_data["merchant_id"] = old.merchant_id
