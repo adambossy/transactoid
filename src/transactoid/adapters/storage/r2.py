@@ -28,6 +28,10 @@ class R2UploadError(R2StorageError):
     """Failed to upload an object to R2."""
 
 
+class R2DownloadError(R2StorageError):
+    """Failed to download an object from R2."""
+
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -151,6 +155,43 @@ def store_object_in_r2(
 
     logger.bind(key=key, bucket=config.bucket).info("Uploaded object to R2: {}", key)
     return R2StoredObject(key=key, bucket=config.bucket, content_type=content_type)
+
+
+# ---------------------------------------------------------------------------
+# Download
+# ---------------------------------------------------------------------------
+
+
+def download_object_from_r2(
+    *,
+    key: str,
+    config: R2Config | None = None,
+) -> bytes:
+    """Download an object from Cloudflare R2.
+
+    Args:
+        key: Object key to download.
+        config: R2 credentials. Loaded from env if *None*.
+
+    Returns:
+        Raw bytes of the object.
+
+    Raises:
+        R2ConfigError: If config cannot be loaded from env.
+        R2DownloadError: If the download fails.
+    """
+    if config is None:
+        config = load_r2_config_from_env()
+
+    client = _build_client(config)
+
+    try:
+        response = client.get_object(Bucket=config.bucket, Key=key)
+        body: bytes = response["Body"].read()
+        return body
+    except (BotoCoreError, ClientError) as exc:
+        msg = f"Failed to download {key!r} from {config.bucket}: {exc}"
+        raise R2DownloadError(msg) from exc
 
 
 # ---------------------------------------------------------------------------

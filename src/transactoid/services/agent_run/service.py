@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+import tempfile
 import time
 import uuid
 
@@ -15,9 +17,11 @@ from promptorium import load_prompt
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.orchestrators.transactoid import Transactoid
+from transactoid.services.agent_run.trace import download_trace, upload_trace
 from transactoid.services.agent_run.types import (
     AgentRunRequest,
     AgentRunResult,
+    ArtifactRecord,
     RunManifest,
 )
 from transactoid.taxonomy.core import Taxonomy
@@ -56,11 +60,15 @@ class AgentRunService:
         started_at = datetime.now(UTC)
         start_mono = time.monotonic()
 
+        trace_path = self._resolve_trace_path(request)
+
         try:
             plaid_client = self._resolve_plaid_client()
             agent = self._create_agent(plaid_client)
             prompt = self._resolve_prompt(request)
-            response_text = await self._run_agent(agent, prompt, request.max_turns)
+            response_text = await self._run_agent(
+                agent, prompt, request.max_turns, trace_path
+            )
         except Exception as exc:
             duration = time.monotonic() - start_mono
             finished_at = datetime.now(UTC)
@@ -75,6 +83,9 @@ class AgentRunService:
                 success=False,
                 error=error_msg,
             )
+            trace_artifacts = _persist_trace(
+                run_id=run_id, trace_path=trace_path, manifest=manifest
+            )
             return AgentRunResult(
                 run_id=run_id,
                 success=False,
@@ -83,6 +94,7 @@ class AgentRunService:
                 error=error_msg,
                 duration_seconds=duration,
                 manifest=manifest,
+                artifacts=tuple(trace_artifacts),
             )
 
         duration = time.monotonic() - start_mono
@@ -99,6 +111,10 @@ class AgentRunService:
             error=None,
         )
 
+        trace_artifacts = _persist_trace(
+            run_id=run_id, trace_path=trace_path, manifest=manifest
+        )
+
         return AgentRunResult(
             run_id=run_id,
             success=True,
@@ -107,6 +123,7 @@ class AgentRunService:
             error=None,
             duration_seconds=duration,
             manifest=manifest,
+            artifacts=tuple(trace_artifacts),
         )
 
     def _resolve_plaid_client(self) -> PlaidClient | None:
@@ -146,13 +163,42 @@ class AgentRunService:
         return text
 
     @staticmethod
-    async def _run_agent(agent: Agent[None], prompt: str, max_turns: int) -> str:
+    def _resolve_trace_path(request: AgentRunRequest) -> Path:
+        """Get or create the trace database path.
+
+        For continuation runs, downloads the prior trace from R2.
+        For new runs, creates a temporary file.
+        """
+        if request.continue_run_id is not None:
+            return download_trace(run_id=request.continue_run_id)
+        tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
+        tmp.close()
+        return Path(tmp.name)
+
+    @staticmethod
+    async def _run_agent(
+        agent: Agent[None], prompt: str, max_turns: int, trace_path: Path
+    ) -> str:
         """Execute the agent and extract the response text."""
-        session = SQLiteSession(session_id="agent_run")
+        session = SQLiteSession(session_id="agent_run", db_path=trace_path)
         result = await Runner.run(
             agent, input=prompt, session=session, max_turns=max_turns
         )
         return _extract_response(result)
+
+
+def _persist_trace(
+    *,
+    run_id: str,
+    trace_path: Path,
+    manifest: RunManifest,
+) -> list[ArtifactRecord]:
+    """Upload trace and manifest to R2, logging errors without raising."""
+    try:
+        return upload_trace(run_id=run_id, trace_path=trace_path, manifest=manifest)
+    except Exception as exc:
+        logger.error("Trace persistence failed for run {}: {}", run_id, exc)
+        return []
 
 
 def _extract_response(result: RunResult) -> str:
