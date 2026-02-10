@@ -672,18 +672,24 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
 
     hint = db.compact_schema_hint()
 
-    assert "tables" in hint
-    assert "merchants" in hint["tables"]
-    assert "categories" in hint["tables"]
-    assert "plaid_transactions" in hint["tables"]
-    assert "derived_transactions" in hint["tables"]
-    assert "tags" in hint["tables"]
-    assert "transaction_tags" in hint["tables"]
+    expected_tables = {
+        "merchants",
+        "categories",
+        "plaid_transactions",
+        "derived_transactions",
+        "tags",
+        "transaction_tags",
+    }
+    output_tables = set(hint["tables"])
+    assert output_tables == expected_tables
+
+    plaid_table = hint["tables"]["plaid_transactions"]
+    assert "item_id" in plaid_table["columns"]
+    assert plaid_table["constraints"] == ["UNIQUE(external_id, source)"]
 
     derived_table = hint["tables"]["derived_transactions"]
-    assert "columns" in derived_table
-    assert "relationships" in derived_table
     assert "transaction_id" in derived_table["columns"]
+    assert "plaid_transactions" in derived_table["relationships"]
 
 
 def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:

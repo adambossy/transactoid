@@ -9,8 +9,11 @@ if TYPE_CHECKING:
     from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
 
 from sqlalchemy import (
+    Table,
+    UniqueConstraint,
     case,
     create_engine,
+    inspect,
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -35,6 +38,26 @@ from transactoid.adapters.db.models import (
 )
 
 M = TypeVar("M")
+
+_COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
+    Merchant,
+    Category,
+    PlaidTransaction,
+    DerivedTransaction,
+    Tag,
+    TransactionTag,
+)
+
+_COMPACT_SCHEMA_NOTES: dict[str, str] = {
+    "plaid_transactions": (
+        "Immutable source data from Plaid. Do NOT query directly for spending analysis."
+    ),
+    "derived_transactions": (
+        "Primary table for all spending queries and analysis. "
+        "May have multiple rows per Plaid transaction "
+        "(Amazon item splits)."
+    ),
+}
 
 
 class DB:
@@ -594,97 +617,62 @@ class DB:
         Returns:
             Dictionary with table names, column names, types, and relationships
         """
-        return {
-            "tables": {
-                "merchants": {
-                    "columns": {
-                        "merchant_id": "INTEGER PRIMARY KEY",
-                        "normalized_name": "TEXT UNIQUE",
-                        "display_name": "TEXT",
-                        "created_at": "TIMESTAMP",
-                        "updated_at": "TIMESTAMP",
-                    },
-                    "relationships": ["derived_transactions"],
-                },
-                "categories": {
-                    "columns": {
-                        "category_id": "INTEGER PRIMARY KEY",
-                        "parent_id": "INTEGER FOREIGN KEY",
-                        "key": "TEXT UNIQUE",
-                        "name": "TEXT",
-                        "description": "TEXT",
-                        "rules": "TEXT",
-                        "created_at": "TIMESTAMP",
-                        "updated_at": "TIMESTAMP",
-                    },
-                    "relationships": ["parent", "children", "derived_transactions"],
-                },
-                "plaid_transactions": {
-                    "columns": {
-                        "plaid_transaction_id": "INTEGER PRIMARY KEY",
-                        "external_id": "TEXT",
-                        "source": "TEXT",
-                        "account_id": "TEXT",
-                        "posted_at": "DATE",
-                        "amount_cents": "INTEGER",
-                        "currency": "TEXT",
-                        "merchant_descriptor": "TEXT",
-                        "institution": "TEXT",
-                        "created_at": "TIMESTAMP",
-                        "updated_at": "TIMESTAMP",
-                    },
-                    "relationships": ["derived_transactions"],
-                    "constraints": ["UNIQUE(external_id, source)"],
-                    "notes": (
-                        "Immutable source data from Plaid. "
-                        "Do NOT query directly for spending analysis."
-                    ),
-                },
-                "derived_transactions": {
-                    "columns": {
-                        "transaction_id": "INTEGER PRIMARY KEY",
-                        "plaid_transaction_id": "INTEGER FOREIGN KEY",
-                        "external_id": "TEXT UNIQUE",
-                        "amount_cents": "INTEGER",
-                        "posted_at": "DATE",
-                        "merchant_descriptor": "TEXT",
-                        "merchant_id": "INTEGER FOREIGN KEY",
-                        "category_id": "INTEGER FOREIGN KEY",
-                        "is_verified": "BOOLEAN",
-                        "created_at": "TIMESTAMP",
-                        "updated_at": "TIMESTAMP",
-                    },
-                    "relationships": [
-                        "plaid_transaction",
-                        "merchant",
-                        "category",
-                        "tags",
-                    ],
-                    "notes": (
-                        "Primary table for all spending queries and analysis. "
-                        "May have multiple rows per Plaid transaction "
-                        "(Amazon item splits)."
-                    ),
-                },
-                "tags": {
-                    "columns": {
-                        "tag_id": "INTEGER PRIMARY KEY",
-                        "name": "TEXT UNIQUE",
-                        "description": "TEXT",
-                        "created_at": "TIMESTAMP",
-                        "updated_at": "TIMESTAMP",
-                    },
-                    "relationships": ["derived_transactions"],
-                },
-                "transaction_tags": {
-                    "columns": {
-                        "transaction_id": "INTEGER PRIMARY KEY FOREIGN KEY",
-                        "tag_id": "INTEGER PRIMARY KEY FOREIGN KEY",
-                    },
-                    "relationships": ["derived_transaction", "tag"],
-                },
-            },
+        tables: dict[str, dict[str, Any]] = {}
+        for model in _COMPACT_SCHEMA_MODELS:
+            table_data: dict[str, Any] = {
+                "columns": self._build_compact_schema_columns(model=model),
+                "relationships": self._build_compact_schema_relationships(model=model),
+            }
+            constraints = self._build_compact_schema_constraints(model=model)
+            if constraints:
+                table_data["constraints"] = constraints
+
+            notes = _COMPACT_SCHEMA_NOTES.get(model.__tablename__)
+            if notes is not None:
+                table_data["notes"] = notes
+
+            tables[model.__tablename__] = table_data
+
+        return {"tables": tables}
+
+    def _build_compact_schema_columns(self, *, model: type[Base]) -> dict[str, str]:
+        """Build compact, human-readable column type metadata for one model."""
+        mapper = inspect(model)
+        columns: dict[str, str] = {}
+        for column in mapper.columns:
+            column_parts = [str(column.type).upper()]
+            if column.primary_key:
+                column_parts.append("PRIMARY KEY")
+            if column.unique:
+                column_parts.append("UNIQUE")
+            if column.foreign_keys:
+                column_parts.append("FOREIGN KEY")
+            columns[column.name] = " ".join(column_parts)
+        return columns
+
+    def _build_compact_schema_constraints(self, *, model: type[Base]) -> list[str]:
+        """Build compact table-level constraints for one model."""
+        table = cast(Table, model.__table__)
+        constraints: list[str] = []
+        for constraint in table.constraints:
+            if not isinstance(constraint, UniqueConstraint):
+                continue
+            if len(constraint.columns) < 2:
+                continue
+            column_names = ", ".join(column.name for column in constraint.columns)
+            constraints.append(f"UNIQUE({column_names})")
+        return constraints
+
+    def _build_compact_schema_relationships(self, *, model: type[Base]) -> list[str]:
+        """Build related table names using ORM relationships and foreign keys."""
+        mapper = inspect(model)
+        table = cast(Table, model.__table__)
+        related_table_names = {
+            str(rel.entity.class_.__tablename__) for rel in mapper.relationships
         }
+        for foreign_key in table.foreign_keys:
+            related_table_names.add(foreign_key.target_fullname.split(".", 1)[0])
+        return sorted(related_table_names)
 
     def fetch_categories(self) -> list[CategoryRow]:
         """Fetch all categories as CategoryRow TypedDicts.
