@@ -644,6 +644,7 @@ class SyncTool:
 
         # Collect all category updates for bulk operation
         category_updates: dict[int, int] = {}
+        summary_updates: dict[int, str | None] = {}
 
         for cat_txn in categorized:
             external_id = cat_txn.txn.get("transaction_id", "")
@@ -662,6 +663,13 @@ class SyncTool:
             if category_id:
                 category_updates[transaction_id] = category_id
 
+            summary: str | None = None
+            if cat_txn.used_web_search:
+                summary = cat_txn.merchant_summary
+                if summary is not None and not summary.strip():
+                    summary = None
+            summary_updates[transaction_id] = summary
+
         # Bulk update all categories in single DB transaction
         if category_updates:
             self._db.bulk_update_derived_categories(
@@ -670,6 +678,8 @@ class SyncTool:
                 model=self._categorizer.model_name,
                 reason="sync_categorize",
             )
+        if summary_updates:
+            self._db.bulk_update_derived_web_search_summaries(summary_updates)
 
     def _build_sync_result_from_accumulated(
         self,
