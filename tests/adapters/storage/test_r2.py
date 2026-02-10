@@ -10,8 +10,10 @@ import pytest
 from transactoid.adapters.storage.r2 import (
     R2Config,
     R2ConfigError,
+    R2DownloadError,
     R2StoredObject,
     R2UploadError,
+    download_object_from_r2,
     load_r2_config_from_env,
     make_artifact_key,
     store_object_in_r2,
@@ -248,5 +250,49 @@ class TestReportUploadIntegration:
                 key="report-md/test",
                 body=b"data",
                 content_type="text/markdown; charset=utf-8",
+                config=config,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Download (mock boto3)
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadObjectFromR2:
+    @patch("transactoid.adapters.storage.r2.boto3")
+    def test_downloads_and_returns_bytes(self, mock_boto3):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        mock_body.read.return_value = b"trace data"
+        mock_client.get_object.return_value = {"Body": mock_body}
+        mock_boto3.client.return_value = mock_client
+        config = _make_config()
+
+        result = download_object_from_r2(
+            key="agent-runs/abc123/trace.sqlite3", config=config
+        )
+
+        assert result == b"trace data"
+        mock_client.get_object.assert_called_once_with(
+            Bucket="transactoid-runs",
+            Key="agent-runs/abc123/trace.sqlite3",
+        )
+
+    @patch("transactoid.adapters.storage.r2.boto3")
+    def test_download_error_wraps_client_error(self, mock_boto3):
+        from botocore.exceptions import ClientError
+
+        mock_client = MagicMock()
+        mock_client.get_object.side_effect = ClientError(
+            {"Error": {"Code": "NoSuchKey", "Message": "not found"}},
+            "GetObject",
+        )
+        mock_boto3.client.return_value = mock_client
+        config = _make_config()
+
+        with pytest.raises(R2DownloadError, match="Failed to download"):
+            download_object_from_r2(
+                key="agent-runs/missing/trace.sqlite3",
                 config=config,
             )
