@@ -172,6 +172,9 @@ class AmazonMutationPlugin:
             for new_data, old in zip(result_list, old_derived, strict=True):
                 if old.is_verified and old.category_id is not None:
                     new_data["category_id"] = old.category_id
+                    new_data["category_model"] = old.category_model
+                    new_data["category_method"] = old.category_method
+                    new_data["category_assigned_at"] = old.category_assigned_at
                 new_data["is_verified"] = old.is_verified
                 if old.merchant_id is not None:
                     new_data["merchant_id"] = old.merchant_id

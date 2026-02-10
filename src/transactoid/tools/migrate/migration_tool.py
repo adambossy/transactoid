@@ -186,7 +186,11 @@ class MigrationTool:
                     )
 
                 txn_ids = [t.transaction_id for t in transactions]
-                self._db.reassign_transactions_to_category(txn_ids, fallback_id)
+                self._db.reassign_transactions_to_category(
+                    txn_ids,
+                    fallback_id,
+                    reason=f"taxonomy_remove_fallback:{key}->{fallback_key}",
+                )
 
             # Update merchant rules if loader is configured and there's a fallback
             if self._rules_loader is not None and fallback_key is not None:
@@ -318,7 +322,11 @@ class MigrationTool:
             else:
                 # Simple reassignment without recategorization
                 txn_ids = [t[0].transaction_id for t in all_transactions]
-                self._db.reassign_transactions_to_category(txn_ids, target_id)
+                self._db.reassign_transactions_to_category(
+                    txn_ids,
+                    target_id,
+                    reason=f"taxonomy_merge:{','.join(source_keys)}->{target_key}",
+                )
                 result = MigrationResult(
                     operation="merge",
                     success=True,
@@ -531,19 +539,28 @@ class MigrationTool:
                 if final_confidence >= self._confidence_threshold:
                     # Keep verified
                     self._db.reassign_transactions_to_category(
-                        [txn.transaction_id], category_id, reset_verified=False
+                        [txn.transaction_id],
+                        category_id,
+                        reset_verified=False,
+                        reason=f"taxonomy_recategorize:keep_verified:{final_key}",
                     )
                     verified_retained += 1
                 else:
                     # Demote to unverified
                     self._db.reassign_transactions_to_category(
-                        [txn.transaction_id], category_id, reset_verified=True
+                        [txn.transaction_id],
+                        category_id,
+                        reset_verified=True,
+                        reason=f"taxonomy_recategorize:demote_verified:{final_key}",
                     )
                     verified_demoted += 1
             else:
                 # Unverified stays unverified
                 self._db.reassign_transactions_to_category(
-                    [txn.transaction_id], category_id, reset_verified=False
+                    [txn.transaction_id],
+                    category_id,
+                    reset_verified=False,
+                    reason=f"taxonomy_recategorize:unverified:{final_key}",
                 )
 
             recategorized += 1
