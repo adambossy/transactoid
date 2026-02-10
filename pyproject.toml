@@ -61,6 +61,8 @@ exclude = [
     "scripts/run.py",
     "src/transactoid/adapters/storage/",
     "src/transactoid/adapters/storage/**",
+    "src/transactoid/tools/storage/",
+    "src/transactoid/tools/storage/**",
     "src/transactoid/jobs/report/",
     "src/transactoid/jobs/report/**",
     "evals/core/",
