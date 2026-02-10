@@ -24,6 +24,7 @@ ignore = [
 "tests/**" = ["S101", "S106"]  # S101: assert, S106: hardcoded passwords (test data)
 "evals/core/llm_judge.py" = ["E501"]
 "evals/data/fixtures.py" = ["E501"]
+"src/transactoid/ui/cli.py" = ["B008"]  # typer.Option in defaults is idiomatic
 
 [lint.isort]
 known-first-party = ["transactoid"]

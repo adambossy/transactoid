@@ -510,6 +510,186 @@ def eval_cmd(
     )
 
 
+async def _agent_run_impl(
+    prompt: str | None,
+    prompt_key: str | None,
+    continue_run_id: str | None,
+    email: list[str],
+    save_md: bool,
+    save_html: bool,
+    output_target: list[str],
+    local_dir: str | None,
+    max_turns: int,
+    template_vars: dict[str, str] | None = None,
+) -> None:
+    """Execute an agent run via AgentRunService."""
+    from transactoid.services.agent_run import (
+        AgentRunRequest,
+        AgentRunService,
+        OutputTarget,
+    )
+    from transactoid.services.agent_run.pipeline import OutputPipeline
+    from transactoid.taxonomy.loader import load_taxonomy_from_db
+
+    targets = tuple(OutputTarget(target) for target in output_target)
+
+    request = AgentRunRequest(
+        prompt=prompt,
+        prompt_key=prompt_key,
+        template_vars=template_vars or {},
+        continue_run_id=continue_run_id,
+        save_md=save_md,
+        save_html=save_html,
+        output_targets=targets,
+        local_dir=local_dir,
+        email_recipients=tuple(email),
+        max_turns=max_turns,
+    )
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+    taxonomy = load_taxonomy_from_db(db)
+
+    service = AgentRunService(db=db, taxonomy=taxonomy)
+    result = await service.execute(request)
+
+    if result.success:
+        typer.echo(f"Run {result.run_id} completed in {result.duration_seconds:.1f}s")
+
+        pipeline = OutputPipeline()
+        html_text, artifacts = await pipeline.process(
+            report_text=result.report_text, request=request, run_id=result.run_id
+        )
+
+        for artifact in artifacts:
+            typer.echo(f"  {artifact.artifact_type}: {artifact.key}")
+
+        if not artifacts and not email:
+            typer.echo("\n" + result.report_text)
+    else:
+        typer.echo(f"Run {result.run_id} failed: {result.error}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("agent-run")
+def agent_run_cmd(
+    prompt: str | None = typer.Option(
+        None,
+        "--prompt",
+        help="Raw prompt text to send to the agent",
+    ),
+    prompt_key: str | None = typer.Option(
+        None,
+        "--prompt-key",
+        help="Promptorium key to load (e.g. 'spending-report')",
+    ),
+    continue_run_id: str | None = typer.Option(
+        None,
+        "--continue",
+        help="Resume a previous run by run ID",
+    ),
+    email: list[str] | None = typer.Option(
+        None,
+        "--email",
+        help="Email recipient(s) for the report (repeatable)",
+    ),
+    save_md: bool = typer.Option(
+        True,
+        "--save-md/--no-save-md",
+        help="Save markdown artifact",
+    ),
+    save_html: bool = typer.Option(
+        True,
+        "--save-html/--no-save-html",
+        help="Save HTML artifact",
+    ),
+    output_target: list[str] | None = typer.Option(
+        None,
+        "--output-target",
+        help="Output target: 'r2' or 'local' (repeatable, default: r2)",
+    ),
+    local_dir: str | None = typer.Option(
+        None,
+        "--local-dir",
+        help="Local directory for artifact output",
+    ),
+    max_turns: int = typer.Option(
+        50,
+        "--max-turns",
+        help="Maximum agent turns",
+    ),
+    month: str | None = typer.Option(
+        None,
+        "--month",
+        "-m",
+        help="Helper: inject CURRENT_DATE/CURRENT_MONTH/CURRENT_YEAR for YYYY-MM",
+    ),
+) -> None:
+    """Execute a headless agent run.
+
+    Run the Transactoid agent with a prompt (raw text or promptorium key),
+    persist artifacts to R2 or local disk, and optionally email the output.
+
+    Examples:
+
+        # Run with a promptorium key
+        transactoid agent-run --prompt-key spending-report
+
+        # Run with a raw prompt
+        transactoid agent-run --prompt "Summarize my spending"
+
+        # Continue a previous run
+        transactoid agent-run --prompt "Add more detail" --continue abc123
+
+        # Save locally instead of R2
+        transactoid agent-run --prompt-key spending-report --output-target local
+
+        # Email the report
+        transactoid agent-run --prompt-key spending-report --email user@example.com
+    """
+    if prompt is None and prompt_key is None:
+        typer.echo("Either --prompt or --prompt-key is required", err=True)
+        raise typer.Exit(1)
+
+    if prompt is not None and prompt_key is not None:
+        typer.echo("Only one of --prompt or --prompt-key may be provided", err=True)
+        raise typer.Exit(1)
+
+    targets = output_target or ["r2"]
+    valid_targets = {"r2", "local"}
+    for target in targets:
+        if target not in valid_targets:
+            typer.echo(f"Invalid output target: {target}", err=True)
+            raise typer.Exit(1)
+
+    # Build template vars from --month helper
+    template_vars: dict[str, str] = {}
+    if month and prompt_key:
+        import calendar
+
+        year, month_num = map(int, month.split("-"))
+        month_name = calendar.month_name[month_num]
+        last_day = calendar.monthrange(year, month_num)[1]
+        template_vars["CURRENT_DATE"] = f"{year}-{month_num:02d}-{last_day:02d}"
+        template_vars["CURRENT_MONTH"] = month_name
+        template_vars["CURRENT_YEAR"] = str(year)
+
+    asyncio.run(
+        _agent_run_impl(
+            prompt=prompt,
+            prompt_key=prompt_key,
+            continue_run_id=continue_run_id,
+            email=email or [],
+            save_md=save_md,
+            save_html=save_html,
+            output_target=targets,
+            local_dir=local_dir,
+            max_turns=max_turns,
+            template_vars=template_vars or None,
+        )
+    )
+
+
 def _load_report_config(config_path: str) -> dict[str, Any]:
     """Load report configuration from YAML file."""
     path = Path(config_path)
