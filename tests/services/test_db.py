@@ -124,6 +124,8 @@ def create_categorized_transaction(
     category_key: str = "food.groceries",
     revised_category_key: str | None = None,
     category_model: str = "gpt-5.2",
+    merchant_summary: str | None = None,
+    used_web_search: bool = False,
 ) -> CategorizedTransaction:
     """Create CategorizedTransaction from Transaction."""
     return CategorizedTransaction(
@@ -133,6 +135,8 @@ def create_categorized_transaction(
         category_rationale="Test rationale",
         category_model=category_model,
         revised_category_key=revised_category_key,
+        merchant_summary=merchant_summary,
+        used_web_search=used_web_search,
     )
 
 
@@ -497,6 +501,102 @@ def test_save_transactions_prefers_revised_category_key() -> None:
     assert inserted_txn.category_id == db.get_category_id_by_key("food.restaurants")
 
 
+def test_save_transactions_sets_llm_summary_when_web_search_used() -> None:
+    # input
+    input_data = {
+        "external_id": "plaid_txn_123",
+        "category_key": "food.restaurants",
+        "merchant_summary": "- Local cafe in downtown",
+    }
+
+    # helper setup
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    txn = create_sample_transaction(external_id=input_data["external_id"])
+    cat_txn = create_categorized_transaction(
+        txn,
+        category_key=input_data["category_key"],
+        merchant_summary=input_data["merchant_summary"],
+        used_web_search=True,
+    )
+    category_lookup = make_category_lookup(db, taxonomy)
+
+    # act
+    output = db.save_transactions(category_lookup, [cat_txn])
+
+    # expected
+    expected_output = {"inserted": 1, "updated": 0, "skipped_verified": 0}
+
+    # assert
+    assert {
+        "inserted": output.inserted,
+        "updated": output.updated,
+        "skipped_verified": output.skipped_verified,
+    } == expected_output
+
+    stored = db.get_transaction_by_external(
+        external_id=input_data["external_id"],
+        source="PLAID",
+    )
+    assert stored is not None
+    assert stored.web_search_summary == input_data["merchant_summary"]
+
+
+def test_save_transactions_clears_llm_summary_without_web_search() -> None:
+    # input
+    external_id = "plaid_txn_123"
+    initial_summary = "- Old summary"
+    updated_amount = 60.0
+
+    # helper setup
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    existing = db.insert_transaction(
+        {
+            "external_id": external_id,
+            "source": "PLAID",
+            "account_id": "acc_456",
+            "posted_at": date(2024, 1, 15),
+            "amount_cents": 5000,
+            "currency": "USD",
+            "web_search_summary": initial_summary,
+            "is_verified": False,
+        }
+    )
+    assert existing.web_search_summary == initial_summary
+    txn = create_sample_transaction(
+        external_id=external_id,
+        amount=updated_amount,
+    )
+    cat_txn = create_categorized_transaction(
+        txn,
+        category_key="food.groceries",
+        merchant_summary=None,
+        used_web_search=False,
+    )
+    category_lookup = make_category_lookup(db, taxonomy)
+
+    # act
+    output = db.save_transactions(category_lookup, [cat_txn])
+
+    # expected
+    expected_output = {"inserted": 0, "updated": 1, "skipped_verified": 0}
+
+    # assert
+    assert {
+        "inserted": output.inserted,
+        "updated": output.updated,
+        "skipped_verified": output.skipped_verified,
+    } == expected_output
+
+    stored = db.get_transaction_by_external(
+        external_id=external_id,
+        source="PLAID",
+    )
+    assert stored is not None
+    assert stored.web_search_summary is None
+
+
 def test_save_transactions_merchant_normalization_deduplication() -> None:
     """Test save_transactions normalizes merchant names and deduplicates merchants."""
     db = create_db()
@@ -811,6 +911,81 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
     derived_table = hint["tables"]["derived_transactions"]
     assert "transaction_id" in derived_table["columns"]
     assert "plaid_transactions" in derived_table["relationships"]
+    assert "web_search_summary" in derived_table["columns"]
+
+
+def test_bulk_update_derived_web_search_summaries_sets_and_clears_values() -> None:
+    # input
+    input_data = {
+        "first_summary": "- Merchant appears to be a local bakery",
+        "second_summary": None,
+    }
+
+    # helper setup
+    db = create_db()
+    plaid1 = db.upsert_plaid_transaction(
+        external_id="ext_1",
+        source="PLAID",
+        account_id="acc_1",
+        posted_at=date(2024, 1, 15),
+        amount_cents=1000,
+        currency="USD",
+        merchant_descriptor="Merchant A",
+        institution=None,
+    )
+    plaid2 = db.upsert_plaid_transaction(
+        external_id="ext_2",
+        source="PLAID",
+        account_id="acc_2",
+        posted_at=date(2024, 1, 16),
+        amount_cents=2000,
+        currency="USD",
+        merchant_descriptor="Merchant B",
+        institution=None,
+    )
+    first = db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid1.plaid_transaction_id,
+            "external_id": "derived_1",
+            "amount_cents": 1000,
+            "posted_at": date(2024, 1, 15),
+            "merchant_descriptor": "Merchant A",
+            "web_search_summary": "stale",
+        }
+    )
+    second = db.insert_derived_transaction(
+        {
+            "plaid_transaction_id": plaid2.plaid_transaction_id,
+            "external_id": "derived_2",
+            "amount_cents": 2000,
+            "posted_at": date(2024, 1, 16),
+            "merchant_descriptor": "Merchant B",
+            "web_search_summary": "stale",
+        }
+    )
+    updates = {
+        first.transaction_id: input_data["first_summary"],
+        second.transaction_id: input_data["second_summary"],
+    }
+
+    # act
+    output = db.bulk_update_derived_web_search_summaries(updates)
+
+    # expected
+    expected_output = 2
+
+    # assert
+    assert output == expected_output
+
+    refreshed = db.get_derived_transactions_by_ids(
+        [first.transaction_id, second.transaction_id]
+    )
+    refreshed_map = {txn.transaction_id: txn for txn in refreshed}
+    assert (
+        refreshed_map[first.transaction_id].web_search_summary
+        == input_data["first_summary"]
+    )
+    assert refreshed_map[second.transaction_id].web_search_summary is None
 
 
 def test_run_sql_executes_raw_sql_and_returns_orm_models() -> None:
