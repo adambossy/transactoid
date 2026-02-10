@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from transactoid.services.agent_run.pipeline import OutputPipeline
 from transactoid.services.agent_run.service import AgentRunService
 from transactoid.services.agent_run.types import (
     AgentRunRequest,
@@ -16,6 +17,7 @@ __all__ = [
     "AgentRunResult",
     "AgentRunService",
     "ArtifactRecord",
+    "OutputPipeline",
     "OutputTarget",
     "RunManifest",
 ]
