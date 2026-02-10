@@ -18,6 +18,18 @@
       "version_dir": "src/transactoid/prompts/taxonomy-rules",
       "last_hash": "sha256:20e296294d1ad4d9f7ad8954da83784479ad4ad86501440690821d1ba81087fc",
       "last_version": 1
+    },
+    "spending-report": {
+      "source_file": "prompts/spending-report.md",
+      "version_dir": "src/transactoid/prompts/spending-report",
+      "last_hash": "sha256:5b98e16db2e3409540f36c172deefb2a21a4127fa142cc5274cadae79e16fc32",
+      "last_version": 2
+    },
+    "render-report-html": {
+      "source_file": "prompts/render-report-html.md",
+      "version_dir": "src/transactoid/prompts/render-report-html",
+      "last_hash": "sha256:34593842293ebf4405e3e2800928a9ff3d18fdd46ea498f29ff77f11121289bc",
+      "last_version": 2
     }
   }
 }
