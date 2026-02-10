@@ -8,6 +8,7 @@ from typing import TypedDict
 from sqlalchemy import (
     TIMESTAMP,
     Boolean,
+    CheckConstraint,
     Date,
     ForeignKey,
     Integer,
@@ -133,6 +134,20 @@ class DerivedTransaction(Base):
     """Derived Transaction model - mutable, enriched transactions for queries."""
 
     __tablename__ = "derived_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "category_method IS NULL OR category_method IN "
+            "('llm', 'manual', 'taxonomy_migration')",
+            name="ck_derived_transactions_category_method",
+        ),
+        CheckConstraint(
+            "(category_id IS NULL AND category_method IS NULL "
+            "AND category_assigned_at IS NULL) OR "
+            "(category_id IS NOT NULL AND category_method IS NOT NULL "
+            "AND category_assigned_at IS NOT NULL)",
+            name="ck_derived_transactions_category_provenance_consistency",
+        ),
+    )
 
     transaction_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
@@ -151,6 +166,11 @@ class DerivedTransaction(Base):
     )
     category_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("categories.category_id"), nullable=True
+    )
+    category_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_assigned_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP, nullable=True
     )
     is_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
@@ -175,6 +195,55 @@ class DerivedTransaction(Base):
     )
     tags: Mapped[list[Tag]] = relationship(
         "Tag", secondary="transaction_tags", back_populates="transactions"
+    )
+    category_events: Mapped[list[TransactionCategoryEvent]] = relationship(
+        "TransactionCategoryEvent",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+    )
+
+
+class TransactionCategoryEvent(Base):
+    """Append-only history of category changes for a transaction."""
+
+    __tablename__ = "transaction_category_events"
+    __table_args__ = (
+        CheckConstraint(
+            "method IN ('llm', 'manual', 'taxonomy_migration')",
+            name="ck_transaction_category_events_method",
+        ),
+    )
+
+    event_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    transaction_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("derived_transactions.transaction_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_category_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("categories.category_id"), nullable=True
+    )
+    to_category_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("categories.category_id"), nullable=False
+    )
+    from_category_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    to_category_key: Mapped[str] = mapped_column(String, nullable=False)
+    method: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # Relationships
+    transaction: Mapped[DerivedTransaction] = relationship(
+        "DerivedTransaction", back_populates="category_events"
+    )
+    from_category: Mapped[Category | None] = relationship(
+        "Category", foreign_keys=[from_category_id]
+    )
+    to_category: Mapped[Category] = relationship(
+        "Category", foreign_keys=[to_category_id]
     )
 
 

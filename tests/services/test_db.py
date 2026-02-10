@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from sqlalchemy.orm import Session  # noqa: F401 - used in type comments
@@ -13,6 +13,7 @@ from transactoid.adapters.db.models import (
     DerivedTransaction,
     Merchant,
     PlaidTransaction,
+    TransactionCategoryEvent,
 )
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id, load_taxonomy_from_db
@@ -122,6 +123,7 @@ def create_categorized_transaction(
     *,
     category_key: str = "food.groceries",
     revised_category_key: str | None = None,
+    category_model: str = "gpt-5.2",
 ) -> CategorizedTransaction:
     """Create CategorizedTransaction from Transaction."""
     return CategorizedTransaction(
@@ -129,6 +131,7 @@ def create_categorized_transaction(
         category_key=category_key,
         category_confidence=0.85,
         category_rationale="Test rationale",
+        category_model=category_model,
         revised_category_key=revised_category_key,
     )
 
@@ -389,6 +392,13 @@ def test_save_transactions_inserts_new_transaction() -> None:
     assert len(outcome.rows) == 1
     assert outcome.rows[0].action == "inserted"
     assert outcome.rows[0].transaction_id is not None
+    inserted = db.get_transaction_by_external(
+        external_id="plaid_txn_123", source="PLAID"
+    )
+    assert inserted is not None
+    assert inserted.category_model == "gpt-5.2"
+    assert inserted.category_method == "llm"
+    assert inserted.category_assigned_at is not None
 
 
 def test_save_transactions_skips_verified_transaction() -> None:
@@ -459,6 +469,9 @@ def test_save_transactions_updates_unverified_transaction() -> None:
     assert updated is not None
     assert updated.amount_cents == 6000
     assert updated.category_id == db.get_category_id_by_key("food.restaurants")
+    assert updated.category_model == "gpt-5.2"
+    assert updated.category_method == "llm"
+    assert updated.category_assigned_at is not None
 
 
 def test_save_transactions_prefers_revised_category_key() -> None:
@@ -624,8 +637,114 @@ def test_recategorize_merchant() -> None:
 
     assert updated_txn1 is not None
     assert updated_txn1.category_id == groceries_id
+    assert updated_txn1.category_method == "manual"
+    assert updated_txn1.category_assigned_at is not None
     assert updated_txn2 is not None
     assert updated_txn2.category_id is None  # Verified transaction not updated
+
+
+def test_save_transactions_writes_category_event() -> None:
+    # input
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    txn = create_sample_transaction(external_id="plaid_txn_event")
+    categorized = create_categorized_transaction(txn, category_key="food.groceries")
+    category_lookup = make_category_lookup(db, taxonomy)
+
+    # act
+    _ = db.save_transactions(category_lookup, [categorized])
+
+    # expected
+    with db.session() as session:  # type: Session
+        events = (
+            session.query(TransactionCategoryEvent)
+            .order_by(TransactionCategoryEvent.event_id)
+            .all()
+        )
+        output = [
+            {
+                "method": event.method,
+                "model": event.model,
+                "from_category_id": event.from_category_id,
+                "to_category_id": event.to_category_id,
+            }
+            for event in events
+        ]
+
+    expected_output = [
+        {
+            "method": "llm",
+            "model": "gpt-5.2",
+            "from_category_id": None,
+            "to_category_id": 2,
+        }
+    ]
+
+    # assert
+    assert output == expected_output
+
+
+def test_reassign_transactions_to_category_writes_taxonomy_migration_event() -> None:
+    # input
+    db = create_db()
+    create_sample_taxonomy(db)
+    txn = db.insert_transaction(
+        {
+            "external_id": "ext_tax_migrate",
+            "source": "PLAID",
+            "account_id": "acc_1",
+            "posted_at": date(2024, 1, 15),
+            "amount_cents": 1000,
+            "currency": "USD",
+            "category_id": 2,
+            "category_method": "llm",
+            "category_model": "gpt-5.2",
+            "category_assigned_at": datetime(2024, 1, 15),
+        }
+    )
+
+    # act
+    db.reassign_transactions_to_category(
+        [txn.transaction_id],
+        3,
+        reason="taxonomy_merge:food.groceries->food.restaurants",
+    )
+
+    # expected
+    with db.session() as session:  # type: Session
+        events = (
+            session.query(TransactionCategoryEvent)
+            .filter(TransactionCategoryEvent.transaction_id == txn.transaction_id)
+            .order_by(TransactionCategoryEvent.event_id)
+            .all()
+        )
+        output = [
+            {
+                "method": event.method,
+                "model": event.model,
+                "from_category_key": event.from_category_key,
+                "to_category_key": event.to_category_key,
+            }
+            for event in events
+        ]
+
+    expected_output = [
+        {
+            "method": "llm",
+            "model": "gpt-5.2",
+            "from_category_key": None,
+            "to_category_key": "food.groceries",
+        },
+        {
+            "method": "taxonomy_migration",
+            "model": None,
+            "from_category_key": "food.groceries",
+            "to_category_key": "food.restaurants",
+        },
+    ]
+
+    # assert
+    assert output == expected_output
 
 
 def test_delete_transactions_by_external_ids_deletes_unverified_only() -> None:
@@ -678,6 +797,7 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
         "categories",
         "plaid_transactions",
         "derived_transactions",
+        "transaction_category_events",
         "tags",
         "transaction_tags",
     }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 if TYPE_CHECKING:
     from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
@@ -33,17 +33,20 @@ from transactoid.adapters.db.models import (
     SaveOutcome,
     SaveRowOutcome,
     Tag,
+    TransactionCategoryEvent,
     TransactionTag,
     normalize_merchant_name,
 )
 
 M = TypeVar("M")
+CategoryMethod = Literal["llm", "manual", "taxonomy_migration"]
 
 _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     Merchant,
     Category,
     PlaidTransaction,
     DerivedTransaction,
+    TransactionCategoryEvent,
     Tag,
     TransactionTag,
 )
@@ -216,6 +219,119 @@ class DB:
             categories = session.query(Category).filter(Category.key.in_(keys)).all()
             return {cat.key: cat.category_id for cat in categories}
 
+    def _resolve_category_keys(
+        self, session: Session, category_ids: set[int]
+    ) -> dict[int, str]:
+        """Resolve category IDs to keys in one query."""
+        if not category_ids:
+            return {}
+
+        categories = (
+            session.query(Category).filter(Category.category_id.in_(category_ids)).all()
+        )
+        return {category.category_id: category.key for category in categories}
+
+    def _insert_category_event(
+        self,
+        session: Session,
+        *,
+        transaction_id: int,
+        from_category_id: int | None,
+        to_category_id: int,
+        from_category_key: str | None,
+        to_category_key: str,
+        method: CategoryMethod,
+        model: str | None,
+        reason: str | None,
+        created_at: datetime,
+    ) -> None:
+        """Insert a category change event row."""
+        session.add(
+            TransactionCategoryEvent(
+                transaction_id=transaction_id,
+                from_category_id=from_category_id,
+                to_category_id=to_category_id,
+                from_category_key=from_category_key,
+                to_category_key=to_category_key,
+                method=method,
+                model=model,
+                reason=reason,
+                created_at=created_at,
+            )
+        )
+
+    def _apply_category_updates(
+        self,
+        session: Session,
+        *,
+        updates: dict[int, int],
+        method: CategoryMethod,
+        reason: str | None,
+        model: str | None = None,
+        preserve_model: bool = False,
+        reset_verified: bool = False,
+    ) -> int:
+        """Atomically update current category fields and append history events."""
+        if not updates:
+            return 0
+
+        now = datetime.now()
+        txns = (
+            session.query(DerivedTransaction)
+            .filter(DerivedTransaction.transaction_id.in_(updates.keys()))
+            .all()
+        )
+        if not txns:
+            return 0
+
+        category_ids: set[int] = set(updates.values())
+        category_ids.update(
+            txn.category_id for txn in txns if txn.category_id is not None
+        )
+        key_by_id = self._resolve_category_keys(session, category_ids)
+
+        updated_count = 0
+        for txn in txns:
+            new_category_id = updates.get(txn.transaction_id)
+            if new_category_id is None:
+                continue
+
+            to_category_key = key_by_id.get(new_category_id)
+            if to_category_key is None:
+                raise ValueError(f"Category with ID {new_category_id} does not exist")
+
+            previous_category_id = txn.category_id
+            previous_category_key = (
+                key_by_id.get(previous_category_id)
+                if previous_category_id is not None
+                else None
+            )
+
+            txn.category_id = new_category_id
+            txn.category_method = method
+            txn.category_assigned_at = now
+            if not preserve_model:
+                txn.category_model = model
+            if reset_verified:
+                txn.is_verified = False
+            txn.updated_at = now
+
+            self._insert_category_event(
+                session,
+                transaction_id=txn.transaction_id,
+                from_category_id=previous_category_id,
+                to_category_id=new_category_id,
+                from_category_key=previous_category_key,
+                to_category_key=to_category_key,
+                method=method,
+                model=None if preserve_model else model,
+                reason=reason,
+                created_at=now,
+            )
+            updated_count += 1
+
+        return updated_count
+
     def find_merchant_by_normalized_name(self, normalized_name: str) -> Merchant | None:
         """Find merchant by normalized name.
 
@@ -322,6 +438,9 @@ class DB:
             "merchant_descriptor": data.get("merchant_descriptor"),
             "merchant_id": data.get("merchant_id"),
             "category_id": data.get("category_id"),
+            "category_model": data.get("category_model"),
+            "category_method": data.get("category_method"),
+            "category_assigned_at": data.get("category_assigned_at"),
             "is_verified": data.get("is_verified", False),
         }
         return self.insert_derived_transaction(derived_data)
@@ -364,15 +483,22 @@ class DB:
             Number of transactions updated
         """
         with self.session() as session:  # type: Session
-            result = (
+            txns = (
                 session.query(DerivedTransaction)
                 .filter(
                     DerivedTransaction.merchant_id == merchant_id,
                     ~DerivedTransaction.is_verified,
                 )
-                .update({"category_id": category_id}, synchronize_session=False)
+                .all()
             )
-            return result
+            updates = {txn.transaction_id: category_id for txn in txns}
+            return self._apply_category_updates(
+                session,
+                updates=updates,
+                method="manual",
+                reason="recategorize_merchant",
+                preserve_model=True,
+            )
 
     def upsert_tag(self, name: str, description: str | None = None) -> Tag:
         """Insert or update a tag.
@@ -552,6 +678,10 @@ class DB:
                 # Update existing unverified transaction
                 update_data: dict[str, Any] = {
                     "category_id": category_id,
+                    "category_method": "llm",
+                    "category_model": cat_txn.category_model,
+                    "category_assigned_at": datetime.now(),
+                    "category_reason": "save_transactions",
                     "merchant_descriptor": merchant_descriptor,
                     "amount_cents": amount_cents,
                 }
@@ -590,6 +720,16 @@ class DB:
                     "currency": currency,
                     "merchant_descriptor": merchant_descriptor,
                     "category_id": category_id,
+                    "category_method": "llm" if category_id is not None else None,
+                    "category_model": (
+                        cat_txn.category_model if category_id is not None else None
+                    ),
+                    "category_assigned_at": (
+                        datetime.now() if category_id is not None else None
+                    ),
+                    "category_reason": (
+                        "save_transactions" if category_id is not None else None
+                    ),
                     "institution": None,  # Should come from ingest tool context
                 }
                 new_txn = self.insert_transaction(insert_data)
@@ -1159,6 +1299,7 @@ class DB:
             Created DerivedTransaction instance
         """
         with self.session() as session:  # type: Session
+            now = datetime.now()
             # Resolve merchant if merchant_descriptor is provided
             merchant_id = data.get("merchant_id")
             if (
@@ -1181,6 +1322,14 @@ class DB:
                     session.flush()
                 merchant_id = merchant.merchant_id
 
+            category_id = data.get("category_id")
+            category_method = data.get("category_method")
+            category_assigned_at = data.get("category_assigned_at")
+            if category_id is not None and category_method is None:
+                category_method = "manual"
+            if category_id is not None and category_assigned_at is None:
+                category_assigned_at = now
+
             derived_txn = DerivedTransaction(
                 plaid_transaction_id=data["plaid_transaction_id"],
                 external_id=data["external_id"],
@@ -1188,11 +1337,34 @@ class DB:
                 posted_at=data["posted_at"],
                 merchant_descriptor=data.get("merchant_descriptor"),
                 merchant_id=merchant_id,
-                category_id=data.get("category_id"),
+                category_id=category_id,
+                category_model=data.get("category_model"),
+                category_method=category_method,
+                category_assigned_at=category_assigned_at,
                 is_verified=data.get("is_verified", False),
             )
             session.add(derived_txn)
             session.flush()
+            if category_id is not None:
+                key_by_id = self._resolve_category_keys(session, {category_id})
+                category_key = key_by_id.get(category_id)
+                if category_key is None:
+                    raise ValueError(f"Category with ID {category_id} does not exist")
+                method_for_event = cast(
+                    CategoryMethod, category_method if category_method else "manual"
+                )
+                self._insert_category_event(
+                    session,
+                    transaction_id=derived_txn.transaction_id,
+                    from_category_id=None,
+                    to_category_id=category_id,
+                    from_category_key=None,
+                    to_category_key=category_key,
+                    method=method_for_event,
+                    model=data.get("category_model"),
+                    reason=data.get("category_reason"),
+                    created_at=category_assigned_at or now,
+                )
             session.refresh(derived_txn)
             session.expunge(derived_txn)
             return derived_txn
@@ -1261,12 +1433,21 @@ class DB:
                     merchant_map[m.normalized_name] = m.merchant_id
 
             # Step 4: Prepare derived transaction objects
+            now = datetime.now()
             derived_txns = []
             for data in data_list:
                 merchant_id = data.get("merchant_id")
                 if merchant_id is None and data.get("merchant_descriptor"):
                     normalized = normalize_merchant_name(data["merchant_descriptor"])
                     merchant_id = merchant_map.get(normalized)
+
+                category_id = data.get("category_id")
+                category_method = data.get("category_method")
+                category_assigned_at = data.get("category_assigned_at")
+                if category_id is not None and category_method is None:
+                    category_method = "manual"
+                if category_id is not None and category_assigned_at is None:
+                    category_assigned_at = now
 
                 derived_txn = DerivedTransaction(
                     plaid_transaction_id=data["plaid_transaction_id"],
@@ -1275,7 +1456,10 @@ class DB:
                     posted_at=data["posted_at"],
                     merchant_descriptor=data.get("merchant_descriptor"),
                     merchant_id=merchant_id,
-                    category_id=data.get("category_id"),
+                    category_id=category_id,
+                    category_model=data.get("category_model"),
+                    category_method=category_method,
+                    category_assigned_at=category_assigned_at,
                     is_verified=data.get("is_verified", False),
                 )
                 derived_txns.append(derived_txn)
@@ -1283,6 +1467,33 @@ class DB:
             # Step 5: Bulk insert
             session.add_all(derived_txns)
             session.flush()
+
+            # Step 6: Insert category events for rows with initial categories
+            category_ids = {
+                txn.category_id for txn in derived_txns if txn.category_id is not None
+            }
+            key_by_id = self._resolve_category_keys(session, set(category_ids))
+            for txn, data in zip(derived_txns, data_list, strict=True):
+                if txn.category_id is None:
+                    continue
+                category_key = key_by_id.get(txn.category_id)
+                if category_key is None:
+                    raise ValueError(
+                        f"Category with ID {txn.category_id} does not exist"
+                    )
+                method_value = txn.category_method or "manual"
+                self._insert_category_event(
+                    session,
+                    transaction_id=txn.transaction_id,
+                    from_category_id=None,
+                    to_category_id=txn.category_id,
+                    from_category_key=None,
+                    to_category_key=category_key,
+                    method=cast(CategoryMethod, method_value),
+                    model=txn.category_model,
+                    reason=data.get("category_reason"),
+                    created_at=txn.category_assigned_at or now,
+                )
 
             # Get IDs
             transaction_ids = [txn.transaction_id for txn in derived_txns]
@@ -1398,10 +1609,14 @@ class DB:
     def bulk_update_derived_categories(
         self,
         updates: dict[int, int],
+        *,
+        method: CategoryMethod = "llm",
+        model: str | None = None,
+        reason: str | None = None,
     ) -> int:
         """Bulk update categories for multiple derived transactions.
 
-        Performs all updates in a single database transaction for efficiency.
+        Performs all updates and event inserts in a single DB transaction.
 
         Args:
             updates: Dictionary mapping transaction_id to category_id
@@ -1413,25 +1628,13 @@ class DB:
             return 0
 
         with self.session() as session:  # type: Session
-            now = datetime.now()
-            # Build CASE expression for category_id
-            case_expr = case(
-                updates,
-                value=DerivedTransaction.transaction_id,
+            return self._apply_category_updates(
+                session,
+                updates=updates,
+                method=method,
+                reason=reason,
+                model=model,
             )
-            # Update all matching transactions in single query
-            result: int = (
-                session.query(DerivedTransaction)
-                .filter(DerivedTransaction.transaction_id.in_(updates.keys()))
-                .update(
-                    {
-                        DerivedTransaction.category_id: case_expr,
-                        DerivedTransaction.updated_at: now,
-                    },
-                    synchronize_session=False,
-                )
-            )
-            return result
 
     def bulk_update_derived_reporting_mode(
         self,
@@ -1524,10 +1727,24 @@ class DB:
                     session.flush()
                 updates["merchant_id"] = merchant.merchant_id
 
+            previous_category_id = derived_txn.category_id
+            category_update_id = updates.get("category_id")
+            category_changed = (
+                category_update_id is not None
+                and category_update_id != previous_category_id
+            )
+            if category_update_id is not None and "category_method" not in updates:
+                updates["category_method"] = "manual"
+            if category_update_id is not None and "category_assigned_at" not in updates:
+                updates["category_assigned_at"] = datetime.now()
+
             # Update mutable fields
             for key, value in updates.items():
                 if key in (
                     "category_id",
+                    "category_model",
+                    "category_method",
+                    "category_assigned_at",
                     "merchant_id",
                     "amount_cents",
                     "merchant_descriptor",
@@ -1536,6 +1753,42 @@ class DB:
 
             derived_txn.updated_at = datetime.now()
             session.flush()
+            if category_changed:
+                from_category_id = previous_category_id
+                to_category_id = cast(int, category_update_id)
+                key_by_id = self._resolve_category_keys(
+                    session,
+                    {to_category_id}
+                    if from_category_id is None
+                    else {from_category_id, to_category_id},
+                )
+                to_category_key = key_by_id.get(to_category_id)
+                if to_category_key is None:
+                    raise ValueError(
+                        f"Category with ID {to_category_id} does not exist"
+                    )
+                from_category_key = (
+                    key_by_id.get(from_category_id)
+                    if from_category_id is not None
+                    else None
+                )
+                method_value = updates.get("category_method", "manual")
+                model_value = cast(str | None, updates.get("category_model"))
+                assigned_at = cast(
+                    datetime, updates.get("category_assigned_at", datetime.now())
+                )
+                self._insert_category_event(
+                    session,
+                    transaction_id=derived_txn.transaction_id,
+                    from_category_id=from_category_id,
+                    to_category_id=to_category_id,
+                    from_category_key=from_category_key,
+                    to_category_key=to_category_key,
+                    method=cast(CategoryMethod, method_value),
+                    model=model_value,
+                    reason=cast(str | None, updates.get("category_reason")),
+                    created_at=assigned_at,
+                )
             session.refresh(derived_txn)
             session.expunge(derived_txn)
             return derived_txn
@@ -1609,6 +1862,8 @@ class DB:
         transaction_ids: list[int],
         new_category_id: int,
         reset_verified: bool = False,
+        *,
+        reason: str | None = "taxonomy_migration",
     ) -> None:
         """
         Bulk reassign transactions to new category, optionally reset verified status.
@@ -1633,17 +1888,15 @@ class DB:
                 msg = f"Category with ID {new_category_id} does not exist"
                 raise ValueError(msg)
 
-            # Bulk update transactions
-            for txn_id in transaction_ids:
-                txn = (
-                    session.query(DerivedTransaction)
-                    .filter_by(transaction_id=txn_id)
-                    .first()
-                )
-                if txn:
-                    txn.category_id = new_category_id
-                    if reset_verified:
-                        txn.is_verified = False
+            updates = dict.fromkeys(transaction_ids, new_category_id)
+            self._apply_category_updates(
+                session,
+                updates=updates,
+                method="taxonomy_migration",
+                reason=reason,
+                preserve_model=True,
+                reset_verified=reset_verified,
+            )
 
     def replace_categories_from_taxonomy(self, taxonomy: Any) -> None:
         """
