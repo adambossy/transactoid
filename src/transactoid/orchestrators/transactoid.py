@@ -12,12 +12,12 @@ from agents import (
 )
 from dotenv import load_dotenv
 from openai.types.shared import Reasoning
-from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
+from transactoid.prompts.loader import load_transactoid_prompt
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.amazon.scraper import scrape_with_playwriter
 from transactoid.tools.categorize.categorizer_tool import Categorizer
@@ -75,7 +75,7 @@ def _render_prompt_template(
     )
 
     # Load taxonomy rules prompt
-    taxonomy_rules = load_prompt("taxonomy-rules")
+    taxonomy_rules = load_transactoid_prompt("taxonomy-rules")
 
     # Replace placeholders
     rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
@@ -142,7 +142,7 @@ class Transactoid:
             Agent configured with all Transactoid tools and instructions
         """
         # Load and render prompt template
-        template = load_prompt("agent-loop")
+        template = load_transactoid_prompt("agent-loop")
         schema_hint = self._db.compact_schema_hint()
         taxonomy_dict = self._taxonomy.to_prompt()
         instructions = _render_prompt_template(
