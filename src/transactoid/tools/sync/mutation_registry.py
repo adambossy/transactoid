@@ -100,6 +100,7 @@ class MutationRegistry:
             "posted_at": plaid_txn.posted_at,
             "merchant_descriptor": plaid_txn.merchant_descriptor,
             "category_id": None,
+            "web_search_summary": None,
             "is_verified": False,
         }
 
@@ -114,6 +115,7 @@ class MutationRegistry:
             new_derived_data["is_verified"] = old.is_verified
             if old.merchant_id is not None:
                 new_derived_data["merchant_id"] = old.merchant_id
+            new_derived_data["web_search_summary"] = old.web_search_summary
 
         return MutationResult(
             derived_data_list=[new_derived_data],
