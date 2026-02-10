@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 
 from openai import OpenAI
-from promptorium import load_prompt
+
+from transactoid.prompts.loader import load_transactoid_prompt
 
 
 def render_report_html(markdown_text: str) -> str:
@@ -18,7 +19,7 @@ def render_report_html(markdown_text: str) -> str:
         Styled HTML document
     """
     # Load prompt template from promptorium
-    prompt_template = load_prompt("render-report-html")
+    prompt_template = load_transactoid_prompt("render-report-html")
 
     # Inject the markdown report into the prompt
     prompt = prompt_template.replace("{{MARKDOWN_REPORT}}", markdown_text)
