@@ -8,7 +8,10 @@ import json
 import os
 from pathlib import Path
 import secrets
+from typing import Literal
 
+from google import genai
+from google.genai import types as genai_types
 import loguru
 from loguru import logger
 from openai import AsyncOpenAI
@@ -19,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from models.transaction import Transaction
 from transactoid.adapters.cache.file_cache import FileCache, stable_key
+from transactoid.core.runtime.config import load_core_runtime_config_from_env
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.utils.yaml import dump_yaml_basic
@@ -30,6 +34,7 @@ class CategorizedTransaction:
     category_key: str
     category_confidence: float
     category_rationale: str
+    category_model: str | None = None
     revised_category_key: str | None = None
     revised_category_confidence: float | None = None
     revised_category_rationale: str | None = None
@@ -102,14 +107,17 @@ class CategorizerLogger:
     def __init__(self, logger_instance: loguru.Logger = logger) -> None:
         self._logger = logger_instance
 
-    def api_call(self, txn_list: list[Transaction]) -> None:
+    def api_call(self, txn_list: list[Transaction], *, provider: str) -> None:
         """Log API call with formatted transaction context."""
         if not txn_list:
             return
 
         date_range = self._format_date_range(txn_list)
         self._logger.bind(transaction_count=len(txn_list), date_range=date_range).info(
-            "Calling OpenAI API for {} transactions ({})", len(txn_list), date_range
+            "Calling {} API for {} transactions ({})",
+            provider,
+            len(txn_list),
+            date_range,
         )
 
     def batch_start(
@@ -190,14 +198,20 @@ class Categorizer:
         taxonomy: Taxonomy,
         *,
         prompt_key: str = "categorize-transactions",
-        model: str = "gpt-5.2",
+        model: str | None = None,
+        provider: Literal["openai", "claude", "gemini"] | None = None,
         file_cache: FileCache | None = None,
         max_concurrency: int = 16,
         rules_loader: MerchantRulesLoader | None = None,
     ) -> None:
         self._taxonomy = taxonomy
         self._prompt_key = prompt_key
-        self._model = model
+        resolved_provider, resolved_model = self._resolve_provider_model(
+            provider=provider,
+            model=model,
+        )
+        self._provider = resolved_provider
+        self._model = resolved_model
         self._file_cache = file_cache or FileCache()
         self._max_concurrency = max_concurrency
         self._semaphore: asyncio.Semaphore | None = None
@@ -214,11 +228,59 @@ class Categorizer:
         storage = FileSystemPromptStorage(find_repo_root())
         self._prompt_service = PromptService(storage)
 
-        # Initialize OpenAI client once
-        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
-        self._client = AsyncOpenAI(api_key=api_key)
+        self._openai_client: AsyncOpenAI | None = None
+        self._gemini_client: genai.Client | None = None
+        self._init_provider_client()
+
+    @property
+    def model_name(self) -> str:
+        """Return configured model name."""
+        return self._model
+
+    def _resolve_provider_model(
+        self,
+        *,
+        provider: Literal["openai", "claude", "gemini"] | None,
+        model: str | None,
+    ) -> tuple[Literal["openai", "claude", "gemini"], str]:
+        """Resolve provider/model from explicit args or core runtime env config."""
+        if provider is not None and model is not None:
+            return provider, model
+
+        try:
+            runtime_config = load_core_runtime_config_from_env()
+            return (
+                provider or runtime_config.provider,
+                model or runtime_config.model,
+            )
+        except Exception:
+            # Fallback keeps backward compatibility for legacy local runs.
+            return (
+                provider or "openai",
+                model or "gpt-5.2",
+            )
+
+    def _init_provider_client(self) -> None:
+        """Initialize provider-specific client."""
+        if self._provider == "openai":
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
+            self._openai_client = AsyncOpenAI(api_key=api_key)
+            return
+
+        if self._provider == "gemini":
+            api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+            if not api_key:
+                raise RuntimeError("GOOGLE_API_KEY is required to call Gemini.")
+            self._gemini_client = genai.Client(api_key=api_key)
+            return
+
+        # Claude runtime parity: fail fast until this repository wires the SDK.
+        raise RuntimeError(
+            "Claude categorizer runtime is selected but SDK wiring is not "
+            "implemented in this repository."
+        )
 
     async def categorize(
         self, txns: Iterable[Transaction], *, batch_size: int | None = None
@@ -354,7 +416,7 @@ class Categorizer:
             )
             return categorized
 
-        self._logger.api_call(txn_list)
+        self._logger.api_call(txn_list, provider=self._provider)
         response_text = await self._call_openai_api(prompt, valid_keys=valid_keys)
         self._file_cache.set("categorize", cache_key, response_text)
 
@@ -382,7 +444,7 @@ class Categorizer:
             )
             return categorized
 
-        self._logger.api_call(txn_list)
+        self._logger.api_call(txn_list, provider=self._provider)
         response_text = await self._call_openai_api(prompt, valid_keys=valid_keys)
         self._file_cache.set("categorize", cache_key, response_text)
 
@@ -441,6 +503,7 @@ class Categorizer:
             "taxonomy": taxonomy_dict,
             "taxonomy_rules": taxonomy_rules,
             "merchant_rules": merchant_rules,
+            "provider": self._provider,
             "model": self._model,
         }
         return stable_key(cache_payload)
@@ -520,7 +583,19 @@ class Categorizer:
     async def _call_openai_api(
         self, prompt: str, *, valid_keys: list[str] | None = None
     ) -> str:
-        """Call OpenAI Responses API with web search enabled."""
+        """Call provider API with schema-constrained JSON output."""
+        if self._provider == "gemini":
+            return await self._call_gemini_api(prompt, valid_keys=valid_keys)
+        if self._provider == "claude":
+            raise RuntimeError(
+                "Claude categorizer runtime is selected but SDK wiring is not "
+                "implemented in this repository."
+            )
+
+        if self._openai_client is None:
+            raise RuntimeError("OpenAI client is not initialized.")
+
+        # OpenAI Responses API with web search enabled.
         # Use semaphore to limit concurrent API calls
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
@@ -530,7 +605,7 @@ class Categorizer:
                 # Responses API uses text.format instead of response_format
                 response_schema = self._build_response_schema(valid_keys)
                 extra_body = {"text": {"format": response_schema}}
-            resp = await self._client.responses.create(
+            resp = await self._openai_client.responses.create(
                 model=self._model,
                 input=prompt,
                 tools=[{"type": "web_search"}],
@@ -538,12 +613,51 @@ class Categorizer:
             )
             return self._extract_response_text(resp)
 
+    async def _call_gemini_api(
+        self, prompt: str, *, valid_keys: list[str] | None = None
+    ) -> str:
+        """Call Gemini API with JSON schema output and web search tool."""
+        if self._gemini_client is None:
+            raise RuntimeError("Gemini client is not initialized.")
+        if self._semaphore is None:
+            raise RuntimeError("Semaphore not initialized - call categorize() first")
+
+        async with self._semaphore:
+            schema = (
+                self._build_response_schema(valid_keys)["schema"]
+                if valid_keys
+                else None
+            )
+            config = genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=schema,
+                tools=[
+                    genai_types.Tool(
+                        google_search=genai_types.GoogleSearch(),
+                    )
+                ],
+            )
+
+            response = await self._gemini_client.aio.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=config,
+            )
+            return self._extract_gemini_response_text(response)
+
     def _extract_response_text(self, resp: object) -> str:
         """Extract text from OpenAI response object."""
         response_text: str | None = getattr(resp, "output_text", None)
         if response_text is None:
             response_text = str(resp)
         return response_text
+
+    def _extract_gemini_response_text(self, response: object) -> str:
+        """Extract text from Gemini response object."""
+        response_text = getattr(response, "text", None)
+        if isinstance(response_text, str) and response_text:
+            return response_text
+        return str(response)
 
     def _parse_response(
         self, response_text: str, txns: list[Transaction]
@@ -605,6 +719,7 @@ class Categorizer:
             category_key=category_key,
             category_confidence=result.score,
             category_rationale=result.rationale,
+            category_model=self._model,
             revised_category_key=revised_category,
             revised_category_confidence=result.revised_score,
             revised_category_rationale=result.revised_rationale,
@@ -657,6 +772,7 @@ class Categorizer:
         metadata = {
             "prompt_key": f"{self._prompt_key}-{prompt_version}",
             "taxonomy_rules_key": f"taxonomy-rules-{taxonomy_rules_version}",
+            "provider": self._provider,
             "model": self._model,
             "timestamp": datetime.now(UTC).isoformat(),
             "batch_idx": batch_idx,
@@ -679,6 +795,7 @@ class Categorizer:
             output = {
                 "idx": input_txn["idx"],
                 "category": cat_txn.category_key,
+                "category_model": cat_txn.category_model,
                 "score": cat_txn.category_confidence,
                 "rationale": cat_txn.category_rationale,
                 "revised_category": cat_txn.revised_category_key,

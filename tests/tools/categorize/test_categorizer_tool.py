@@ -83,6 +83,7 @@ def test_categorized_transaction_includes_merchant_summary() -> None:
         category_key="food_and_dining.restaurants",
         category_confidence=0.85,
         category_rationale="Web search confirmed",
+        category_model="gpt-5.2",
         revised_category_key="food_and_dining.restaurants",
         revised_category_confidence=0.85,
         revised_category_rationale="Search confirmed",
@@ -94,3 +95,4 @@ def test_categorized_transaction_includes_merchant_summary() -> None:
         categorized.merchant_summary
         == "- Local diner\n- Family owned\n- American cuisine"
     )
+    assert categorized.category_model == "gpt-5.2"
