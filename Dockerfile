@@ -30,6 +30,8 @@ RUN if [ -f uv.lock ]; then \
 # Copy source code
 COPY src/ src/
 COPY models/ models/
+COPY .prompts/ .prompts/
+COPY prompts/ prompts/
 COPY configs/ configs/
 COPY scripts/ scripts/
 COPY evals/ evals/
@@ -55,6 +57,8 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/models /app/models
+COPY --from=builder /app/.prompts /app/.prompts
+COPY --from=builder /app/prompts /app/prompts
 COPY --from=builder /app/configs /app/configs
 COPY --from=builder /app/scripts /app/scripts
 COPY --from=builder /app/evals /app/evals
