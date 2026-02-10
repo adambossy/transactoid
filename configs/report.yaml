@@ -8,7 +8,7 @@ email:
     - adambossy@gmail.com
 
   # Sender information
-  from_address: "reports@transactoid.com"
+  from_address: "onboarding@resend.dev"
   from_name: "Transactoid Reports"
 
   # Subject line template (supports {month} and {year} placeholders)
