@@ -12,6 +12,7 @@ from agents import Agent, Runner, SQLiteSession
 from agents.items import ToolCallOutputItem
 from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent
 
+from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.logger import PromptHandlerLogger
 from transactoid.ui.acp.notifier import ToolCallKind, UpdateNotifier
@@ -122,6 +123,7 @@ class PromptHandler:
             self._agent,
             user_text,
             session=sdk_session,
+            max_turns=DEFAULT_AGENT_MAX_TURNS,
         )
 
         # Process streaming events

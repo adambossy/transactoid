@@ -14,6 +14,7 @@ import yaml
 
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
+from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import (
@@ -176,6 +177,7 @@ class TransactoidChatKitServer(_ChatKitServerBase):
         result = Runner.run_streamed(
             starting_agent=agent,
             input=agent_input,
+            max_turns=DEFAULT_AGENT_MAX_TURNS,
         )
 
         # Create AgentContext for chatkit integration
