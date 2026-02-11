@@ -8,10 +8,8 @@ import json
 import os
 from pathlib import Path
 import secrets
-from typing import Literal
+from typing import Any, Literal
 
-from google import genai
-from google.genai import types as genai_types
 import loguru
 from loguru import logger
 from openai import AsyncOpenAI
@@ -26,6 +24,19 @@ from transactoid.core.runtime.config import load_core_runtime_config_from_env
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.utils.yaml import dump_yaml_basic
+
+
+def _import_google_genai() -> tuple[Any, Any]:
+    """Lazily import google.genai to avoid hard dependency for OpenAI-only setups."""
+    try:
+        from google import genai
+        from google.genai import types as genai_types
+    except ImportError as e:
+        raise RuntimeError(
+            "google-genai package is required for Gemini categorizer. "
+            "Install with: pip install google-genai"
+        ) from e
+    return genai, genai_types
 
 
 @dataclass
@@ -229,7 +240,8 @@ class Categorizer:
         self._prompt_service = PromptService(storage)
 
         self._openai_client: AsyncOpenAI | None = None
-        self._gemini_client: genai.Client | None = None
+        self._gemini_client: Any | None = None
+        self._gemini_types: Any | None = None
         self._init_provider_client()
 
     @property
@@ -273,7 +285,9 @@ class Categorizer:
             api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
             if not api_key:
                 raise RuntimeError("GOOGLE_API_KEY is required to call Gemini.")
+            genai, genai_types = _import_google_genai()
             self._gemini_client = genai.Client(api_key=api_key)
+            self._gemini_types = genai_types
             return
 
         # Claude runtime parity: fail fast until this repository wires the SDK.
@@ -619,6 +633,8 @@ class Categorizer:
         """Call Gemini API with JSON schema output and web search tool."""
         if self._gemini_client is None:
             raise RuntimeError("Gemini client is not initialized.")
+        if self._gemini_types is None:
+            raise RuntimeError("Gemini types are not initialized.")
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
 
@@ -628,12 +644,12 @@ class Categorizer:
                 if valid_keys
                 else None
             )
-            config = genai_types.GenerateContentConfig(
+            config = self._gemini_types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_json_schema=schema,
                 tools=[
-                    genai_types.Tool(
-                        google_search=genai_types.GoogleSearch(),
+                    self._gemini_types.Tool(
+                        google_search=self._gemini_types.GoogleSearch(),
                     )
                 ],
             )
