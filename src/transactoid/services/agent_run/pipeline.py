@@ -22,7 +22,7 @@ _DEFAULT_LOCAL_DIR = ".transactoid/artifacts"
 class OutputPipeline:
     """Generates output artifacts and fans them out to configured targets."""
 
-    async def process(
+    def process(
         self,
         *,
         report_text: str,
