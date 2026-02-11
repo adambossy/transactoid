@@ -181,6 +181,62 @@ class TransactionsSyncResponse(PlaidBaseModel):
         }
 
 
+class PlaidInvestmentSecurity(PlaidBaseModel):
+    """Investment security model for Plaid."""
+
+    security_id: str
+    name: str | None = None
+    ticker_symbol: str | None = None
+    type: str | None = None
+
+
+class PlaidInvestmentTransaction(PlaidBaseModel):
+    """Investment transaction model from Plaid."""
+
+    investment_transaction_id: str
+    account_id: str
+    amount: float
+    date: str
+    name: str
+    quantity: float | None = None
+    price: float | None = None
+    fees: float | None = None
+    type: str | None = None
+    subtype: str | None = None
+    security_id: str | None = None
+    iso_currency_code: str | None = None
+    unofficial_currency_code: str | None = None
+
+
+class InvestmentTransactionsGetResponse(PlaidBaseModel):
+    """Response from /investments/transactions/get endpoint."""
+
+    investment_transactions: list[PlaidInvestmentTransaction] = Field(
+        default_factory=list
+    )
+    securities: list[PlaidInvestmentSecurity] = Field(default_factory=list)
+    total_investment_transactions: int = 0
+
+
+class PlaidInvestmentHolding(PlaidBaseModel):
+    """Investment holding model from Plaid."""
+
+    account_id: str
+    security_id: str
+    institution_price: float | None = None
+    institution_value: float | None = None
+    quantity: float
+    cost_basis: float | None = None
+    iso_currency_code: str | None = None
+
+
+class InvestmentHoldingsGetResponse(PlaidBaseModel):
+    """Response from /investments/holdings/get endpoint."""
+
+    holdings: list[PlaidInvestmentHolding] = Field(default_factory=list)
+    securities: list[PlaidInvestmentSecurity] = Field(default_factory=list)
+
+
 class PlaidClient:
     def __init__(
         self,
@@ -296,6 +352,8 @@ class PlaidClient:
         user_id: str,
         redirect_uri: str | None = None,
         products: list[str] | None = None,
+        required_if_supported_products: list[str] | None = None,
+        access_token: str | None = None,
         country_codes: list[str] | None = None,
         language: str = "en",
         client_name: str | None = None,
@@ -304,6 +362,15 @@ class PlaidClient:
         """Create a Plaid Link token and return it.
 
         Args:
+            user_id: User identifier for Plaid Link
+            redirect_uri: OAuth redirect URI (if using redirect mode)
+            products: Required products list (e.g. ["transactions"])
+            required_if_supported_products: Products to request if institution supports
+                them (e.g. ["investments"])
+            access_token: Existing access token for update mode (consent addition)
+            country_codes: Country codes for Link (default: ["US"])
+            language: Language for Link UI (default: "en")
+            client_name: Display name for Link
             days_requested: Number of days of transaction history to request.
                 Defaults to 730 (maximum ~2 years). Only applies on initial
                 Item setup; cannot be changed after transactions are initialized.
@@ -320,6 +387,10 @@ class PlaidClient:
         }
         if redirect_uri is not None:
             payload["redirect_uri"] = redirect_uri
+        if required_if_supported_products is not None:
+            payload["required_if_supported_products"] = required_if_supported_products
+        if access_token is not None:
+            payload["access_token"] = access_token
 
         resp = LinkTokenCreateResponse.parse(self._post("/link/token/create", payload))
         return resp.link_token
@@ -679,4 +750,72 @@ class PlaidClient:
             "status": "success",
             "accounts": all_accounts,
             "message": message,
+        }
+
+    def get_investment_transactions(
+        self,
+        access_token: str,
+        *,
+        start_date: date,
+        end_date: date,
+        count: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Fetch investment transactions from Plaid.
+
+        Args:
+            access_token: Plaid access token for the item
+            start_date: Start date for transaction query
+            end_date: End date for transaction query
+            count: Number of transactions to fetch per page (default: 100, max: 500)
+            offset: Offset for pagination (default: 0)
+
+        Returns:
+            Dictionary with investment_transactions, securities, and total_count
+        """
+        payload: dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "options": {
+                "count": count,
+                "offset": offset,
+            },
+        }
+        resp = InvestmentTransactionsGetResponse.parse(
+            self._post("/investments/transactions/get", payload)
+        )
+        return {
+            "investment_transactions": [
+                txn.model_dump() for txn in resp.investment_transactions
+            ],
+            "securities": [sec.model_dump() for sec in resp.securities],
+            "total_investment_transactions": resp.total_investment_transactions,
+        }
+
+    def get_investment_holdings(
+        self,
+        access_token: str,
+    ) -> dict[str, Any]:
+        """Fetch investment holdings from Plaid.
+
+        Args:
+            access_token: Plaid access token for the item
+
+        Returns:
+            Dictionary with holdings and securities
+        """
+        payload: dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
+        }
+        resp = InvestmentHoldingsGetResponse.parse(
+            self._post("/investments/holdings/get", payload)
+        )
+        return {
+            "holdings": [holding.model_dump() for holding in resp.holdings],
+            "securities": [sec.model_dump() for sec in resp.securities],
         }
