@@ -531,12 +531,14 @@ class PlaidClient:
         state: dict[str, Any] = {}
 
         try:
-            # Create Link token and URL
+            # Create Link token and URL with investments consent
             link_url = create_link_token_and_url(
                 redirect_uri=redirect_uri,
                 state=state,
                 create_link_token_fn=self.create_link_token,
                 client_name=self._client_name,
+                products=["transactions"],
+                required_if_supported_products=["investments"],
             )
 
             # Open browser
