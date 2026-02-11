@@ -14,6 +14,7 @@ from promptorium import load_prompt
 
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
+from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.core import Taxonomy
 
@@ -99,7 +100,7 @@ class ReportRunner:
             # Allow more turns since report generation involves multiple SQL queries
             session = SQLiteSession(session_id="report_job")
             result = await Runner.run(
-                agent, input=prompt, session=session, max_turns=50
+                agent, input=prompt, session=session, max_turns=DEFAULT_AGENT_MAX_TURNS
             )
 
             # Extract response
