@@ -35,6 +35,8 @@ def plaid_create_link_token(
     user_id: str,
     redirect_uri: str,
     products: list[str],
+    required_if_supported_products: list[str] | None = None,
+    access_token: str | None = None,
     client_name: str = "transactoid",
     language: str = "en",
     country_codes: list[str] | None = None,
@@ -46,6 +48,8 @@ def plaid_create_link_token(
             user_id=user_id,
             redirect_uri=redirect_uri,
             products=products,
+            required_if_supported_products=required_if_supported_products,
+            access_token=access_token,
             client_name=client_name,
             language=language,
             country_codes=country_codes,
@@ -258,12 +262,16 @@ def _create_link_url(
     client_name: str,
     language: str,
     state: dict[str, Any],
+    required_if_supported_products: list[str] | None = None,
+    access_token: str | None = None,
 ) -> str:
     """Create a Link token and return the hosted Link URL."""
     link_token = plaid_create_link_token(
         user_id=user_id,
         redirect_uri=redirect_uri,
         products=products,
+        required_if_supported_products=required_if_supported_products,
+        access_token=access_token,
         client_name=client_name,
         language=language,
         country_codes=country_codes,
@@ -373,6 +381,118 @@ def cmd_link_production(args: argparse.Namespace) -> None:
         public_token=public_token,
         env=env,
         output_path=args.output,
+    )
+
+
+def cmd_add_investments_consent(args: argparse.Namespace) -> None:
+    """Add investments consent to an existing Plaid item via update-mode Link."""
+    env = _ensure_production_env()
+
+    # Get access token from arg or DB
+    access_token = args.access_token
+    if not access_token:
+        if not args.item_id:
+            print(
+                "Error: Must provide either --access-token or --item-id",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Load access token from database
+        try:
+            from transactoid.adapters.db.facade import DB
+
+            db_url = os.getenv("DATABASE_URL")
+            if not db_url:
+                print(
+                    "Error: DATABASE_URL not set. Cannot load item from database.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            db = DB(db_url)
+            item = db.get_plaid_item(args.item_id)
+            if not item:
+                print(
+                    f"Error: Item {args.item_id} not found in database.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            access_token = item.access_token
+            print(f"Loaded access token for item {args.item_id}")
+        except Exception as e:
+            print(f"Error loading item from database: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    redirect_path = "/plaid-link-complete"
+    token_queue: queue.Queue[str] = queue.Queue()
+    state: dict[str, Any] = {}
+
+    server, server_thread, redirect_uri = _create_redirect_server_and_uri(
+        args,
+        redirect_path=redirect_path,
+        token_queue=token_queue,
+        state=state,
+    )
+
+    user_id = f"cli-user-{uuid.uuid4()}"
+
+    try:
+        # Create update-mode link token with access_token and investments
+        link_url = _create_link_url(
+            env=env,
+            user_id=user_id,
+            redirect_uri=redirect_uri,
+            products=["transactions"],
+            required_if_supported_products=["investments"],
+            access_token=access_token,
+            country_codes=["US"],
+            client_name=args.client_name,
+            language=args.language,
+            state=state,
+        )
+
+        print(f"Listening for Plaid redirect on {redirect_uri}")
+        print("Adding investments consent to existing item...")
+        print(
+            "Your browser may warn about a self-signed certificate; "
+            "bypass it once to continue."
+        )
+        print("Opening Plaid Link in your default browser...")
+        opened = _open_link_in_browser(link_url)
+        if not opened:
+            print(
+                "Unable to automatically open the browser. "
+                "Open the following URL manually:",
+                file=sys.stderr,
+            )
+            print(link_url)
+
+        print(
+            f"Waiting for Plaid Link to complete. Timeout: {args.timeout} seconds.",
+        )
+        public_token = wait_for_public_token(
+            token_queue,
+            timeout_seconds=args.timeout,
+        )
+    except RedirectServerError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except PublicTokenTimeoutError as e:
+        print(str(e), file=sys.stderr)
+        print("Restart the command to try again.", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInterrupted before Plaid Link completed.", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        shutdown_redirect_server(server, server_thread)
+
+    print(f"✓ Received public_token: {public_token[:20]}...")
+    print("Investments consent added successfully!")
+    print(
+        "Note: If the item_id changed, you may need to migrate the item identity "
+        "in your database."
     )
 
 
@@ -505,6 +625,53 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the full Plaid /transactions/get JSON response.",
     )
     tx_parser.set_defaults(func=cmd_transactions)
+
+    consent_parser = subparsers.add_parser(
+        "add-investments-consent",
+        help="Add investments consent to an existing Plaid item.",
+    )
+    consent_parser.add_argument(
+        "--access-token",
+        help="Plaid access token for the item. Alternative to --item-id.",
+    )
+    consent_parser.add_argument(
+        "--item-id",
+        help="Plaid item ID to load from database. Alternative to --access-token.",
+    )
+    consent_parser.add_argument(
+        "--client-name",
+        default="transactoid",
+        help="Label shown inside Plaid Link (default: transactoid).",
+    )
+    consent_parser.add_argument(
+        "--language",
+        default="en",
+        help="Plaid Link language code (default: en).",
+    )
+    consent_parser.add_argument(
+        "--host",
+        default="localhost",
+        help=(
+            "Host interface for the local HTTPS redirect server (default: localhost). "
+            "Must match a redirect URI registered in Plaid."
+        ),
+    )
+    consent_parser.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help=(
+            "Port for the redirect server. Use 0 to choose a random open port "
+            "(default: 0)."
+        ),
+    )
+    consent_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Seconds to wait for Plaid Link to complete (default: 300).",
+    )
+    consent_parser.set_defaults(func=cmd_add_investments_consent)
 
     return parser
 
