@@ -11,10 +11,6 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 
-# ---------------------------------------------------------------------------
-# Exceptions
-# ---------------------------------------------------------------------------
-
 
 class R2StorageError(Exception):
     """Base error for R2 storage operations."""
@@ -31,10 +27,6 @@ class R2UploadError(R2StorageError):
 class R2DownloadError(R2StorageError):
     """Failed to download an object from R2."""
 
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 _REQUIRED_ENV_VARS = (
     "R2_ACCOUNT_ID",
@@ -67,11 +59,6 @@ class R2StoredObject:
     content_type: str
 
 
-# ---------------------------------------------------------------------------
-# Config loader
-# ---------------------------------------------------------------------------
-
-
 def load_r2_config_from_env() -> R2Config:
     """Load R2 configuration from environment variables.
 
@@ -91,11 +78,6 @@ def load_r2_config_from_env() -> R2Config:
         secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
         bucket=os.environ["R2_BUCKET"],
     )
-
-
-# ---------------------------------------------------------------------------
-# Upload
-# ---------------------------------------------------------------------------
 
 
 def _build_client(config: R2Config) -> Any:
@@ -157,11 +139,6 @@ def store_object_in_r2(
     return R2StoredObject(key=key, bucket=config.bucket, content_type=content_type)
 
 
-# ---------------------------------------------------------------------------
-# Download
-# ---------------------------------------------------------------------------
-
-
 def download_object_from_r2(
     *,
     key: str,
@@ -192,11 +169,6 @@ def download_object_from_r2(
     except (BotoCoreError, ClientError) as exc:
         msg = f"Failed to download {key!r} from {config.bucket}: {exc}"
         raise R2DownloadError(msg) from exc
-
-
-# ---------------------------------------------------------------------------
-# Key helpers
-# ---------------------------------------------------------------------------
 
 
 def make_artifact_key(*, artifact_type: str, timestamp: datetime | None = None) -> str:
