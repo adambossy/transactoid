@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import MagicMock, patch
 
 from transactoid.services.agent_run.pipeline import OutputPipeline
@@ -27,10 +26,8 @@ class TestOutputPipelineLocal:
             "transactoid.services.agent_run.pipeline.render_report_html",
             return_value="<html>Report</html>",
         ):
-            html_text, artifacts = asyncio.run(
-                pipeline.process(
-                    report_text="# Report", request=request, run_id="abc123"
-                )
+            html_text, artifacts = pipeline.process(
+                report_text="# Report", request=request, run_id="abc123"
             )
 
         assert html_text == "<html>Report</html>"
@@ -55,8 +52,8 @@ class TestOutputPipelineLocal:
         )
         pipeline = OutputPipeline()
 
-        html_text, artifacts = asyncio.run(
-            pipeline.process(report_text="# Report", request=request, run_id="run1")
+        html_text, artifacts = pipeline.process(
+            report_text="# Report", request=request, run_id="run1"
         )
 
         assert html_text is None
@@ -85,8 +82,8 @@ class TestOutputPipelineR2:
         )
         pipeline = OutputPipeline()
 
-        html_text, artifacts = asyncio.run(
-            pipeline.process(report_text="# Report", request=request, run_id="abc123")
+        html_text, artifacts = pipeline.process(
+            report_text="# Report", request=request, run_id="abc123"
         )
 
         assert html_text == "<html>Styled</html>"
@@ -106,8 +103,8 @@ class TestOutputPipelineR2:
         )
         pipeline = OutputPipeline()
 
-        html_text, artifacts = asyncio.run(
-            pipeline.process(report_text="# Report", request=request, run_id="abc123")
+        html_text, artifacts = pipeline.process(
+            report_text="# Report", request=request, run_id="abc123"
         )
 
         assert html_text is None
@@ -124,8 +121,8 @@ class TestOutputPipelineNoTargets:
         )
         pipeline = OutputPipeline()
 
-        html_text, artifacts = asyncio.run(
-            pipeline.process(report_text="# Report", request=request, run_id="abc123")
+        html_text, artifacts = pipeline.process(
+            report_text="# Report", request=request, run_id="abc123"
         )
 
         assert html_text is None
