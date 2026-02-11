@@ -12,6 +12,7 @@ from transactoid.adapters.db.models import (
     CategoryRow,
     DerivedTransaction,
     Merchant,
+    PlaidTransaction,
 )
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id, load_taxonomy_from_db
@@ -1031,6 +1032,106 @@ def test_delete_derived_by_plaid_ids_empty_list() -> None:
 
 
 # Plaid Item Tests
+
+
+def test_migrate_plaid_item_identity_moves_transactions_and_resets_cursor() -> None:
+    """Test item-id migration preserves transactions and resets cursor."""
+    db = create_db()
+    input = {
+        "old_item_id": "item_old",
+        "new_item_id": "item_new",
+        "old_access_token": "token_old",
+        "new_access_token": "token_new",
+        "institution_id": "ins_123",
+        "institution_name": "Test Bank",
+    }
+
+    db.insert_plaid_item(
+        item_id=input["old_item_id"],
+        access_token=input["old_access_token"],
+        institution_id=input["institution_id"],
+        institution_name=input["institution_name"],
+    )
+    db.set_sync_cursor(input["old_item_id"], "cursor_old")
+    with db.session() as session:  # type: Session
+        session.add(
+            PlaidTransaction(
+                external_id="tx_1",
+                source="PLAID",
+                account_id="acc_1",
+                item_id=input["old_item_id"],
+                posted_at=date(2024, 1, 15),
+                amount_cents=1200,
+                currency="USD",
+                merchant_descriptor="Test Merchant",
+                institution="Test Bank",
+            )
+        )
+
+    output = db.migrate_plaid_item_identity(
+        old_item_id=input["old_item_id"],
+        new_item_id=input["new_item_id"],
+        access_token=input["new_access_token"],
+        institution_id=input["institution_id"],
+        institution_name=input["institution_name"],
+        reset_cursor=True,
+    )
+
+    expected_output = {
+        "item_id": input["new_item_id"],
+        "access_token": input["new_access_token"],
+        "sync_cursor": None,
+    }
+
+    assert {
+        "item_id": output.item_id,
+        "access_token": output.access_token,
+        "sync_cursor": output.sync_cursor,
+    } == expected_output
+    assert db.get_plaid_item(input["old_item_id"]) is None
+    assert db.get_sync_cursor(input["new_item_id"]) is None
+    migrated = db.execute_raw_sql(
+        "SELECT COUNT(*) AS count FROM plaid_transactions WHERE item_id = 'item_new'"
+    ).scalar_one()
+    assert migrated == 1
+
+
+def test_migrate_plaid_item_identity_refreshes_in_place() -> None:
+    """Test in-place migration updates token and resets cursor."""
+    db = create_db()
+    input = {
+        "item_id": "item_123",
+        "access_token_old": "token_old",
+        "access_token_new": "token_new",
+    }
+    db.insert_plaid_item(
+        item_id=input["item_id"],
+        access_token=input["access_token_old"],
+        institution_id="ins_123",
+        institution_name="Bank",
+    )
+    db.set_sync_cursor(input["item_id"], "cursor_old")
+
+    output = db.migrate_plaid_item_identity(
+        old_item_id=input["item_id"],
+        new_item_id=input["item_id"],
+        access_token=input["access_token_new"],
+        institution_id="ins_123",
+        institution_name="Bank",
+        reset_cursor=True,
+    )
+
+    expected_output = {
+        "item_id": input["item_id"],
+        "access_token": input["access_token_new"],
+        "sync_cursor": None,
+    }
+
+    assert {
+        "item_id": output.item_id,
+        "access_token": output.access_token,
+        "sync_cursor": output.sync_cursor,
+    } == expected_output
 
 
 def test_delete_plaid_item_removes_item() -> None:

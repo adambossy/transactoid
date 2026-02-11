@@ -535,21 +535,40 @@ class PlaidClient:
                     continue
 
             if duplicate_item:
-                # Update existing item's access_token (credential refresh)
-                db.save_plaid_item(
-                    item_id=duplicate_item.item_id,
-                    access_token=access_token,
-                    institution_id=institution_id,
-                    institution_name=institution_name,
-                )
+                refreshed_item_id = duplicate_item.item_id
+                sync_cursor_reset = False
+
+                # Plaid Link may return a different item_id for a re-link.
+                # Migrate local identity so item_id and access_token stay consistent.
+                if item_id != duplicate_item.item_id:
+                    db.migrate_plaid_item_identity(
+                        old_item_id=duplicate_item.item_id,
+                        new_item_id=item_id,
+                        access_token=access_token,
+                        institution_id=institution_id,
+                        institution_name=institution_name,
+                        reset_cursor=True,
+                    )
+                    refreshed_item_id = item_id
+                    sync_cursor_reset = True
+                else:
+                    # Update existing item's access_token (credential refresh).
+                    db.save_plaid_item(
+                        item_id=duplicate_item.item_id,
+                        access_token=access_token,
+                        institution_id=institution_id,
+                        institution_name=institution_name,
+                    )
+
                 return {
                     "status": "refreshed",
-                    "item_id": duplicate_item.item_id,
+                    "item_id": refreshed_item_id,
                     "institution_name": institution_name,
                     "accounts_linked": len(accounts),
+                    "sync_cursor_reset": sync_cursor_reset,
                     "message": (
                         f"Existing connection refreshed. "
-                        f"Updated credentials for item {duplicate_item.item_id[:8]}... "
+                        f"Updated credentials for item {refreshed_item_id[:8]}... "
                         f"at {institution_name or 'institution'}."
                     ),
                 }

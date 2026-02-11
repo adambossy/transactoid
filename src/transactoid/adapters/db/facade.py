@@ -852,6 +852,90 @@ class DB:
                 session.expunge(item)
             return items
 
+    def migrate_plaid_item_identity(
+        self,
+        *,
+        old_item_id: str,
+        new_item_id: str,
+        access_token: str,
+        institution_id: str | None = None,
+        institution_name: str | None = None,
+        reset_cursor: bool = True,
+    ) -> PlaidItem:
+        """Migrate a Plaid item ID while preserving linked transactions.
+
+        This is used when Plaid Link returns a new item_id for what is logically
+        the same institution connection. All existing plaid_transactions rows
+        referencing old_item_id are reassigned to new_item_id.
+
+        Args:
+            old_item_id: Existing local item ID to migrate from
+            new_item_id: New Plaid item ID to migrate to
+            access_token: Access token for the new Plaid item
+            institution_id: Optional institution ID
+            institution_name: Optional institution name
+            reset_cursor: If True, clear sync cursor on migrated item
+
+        Returns:
+            Migrated PlaidItem instance
+
+        Raises:
+            ValueError: If old_item_id does not exist
+        """
+        with self.session() as session:  # type: Session
+            old_item = session.query(PlaidItem).filter_by(item_id=old_item_id).first()
+            if old_item is None:
+                raise ValueError(f"Plaid item {old_item_id} not found")
+
+            # Refresh in place when item IDs already match.
+            if old_item_id == new_item_id:
+                old_item.access_token = access_token
+                old_item.institution_id = institution_id
+                old_item.institution_name = institution_name
+                if reset_cursor:
+                    old_item.sync_cursor = None
+                old_item.updated_at = datetime.now()
+                session.flush()
+                session.refresh(old_item)
+                session.expunge(old_item)
+                return old_item
+
+            target_item = (
+                session.query(PlaidItem).filter_by(item_id=new_item_id).first()
+            )
+            if target_item is None:
+                target_item = PlaidItem(
+                    item_id=new_item_id,
+                    access_token=access_token,
+                    institution_id=institution_id,
+                    institution_name=institution_name,
+                    sync_cursor=None if reset_cursor else old_item.sync_cursor,
+                )
+                session.add(target_item)
+                session.flush()
+            else:
+                target_item.access_token = access_token
+                target_item.institution_id = institution_id
+                target_item.institution_name = institution_name
+                if reset_cursor:
+                    target_item.sync_cursor = None
+                target_item.updated_at = datetime.now()
+
+            # Repoint source transactions to the new item ID before deleting old item.
+            (
+                session.query(PlaidTransaction)
+                .filter(PlaidTransaction.item_id == old_item_id)
+                .update(
+                    {PlaidTransaction.item_id: new_item_id}, synchronize_session=False
+                )
+            )
+
+            session.delete(old_item)
+            session.flush()
+            session.refresh(target_item)
+            session.expunge(target_item)
+            return target_item
+
     # Plaid Transactions methods
 
     def upsert_plaid_transaction(
