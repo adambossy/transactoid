@@ -428,6 +428,8 @@ class CreateLinkTokenFn(Protocol):
         user_id: str,
         redirect_uri: str | None = None,
         products: list[str] | None = None,
+        required_if_supported_products: list[str] | None = None,
+        access_token: str | None = None,
         country_codes: list[str] | None = None,
         client_name: str | None = None,
     ) -> str: ...
@@ -445,6 +447,9 @@ def create_link_token_and_url(
     state: dict[str, Any],
     create_link_token_fn: CreateLinkTokenFn,
     client_name: str,
+    products: list[str] | None = None,
+    required_if_supported_products: list[str] | None = None,
+    access_token: str | None = None,
 ) -> str:
     """Create a Plaid Link token and build the Link URL.
 
@@ -453,6 +458,10 @@ def create_link_token_and_url(
         state: State dict to store link_token
         create_link_token_fn: Function to create link token
         client_name: Client name for Plaid Link
+        products: Required products list (default: ["transactions"])
+        required_if_supported_products: Products to request if supported
+            (e.g., ["investments"])
+        access_token: Existing access token for update mode (consent addition)
 
     Returns:
         Link URL string pointing to local server which loads Plaid SDK
@@ -461,7 +470,9 @@ def create_link_token_and_url(
     link_token = create_link_token_fn(
         user_id=user_id,
         redirect_uri=redirect_uri,
-        products=["transactions"],
+        products=products or ["transactions"],
+        required_if_supported_products=required_if_supported_products,
+        access_token=access_token,
         country_codes=["US"],
         client_name=client_name,
     )
