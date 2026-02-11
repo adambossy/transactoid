@@ -557,7 +557,7 @@ async def _agent_run_impl(
         typer.echo(f"Run {result.run_id} completed in {result.duration_seconds:.1f}s")
 
         pipeline = OutputPipeline()
-        html_text, artifacts = await pipeline.process(
+        html_text, artifacts = pipeline.process(
             report_text=result.report_text, request=request, run_id=result.run_id
         )
 
@@ -662,17 +662,9 @@ def agent_run_cmd(
             typer.echo(f"Invalid output target: {target}", err=True)
             raise typer.Exit(1)
 
-    # Build template vars from --month helper
     template_vars: dict[str, str] = {}
     if month and prompt_key:
-        import calendar
-
-        year, month_num = map(int, month.split("-"))
-        month_name = calendar.month_name[month_num]
-        last_day = calendar.monthrange(year, month_num)[1]
-        template_vars["CURRENT_DATE"] = f"{year}-{month_num:02d}-{last_day:02d}"
-        template_vars["CURRENT_MONTH"] = month_name
-        template_vars["CURRENT_YEAR"] = str(year)
+        template_vars = _build_month_template_vars(month)
 
     asyncio.run(
         _agent_run_impl(
@@ -702,6 +694,20 @@ def _load_report_config(config_path: str) -> dict[str, Any]:
         return config
 
 
+def _build_month_template_vars(month: str) -> dict[str, str]:
+    """Parse YYYY-MM and return template vars for date injection."""
+    import calendar
+
+    year, month_num = map(int, month.split("-"))
+    month_name = calendar.month_name[month_num]
+    last_day = calendar.monthrange(year, month_num)[1]
+    return {
+        "CURRENT_DATE": f"{year}-{month_num:02d}-{last_day:02d}",
+        "CURRENT_MONTH": month_name,
+        "CURRENT_YEAR": str(year),
+    }
+
+
 def _resolve_report_recipients(
     email_config: dict[str, Any],
 ) -> list[str]:
@@ -720,8 +726,6 @@ async def _report_impl(
     report_month: str | None = None,
 ) -> None:
     """Generate spending report by delegating to AgentRunService."""
-    import calendar as cal
-
     from transactoid.jobs.report.email_service import EmailService
     from transactoid.services.agent_run import (
         AgentRunRequest,
@@ -735,20 +739,12 @@ async def _report_impl(
     email_config: dict[str, Any] = config.get("email", {})
     error_config: dict[str, Any] = config.get("error_notification", {})
 
-    # Build template vars for month injection
     template_vars: dict[str, str] = {}
     if report_month:
-        year, month_num = map(int, report_month.split("-"))
-        month_name = cal.month_name[month_num]
-        last_day = cal.monthrange(year, month_num)[1]
-        template_vars["CURRENT_DATE"] = f"{year}-{month_num:02d}-{last_day:02d}"
-        template_vars["CURRENT_MONTH"] = month_name
-        template_vars["CURRENT_YEAR"] = str(year)
+        template_vars = _build_month_template_vars(report_month)
 
-    # Determine output targets
+    # Pipeline handles R2; output_file is written manually below
     output_targets: list[OutputTarget] = [OutputTarget.R2]
-    if output_file:
-        output_targets.append(OutputTarget.LOCAL)
 
     # Resolve email recipients
     email_recipients: list[str] = []
@@ -764,7 +760,6 @@ async def _report_impl(
         save_md=True,
         save_html=True,
         output_targets=tuple(output_targets),
-        local_dir=str(Path(output_file).parent) if output_file else None,
         email_recipients=tuple(email_recipients),
     )
 
@@ -782,7 +777,7 @@ async def _report_impl(
         typer.echo(f"Report generated in {result.duration_seconds:.1f}s")
 
         pipeline = OutputPipeline()
-        html_text, artifacts = await pipeline.process(
+        html_text, artifacts = pipeline.process(
             report_text=result.report_text, request=request, run_id=result.run_id
         )
 
