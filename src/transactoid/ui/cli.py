@@ -571,8 +571,8 @@ async def _agent_run_impl(
         raise typer.Exit(1)
 
 
-@app.command("agent-run")
-def agent_run_cmd(
+@app.command("run")
+def run_cmd(
     prompt: str | None = typer.Option(
         None,
         "--prompt",
@@ -633,19 +633,19 @@ def agent_run_cmd(
     Examples:
 
         # Run with a promptorium key
-        transactoid agent-run --prompt-key spending-report
+        transactoid run --prompt-key spending-report
 
         # Run with a raw prompt
-        transactoid agent-run --prompt "Summarize my spending"
+        transactoid run --prompt "Summarize my spending"
 
         # Continue a previous run
-        transactoid agent-run --prompt "Add more detail" --continue abc123
+        transactoid run --prompt "Add more detail" --continue abc123
 
         # Save locally instead of R2
-        transactoid agent-run --prompt-key spending-report --output-target local
+        transactoid run --prompt-key spending-report --output-target local
 
         # Email the report
-        transactoid agent-run --prompt-key spending-report --email user@example.com
+        transactoid run --prompt-key spending-report --email user@example.com
     """
     if prompt is None and prompt_key is None:
         typer.echo("Either --prompt or --prompt-key is required", err=True)
@@ -890,7 +890,7 @@ def report_cmd(
 ) -> None:
     """Generate and send a spending report.
 
-    Compatibility alias for agent-run --prompt-key spending-report.
+    Compatibility alias for run --prompt-key spending-report.
     Delegates to AgentRunService with report-specific defaults.
 
     Examples:
