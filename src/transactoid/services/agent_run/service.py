@@ -63,6 +63,23 @@ class AgentRunService:
         trace_path = self._resolve_trace_path(request)
 
         try:
+            return await self._execute_inner(
+                request, run_id, started_at, start_mono, trace_path
+            )
+        finally:
+            if trace_path.exists():
+                trace_path.unlink(missing_ok=True)
+
+    async def _execute_inner(
+        self,
+        request: AgentRunRequest,
+        run_id: str,
+        started_at: datetime,
+        start_mono: float,
+        trace_path: Path,
+    ) -> AgentRunResult:
+        """Run the agent and persist trace, returning the result."""
+        try:
             plaid_client = self._resolve_plaid_client()
             agent = self._create_agent(plaid_client)
             prompt = self._resolve_prompt(request)
