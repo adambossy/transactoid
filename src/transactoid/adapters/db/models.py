@@ -155,6 +155,7 @@ class DerivedTransaction(Base):
     is_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )
+    reporting_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -223,6 +224,7 @@ class PlaidItem(Base):
     institution_id: Mapped[str | None] = mapped_column(String, nullable=True)
     institution_name: Mapped[str | None] = mapped_column(String, nullable=True)
     sync_cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    investments_synced_through: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
