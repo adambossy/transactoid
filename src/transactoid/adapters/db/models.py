@@ -200,6 +200,7 @@ class DerivedTransaction(Base):
         "TransactionCategoryEvent",
         back_populates="transaction",
         cascade="all, delete-orphan",
+        order_by="TransactionCategoryEvent.created_at",
     )
 
 
