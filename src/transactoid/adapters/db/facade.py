@@ -809,6 +809,32 @@ class DB:
                 item.sync_cursor = cursor
                 item.updated_at = datetime.now()
 
+    def get_investments_watermark(self, item_id: str) -> date | None:
+        """Get the investments watermark for a Plaid item.
+
+        Args:
+            item_id: Plaid item ID
+
+        Returns:
+            Watermark date or None if not set
+        """
+        with self.session() as session:  # type: Session
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            return item.investments_synced_through if item else None
+
+    def set_investments_watermark(self, item_id: str, watermark_date: date) -> None:
+        """Set the investments watermark for a Plaid item.
+
+        Args:
+            item_id: Plaid item ID
+            watermark_date: Date through which investments have been synced
+        """
+        with self.session() as session:  # type: Session
+            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
+            if item:
+                item.investments_synced_through = watermark_date
+                item.updated_at = datetime.now()
+
     def insert_plaid_item(
         self,
         item_id: str,
@@ -1400,6 +1426,45 @@ class DB:
                 .update(
                     {
                         DerivedTransaction.category_id: case_expr,
+                        DerivedTransaction.updated_at: now,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            return result
+
+    def bulk_update_derived_reporting_mode(
+        self,
+        updates: dict[int, str],
+    ) -> int:
+        """Bulk update reporting_mode for multiple derived transactions.
+
+        Performs all updates in a single database transaction for efficiency.
+
+        Args:
+            updates: Dictionary mapping transaction_id to reporting_mode
+                (e.g., "DEFAULT_INCLUDE" or "DEFAULT_EXCLUDE")
+
+        Returns:
+            Number of transactions updated
+        """
+        if not updates:
+            return 0
+
+        with self.session() as session:  # type: Session
+            now = datetime.now()
+            # Build CASE expression for reporting_mode
+            case_expr = case(
+                updates,
+                value=DerivedTransaction.transaction_id,
+            )
+            # Update all matching transactions in single query
+            result: int = (
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.transaction_id.in_(updates.keys()))
+                .update(
+                    {
+                        DerivedTransaction.reporting_mode: case_expr,
                         DerivedTransaction.updated_at: now,
                     },
                     synchronize_session=False,

@@ -17,6 +17,9 @@ from transactoid.tools.categorize.categorizer_tool import (
     Categorizer,
 )
 from transactoid.tools.protocol import ToolInputSchema
+from transactoid.tools.sync.investment_classification import (
+    investment_activity_reporting_mode,
+)
 from transactoid.tools.sync.mutation_registry import MutationRegistry
 
 if TYPE_CHECKING:
@@ -42,15 +45,23 @@ class SyncSummary:
     total_modified: int
     total_removed: int
     items_synced: int
+    investment_added: int = 0
+    investment_skipped_excluded: int = 0
+    consent_required_items: list[str] | None = None
 
-    def to_dict(self) -> dict[str, int]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
-        return {
+        result: dict[str, Any] = {
             "total_added": self.total_added,
             "total_modified": self.total_modified,
             "total_removed": self.total_removed,
             "items_synced": self.items_synced,
+            "investment_added": self.investment_added,
+            "investment_skipped_excluded": self.investment_skipped_excluded,
         }
+        if self.consent_required_items:
+            result["consent_required_items"] = self.consent_required_items
+        return result
 
 
 @dataclass
@@ -281,20 +292,39 @@ class SyncTool:
 
         # Sync all items in parallel (each has independent cursor)
         tasks = [self._sync_item_with_cursor(item, count) for item in plaid_items]
-        all_results_nested = await asyncio.gather(*tasks)
+        all_results_with_investments = await asyncio.gather(*tasks)
 
-        # Flatten results from all items
+        # Flatten results and aggregate investments
         all_results: list[SyncResult] = []
-        for results in all_results_nested:
-            all_results.extend(results)
+        total_inv_added = 0
+        total_inv_excluded = 0
+        consent_errors: list[str] = []
 
-        return self._aggregate_results(all_results, len(plaid_items))
+        for (
+            results,
+            inv_added,
+            inv_excluded,
+            consent_error,
+        ) in all_results_with_investments:
+            all_results.extend(results)
+            total_inv_added += inv_added
+            total_inv_excluded += inv_excluded
+            if consent_error:
+                consent_errors.append(consent_error)
+
+        summary = self._aggregate_results(all_results, len(plaid_items))
+        summary.investment_added = total_inv_added
+        summary.investment_skipped_excluded = total_inv_excluded
+        if consent_errors:
+            summary.consent_required_items = consent_errors
+
+        return summary
 
     async def _sync_item_with_cursor(
         self,
         item: PlaidItem,
         count: int,
-    ) -> list[SyncResult]:
+    ) -> tuple[list[SyncResult], int, int, str | None]:
         """
         Sync a single Plaid item with cursor management.
 
@@ -306,7 +336,8 @@ class SyncTool:
             count: Maximum number of transactions per page
 
         Returns:
-            List of SyncResult for this item
+            Tuple of (sync_results, investment_added, investment_excluded,
+            consent_error)
         """
         cursor = self._db.get_sync_cursor(item.item_id)
         results = await self._sync_item_async(
@@ -317,7 +348,12 @@ class SyncTool:
         if results:
             self._db.set_sync_cursor(item.item_id, results[-1].next_cursor)
 
-        return results
+        # Sync investments for this item (parallel operation)
+        inv_added, inv_excluded, consent_error = await self._sync_investments_for_item(
+            item
+        )
+
+        return (results, inv_added, inv_excluded, consent_error)
 
     def _aggregate_results(
         self, results: list[SyncResult], items_synced: int
@@ -329,6 +365,176 @@ class SyncTool:
             total_removed=sum(len(r.removed_transaction_ids) for r in results),
             items_synced=items_synced,
         )
+
+    async def _sync_investments_for_item(
+        self,
+        item: PlaidItem,
+    ) -> tuple[int, int, str | None]:
+        """Sync investment transactions for a single item.
+
+        Uses watermark-based incremental sync:
+        - Initial run: backfill 730 days
+        - Incremental: fetch from watermark minus 7-day overlap
+        - Dedupe by (external_id, source) handles overlaps
+
+        Args:
+            item: PlaidItem with access_token and item_id
+
+        Returns:
+            Tuple of (added_count, excluded_count, consent_error_message)
+            consent_error_message is set if ADDITIONAL_CONSENT_REQUIRED
+        """
+        from datetime import date, timedelta
+
+        # Determine start date based on watermark
+        if item.investments_synced_through:
+            # Incremental: use watermark with 7-day overlap for safety
+            start_date = item.investments_synced_through - timedelta(days=7)
+        else:
+            # Initial backfill: 730 days
+            start_date = date.today() - timedelta(days=730)
+
+        end_date = date.today()
+
+        try:
+            # Fetch investment transactions from Plaid
+            result = await asyncio.to_thread(
+                self._plaid_client.get_investment_transactions,
+                item.access_token,
+                start_date=start_date,
+                end_date=end_date,
+                count=500,
+            )
+
+            investment_txns = result.get("investment_transactions", [])
+            securities_map = {
+                sec["security_id"]: sec for sec in result.get("securities", [])
+            }
+
+            if not investment_txns:
+                # No transactions but no error - update watermark and continue
+                self._db.set_investments_watermark(item.item_id, end_date)
+                return (0, 0, None)
+
+            # Normalize and persist investment transactions
+            added_count = 0
+            excluded_count = 0
+
+            for inv_txn in investment_txns:
+                # Normalize to plaid_transactions format
+                txn_dict = self._normalize_investment_transaction(
+                    inv_txn, securities_map, item.item_id
+                )
+
+                # Persist to plaid_transactions with source=PLAID_INVESTMENT
+                plaid_ids = self._db.bulk_upsert_plaid_transactions([txn_dict])
+
+                if not plaid_ids:
+                    continue
+
+                # Create derived transaction with reporting_mode
+                reporting_mode = investment_activity_reporting_mode(
+                    transaction_type=inv_txn.get("type"),
+                    transaction_subtype=inv_txn.get("subtype"),
+                    transaction_name=inv_txn.get("name", ""),
+                )
+
+                derived_data = {
+                    "plaid_transaction_id": plaid_ids[0],
+                    "external_id": inv_txn["investment_transaction_id"],
+                    "amount_cents": txn_dict["amount_cents"],
+                    "posted_at": txn_dict["posted_at"],
+                    "merchant_descriptor": txn_dict["merchant_descriptor"],
+                    "reporting_mode": reporting_mode,
+                }
+
+                # Check if derived already exists
+                existing_derived = self._db.get_derived_by_plaid_ids([plaid_ids[0]])
+                if existing_derived.get(plaid_ids[0]):
+                    # Update existing derived with reporting_mode
+                    txn_id = existing_derived[plaid_ids[0]][0].transaction_id
+                    self._db.bulk_update_derived_reporting_mode(
+                        {txn_id: reporting_mode}
+                    )
+                else:
+                    # Insert new derived
+                    self._db.bulk_insert_derived_transactions([derived_data])
+
+                if reporting_mode == "DEFAULT_EXCLUDE":
+                    excluded_count += 1
+                else:
+                    added_count += 1
+
+            # Update watermark after successful sync
+            self._db.set_investments_watermark(item.item_id, end_date)
+
+            return (added_count, excluded_count, None)
+
+        except PlaidClientError as e:
+            error_str = str(e)
+            if "ADDITIONAL_CONSENT_REQUIRED" in error_str:
+                # Non-fatal: return consent error message
+                return (
+                    0,
+                    0,
+                    f"Investments consent required for item {item.item_id[:8]}...",
+                )
+            # Other Plaid errors should not fail the whole sync
+            self._logger._logger.warning(
+                "Failed to sync investments for item {}: {}", item.item_id, e
+            )
+            return (0, 0, None)
+
+    def _normalize_investment_transaction(
+        self,
+        inv_txn: dict[str, Any],
+        securities_map: dict[str, dict[str, Any]],
+        item_id: str,
+    ) -> dict[str, object]:
+        """Normalize investment transaction to plaid_transactions format.
+
+        Args:
+            inv_txn: Investment transaction dict from Plaid
+            securities_map: Map of security_id to security details
+            item_id: Plaid item ID
+
+        Returns:
+            Dict formatted for plaid_transactions table with source=PLAID_INVESTMENT
+        """
+        from datetime import datetime
+
+        # Use investment_transaction_id as external_id
+        external_id = inv_txn["investment_transaction_id"]
+
+        # Parse date
+        posted_at_str = inv_txn.get("date", "")
+        try:
+            posted_at = datetime.strptime(posted_at_str, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            posted_at = datetime.today().date()
+
+        # Amount in cents
+        amount = inv_txn.get("amount", 0.0)
+        amount_cents = int(amount * 100)
+
+        # Merchant descriptor: use name, fallback to security name
+        merchant_descriptor = inv_txn.get("name", "")
+        if not merchant_descriptor and inv_txn.get("security_id"):
+            security = securities_map.get(inv_txn["security_id"])
+            if security:
+                merchant_descriptor = security.get("name", "")
+
+        return {
+            "external_id": external_id,
+            "source": "PLAID_INVESTMENT",
+            "account_id": inv_txn["account_id"],
+            "item_id": item_id,
+            "posted_at": posted_at,
+            "amount_cents": amount_cents,
+            "currency": inv_txn.get("iso_currency_code") or "USD",
+            "merchant_descriptor": merchant_descriptor,
+            "institution": None,
+        }
 
     async def _categorize_derived(
         self,
