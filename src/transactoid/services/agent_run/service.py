@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 import tempfile
 import time
@@ -16,6 +17,7 @@ from promptorium import load_prompt
 
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
+from transactoid.adapters.storage.r2 import R2StorageError
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.services.agent_run.trace import download_trace, upload_trace
 from transactoid.services.agent_run.types import (
@@ -213,23 +215,26 @@ def _persist_trace(
     """Upload trace and manifest to R2, logging errors without raising."""
     try:
         return upload_trace(run_id=run_id, trace_path=trace_path, manifest=manifest)
-    except Exception as exc:
+    except (R2StorageError, OSError, json.JSONDecodeError) as exc:
         logger.error("Trace persistence failed for run {}: {}", run_id, exc)
         return []
 
 
 def _extract_response(result: RunResult) -> str:
     """Extract final response text from an agent result."""
-    if hasattr(result, "final_output") and result.final_output:
-        if isinstance(result.final_output, str):
-            return result.final_output
-        if hasattr(result.final_output, "text"):
-            return str(result.final_output.text)
+    output = result.final_output
+    if output is not None:
+        if isinstance(output, str):
+            return output
+        # Structured output with a .text attribute
+        text = getattr(output, "text", None)
+        if text is not None:
+            return str(text)
 
     for item in result.new_items:
         if isinstance(item, MessageOutputItem):
-            if hasattr(item, "content") and item.content:
-                for content_item in item.content:
-                    if hasattr(content_item, "text"):
-                        return str(content_item.text)
+            for content_item in item.content:
+                text = getattr(content_item, "text", None)
+                if text is not None:
+                    return str(text)
     return ""
