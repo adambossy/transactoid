@@ -19,10 +19,6 @@ from transactoid.adapters.storage.r2 import (
     store_object_in_r2,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 _FULL_ENV = {
     "R2_ACCOUNT_ID": "abc123",
     "R2_ACCESS_KEY_ID": "AKID",
@@ -38,11 +34,6 @@ def _make_config() -> R2Config:
         secret_access_key="secret",
         bucket="transactoid-runs",
     )
-
-
-# ---------------------------------------------------------------------------
-# Config loading
-# ---------------------------------------------------------------------------
 
 
 class TestLoadR2ConfigFromEnv:
@@ -66,11 +57,6 @@ class TestLoadR2ConfigFromEnv:
 
         with pytest.raises(R2ConfigError, match=missing_var):
             load_r2_config_from_env()
-
-
-# ---------------------------------------------------------------------------
-# Key formatting
-# ---------------------------------------------------------------------------
 
 
 class TestMakeArtifactKey:
@@ -101,11 +87,6 @@ class TestMakeArtifactKey:
 
         assert key.startswith("report-md/")
         assert key.endswith("-report-md")
-
-
-# ---------------------------------------------------------------------------
-# Upload (mock boto3)
-# ---------------------------------------------------------------------------
 
 
 class TestStoreObjectInR2:
@@ -197,11 +178,6 @@ class TestStoreObjectInR2:
         mock_client.put_object.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# Report integration helpers
-# ---------------------------------------------------------------------------
-
-
 class TestReportUploadIntegration:
     @patch("transactoid.adapters.storage.r2.boto3")
     def test_two_uploads_with_exact_key_pattern(self, mock_boto3):
@@ -252,11 +228,6 @@ class TestReportUploadIntegration:
                 content_type="text/markdown; charset=utf-8",
                 config=config,
             )
-
-
-# ---------------------------------------------------------------------------
-# Download (mock boto3)
-# ---------------------------------------------------------------------------
 
 
 class TestDownloadObjectFromR2:
