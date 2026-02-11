@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 import secrets
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import loguru
 from loguru import logger
@@ -25,18 +25,39 @@ from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.utils.yaml import dump_yaml_basic
 
+if TYPE_CHECKING:
+    from google.genai.client import Client as GeminiClient
+    from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
 
-def _import_google_genai() -> tuple[Any, Any]:
-    """Lazily import google.genai to avoid hard dependency for OpenAI-only setups."""
+
+def _import_gemini_client_class() -> type[GeminiClient]:
+    """Lazily import Gemini Client class for optional dependency support."""
     try:
-        from google import genai
-        from google.genai import types as genai_types
+        from google.genai.client import Client
     except ImportError as e:
         raise RuntimeError(
             "google-genai package is required for Gemini categorizer. "
             "Install with: pip install google-genai"
         ) from e
-    return genai, genai_types
+    return Client
+
+
+def _import_gemini_type_classes() -> (
+    tuple[
+        type[GenerateContentConfig],
+        type[Tool],
+        type[GoogleSearch],
+    ]
+):
+    """Lazily import Gemini type classes for optional dependency support."""
+    try:
+        from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
+    except ImportError as e:
+        raise RuntimeError(
+            "google-genai package is required for Gemini categorizer. "
+            "Install with: pip install google-genai"
+        ) from e
+    return GenerateContentConfig, Tool, GoogleSearch
 
 
 @dataclass
@@ -240,8 +261,7 @@ class Categorizer:
         self._prompt_service = PromptService(storage)
 
         self._openai_client: AsyncOpenAI | None = None
-        self._gemini_client: Any | None = None
-        self._gemini_types: Any | None = None
+        self._gemini_client: GeminiClient | None = None
         self._init_provider_client()
 
     @property
@@ -285,9 +305,8 @@ class Categorizer:
             api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
             if not api_key:
                 raise RuntimeError("GOOGLE_API_KEY is required to call Gemini.")
-            genai, genai_types = _import_google_genai()
-            self._gemini_client = genai.Client(api_key=api_key)
-            self._gemini_types = genai_types
+            gemini_client_class = _import_gemini_client_class()
+            self._gemini_client = gemini_client_class(api_key=api_key)
             return
 
         # Claude runtime parity: fail fast until this repository wires the SDK.
@@ -633,23 +652,29 @@ class Categorizer:
         """Call Gemini API with JSON schema output and web search tool."""
         if self._gemini_client is None:
             raise RuntimeError("Gemini client is not initialized.")
-        if self._gemini_types is None:
-            raise RuntimeError("Gemini types are not initialized.")
         if self._semaphore is None:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
 
         async with self._semaphore:
+            generate_content_config_class: type[GenerateContentConfig]
+            tool_class: type[Tool]
+            google_search_class: type[GoogleSearch]
+            (
+                generate_content_config_class,
+                tool_class,
+                google_search_class,
+            ) = _import_gemini_type_classes()
             schema = (
                 self._build_response_schema(valid_keys)["schema"]
                 if valid_keys
                 else None
             )
-            config = self._gemini_types.GenerateContentConfig(
+            config = generate_content_config_class(
                 response_mime_type="application/json",
                 response_json_schema=schema,
                 tools=[
-                    self._gemini_types.Tool(
-                        google_search=self._gemini_types.GoogleSearch(),
+                    tool_class(
+                        google_search=google_search_class(),
                     )
                 ],
             )
