@@ -142,16 +142,20 @@ def download_manifest(*, run_id: str) -> RunManifest | None:
         logger.warning("No manifest found for run {}", run_id)
         return None
 
-    data = json.loads(body)
-    return RunManifest(
-        run_id=str(data["run_id"]),
-        parent_run_id=data.get("parent_run_id"),
-        prompt_key=data.get("prompt_key"),
-        started_at=datetime.fromisoformat(str(data["started_at"])),
-        finished_at=datetime.fromisoformat(str(data["finished_at"])),
-        success=bool(data["success"]),
-        error=data.get("error"),
-    )
+    try:
+        data = json.loads(body)
+        return RunManifest(
+            run_id=str(data["run_id"]),
+            parent_run_id=data.get("parent_run_id"),
+            prompt_key=data.get("prompt_key"),
+            started_at=datetime.fromisoformat(str(data["started_at"])),
+            finished_at=datetime.fromisoformat(str(data["finished_at"])),
+            success=bool(data["success"]),
+            error=data.get("error"),
+        )
+    except (KeyError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Invalid manifest for run {}: {}", run_id, exc)
+        return None
 
 
 def _serialize_manifest(manifest: RunManifest) -> bytes:
