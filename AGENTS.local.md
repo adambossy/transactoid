@@ -169,6 +169,44 @@ class MyComponent:
 - DB façade runs SQL via `DB.run_sql(sql, model, pk_column)`
 - Natural language questions are answered by the agent constructing SQL with which to call `DB.run_sql`
 
+**Plaid Link Flow:**
+
+CRITICAL: Always use the local embedded Plaid Link pattern, never direct cdn.plaid.com URLs.
+
+Two Plaid Link integration patterns exist:
+1. **Direct cdn.plaid.com URL (DO NOT USE):**
+   - Opens `https://cdn.plaid.com/link/v2/stable/link.html?token=...` directly
+   - Relies on OAuth redirect mode
+   - Does NOT work correctly for update-mode consent flows (e.g., adding investments)
+   - Does NOT work well with OAuth institutions
+
+2. **Local embedded page (ALWAYS USE THIS):**
+   - Opens `https://localhost:8443/plaid-link-start`
+   - The local page loads Plaid SDK and calls `Plaid.create().open()` with callbacks
+   - Embeds the Link flow in an HTML page served by the redirect server
+   - Works correctly with OAuth institutions (e.g., Morgan Stanley)
+   - Works correctly for update-mode consent flows
+   - Used by `PlaidClient.connect_new_account()` and `scripts/plaid_cli.py`
+
+The redirect server serves `/plaid-link-start` which includes the Plaid Link SDK and initializes it with the link_token stored in state. The OAuth callback is handled at `/plaid-link-complete`.
+
+**Implementation pattern:**
+```python
+# Create link token
+link_token = client.create_link_token(
+    user_id=user_id,
+    redirect_uri="https://localhost:8443/plaid-link-complete",
+    products=["transactions"],
+    additional_consented_products=["investments"],  # For update mode
+    access_token=access_token,  # For update mode
+)
+state["link_token"] = link_token
+
+# Open local embedded page (NOT cdn.plaid.com)
+link_url = "https://localhost:8443/plaid-link-start"
+webbrowser.open(link_url)
+```
+
 ## File Cache
 
 The `FileCache` service provides deterministic JSON caching for LLM calls:
