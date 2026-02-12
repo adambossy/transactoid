@@ -353,6 +353,7 @@ class PlaidClient:
         redirect_uri: str | None = None,
         products: list[str] | None = None,
         required_if_supported_products: list[str] | None = None,
+        additional_consented_products: list[str] | None = None,
         access_token: str | None = None,
         country_codes: list[str] | None = None,
         language: str = "en",
@@ -366,7 +367,10 @@ class PlaidClient:
             redirect_uri: OAuth redirect URI (if using redirect mode)
             products: Required products list (e.g. ["transactions"])
             required_if_supported_products: Products to request if institution supports
-                them (e.g. ["investments"])
+                them (e.g. ["investments"]) - for initial Link sessions
+            additional_consented_products: Products to add consent for in update mode
+                (e.g. ["investments"]) - use instead of required_if_supported_products
+                when access_token is provided
             access_token: Existing access token for update mode (consent addition)
             country_codes: Country codes for Link (default: ["US"])
             language: Language for Link UI (default: "en")
@@ -389,6 +393,8 @@ class PlaidClient:
             payload["redirect_uri"] = redirect_uri
         if required_if_supported_products is not None:
             payload["required_if_supported_products"] = required_if_supported_products
+        if additional_consented_products is not None:
+            payload["additional_consented_products"] = additional_consented_products
         if access_token is not None:
             payload["access_token"] = access_token
 

@@ -36,6 +36,7 @@ def plaid_create_link_token(
     redirect_uri: str,
     products: list[str],
     required_if_supported_products: list[str] | None = None,
+    additional_consented_products: list[str] | None = None,
     access_token: str | None = None,
     client_name: str = "transactoid",
     language: str = "en",
@@ -49,6 +50,7 @@ def plaid_create_link_token(
             redirect_uri=redirect_uri,
             products=products,
             required_if_supported_products=required_if_supported_products,
+            additional_consented_products=additional_consented_products,
             access_token=access_token,
             client_name=client_name,
             language=language,
@@ -263,6 +265,7 @@ def _create_link_url(
     language: str,
     state: dict[str, Any],
     required_if_supported_products: list[str] | None = None,
+    additional_consented_products: list[str] | None = None,
     access_token: str | None = None,
 ) -> str:
     """Create a Link token and return the hosted Link URL."""
@@ -271,6 +274,7 @@ def _create_link_url(
         redirect_uri=redirect_uri,
         products=products,
         required_if_supported_products=required_if_supported_products,
+        additional_consented_products=additional_consented_products,
         access_token=access_token,
         client_name=client_name,
         language=language,
@@ -444,7 +448,7 @@ def cmd_add_investments_consent(args: argparse.Namespace) -> None:
             user_id=user_id,
             redirect_uri=redirect_uri,
             products=["transactions"],
-            required_if_supported_products=["investments"],
+            additional_consented_products=["investments"],
             access_token=access_token,
             country_codes=["US"],
             client_name=args.client_name,
@@ -579,10 +583,10 @@ def build_parser() -> argparse.ArgumentParser:
     prod_link_parser.add_argument(
         "--port",
         type=int,
-        default=0,
+        default=8443,
         help=(
-            "Port for the redirect server. Use 0 to choose a random open port "
-            "(default: 0)."
+            "Port for the redirect server (default: 8443). "
+            "Use 0 to choose a random open port."
         ),
     )
     prod_link_parser.add_argument(
@@ -659,10 +663,10 @@ def build_parser() -> argparse.ArgumentParser:
     consent_parser.add_argument(
         "--port",
         type=int,
-        default=0,
+        default=8443,
         help=(
-            "Port for the redirect server. Use 0 to choose a random open port "
-            "(default: 0)."
+            "Port for the redirect server (default: 8443). "
+            "Use 0 to choose a random open port."
         ),
     )
     consent_parser.add_argument(
