@@ -54,7 +54,29 @@ OPENAI_API_KEY=your_openai_api_key
 PLAID_CLIENT_ID=your_plaid_client_id
 PLAID_ENV=production
 PLAID_PRODUCTION_SECRET=your_plaid_production_secret
+
+# Optional: Customize agent skill directories
+TRANSACTOID_AGENT_SKILLS_PROJECT_DIR=.claude/skills
+TRANSACTOID_AGENT_SKILLS_USER_DIR=~/.claude/skills
+TRANSACTOID_AGENT_SKILLS_BUILTIN_DIR=src/transactoid/skills
 ```
+
+### Agent Skills
+
+Transactoid supports filesystem-based skills that extend agent capabilities. Skills are discovered automatically from three directories (in precedence order):
+
+1. **Project skills** (`.claude/skills/`) - Project-specific skills checked into version control
+2. **User skills** (`~/.claude/skills/`) - Personal skills shared across projects
+3. **Built-in skills** (`src/transactoid/skills/`) - Skills shipped with Transactoid
+
+Each skill is a directory containing a `SKILL.md` file with instructions for the agent. Skills are always enabled - no feature flags required.
+
+#### Provider Behavior
+
+- **OpenAI/Gemini**: Agents discover skills via read-only filesystem navigation tools
+- **Claude**: Uses native Claude SDK skill support (when Claude runtime is implemented)
+
+See [docs/agent-skills.md](docs/agent-skills.md) for detailed documentation.
 
 ### Option 1: ACP (Agent Client Protocol) — Recommended
 
