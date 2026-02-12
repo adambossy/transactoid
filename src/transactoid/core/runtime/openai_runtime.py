@@ -9,6 +9,7 @@ from agents.items import ToolCallOutputItem
 from openai.types.responses import ResponseFunctionCallArgumentsDeltaEvent
 from openai.types.shared import Reasoning
 
+from transactoid.core.config import DEFAULT_AGENT_MAX_TURNS
 from transactoid.core.runtime.config import CoreRuntimeConfig
 from transactoid.core.runtime.protocol import (
     CoreEvent,
@@ -105,6 +106,7 @@ class OpenAICoreRuntime(CoreRuntime):
             self._agent,
             input_text,
             session=cast(Any, session.native_session),
+            max_turns=DEFAULT_AGENT_MAX_TURNS,
         )
         last_call_id: str | None = None
 
