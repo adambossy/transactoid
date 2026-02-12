@@ -26,6 +26,11 @@ from transactoid.core.runtime.protocol import (
     classify_tool_kind,
 )
 from transactoid.core.runtime.shared_tool_invoker import SharedToolInvoker
+from transactoid.core.runtime.skills.filesystem_tool_gemini import (
+    GeminiFilesystemTool,
+    create_gemini_filesystem_function_declaration,
+)
+from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.tool_adapters.gemini import GeminiToolAdapter
 from transactoid.tools.registry import ToolRegistry
 
@@ -46,6 +51,19 @@ class GeminiCoreRuntime(CoreRuntime):
             registry=registry,
             invoker=self._invoker,
         ).adapt_all()
+
+        # Add read-only filesystem tool for skill discovery
+        skill_paths = resolve_skill_paths(
+            project_dir=config.skills_project_dir,
+            user_dir=config.skills_user_dir,
+            builtin_dir=config.skills_builtin_dir,
+        )
+        self._filesystem_tool: GeminiFilesystemTool | None = None
+        if skill_paths.all_existing():
+            self._filesystem_tool = GeminiFilesystemTool(skill_paths)
+            # Note: Function declaration integration with ADK will be added
+            # when full filesystem tool wiring is implemented
+            _ = create_gemini_filesystem_function_declaration()
 
         session_service_factory: Any = InMemorySessionService
         self._session_service = session_service_factory()

@@ -18,6 +18,9 @@ class CoreRuntimeConfig:
     reasoning_effort: ReasoningEffort = "medium"
     verbosity: Verbosity = "high"
     enable_web_search: bool = True
+    skills_project_dir: str = ".claude/skills"
+    skills_user_dir: str = "~/.claude/skills"
+    skills_builtin_dir: str = "src/transactoid/skills"
 
 
 def _require_env(name: str) -> str:
@@ -66,6 +69,16 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
         "TRANSACTOID_ENABLE_WEB_SEARCH", "true"
     ).strip().lower() in {"1", "true", "yes", "on"}
 
+    skills_project_dir = os.environ.get(
+        "TRANSACTOID_AGENT_SKILLS_PROJECT_DIR", ".claude/skills"
+    ).strip()
+    skills_user_dir = os.environ.get(
+        "TRANSACTOID_AGENT_SKILLS_USER_DIR", "~/.claude/skills"
+    ).strip()
+    skills_builtin_dir = os.environ.get(
+        "TRANSACTOID_AGENT_SKILLS_BUILTIN_DIR", "src/transactoid/skills"
+    ).strip()
+
     # Fail fast on missing provider credentials.
     if provider == "openai":
         _require_env("OPENAI_API_KEY")
@@ -80,4 +93,7 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
         reasoning_effort=reasoning_effort,  # type: ignore[arg-type]
         verbosity=verbosity,  # type: ignore[arg-type]
         enable_web_search=enable_web_search,
+        skills_project_dir=skills_project_dir,
+        skills_user_dir=skills_user_dir,
+        skills_builtin_dir=skills_builtin_dir,
     )
