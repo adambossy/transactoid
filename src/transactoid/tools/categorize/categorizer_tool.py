@@ -42,11 +42,13 @@ def _import_gemini_client_class() -> type[GeminiClient]:
     return Client
 
 
-def _import_gemini_type_classes() -> tuple[
-    type[GenerateContentConfig],
-    type[Tool],
-    type[GoogleSearch],
-]:
+def _import_gemini_type_classes() -> (
+    tuple[
+        type[GenerateContentConfig],
+        type[Tool],
+        type[GoogleSearch],
+    ]
+):
     """Lazily import Gemini type classes for optional dependency support."""
     try:
         from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
@@ -284,10 +286,16 @@ class Categorizer:
                 model or runtime_config.model,
             )
         except Exception:
+            provider_default_model = {
+                "openai": "gpt-5.2",
+                "claude": "claude-sonnet-4-5",
+                "gemini": "gemini-2.5-pro",
+            }
+            fallback_provider = provider or "openai"
             # Fallback keeps backward compatibility for legacy local runs.
             return (
-                provider or "openai",
-                model or "gpt-5.2",
+                fallback_provider,
+                model or provider_default_model[fallback_provider],
             )
 
     def _init_provider_client(self) -> None:
