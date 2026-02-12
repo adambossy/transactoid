@@ -42,13 +42,11 @@ def _import_gemini_client_class() -> type[GeminiClient]:
     return Client
 
 
-def _import_gemini_type_classes() -> (
-    tuple[
-        type[GenerateContentConfig],
-        type[Tool],
-        type[GoogleSearch],
-    ]
-):
+def _import_gemini_type_classes() -> tuple[
+    type[GenerateContentConfig],
+    type[Tool],
+    type[GoogleSearch],
+]:
     """Lazily import Gemini type classes for optional dependency support."""
     try:
         from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
