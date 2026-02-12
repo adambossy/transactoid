@@ -390,8 +390,6 @@ def cmd_link_production(args: argparse.Namespace) -> None:
 
 def cmd_add_investments_consent(args: argparse.Namespace) -> None:
     """Add investments consent to an existing Plaid item via update-mode Link."""
-    env = _ensure_production_env()
-
     # Get access token from arg or DB
     access_token = args.access_token
     if not access_token:
@@ -439,22 +437,22 @@ def cmd_add_investments_consent(args: argparse.Namespace) -> None:
         state=state,
     )
 
-    user_id = f"cli-user-{uuid.uuid4()}"
-
     try:
         # Create update-mode link token with access_token and investments
-        link_url = _create_link_url(
-            env=env,
-            user_id=user_id,
+        link_token = plaid_create_link_token(
+            user_id=f"cli-user-{uuid.uuid4()}",
             redirect_uri=redirect_uri,
             products=["transactions"],
             additional_consented_products=["investments"],
             access_token=access_token,
-            country_codes=["US"],
             client_name=args.client_name,
             language=args.language,
-            state=state,
+            country_codes=["US"],
         )
+        state["link_token"] = link_token
+
+        # Use local page that embeds Plaid Link SDK instead of cdn.plaid.com
+        link_url = f"https://{args.host}:{server.server_address[1]}/plaid-link-start"
 
         print(f"Listening for Plaid redirect on {redirect_uri}")
         print("Adding investments consent to existing item...")
