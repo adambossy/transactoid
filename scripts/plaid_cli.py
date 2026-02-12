@@ -389,7 +389,28 @@ def cmd_link_production(args: argparse.Namespace) -> None:
 
 
 def cmd_add_investments_consent(args: argparse.Namespace) -> None:
-    """Add investments consent to an existing Plaid item via update-mode Link."""
+    """Add investments consent to an existing Plaid item via update-mode Link.
+
+    IMPORTANT: This uses the local embedded Plaid Link flow, not direct
+    cdn.plaid.com URLs.
+
+    Plaid Link Flow Patterns:
+    1. Direct cdn.plaid.com URL (NOT USED HERE):
+       - Opens https://cdn.plaid.com/link/v2/stable/link.html?token=...
+       - Relies on OAuth redirect mode
+       - Doesn't work well for update-mode consent flows
+
+    2. Local embedded page (USED HERE):
+       - Opens https://localhost:8443/plaid-link-start
+       - Local page loads Plaid SDK and uses Plaid.create().open()
+       - Embeds Link flow in HTML page served by redirect server
+       - Works correctly with OAuth institutions and update-mode consent
+       - Matches the pattern used by PlaidClient.connect_new_account()
+
+    The redirect server at /plaid-link-start serves an HTML page that
+    includes the Plaid Link SDK and initializes it with the link_token
+    stored in state.
+    """
     # Get access token from arg or DB
     access_token = args.access_token
     if not access_token:
