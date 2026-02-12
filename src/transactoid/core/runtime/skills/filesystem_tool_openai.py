@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents import ShellTool
+from agents import LocalShellExecutor, ShellTool
 
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
 from transactoid.core.runtime.skills.policy import is_command_allowed, is_path_in_scope
@@ -45,7 +45,9 @@ def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
 
         return True
 
+    executor = LocalShellExecutor()
     return ShellTool(
+        executor=executor,
         name="read_skill_files",
         needs_approval=approval_function,
     )
