@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 import typer
 import yaml
 
-from scripts import run
 from transactoid.adapters.db.facade import DB
 
 # Load environment variables from .env
@@ -22,9 +21,6 @@ app = typer.Typer(
     invoke_without_command=True,
     no_args_is_help=False,
 )
-
-run_app = typer.Typer(help="Run pipeline workflows.")
-app.add_typer(run_app, name="run")
 
 
 def _ensure_toad_installed() -> str:
@@ -75,29 +71,6 @@ def main_callback(ctx: typer.Context) -> None:
     # If no subcommand was invoked, launch Toad
     if ctx.invoked_subcommand is None:
         _launch_toad()
-
-
-@run_app.command("sync")
-def run_sync_cmd(
-    count: int = typer.Option(
-        500, help="Maximum number of transactions to fetch per request"
-    ),
-) -> None:
-    """Sync transactions from all Plaid items and categorize them using an LLM."""
-    run.run_sync(count=count)
-
-
-@run_app.command("pipeline")
-def run_pipeline_cmd(
-    count: int = typer.Option(
-        500, help="Maximum number of transactions to fetch per request"
-    ),
-    questions: list[str] | None = typer.Option(  # noqa: B008
-        None, help="Optional questions for analytics"
-    ),
-) -> None:
-    """Run the full pipeline: sync → categorize → persist."""
-    run.run_pipeline(count=count, questions=questions)
 
 
 @app.command("sync")
