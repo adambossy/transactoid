@@ -27,6 +27,10 @@ from transactoid.core.runtime.protocol import (
     classify_tool_kind,
 )
 from transactoid.core.runtime.shared_tool_invoker import SharedToolInvoker
+from transactoid.core.runtime.skills.filesystem_tool_openai import (
+    create_readonly_shell_tool,
+)
+from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.tool_adapters.openai import OpenAIToolAdapter
 from transactoid.tools.registry import ToolRegistry
 
@@ -48,6 +52,16 @@ class OpenAICoreRuntime(CoreRuntime):
         ).adapt_all()
         if config.enable_web_search:
             tools.append(WebSearchTool())
+
+        # Add read-only filesystem tool for skill discovery
+        skill_paths = resolve_skill_paths(
+            project_dir=config.skills_project_dir,
+            user_dir=config.skills_user_dir,
+            builtin_dir=config.skills_builtin_dir,
+        )
+        if skill_paths.all_existing():
+            filesystem_tool = create_readonly_shell_tool(skill_paths)
+            tools.append(filesystem_tool)
 
         self._agent = Agent(
             name="Transactoid",

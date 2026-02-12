@@ -19,6 +19,8 @@ from transactoid.core.runtime import (
     load_core_runtime_config_from_env,
 )
 from transactoid.core.runtime.openai_runtime import OpenAICoreRuntime
+from transactoid.core.runtime.skills.paths import resolve_skill_paths
+from transactoid.core.runtime.skills.prompting import generate_skill_instructions
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.amazon.scraper import scrape_with_playwriter
 from transactoid.tools.base import StandardTool
@@ -549,13 +551,27 @@ class Transactoid:
         template = load_prompt("agent-loop")
         schema_hint = self._db.compact_schema_hint()
         taxonomy_dict = self._taxonomy.to_prompt()
-        instructions = _render_prompt_template(
+        base_instructions = _render_prompt_template(
             template,
             database_schema=schema_hint,
             category_taxonomy=taxonomy_dict,
             sql_dialect=sql_dialect,
         )
+
+        # Inject skill discovery instructions
         config = runtime_config or load_core_runtime_config_from_env()
+        skill_paths = resolve_skill_paths(
+            project_dir=config.skills_project_dir,
+            user_dir=config.skills_user_dir,
+            builtin_dir=config.skills_builtin_dir,
+        )
+        skill_instructions = generate_skill_instructions(skill_paths)
+        instructions = (
+            f"{base_instructions}\n\n{skill_instructions}"
+            if skill_instructions
+            else base_instructions
+        )
+
         registry = self._build_tool_registry()
         return create_core_runtime(
             config=config,

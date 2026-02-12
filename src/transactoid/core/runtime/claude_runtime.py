@@ -13,7 +13,35 @@ from transactoid.tools.registry import ToolRegistry
 
 
 class ClaudeCoreRuntime(CoreRuntime):
-    """Claude runtime scaffold with fail-fast startup behavior."""
+    """Claude runtime scaffold with fail-fast startup behavior.
+
+    IMPLEMENTATION NOTES FOR CLAUDE AGENT SDK WIRING:
+    ===================================================
+
+    When implementing this runtime, use Claude Agent SDK's native skill support:
+
+    1. Enable skills with SDK settings:
+       - setting_sources=["project", "user"]
+       - Enables discovery from .claude/skills (project) and ~/.claude/skills (user)
+
+    2. Ensure tool permissions include Skill tool:
+       - The Skill tool is required for Claude to load and execute skill instructions
+       - Include filesystem tools (Read, Glob, Grep) for reading SKILL.md files
+
+    3. No custom emulation layer needed:
+       - Claude handles skill discovery and loading natively
+       - Skills are always enabled (no feature flags)
+       - No max auto-load limit
+
+    4. Skill precedence (handled by Claude SDK):
+       - Project skills (.claude/skills) override user skills (~/.claude/skills)
+       - Built-in skills are not part of Claude's native skill system
+
+    5. Configuration:
+       - Use config.skills_project_dir and config.skills_user_dir
+       - These correspond to Claude's setting_sources locations
+       - config.skills_builtin_dir is not applicable to Claude runtime
+    """
 
     def __init__(
         self, *, instructions: str, registry: ToolRegistry, config: CoreRuntimeConfig
