@@ -143,7 +143,7 @@ class GeminiCoreRuntime(CoreRuntime):
 
                     part_text = getattr(part, "text", None)
                     if isinstance(part_text, str):
-                        fallback_final_text = part_text
+                        fallback_final_text += part_text
                         if getattr(event, "partial", False):
                             accumulated_text += part_text
 
