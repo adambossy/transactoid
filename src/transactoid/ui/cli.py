@@ -285,6 +285,62 @@ def scrape_amazon(
         raise typer.Exit(1)
 
 
+@app.command("reset-investment-watermark")
+def reset_investment_watermark(
+    item_id: str | None = typer.Option(
+        None,
+        "--item-id",
+        help="Plaid item ID to reset. If omitted, resets all items.",
+    ),
+) -> None:
+    """
+    Reset investment sync watermark to force full historical backfill.
+
+    By default, investment syncs only fetch transactions since the last
+    watermark. Resetting the watermark forces a full backfill of up to
+    730 days of investment history on the next sync.
+
+    Args:
+        item_id: Plaid item ID to reset. If omitted, resets all connected items.
+
+    Example:
+        # Reset a specific item
+        transactoid reset-investment-watermark --item-id abc123xyz
+
+        # Reset all items
+        transactoid reset-investment-watermark
+    """
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    if item_id:
+        # Reset specific item
+        try:
+            db.set_investments_watermark(item_id, None)  # type: ignore[arg-type]
+            typer.echo(f"✓ Investment watermark reset for item {item_id[:8]}...")
+        except Exception as e:
+            typer.echo(f"✗ Failed to reset watermark: {e}", err=True)
+            raise typer.Exit(1) from e
+    else:
+        # Reset all items
+        items = db.list_plaid_items()
+        if not items:
+            typer.echo("No Plaid items found.")
+            return
+
+        reset_count = 0
+        for item in items:
+            try:
+                db.set_investments_watermark(item.item_id, None)  # type: ignore[arg-type]
+                reset_count += 1
+                typer.echo(f"✓ Reset: {item.item_id[:8]}... ({item.institution_name})")
+            except Exception as e:
+                typer.echo(f"✗ Failed to reset {item.item_id}: {e}", err=True)
+
+        typer.echo(f"\nWatermarks reset for {reset_count}/{len(items)} items.")
+        typer.echo("Next sync will backfill up to 730 days of investment history.")
+
+
 @app.command("plaid-dedupe-items")
 def plaid_dedupe_items(
     apply: bool = typer.Option(
