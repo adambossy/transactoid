@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import subprocess
 from typing import Any
 
@@ -51,11 +52,13 @@ class GeminiFilesystemTool:
                     "allowed_roots": [str(root) for root in self._allowed_roots],
                 }
 
-        # Execute command via subprocess
+        # Execute command via subprocess (shell=False for security)
+        # S603 is acceptable here because command is validated by policy allowlist
         try:
-            result = subprocess.run(  # noqa: S602
-                command,
-                shell=True,
+            args = shlex.split(command)
+            result = subprocess.run(  # noqa: S603
+                args,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=10,
