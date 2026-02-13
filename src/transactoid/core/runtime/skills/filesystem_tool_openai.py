@@ -1,4 +1,4 @@
-"""Read-only filesystem tool for OpenAI runtime skill discovery."""
+"""Filesystem tool for OpenAI runtime with skill discovery and memory editing."""
 
 from __future__ import annotations
 
@@ -8,11 +8,15 @@ from agents import ShellTool
 
 from transactoid.core.runtime.skills.path_extraction import extract_paths_from_command
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
-from transactoid.core.runtime.skills.policy import is_command_allowed, is_path_in_scope
+from transactoid.core.runtime.skills.policy import (
+    MEMORY_DIR,
+    is_command_allowed,
+    is_path_in_scope,
+)
 
 
 def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
-    """Create a ShellTool with read-only policy enforcement.
+    """Create a ShellTool with policy enforcement for skills and memory/.
 
     Args:
         skill_paths: Resolved skill paths defining allowed scope
@@ -20,7 +24,10 @@ def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
     Returns:
         ShellTool instance with approval function for policy enforcement
     """
-    allowed_roots = skill_paths.all_existing()
+    # Include both skill directories and memory/ directory
+    allowed_roots = skill_paths.all_existing() + [
+        MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR
+    ]
 
     def approval_function(ctx: Any, action: Any, command: str) -> bool:
         """Check if command is allowed under read-only policy.

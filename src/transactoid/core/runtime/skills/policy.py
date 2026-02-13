@@ -1,6 +1,7 @@
-"""Filesystem access policy for skill discovery.
+"""Filesystem access policy for skill discovery and memory editing.
 
-Read-only command and path allowlists for OpenAI/Gemini runtimes.
+Read-only command and path allowlists for OpenAI/Gemini runtimes, with
+special permissions for the memory/ directory.
 """
 
 from __future__ import annotations
@@ -10,9 +11,14 @@ from pathlib import Path
 __all__ = [
     "ALLOWED_COMMANDS",
     "DENIED_COMMANDS",
+    "MEMORY_DIR",
     "is_command_allowed",
     "is_path_in_scope",
+    "is_memory_write_command",
 ]
+
+# Memory directory that can be written to
+MEMORY_DIR = Path("memory")
 
 # Read-only shell commands allowed for skill discovery
 ALLOWED_COMMANDS = frozenset(
@@ -26,6 +32,7 @@ ALLOWED_COMMANDS = frozenset(
         "grep",
         "rg",
         "sed",
+        "echo",  # Needed for appending to files
     }
 )
 
@@ -56,8 +63,20 @@ DENIED_COMMANDS = frozenset(
 )
 
 
+def is_memory_write_command(command: str) -> bool:
+    """Check if command is writing to memory/ directory.
+
+    Args:
+        command: Shell command string
+
+    Returns:
+        True if command targets memory/ directory
+    """
+    return "memory/" in command or MEMORY_DIR.name in command
+
+
 def is_command_allowed(command: str) -> bool:
-    """Check if a shell command is allowed under read-only policy.
+    """Check if a shell command is allowed under policy.
 
     Args:
         command: Shell command string
@@ -69,8 +88,13 @@ def is_command_allowed(command: str) -> bool:
     base_cmd = command.strip().split()[0] if command.strip() else ""
     base_cmd = base_cmd.split("|")[0].strip()
 
-    # Block redirection operators (write operations)
-    if any(op in command for op in {">", ">>", "<<", "<"}):
+    # Allow redirection operators for memory/ directory
+    has_redirection = any(op in command for op in {">", ">>", "<<", "<"})
+    if has_redirection:
+        if is_memory_write_command(command):
+            # Allow write operations to memory/ directory
+            return base_cmd in ALLOWED_COMMANDS or base_cmd == "cat"
+        # Block write operations elsewhere
         return False
 
     # Check denylist first (explicit blocks)

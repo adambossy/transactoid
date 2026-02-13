@@ -1,4 +1,4 @@
-"""Read-only filesystem tool for Gemini runtime skill discovery."""
+"""Filesystem tool for Gemini runtime with skill discovery and memory editing."""
 
 from __future__ import annotations
 
@@ -8,22 +8,29 @@ from typing import Any
 
 from transactoid.core.runtime.skills.path_extraction import extract_paths_from_command
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
-from transactoid.core.runtime.skills.policy import is_command_allowed, is_path_in_scope
+from transactoid.core.runtime.skills.policy import (
+    MEMORY_DIR,
+    is_command_allowed,
+    is_path_in_scope,
+)
 
 
 class GeminiFilesystemTool:
-    """Read-only filesystem tool for Gemini ADK with policy enforcement.
+    """Filesystem tool for Gemini ADK with policy enforcement.
 
-    Allows filesystem navigation for skill discovery but blocks mutating operations.
+    Allows read-only skill discovery and read/write access to memory/ directory.
     """
 
     def __init__(self, skill_paths: ResolvedSkillPaths) -> None:
-        """Initialize with allowed skill directories.
+        """Initialize with allowed skill directories and memory/.
 
         Args:
             skill_paths: Resolved skill paths defining allowed scope
         """
-        self._allowed_roots = skill_paths.all_existing()
+        # Include both skill directories and memory/ directory
+        self._allowed_roots = skill_paths.all_existing() + [
+            MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR
+        ]
 
     async def execute_command(self, command: str) -> dict[str, Any]:
         """Execute shell command with policy enforcement.
