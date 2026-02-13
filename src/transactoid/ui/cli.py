@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, cast
 
 from dotenv import load_dotenv
 import typer
@@ -114,6 +114,137 @@ def seed_taxonomy(yaml_path: str = "configs/taxonomy.yaml") -> None:
 @app.command("clear-cache")
 def clear_cache(namespace: str = "default") -> None:
     return None
+
+
+async def _categorize_impl(
+    source: str | None,
+    batch_size: int,
+    dry_run: bool,
+) -> None:
+    """Categorize uncategorized derived transactions via LLM."""
+    from models.transaction import Transaction
+    from transactoid.taxonomy.loader import load_taxonomy_from_db
+    from transactoid.tools.categorize.categorizer_tool import Categorizer
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    uncategorized_ids = db.get_uncategorized_derived_ids(source=source)
+    if not uncategorized_ids:
+        typer.echo("No uncategorized transactions found.")
+        return
+
+    source_label = f" (source={source})" if source else ""
+    count = len(uncategorized_ids)
+    typer.echo(f"Found {count} uncategorized transactions{source_label}.")
+
+    if dry_run:
+        typer.echo("Dry run — no changes made.")
+        return
+
+    taxonomy = load_taxonomy_from_db(db)
+    categorizer = Categorizer(taxonomy)
+
+    derived_txns = db.get_derived_transactions_by_ids(uncategorized_ids)
+
+    txn_dicts: list[Transaction] = [
+        cast(
+            Transaction,
+            {
+                "transaction_id": txn.external_id,
+                "date": txn.posted_at.isoformat(),
+                "amount": txn.amount_cents / 100.0,
+                "merchant_name": txn.merchant_descriptor,
+                "name": txn.merchant_descriptor or "",
+                "account_id": "",
+                "iso_currency_code": "USD",
+            },
+        )
+        for txn in derived_txns
+    ]
+
+    txn_count = len(txn_dicts)
+    typer.echo(f"Categorizing {txn_count} transactions (batch_size={batch_size})...")
+    categorized = await categorizer.categorize(txn_dicts, batch_size=batch_size)
+
+    external_to_id = {txn.external_id: txn.transaction_id for txn in derived_txns}
+
+    unique_keys: set[str] = set()
+    for cat_txn in categorized:
+        key = (
+            cat_txn.revised_category_key
+            if cat_txn.revised_category_key
+            else cat_txn.category_key
+        )
+        if key:
+            unique_keys.add(key)
+
+    category_id_map = db.get_category_ids_by_keys(list(unique_keys))
+
+    category_updates: dict[int, int] = {}
+    for cat_txn in categorized:
+        external_id = cat_txn.txn.get("transaction_id") or ""
+        transaction_id = external_to_id.get(str(external_id))
+        if transaction_id is None:
+            continue
+        category_key: str | None = (
+            cat_txn.revised_category_key
+            if cat_txn.revised_category_key
+            else cat_txn.category_key
+        )
+        if not category_key:
+            continue
+        category_id = category_id_map.get(category_key)
+        if category_id:
+            category_updates[transaction_id] = category_id
+
+    if category_updates:
+        updated = db.bulk_update_derived_categories(
+            category_updates,
+            method="llm",
+            model=categorizer.model_name,
+            reason="cli_categorize",
+        )
+        typer.echo(f"Updated {updated} transactions.")
+    else:
+        typer.echo("No categories resolved — 0 transactions updated.")
+
+
+@app.command("categorize")
+def categorize_cmd(
+    source: str | None = typer.Option(
+        None,
+        "--source",
+        help="Filter by source (e.g., XLSX_IMPORT, PLAID_INVESTMENT, PLAID).",
+    ),
+    batch_size: int = typer.Option(
+        25,
+        "--batch-size",
+        help="LLM batch size.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show count of uncategorized transactions without calling LLM.",
+    ),
+) -> None:
+    """Categorize uncategorized transactions using LLM.
+
+    Finds all derived_transactions with no category and runs them through
+    the LLM categorizer pipeline.
+
+    Examples:
+
+        # Preview what would be categorized
+        transactoid categorize --dry-run
+
+        # Categorize all uncategorized transactions
+        transactoid categorize
+
+        # Categorize only XLSX imports
+        transactoid categorize --source XLSX_IMPORT
+    """
+    asyncio.run(_categorize_impl(source=source, batch_size=batch_size, dry_run=dry_run))
 
 
 @app.command("plaid-serve")

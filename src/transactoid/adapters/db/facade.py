@@ -1556,6 +1556,33 @@ class DB:
                 result[txn.plaid_transaction_id].append(txn)
             return result
 
+    def get_uncategorized_derived_ids(
+        self,
+        *,
+        source: str | None = None,
+    ) -> list[int]:
+        """Get IDs of derived transactions with no category.
+
+        Args:
+            source: Optional source filter (e.g., "XLSX_IMPORT", "PLAID_INVESTMENT").
+                Joins to plaid_transactions to filter by source.
+
+        Returns:
+            List of transaction_ids where category_id IS NULL.
+        """
+        with self.session() as session:  # type: Session
+            query = session.query(DerivedTransaction.transaction_id).filter(
+                DerivedTransaction.category_id.is_(None)
+            )
+            if source is not None:
+                query = query.join(
+                    PlaidTransaction,
+                    DerivedTransaction.plaid_transaction_id
+                    == PlaidTransaction.plaid_transaction_id,
+                ).filter(PlaidTransaction.source == source)
+            rows = query.order_by(DerivedTransaction.transaction_id).all()
+            return [row[0] for row in rows]
+
     def get_derived_transactions_by_ids(
         self,
         transaction_ids: list[int],
