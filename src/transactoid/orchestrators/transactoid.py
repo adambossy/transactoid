@@ -21,6 +21,7 @@ from transactoid.core.runtime import (
 from transactoid.core.runtime.openai_runtime import OpenAICoreRuntime
 from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.skills.prompting import generate_skill_instructions
+from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.amazon.scraper import scrape_with_playwriter
 from transactoid.tools.base import StandardTool
@@ -40,6 +41,41 @@ class TargetCategory(BaseModel):
     key: str
     name: str
     description: str | None = None
+
+
+def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
+    """
+    Assemble agent memory content from memory directory files.
+
+    Reads memory/index.md first, then other memory/*.md files in sorted order.
+    Returns empty string if memory directory or files are absent.
+
+    Args:
+        memory_dir: Path to memory directory (default: memory/)
+
+    Returns:
+        Assembled memory content as markdown string, or empty string if no memory.
+    """
+    if not memory_dir.exists() or not memory_dir.is_dir():
+        return ""
+
+    memory_parts: list[str] = []
+
+    # Read index first if present
+    index_path = memory_dir / "index.md"
+    if index_path.exists():
+        memory_parts.append(index_path.read_text())
+
+    # Read other .md files in sorted order (excluding index.md)
+    other_files = sorted([f for f in memory_dir.glob("*.md") if f.name != "index.md"])
+    for memory_file in other_files:
+        memory_parts.append(memory_file.read_text())
+
+    if not memory_parts:
+        return ""
+
+    # Join with double newline separator
+    return "\n\n".join(memory_parts)
 
 
 def _render_prompt_template(
@@ -63,11 +99,13 @@ def _render_prompt_template(
         category_taxonomy, default_flow_style=False, sort_keys=False
     )
     taxonomy_rules = load_prompt("taxonomy-rules")
+    agent_memory = _assemble_agent_memory()
 
     rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
     rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
     rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
     rendered = rendered.replace("{{SQL_DIALECT_DIRECTIVES}}", sql_directives)
+    rendered = rendered.replace("{{AGENT_MEMORY}}", agent_memory)
     return rendered
 
 
@@ -480,10 +518,17 @@ class Transactoid:
         db: DB,
         taxonomy: Taxonomy,
         plaid_client: PlaidClient | None = None,
+        memory_dir: Path = Path("memory"),
     ) -> None:
         self._db = db
         self._taxonomy = taxonomy
-        self._categorizer = Categorizer(taxonomy)
+
+        # Initialize merchant rules loader
+        merchant_rules_path = memory_dir / "merchant-rules.md"
+        rules_loader = MerchantRulesLoader(merchant_rules_path, taxonomy=taxonomy)
+
+        # Initialize categorizer with rules loader
+        self._categorizer = Categorizer(taxonomy, rules_loader=rules_loader)
         self._persist_tool = PersistTool(db, taxonomy)
         self._migration_tool = MigrationTool(db, taxonomy, self._categorizer)
         self._plaid_client = plaid_client

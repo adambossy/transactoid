@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -10,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
+from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.amazon.scraper import (
     BackendType,
@@ -27,6 +29,11 @@ db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
 db = DB(db_url)
 taxonomy = load_taxonomy_from_db(db)
 persist_tool = PersistTool(db, taxonomy)
+
+# Initialize merchant rules loader
+memory_dir = Path("memory")
+merchant_rules_path = memory_dir / "merchant-rules.md"
+rules_loader = MerchantRulesLoader(merchant_rules_path, taxonomy=taxonomy)
 
 # Create FastMCP server
 mcp = FastMCP(name="transactoid")
@@ -53,7 +60,9 @@ async def sync_transactions(count: int = 250) -> dict[str, Any]:
 
         sync_tool = SyncTool(
             plaid_client=plaid_client,
-            categorizer_factory=lambda: Categorizer(taxonomy),
+            categorizer_factory=lambda: Categorizer(
+                taxonomy, rules_loader=rules_loader
+            ),
             db=db,
             taxonomy=taxonomy,
         )
