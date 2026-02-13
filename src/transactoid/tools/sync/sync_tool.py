@@ -372,9 +372,10 @@ class SyncTool:
     ) -> tuple[int, int, str | None]:
         """Sync investment transactions for a single item.
 
-        Uses watermark-based incremental sync:
+        Uses watermark-based incremental sync with pagination:
         - Initial run: backfill 730 days
         - Incremental: fetch from watermark minus 7-day overlap
+        - Paginated: loops through all pages until all transactions fetched
         - Dedupe by (external_id, source) handles overlaps
 
         Args:
@@ -397,19 +398,59 @@ class SyncTool:
         end_date = date.today()
 
         try:
-            # Fetch investment transactions from Plaid
-            result = await asyncio.to_thread(
-                self._plaid_client.get_investment_transactions,
-                item.access_token,
-                start_date=start_date,
-                end_date=end_date,
-                count=500,
-            )
+            # Paginated fetch: loop through all pages
+            all_investment_txns: list[dict[str, Any]] = []
+            all_securities: dict[str, dict[str, Any]] = {}
+            offset = 0
+            page_count = 0
 
-            investment_txns = result.get("investment_transactions", [])
-            securities_map = {
-                sec["security_id"]: sec for sec in result.get("securities", [])
-            }
+            while True:
+                page_count += 1
+                self._logger._logger.debug(
+                    "Fetching investment transactions page {} (offset={}, count=500)",
+                    page_count,
+                    offset,
+                )
+
+                # Fetch one page of investment transactions from Plaid
+                result = await asyncio.to_thread(
+                    self._plaid_client.get_investment_transactions,
+                    item.access_token,
+                    start_date=start_date,
+                    end_date=end_date,
+                    count=500,
+                    offset=offset,
+                )
+
+                investment_txns = result.get("investment_transactions", [])
+                total_count = result.get("total_investment_transactions", 0)
+
+                # Merge securities (dedupe by security_id)
+                securities = result.get("securities", [])
+                for sec in securities:
+                    all_securities[sec["security_id"]] = sec
+
+                all_investment_txns.extend(investment_txns)
+                self._logger._logger.debug(
+                    "Page {} fetched: {} transactions (total so far: {})",
+                    page_count,
+                    len(investment_txns),
+                    len(all_investment_txns),
+                )
+
+                # Check if we've fetched all pages
+                if not investment_txns or len(all_investment_txns) >= total_count:
+                    self._logger._logger.info(
+                        "Investment sync complete: {} transactions across {} pages",
+                        len(all_investment_txns),
+                        page_count,
+                    )
+                    break
+
+                offset += 500
+
+            investment_txns = all_investment_txns
+            securities_map = all_securities
 
             if not investment_txns:
                 # No transactions but no error - update watermark and continue
