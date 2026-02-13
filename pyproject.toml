@@ -71,6 +71,9 @@ exclude = [
     "build/",
     "dist/",
     "**/site-packages/",
+    # Skills module exports public API used by runtime modules
+    "src/transactoid/core/runtime/skills/",
+    "src/transactoid/core/runtime/skills/**",
 ]
 ignore-names = [
     "__all__",

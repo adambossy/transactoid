@@ -7,6 +7,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+__all__ = [
+    "ALLOWED_COMMANDS",
+    "DENIED_COMMANDS",
+    "is_command_allowed",
+    "is_path_in_scope",
+]
+
 # Read-only shell commands allowed for skill discovery
 ALLOWED_COMMANDS = frozenset(
     {

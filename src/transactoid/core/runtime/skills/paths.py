@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+__all__ = ["ResolvedSkillPaths", "resolve_skill_paths", "find_available_skills"]
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSkillPaths:
