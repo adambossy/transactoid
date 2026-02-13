@@ -54,6 +54,33 @@ def resolve_skill_paths(
     )
 
 
+def find_available_skills(paths: ResolvedSkillPaths) -> list[Path]:
+    """Find all valid SKILL.md files in skill directories.
+
+    Scans skill directories in precedence order (project > user > builtin)
+    and returns paths to SKILL.md files that exist and are readable.
+
+    Args:
+        paths: Resolved skill directory paths
+
+    Returns:
+        List of Path objects pointing to valid SKILL.md files, ordered by
+        precedence (project skills first, then user, then builtin)
+    """
+    skills: list[Path] = []
+    for root in paths.all_existing():
+        try:
+            for item in root.iterdir():
+                if item.is_dir():
+                    skill_file = item / "SKILL.md"
+                    if skill_file.exists() and skill_file.is_file():
+                        skills.append(skill_file)
+        except (OSError, PermissionError):
+            # Skip directories that can't be read
+            continue
+    return skills
+
+
 def _resolve_if_exists(path_str: str) -> Path | None:
     """Expand and normalize path, return absolute Path if exists, else None."""
     if not path_str:
