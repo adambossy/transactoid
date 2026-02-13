@@ -26,10 +26,7 @@ from transactoid.core.runtime.protocol import (
     classify_tool_kind,
 )
 from transactoid.core.runtime.shared_tool_invoker import SharedToolInvoker
-from transactoid.core.runtime.skills.filesystem_tool_gemini import (
-    GeminiFilesystemTool,
-    create_gemini_filesystem_function_declaration,
-)
+from transactoid.core.runtime.skills.filesystem_tool_gemini import GeminiFilesystemTool
 from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.tool_adapters.gemini import GeminiToolAdapter
 from transactoid.tools.registry import ToolRegistry
@@ -61,9 +58,10 @@ class GeminiCoreRuntime(CoreRuntime):
         self._filesystem_tool: GeminiFilesystemTool | None = None
         if skill_paths.all_existing():
             self._filesystem_tool = GeminiFilesystemTool(skill_paths)
-            # Note: Function declaration integration with ADK will be added
-            # when full filesystem tool wiring is implemented
-            _ = create_gemini_filesystem_function_declaration()
+            filesystem_function_tool = self._create_filesystem_function_tool(
+                self._filesystem_tool
+            )
+            self._tools.append(filesystem_function_tool)
 
         session_service_factory: Any = InMemorySessionService
         self._session_service = session_service_factory()
@@ -263,3 +261,32 @@ class GeminiCoreRuntime(CoreRuntime):
             role="user",
             parts=[genai_types.Part.from_text(text=input_text)],
         )
+
+    def _create_filesystem_function_tool(
+        self, filesystem_tool: GeminiFilesystemTool
+    ) -> Any:
+        """Create a FunctionTool for filesystem operations.
+
+        Args:
+            filesystem_tool: The GeminiFilesystemTool instance to wrap
+
+        Returns:
+            FunctionTool instance for ADK
+        """
+        from google.adk.tools.function_tool import FunctionTool
+
+        async def execute_shell_command(command: str) -> dict[str, Any]:
+            """Execute read-only shell commands for skill discovery.
+
+            Allows: pwd, ls, find, cat, head, tail, grep, rg, sed.
+            Restricted to skill directories only.
+
+            Args:
+                command: Shell command to execute (read-only operations only)
+
+            Returns:
+                Command output or error message
+            """
+            return await filesystem_tool.execute_command(command)
+
+        return FunctionTool(execute_shell_command)
