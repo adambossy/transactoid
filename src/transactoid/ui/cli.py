@@ -185,6 +185,57 @@ def plaid_serve(
         shutdown_redirect_server(server, server_thread)
 
 
+@app.command("connect-account")
+def connect_account() -> None:
+    """
+    Connect a new bank account via Plaid Link.
+
+    Opens Plaid Link in your browser for you to authorize a new bank connection.
+    Supports transactions and investments (where available).
+
+    Prerequisites:
+        Start the Plaid redirect server in another terminal:
+        transactoid plaid-serve
+
+    After authorization:
+    - New accounts are automatically saved to the database
+    - Investments data will sync on next run
+    - Re-linking existing accounts updates credentials and resets sync cursor
+    """
+    from transactoid.adapters.clients.plaid import PlaidClient
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    try:
+        plaid_client = PlaidClient.from_env()
+    except Exception as e:
+        typer.echo(f"Error initializing Plaid client: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    typer.echo("Connecting new account via Plaid Link...")
+    result = plaid_client.connect_new_account(db=db)
+
+    status = result.get("status", "error")
+    message = result.get("message", "Unknown error")
+
+    if status == "success":
+        typer.echo("\n✓ Connection successful!")
+        typer.echo(f"  Item ID: {result.get('item_id')}")
+        typer.echo(f"  Institution: {result.get('institution_name')}")
+        typer.echo(f"  Accounts linked: {result.get('accounts_linked', 0)}")
+    elif status == "refreshed":
+        typer.echo("\n⟳ Connection refreshed!")
+        typer.echo(f"  Item ID: {result.get('item_id')}")
+        typer.echo(f"  Institution: {result.get('institution_name')}")
+        typer.echo(f"  Accounts linked: {result.get('accounts_linked', 0)}")
+        if result.get("sync_cursor_reset"):
+            typer.echo("  Sync cursor reset - will backfill transaction history")
+    else:
+        typer.echo(f"\n✗ Connection failed: {message}", err=True)
+        raise typer.Exit(1)
+
+
 @app.command("scrape-amazon")
 def scrape_amazon(
     max_orders: int | None = typer.Option(
