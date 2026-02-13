@@ -61,9 +61,9 @@ def test_is_command_allowed_redirection_blocked() -> None:
 
     # Act & Assert
     for command in redirection_commands:
-        assert not is_command_allowed(
-            command
-        ), f"Redirection should be blocked: {command}"
+        assert not is_command_allowed(command), (
+            f"Redirection should be blocked: {command}"
+        )
 
 
 def test_is_command_allowed_empty_command() -> None:
