@@ -1,7 +1,7 @@
 """Add web_search_summary to derived_transactions
 
-Revision ID: 006_add_web_search_summary
-Revises: 005_add_item_id_to_plaid_transactions
+Revision ID: 008_add_web_search_summary
+Revises: 007_merge_006_heads
 Create Date: 2026-02-09
 
 Adds a nullable text field for storing a concise merchant description learned
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "006_add_web_search_summary"
-down_revision: str | Sequence[str] | None = "005_add_item_id_to_plaid_transactions"
+revision: str = "008_add_web_search_summary"
+down_revision: str | Sequence[str] | None = "007_merge_006_heads"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

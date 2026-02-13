@@ -153,3 +153,31 @@ def test_categorizer_used_web_search_false_without_revised_fields() -> None:
 
     # assert
     assert output == expected_output
+
+
+def test_categorizer_used_web_search_false_with_empty_citations() -> None:
+    # input
+    input_data = {
+        "idx": 0,
+        "category": "food_and_dining.groceries",
+        "score": 0.91,
+        "rationale": "High confidence direct match",
+        "revised_category": None,
+        "revised_score": None,
+        "revised_rationale": None,
+        "merchant_summary": None,
+        "citations": [],
+    }
+
+    # helper setup
+    categorizer = object.__new__(Categorizer)
+    result = CategorizationResult.model_validate(input_data)
+
+    # act
+    output = categorizer._did_use_web_search(result)
+
+    # expected
+    expected_output = False
+
+    # assert
+    assert output == expected_output

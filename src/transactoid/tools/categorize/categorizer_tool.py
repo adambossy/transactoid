@@ -785,7 +785,7 @@ class Categorizer:
                 result.revised_score is not None,
                 result.revised_rationale is not None,
                 result.merchant_summary is not None,
-                result.citations is not None,
+                bool(result.citations),
             )
         )
 

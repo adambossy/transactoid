@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import cast
 
 from transactoid.adapters.db.models import DerivedTransaction, PlaidTransaction
@@ -22,6 +22,9 @@ class OldDerivedInput:
     category_id: int | None
     is_verified: bool
     merchant_id: int | None
+    category_model: str | None
+    category_method: str | None
+    category_assigned_at: datetime | None
     web_search_summary: str | None
 
 
@@ -48,6 +51,9 @@ def test_mutation_registry_default_mutation_preserves_llm_summary() -> None:
             category_id=3,
             is_verified=True,
             merchant_id=5,
+            category_model="gpt-5.2",
+            category_method="llm",
+            category_assigned_at=datetime(2026, 2, 9, 12, 0, 0),
             web_search_summary=llm_summary,
         )
     ]
