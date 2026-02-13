@@ -624,7 +624,7 @@ class SyncTool:
             self._categorizer = self._categorizer_factory()
 
         # Categorize in batches
-        categorized = await self._categorizer.categorize(txn_dicts, batch_size=25)
+        categorized = await self._categorizer.categorize(txn_dicts, batch_size=10)
 
         # Build mapping from external_id to transaction_id
         external_to_id = {txn.external_id: txn.transaction_id for txn in to_categorize}
