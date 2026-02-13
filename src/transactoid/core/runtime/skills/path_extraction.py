@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+__all__ = ["extract_paths_from_command"]
+
 
 def extract_paths_from_command(command: str) -> list[Path]:
     """Extract file paths from command string for scope validation.

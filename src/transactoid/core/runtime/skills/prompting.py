@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
 
+__all__ = ["generate_skill_instructions"]
+
 
 def generate_skill_instructions(paths: ResolvedSkillPaths) -> str:
     """Generate compact skill discovery and usage instructions.

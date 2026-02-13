@@ -82,29 +82,4 @@ class GeminiFilesystemTool:
             }
 
 
-def create_gemini_filesystem_function_declaration() -> dict[str, Any]:
-    """Create Gemini function declaration for filesystem tool.
-
-    Returns:
-        Function declaration dict for ADK
-    """
-    return {
-        "name": "execute_shell_command",
-        "description": (
-            "Execute read-only shell commands for skill discovery. "
-            "Allows: pwd, ls, find, cat, head, tail, grep, rg, sed. "
-            "Restricted to skill directories only."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": (
-                        "Shell command to execute (read-only operations only)"
-                    ),
-                }
-            },
-            "required": ["command"],
-        },
-    }
+__all__ = ["GeminiFilesystemTool"]

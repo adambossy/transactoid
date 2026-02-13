@@ -52,3 +52,6 @@ def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
         needs_approval=approval_function,
         environment={"type": "local"},
     )
+
+
+__all__ = ["create_readonly_shell_tool"]
