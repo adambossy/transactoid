@@ -23,6 +23,7 @@ def _txn(
     posted_at: date,
     merchant_descriptor: str,
     category_key: str,
+    account_id: str = "test_account",
 ) -> dict[str, Any]:
     """Create transaction dict for fixture."""
     return {
@@ -31,6 +32,7 @@ def _txn(
         "posted_at": posted_at,
         "merchant_descriptor": merchant_descriptor,
         "category_key": category_key,
+        "account_id": account_id,
     }
 
 
@@ -377,6 +379,68 @@ FIXTURES: dict[str, TransactionFixture] = {
         },
         description="42 transactions across November 2024 with known totals for comprehensive "
         "testing",
+        plaid_items=[
+            {
+                "item_id": "eval_test_item",
+                "access_token": "access-sandbox-00000000-0000-0000-0000-000000000000",
+                "institution_id": "ins_test",
+                "institution_name": "Test Bank",
+            }
+        ],
+    ),
+    "monthly_transfer_detection": TransactionFixture(
+        name="monthly_transfer_detection",
+        transactions=[
+            _txn(
+                "txn_mtd_001",
+                1086179,
+                date(2026, 2, 2),
+                "Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729",
+                "banking_movements_transfers_refunds_and_fees.transfer_own_accounts",
+                account_id="9320",
+            ),
+            _txn(
+                "txn_mtd_002",
+                950000,
+                date(2026, 1, 2),
+                "Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729",
+                "banking_movements_transfers_refunds_and_fees.transfer_own_accounts",
+                account_id="9320",
+            ),
+            _txn(
+                "txn_mtd_003",
+                1250000,
+                date(2026, 2, 1),
+                "Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729",
+                "banking_movements_transfers_refunds_and_fees.transfer_own_accounts",
+                account_id="4721",
+            ),
+            _txn(
+                "txn_mtd_004",
+                1350000,
+                date(2026, 2, 3),
+                "Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729",
+                "banking_movements_transfers_refunds_and_fees.transfer_own_accounts",
+                account_id="9320",
+            ),
+            _txn(
+                "txn_mtd_005",
+                520000,
+                date(2026, 2, 1),
+                "Payroll ACME CORP",
+                "income.salary_and_wages",
+                account_id="9320",
+            ),
+        ],
+        ground_truth={
+            "matching_transaction_count": 1,
+            "matching_account_id": "9320",
+            "matching_date": "2026-02-02",
+            "matching_amount": 10861.79,
+            "matching_descriptor": "Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729",
+        },
+        description="Transfer transactions across accounts and dates where exactly one "
+        "transaction matches account 9320, day 1-2, and amount > $10k.",
         plaid_items=[
             {
                 "item_id": "eval_test_item",

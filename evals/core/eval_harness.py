@@ -31,6 +31,8 @@ class EvalRunResult:
     conversation_result: ConversationResult
     judge_result: JudgeResult
     fixture_name: str
+    tool_call_counts: dict[str, int]
+    tool_limit_violations: list[str]
 
 
 class EvalHarness:
@@ -135,6 +137,14 @@ class EvalHarness:
             question_config["expectations"],
         )
 
+        tool_call_counts, tool_limit_violations = self._evaluate_tool_limits(
+            question_config=question_config,
+            conversation_result=conv_result,
+        )
+        if tool_limit_violations:
+            judge_result.passed = False
+            judge_result.overall_score = min(judge_result.overall_score, 0.79)
+
         # 5. Return result
         return EvalRunResult(
             question_id=question_config["id"],
@@ -143,6 +153,68 @@ class EvalHarness:
             conversation_result=conv_result,
             judge_result=judge_result,
             fixture_name=question_config["fixture"],
+            tool_call_counts=tool_call_counts,
+            tool_limit_violations=tool_limit_violations,
+        )
+
+    def _evaluate_tool_limits(
+        self,
+        *,
+        question_config: dict[str, Any],
+        conversation_result: ConversationResult,
+    ) -> tuple[dict[str, int], list[str]]:
+        """Evaluate configured per-tool min/max call constraints."""
+        raw_tool_limits = question_config.get("tool_limits", {})
+        if not isinstance(raw_tool_limits, dict):
+            return {}, ["tool_limits must be a mapping"]
+
+        tool_call_counts: dict[str, int] = {}
+        violations: list[str] = []
+
+        for tool_name, limit_config in raw_tool_limits.items():
+            if not isinstance(tool_name, str):
+                violations.append("tool_limits key must be a string tool name")
+                continue
+            if not isinstance(limit_config, dict):
+                violations.append(f"{tool_name}: limits must be a mapping")
+                continue
+
+            min_calls = limit_config.get("min")
+            max_calls = limit_config.get("max")
+            call_count = self._count_tool_calls(conversation_result, tool_name)
+            tool_call_counts[tool_name] = call_count
+
+            if min_calls is not None:
+                if not isinstance(min_calls, int):
+                    violations.append(f"{tool_name}: min must be an integer")
+                elif call_count < min_calls:
+                    min_msg = (
+                        f"{tool_name}: expected at least {min_calls} calls, "
+                        f"got {call_count}"
+                    )
+                    violations.append(min_msg)
+
+            if max_calls is not None:
+                if not isinstance(max_calls, int):
+                    violations.append(f"{tool_name}: max must be an integer")
+                elif call_count > max_calls:
+                    max_msg = (
+                        f"{tool_name}: expected at most {max_calls} calls, "
+                        f"got {call_count}"
+                    )
+                    violations.append(max_msg)
+
+        return tool_call_counts, violations
+
+    def _count_tool_calls(
+        self, conversation_result: ConversationResult, tool_name: str
+    ) -> int:
+        """Count tool invocations across all turns for a specific tool."""
+        return sum(
+            1
+            for turn in conversation_result.turns
+            for tool_call in turn.tool_calls
+            if tool_call.get("name") == tool_name
         )
 
     async def run_all(self) -> list[EvalRunResult]:
@@ -226,6 +298,8 @@ class EvalHarness:
             "conversation": result.conversation_result.full_conversation,
             "duration_seconds": result.conversation_result.total_duration_seconds,
             "turns": [asdict(turn) for turn in result.conversation_result.turns],
+            "tool_call_counts": result.tool_call_counts,
+            "tool_limit_violations": result.tool_limit_violations,
             "judge_result": {
                 "numerical_consistency": asdict(
                     result.judge_result.numerical_consistency
