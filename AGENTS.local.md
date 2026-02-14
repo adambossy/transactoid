@@ -59,6 +59,9 @@ transactoid
 ### CLI Framework
 New CLI entry points and any CLI refactors must use Typer. Expose commands via a Typer app; do not hand-roll argparse or custom parsers.
 
+### CLI/MCP Parity
+The Transactoid CLI and MCP implementations must remain in parity. Any feature added, changed, or removed in one surface must be evaluated and mirrored in the other (or explicitly documented as an intentional exception).
+
 ### Environment Loading
 Load environment variables from a `.env` file using `python-dotenv`. Call `load_dotenv(override=False)` once in the CLI entrypoint before command execution; do not override variables that are already set.
 
