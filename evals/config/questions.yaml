@@ -83,3 +83,24 @@ questions:
       - "Transaction counts: Whole Foods (4), Shell (6), Target (3)"
       - "Numbers consistent between turns"
       - "Snide tone maintained"
+
+  - id: "q006_large_monthly_transfers_first_second"
+    question: "look up automatic transfers that occur on the first or second of every month in my 9320 account that are >$10K"
+    follow_ups: []
+    fixture: "monthly_transfer_detection"
+    ground_truth:
+      matching_transaction_count: 1
+      matching_account_id: "9320"
+      matching_date: "2026-02-02"
+      matching_amount: 10861.79
+      matching_descriptor: "Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729"
+    expectations:
+      - "Reports exactly one matching transaction"
+      - "Includes the date February 2, 2026 (or 2026-02-02)"
+      - "Includes amount $10,861.79"
+      - "References account 9320"
+      - "Response stays concise and factual"
+    tool_limits:
+      run_sql:
+        min: 1
+        max: 2
