@@ -56,7 +56,7 @@ class EvalDBBuilder:
                 {
                     "external_id": txn_data["external_id"],
                     "source": "EVAL",
-                    "account_id": "test_account",
+                    "account_id": txn_data.get("account_id", "test_account"),
                     "posted_at": txn_data["posted_at"],
                     "amount_cents": txn_data["amount_cents"],
                     "currency": "USD",

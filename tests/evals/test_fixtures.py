@@ -227,3 +227,37 @@ def test_last_month_spending_top_merchants_match() -> None:
         actual_top_3.append((row[0], row[1], row[2]))
 
     assert actual_top_3 == expected_top_3
+
+
+def test_monthly_transfer_detection_fixture_filters_to_single_large_transfer() -> None:
+    """Test fixture has one >$10k transfer for account 9320 on day 1/2."""
+    # input
+    input_data = {
+        "fixture_name": "monthly_transfer_detection",
+    }
+
+    # helper setup
+    db = _create_db()
+    taxonomy = _load_full_taxonomy(db)
+    fixture = FIXTURES[input_data["fixture_name"]]
+    builder = EvalDBBuilder(db, taxonomy)
+    builder.build_from_fixture(fixture)
+
+    # act
+    output = db.execute_raw_sql("""
+        SELECT
+            COUNT(*) AS match_count,
+            MIN(dt.posted_at) AS min_posted_at,
+            MAX(dt.amount_cents) AS max_amount_cents
+        FROM derived_transactions dt
+        JOIN plaid_transactions pt ON dt.plaid_transaction_id = pt.plaid_transaction_id
+        WHERE pt.account_id = '9320'
+          AND dt.amount_cents > 1000000
+          AND CAST(strftime('%d', dt.posted_at) AS INTEGER) IN (1, 2)
+    """).fetchone()
+
+    # expected
+    expected_output = (1, "2026-02-02", 1086179)
+
+    # assert
+    assert output == expected_output
