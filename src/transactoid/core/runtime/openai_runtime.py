@@ -20,6 +20,8 @@ from transactoid.core.runtime.protocol import (
     ThoughtDeltaEvent,
     ToolCallArgsDeltaEvent,
     ToolCallCompletedEvent,
+    ToolCallInputEvent,
+    ToolCallOutputEvent,
     ToolCallRecord,
     ToolCallStartedEvent,
     ToolOutputEvent,
@@ -123,6 +125,8 @@ class OpenAICoreRuntime(CoreRuntime):
             max_turns=DEFAULT_AGENT_MAX_TURNS,
         )
         last_call_id: str | None = None
+        args_accumulator: dict[str, str] = {}
+        call_tool_names: dict[str, str] = {}
 
         async for event in stream.stream_events():
             event_type = getattr(event, "type", "")
@@ -152,6 +156,9 @@ class OpenAICoreRuntime(CoreRuntime):
                     )
                     delta = getattr(data, "delta", "")
                     if delta:
+                        if call_id not in args_accumulator:
+                            args_accumulator[call_id] = ""
+                        args_accumulator[call_id] += delta
                         yield ToolCallArgsDeltaEvent(call_id=call_id, delta=delta)
                     continue
 
@@ -163,6 +170,8 @@ class OpenAICoreRuntime(CoreRuntime):
                     tool_name = getattr(item, "name", "unknown")
                     call_id = getattr(item, "call_id", "unknown")
                     last_call_id = call_id
+                    call_tool_names[call_id] = tool_name
+                    args_accumulator[call_id] = ""
                     yield ToolCallStartedEvent(
                         call_id=call_id,
                         tool_name=tool_name,
@@ -173,6 +182,23 @@ class OpenAICoreRuntime(CoreRuntime):
                 if data_type == "response.output_item.done":
                     call_id = getattr(item, "call_id", None)
                     if call_id:
+                        args_json = args_accumulator.get(call_id, "")
+                        arguments: dict[str, object] = {}
+                        if args_json:
+                            try:
+                                parsed = json.loads(args_json)
+                                if isinstance(parsed, dict):
+                                    arguments = parsed
+                            except json.JSONDecodeError:
+                                pass
+
+                        tool_name = call_tool_names.get(call_id, "unknown")
+                        yield ToolCallInputEvent(
+                            call_id=call_id,
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            runtime_info=None,
+                        )
                         yield ToolCallCompletedEvent(call_id=call_id)
                         if last_call_id == call_id:
                             last_call_id = None
@@ -192,7 +218,19 @@ class OpenAICoreRuntime(CoreRuntime):
                 normalized_output = (
                     output if isinstance(output, dict | str) else str(output)
                 )
+
+                status: Literal["completed", "failed"] = "completed"
+                if isinstance(output, dict) and output.get("status") == "error":
+                    status = "failed"
+
                 yield ToolOutputEvent(call_id=call_id, output=normalized_output)
+                yield ToolCallOutputEvent(
+                    call_id=call_id,
+                    status=status,
+                    output=normalized_output,
+                    runtime_info=None,
+                    named_outputs=None,
+                )
 
         get_final_result = getattr(stream, "get_final_result", None)
         final_text = ""
@@ -234,7 +272,7 @@ class OpenAICoreRuntime(CoreRuntime):
             if not tool_name:
                 tool_name = self._infer_tool_name(item.output)
 
-            arguments: dict[str, Any] = {}
+            arguments: dict[str, object] = {}
             if raw_item is not None:
                 args_json = getattr(raw_item, "arguments", None)
                 if isinstance(args_json, str):

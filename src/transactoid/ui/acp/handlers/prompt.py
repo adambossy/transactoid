@@ -6,20 +6,47 @@ responses back to the client via session/update notifications.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+import json
 from typing import Any
 
 from transactoid.core.runtime import (
     CoreRuntime,
     TextDeltaEvent,
     ThoughtDeltaEvent,
+    ToolCallArgsDeltaEvent,
     ToolCallCompletedEvent,
+    ToolCallInputEvent,
+    ToolCallOutputEvent,
     ToolCallStartedEvent,
     ToolOutputEvent,
+    ToolRuntimeInfo,
     TurnCompletedEvent,
 )
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.logger import PromptHandlerLogger
 from transactoid.ui.acp.notifier import UpdateNotifier
+from transactoid.ui.acp.tool_payloads import (
+    build_raw_output,
+    build_rendered_content_input,
+    build_rendered_content_output,
+)
+
+
+@dataclass
+class ToolCallState:
+    """Track state for a single tool call lifecycle."""
+
+    call_id: str
+    tool_name: str
+    kind: str
+    arguments: dict[str, object] = field(default_factory=dict)
+    args_accumulated: str = ""
+    status: str = "pending"
+    output: dict[str, object] | str | None = None
+    raw_input_sent: bool = False
+    raw_output_sent: bool = False
 
 
 class PromptHandler:
@@ -36,6 +63,7 @@ class PromptHandler:
         self._notifier = notifier
         self._log = PromptHandlerLogger()
         self._runtime_sessions: dict[str, Any] = {}
+        self._tool_states: dict[str, ToolCallState] = {}
 
     async def handle_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process a user prompt and stream responses."""
@@ -73,6 +101,7 @@ class PromptHandler:
         self._log.agent_stream_starting(session_id)
         event_count = 0
         final_output = ""
+        self._tool_states.clear()
 
         async for event in self._runtime.run_streamed(
             input_text=user_text,
@@ -84,6 +113,7 @@ class PromptHandler:
             if maybe_final is not None:
                 final_output = maybe_final
 
+        await self._finalize_orphaned_calls(session_id)
         self._log.events_processed(session_id, event_count)
 
         if final_output:
@@ -113,32 +143,27 @@ class PromptHandler:
             return None
 
         if isinstance(event, ToolCallStartedEvent):
-            self._log.tool_call_started(event.tool_name, event.call_id)
-            await self._notifier.tool_call(
-                session_id=session_id,
-                tool_call_id=event.call_id,
-                title=event.tool_name,
-                kind=event.kind,
-                status="pending",
-            )
+            await self._handle_tool_call_started(session_id, event)
+            return None
+
+        if isinstance(event, ToolCallArgsDeltaEvent):
+            await self._handle_tool_args_delta(session_id, event)
+            return None
+
+        if isinstance(event, ToolCallInputEvent):
+            await self._handle_tool_call_input(session_id, event)
             return None
 
         if isinstance(event, ToolCallCompletedEvent):
-            await self._notifier.tool_call_update(
-                session_id=session_id,
-                tool_call_id=event.call_id,
-                status="in_progress",
-            )
+            await self._handle_tool_call_completed(session_id, event)
+            return None
+
+        if isinstance(event, ToolCallOutputEvent):
+            await self._handle_tool_call_output(session_id, event)
             return None
 
         if isinstance(event, ToolOutputEvent):
-            output_text = str(event.output)
-            await self._notifier.tool_call_update(
-                session_id=session_id,
-                tool_call_id=event.call_id,
-                status="completed",
-                content=[{"type": "text", "text": output_text}],
-            )
+            await self._handle_tool_output_legacy(session_id, event)
             return None
 
         if isinstance(event, TurnCompletedEvent):
@@ -146,3 +171,262 @@ class PromptHandler:
 
         self._log.unhandled_event(type(event).__name__)
         return None
+
+    async def _handle_tool_call_started(
+        self, session_id: str, event: ToolCallStartedEvent
+    ) -> None:
+        """Handle tool call start: create state and send initial notification."""
+        self._log.tool_call_started(event.tool_name, event.call_id)
+
+        state = ToolCallState(
+            call_id=event.call_id,
+            tool_name=event.tool_name,
+            kind=event.kind,
+        )
+        self._tool_states[event.call_id] = state
+
+        await self._notifier.tool_call(
+            session_id=session_id,
+            tool_call_id=event.call_id,
+            title=event.tool_name,
+            kind=event.kind,
+            status="pending",
+        )
+
+    async def _handle_tool_args_delta(
+        self, session_id: str, event: ToolCallArgsDeltaEvent
+    ) -> None:
+        """Handle arguments delta: accumulate and try to parse."""
+        state = self._tool_states.get(event.call_id)
+        if state is None:
+            state = ToolCallState(
+                call_id=event.call_id,
+                tool_name="unknown",
+                kind="other",
+            )
+            self._tool_states[event.call_id] = state
+
+        state.args_accumulated += event.delta
+
+        try:
+            parsed = json.loads(state.args_accumulated)
+            if isinstance(parsed, dict):
+                state.arguments = parsed
+        except json.JSONDecodeError:
+            pass
+
+    async def _handle_tool_call_input(
+        self, session_id: str, event: ToolCallInputEvent
+    ) -> None:
+        """Handle rich tool input event: send raw_input if not sent yet."""
+        state = self._tool_states.get(event.call_id)
+        if state is None:
+            state = ToolCallState(
+                call_id=event.call_id,
+                tool_name=event.tool_name,
+                kind="other",
+            )
+            self._tool_states[event.call_id] = state
+
+        state.tool_name = event.tool_name
+        state.arguments = event.arguments
+
+        if not state.raw_input_sent:
+            # Generate a descriptive title
+            title = self._generate_tool_title(
+                tool_name=event.tool_name,
+                arguments=event.arguments,
+                runtime_info=event.runtime_info,
+            )
+
+            content = build_rendered_content_input(
+                tool_name=event.tool_name,
+                arguments=event.arguments,
+                runtime_info=event.runtime_info,
+            )
+            await self._notifier.tool_call_update(
+                session_id=session_id,
+                tool_call_id=event.call_id,
+                status="pending",
+                title=title,
+                content=content,
+            )
+            state.raw_input_sent = True
+
+    async def _handle_tool_call_completed(
+        self, session_id: str, event: ToolCallCompletedEvent
+    ) -> None:
+        """Handle tool call completion marker: transition to in_progress."""
+        state = self._tool_states.get(event.call_id)
+        if state is None:
+            return
+
+        state.status = "in_progress"
+
+        if not state.raw_input_sent and state.arguments:
+            title = self._generate_tool_title(
+                tool_name=state.tool_name,
+                arguments=state.arguments,
+                runtime_info=None,
+            )
+            content = build_rendered_content_input(
+                tool_name=state.tool_name,
+                arguments=state.arguments,
+                runtime_info=None,
+            )
+            await self._notifier.tool_call_update(
+                session_id=session_id,
+                tool_call_id=event.call_id,
+                status="in_progress",
+                title=title,
+                content=content,
+            )
+            state.raw_input_sent = True
+        else:
+            await self._notifier.tool_call_update(
+                session_id=session_id,
+                tool_call_id=event.call_id,
+                status="in_progress",
+            )
+
+    async def _handle_tool_call_output(
+        self, session_id: str, event: ToolCallOutputEvent
+    ) -> None:
+        """Handle rich tool output event: send final update with raw_output."""
+        state = self._tool_states.get(event.call_id)
+        if state is None:
+            state = ToolCallState(
+                call_id=event.call_id,
+                tool_name="unknown",
+                kind="other",
+            )
+            self._tool_states[event.call_id] = state
+
+        state.output = event.output
+        state.status = event.status
+
+        raw_output = build_raw_output(
+            status=event.status,
+            result=event.output,
+            named_outputs=event.named_outputs,
+            runtime_info=event.runtime_info,
+        )
+        content = build_rendered_content_output(
+            status=event.status,
+            result=event.output,
+            named_outputs=event.named_outputs,
+            runtime_info=event.runtime_info,
+        )
+
+        await self._notifier.tool_call_update(
+            session_id=session_id,
+            tool_call_id=event.call_id,
+            status=event.status,
+            raw_output=raw_output,
+            content=content,
+        )
+        state.raw_output_sent = True
+
+    async def _handle_tool_output_legacy(
+        self, session_id: str, event: ToolOutputEvent
+    ) -> None:
+        """Handle legacy tool output event: fallback for simple outputs."""
+        state = self._tool_states.get(event.call_id)
+        if state is None:
+            return
+
+        if state.raw_output_sent:
+            return
+
+        state.output = event.output
+        state.status = "completed"
+
+        raw_output = build_raw_output(
+            status="completed",
+            result=event.output,
+            named_outputs=None,
+            runtime_info=None,
+        )
+        content = build_rendered_content_output(
+            status="completed",
+            result=event.output,
+            named_outputs=None,
+            runtime_info=None,
+        )
+
+        await self._notifier.tool_call_update(
+            session_id=session_id,
+            tool_call_id=event.call_id,
+            status="completed",
+            raw_output=raw_output,
+            content=content,
+        )
+        state.raw_output_sent = True
+
+    def _generate_tool_title(
+        self,
+        tool_name: str,
+        arguments: Mapping[str, object],
+        runtime_info: ToolRuntimeInfo | None,
+    ) -> str:
+        """Generate a descriptive title for a tool call.
+
+        Args:
+            tool_name: Name of the tool
+            arguments: Tool arguments
+            runtime_info: Optional runtime metadata
+
+        Returns:
+            Human-readable title describing the tool call
+        """
+        # For shell commands, use the command itself
+        if runtime_info and runtime_info.command:
+            return runtime_info.command
+
+        # For run_sql, use first part of the query
+        if tool_name == "run_sql" and "query" in arguments:
+            query = str(arguments["query"]).strip()
+            # Take first line or first 60 chars
+            first_line = query.split("\n")[0]
+            if len(first_line) > 60:
+                return first_line[:57] + "..."
+            return first_line
+
+        # For sync_transactions, create descriptive title
+        if tool_name == "sync_transactions":
+            count = arguments.get("count", 250)
+            return f"Sync up to {count} transactions"
+
+        # For recategorize_merchant, show merchant and category
+        if tool_name == "recategorize_merchant":
+            merchant_id = arguments.get("merchant_id", "unknown")
+            category = arguments.get("category_key", "unknown")
+            return f"Recategorize merchant {merchant_id} to {category}"
+
+        # For tag_transactions, show number of transactions
+        if tool_name == "tag_transactions":
+            tx_ids = arguments.get("transaction_ids", [])
+            tags = arguments.get("tags", [])
+            count = len(tx_ids) if isinstance(tx_ids, list) else 0
+            tag_str = ", ".join(tags) if isinstance(tags, list) else str(tags)
+            return f"Tag {count} transactions with {tag_str}"
+
+        # Default: use tool name
+        return tool_name
+
+    async def _finalize_orphaned_calls(self, session_id: str) -> None:
+        """Send failed updates for any tool calls that didn't complete."""
+        for call_id, state in self._tool_states.items():
+            if not state.raw_output_sent:
+                self._log.orphaned_tool_call(call_id, state.tool_name)
+                await self._notifier.tool_call_update(
+                    session_id=session_id,
+                    tool_call_id=call_id,
+                    status="failed",
+                    content=[
+                        {
+                            "type": "text",
+                            "text": "Tool call did not complete (timeout or error)",
+                        }
+                    ],
+                )

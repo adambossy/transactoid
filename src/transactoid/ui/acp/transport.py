@@ -4,11 +4,29 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from decimal import Decimal
 import json
 import sys
 from typing import Any
 
 from loguru import logger
+
+
+def _json_default(obj: Any) -> Any:
+    """Custom JSON encoder for types not supported by default encoder.
+
+    Args:
+        obj: Object to encode
+
+    Returns:
+        JSON-serializable representation
+
+    Raises:
+        TypeError: If object type is not supported
+    """
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @dataclass(frozen=True)
@@ -99,7 +117,7 @@ class StdioTransport:
             payload["result"] = response.result
         if response.error is not None:
             payload["error"] = response.error
-        line = json.dumps(payload) + "\n"
+        line = json.dumps(payload, default=_json_default) + "\n"
         logger.bind(id=response.id, error=response.error).info(
             "→ Response: id={} error={}", response.id, response.error
         )
@@ -119,7 +137,7 @@ class StdioTransport:
         }
         if notification.params is not None:
             payload["params"] = notification.params
-        line = json.dumps(payload) + "\n"
+        line = json.dumps(payload, default=_json_default) + "\n"
         logger.bind(method=notification.method).info(
             "→ Notification: {}", notification.method
         )

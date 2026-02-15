@@ -16,6 +16,25 @@ class CoreSession:
 
 
 @dataclass(frozen=True, slots=True)
+class NamedOutput:
+    """Named output from a tool execution (stdout, stderr, result, etc.)."""
+
+    name: str
+    mime_type: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolRuntimeInfo:
+    """Runtime execution metadata for a tool call."""
+
+    command: str | None = None
+    cwd: str | None = None
+    exit_code: int | None = None
+    streams: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCallRecord:
     """Normalized tool call record across runtimes."""
 
@@ -70,6 +89,27 @@ class ToolOutputEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCallInputEvent:
+    """Structured tool call input with runtime metadata."""
+
+    call_id: str
+    tool_name: str
+    arguments: dict[str, object]
+    runtime_info: ToolRuntimeInfo | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallOutputEvent:
+    """Structured tool call output with runtime metadata and named outputs."""
+
+    call_id: str
+    status: Literal["completed", "failed"]
+    output: dict[str, object] | str
+    runtime_info: ToolRuntimeInfo | None = None
+    named_outputs: list[NamedOutput] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TurnCompletedEvent:
     final_text: str
 
@@ -81,6 +121,8 @@ CoreEvent = (
     | ToolCallArgsDeltaEvent
     | ToolCallCompletedEvent
     | ToolOutputEvent
+    | ToolCallInputEvent
+    | ToolCallOutputEvent
     | TurnCompletedEvent
 )
 
