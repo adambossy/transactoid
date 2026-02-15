@@ -14,17 +14,19 @@ primary_region = "iad"  # US East - close to Supabase
 # The machine starts, runs sync then report, and exits
 
 # Machine configuration for the job
-# Use the smallest machine size since this is an infrequent job
+# 512MB was OOM-killed during sync/report; use 1GB baseline.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1024mb"
 
 # To run manually:
 #   fly machine run . \
 #     --app transactoid \
 #     --restart no \
 #     --region iad \
-#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync && /app/.venv/bin/transactoid report"
+#     --vm-size shared-cpu-1x \
+#     --vm-memory 1024 \
+#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
 
 # To schedule once per day:
 #   fly machine run . \
@@ -32,7 +34,9 @@ primary_region = "iad"  # US East - close to Supabase
 #     --schedule daily \
 #     --restart no \
 #     --region iad \
-#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync && /app/.venv/bin/transactoid report"
+#     --vm-size shared-cpu-1x \
+#     --vm-memory 1024 \
+#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
 
 # Alternative: Use Fly Cron Manager for more control
 # See: https://fly.io/docs/blueprints/task-scheduling/
