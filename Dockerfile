@@ -36,6 +36,14 @@ COPY configs/ configs/
 COPY scripts/ scripts/
 COPY evals/ evals/
 
+# Initialize a git repository in the image so runtime jobs can refresh from origin/main.
+RUN git init . \
+    && git config user.email "build@transactoid.local" \
+    && git config user.name "transactoid-builder" \
+    && git add -A \
+    && git commit -m "image snapshot" \
+    && git remote add origin "https://github.com/adambossy/transactoid.git"
+
 # Install the package
 RUN uv pip install --no-deps -e .
 
@@ -44,8 +52,9 @@ RUN uv pip install --no-deps -e .
 # =============================================================================
 FROM python:3.12-slim AS production
 
-# Install runtime dependencies (for psycopg2)
+# Install runtime dependencies (for psycopg2 + git refresh at job start)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -62,6 +71,7 @@ COPY --from=builder /app/prompts /app/prompts
 COPY --from=builder /app/configs /app/configs
 COPY --from=builder /app/scripts /app/scripts
 COPY --from=builder /app/evals /app/evals
+COPY --from=builder /app/.git /app/.git
 
 # Set PATH to use venv
 ENV PATH="/app/.venv/bin:$PATH"
@@ -70,4 +80,4 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Default command: run sync first, then report (which sends email by default)
 ENTRYPOINT ["/bin/sh", "-lc"]
-CMD ["/app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"]
+CMD ["git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"]
