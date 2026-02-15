@@ -13,7 +13,7 @@ from typing import Any, Literal
 from transactoid.ui.acp.transport import JsonRpcNotification, StdioTransport
 
 ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
-ToolCallKind = Literal["execute", "fetch", "edit", "other"]
+ToolCallKind = Literal["execute", "fetch", "edit", "read", "search", "other"]
 
 
 class UpdateNotifier:

@@ -6,7 +6,6 @@ responses back to the client via session/update notifications.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
 from typing import Any
@@ -21,17 +20,13 @@ from transactoid.core.runtime import (
     ToolCallOutputEvent,
     ToolCallStartedEvent,
     ToolOutputEvent,
-    ToolRuntimeInfo,
     TurnCompletedEvent,
 )
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.logger import PromptHandlerLogger
 from transactoid.ui.acp.notifier import UpdateNotifier
-from transactoid.ui.acp.tool_payloads import (
-    build_raw_output,
-    build_rendered_content_input,
-    build_rendered_content_output,
-)
+from transactoid.ui.acp.tool_payloads import build_raw_output
+from transactoid.ui.acp.tool_presenter import present_tool_input, present_tool_output
 
 
 @dataclass
@@ -232,24 +227,21 @@ class PromptHandler:
         state.arguments = event.arguments
 
         if not state.raw_input_sent:
-            # Generate a descriptive title
-            title = self._generate_tool_title(
+            # Generate display payload for tool input
+            display = present_tool_input(
                 tool_name=event.tool_name,
                 arguments=event.arguments,
                 runtime_info=event.runtime_info,
             )
 
-            content = build_rendered_content_input(
-                tool_name=event.tool_name,
-                arguments=event.arguments,
-                runtime_info=event.runtime_info,
-            )
             await self._notifier.tool_call_update(
                 session_id=session_id,
                 tool_call_id=event.call_id,
                 status="pending",
-                title=title,
-                content=content,
+                title=display.title,
+                kind=display.kind,
+                content=display.content,
+                locations=display.locations if display.locations else None,
             )
             state.raw_input_sent = True
 
@@ -264,12 +256,7 @@ class PromptHandler:
         state.status = "in_progress"
 
         if not state.raw_input_sent and state.arguments:
-            title = self._generate_tool_title(
-                tool_name=state.tool_name,
-                arguments=state.arguments,
-                runtime_info=None,
-            )
-            content = build_rendered_content_input(
+            display = present_tool_input(
                 tool_name=state.tool_name,
                 arguments=state.arguments,
                 runtime_info=None,
@@ -278,8 +265,10 @@ class PromptHandler:
                 session_id=session_id,
                 tool_call_id=event.call_id,
                 status="in_progress",
-                title=title,
-                content=content,
+                title=display.title,
+                kind=display.kind,
+                content=display.content,
+                locations=display.locations if display.locations else None,
             )
             state.raw_input_sent = True
         else:
@@ -311,9 +300,20 @@ class PromptHandler:
             named_outputs=event.named_outputs,
             runtime_info=event.runtime_info,
         )
-        content = build_rendered_content_output(
+
+        # Generate display payload for tool output
+        # Need to handle case where output could be string or dict
+        result_dict: dict[str, object] | str
+        if isinstance(event.output, dict):
+            result_dict = event.output
+        else:
+            result_dict = str(event.output)
+
+        display = present_tool_output(
+            tool_name=state.tool_name,
+            arguments=state.arguments,
             status=event.status,
-            result=event.output,
+            result=result_dict,
             named_outputs=event.named_outputs,
             runtime_info=event.runtime_info,
         )
@@ -323,7 +323,8 @@ class PromptHandler:
             tool_call_id=event.call_id,
             status=event.status,
             raw_output=raw_output,
-            content=content,
+            content=display.content,
+            locations=display.locations if display.locations else None,
         )
         state.raw_output_sent = True
 
@@ -347,9 +348,19 @@ class PromptHandler:
             named_outputs=None,
             runtime_info=None,
         )
-        content = build_rendered_content_output(
+
+        # Generate display payload for tool output
+        result_dict: dict[str, object] | str
+        if isinstance(event.output, dict):
+            result_dict = event.output
+        else:
+            result_dict = str(event.output)
+
+        display = present_tool_output(
+            tool_name=state.tool_name,
+            arguments=state.arguments,
             status="completed",
-            result=event.output,
+            result=result_dict,
             named_outputs=None,
             runtime_info=None,
         )
@@ -359,60 +370,10 @@ class PromptHandler:
             tool_call_id=event.call_id,
             status="completed",
             raw_output=raw_output,
-            content=content,
+            content=display.content,
+            locations=display.locations if display.locations else None,
         )
         state.raw_output_sent = True
-
-    def _generate_tool_title(
-        self,
-        tool_name: str,
-        arguments: Mapping[str, object],
-        runtime_info: ToolRuntimeInfo | None,
-    ) -> str:
-        """Generate a descriptive title for a tool call.
-
-        Args:
-            tool_name: Name of the tool
-            arguments: Tool arguments
-            runtime_info: Optional runtime metadata
-
-        Returns:
-            Human-readable title describing the tool call
-        """
-        # For shell commands, use the command itself
-        if runtime_info and runtime_info.command:
-            return runtime_info.command
-
-        # For run_sql, use first part of the query
-        if tool_name == "run_sql" and "query" in arguments:
-            query = str(arguments["query"]).strip()
-            # Take first line or first 60 chars
-            first_line = query.split("\n")[0]
-            if len(first_line) > 60:
-                return first_line[:57] + "..."
-            return first_line
-
-        # For sync_transactions, create descriptive title
-        if tool_name == "sync_transactions":
-            count = arguments.get("count", 250)
-            return f"Sync up to {count} transactions"
-
-        # For recategorize_merchant, show merchant and category
-        if tool_name == "recategorize_merchant":
-            merchant_id = arguments.get("merchant_id", "unknown")
-            category = arguments.get("category_key", "unknown")
-            return f"Recategorize merchant {merchant_id} to {category}"
-
-        # For tag_transactions, show number of transactions
-        if tool_name == "tag_transactions":
-            tx_ids = arguments.get("transaction_ids", [])
-            tags = arguments.get("tags", [])
-            count = len(tx_ids) if isinstance(tx_ids, list) else 0
-            tag_str = ", ".join(tags) if isinstance(tags, list) else str(tags)
-            return f"Tag {count} transactions with {tag_str}"
-
-        # Default: use tool name
-        return tool_name
 
     async def _finalize_orphaned_calls(self, session_id: str) -> None:
         """Send failed updates for any tool calls that didn't complete."""

@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
-ToolCallKind = Literal["execute", "fetch", "edit", "other"]
+ToolCallKind = Literal["execute", "fetch", "edit", "read", "search", "other"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +136,10 @@ def classify_tool_kind(tool_name: str) -> ToolCallKind:
         "tag_transactions": "edit",
         "list_accounts": "fetch",
         "list_plaid_accounts": "fetch",
+        "scrape_amazon_orders": "fetch",
+        "upload_artifact": "other",
+        "migrate_taxonomy": "edit",
+        "connect_new_account": "other",
     }
     return kind_map.get(tool_name, "other")
 
