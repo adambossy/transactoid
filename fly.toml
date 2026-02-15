@@ -11,7 +11,7 @@ primary_region = "iad"  # US East - close to Supabase
   PYTHONUNBUFFERED = "1"
 
 # No HTTP service - this is a scheduled job
-# The machine starts, runs sync then report, and exits
+# The machine pulls latest origin/main, then runs sync and report, and exits
 
 # Machine configuration for the job
 # 512MB was OOM-killed during sync/report; use 1GB baseline.
@@ -26,7 +26,7 @@ primary_region = "iad"  # US East - close to Supabase
 #     --region iad \
 #     --vm-size shared-cpu-1x \
 #     --vm-memory 1024 \
-#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
+#     -- /bin/sh -lc "git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
 
 # To schedule once per day:
 #   fly machine run . \
@@ -36,7 +36,7 @@ primary_region = "iad"  # US East - close to Supabase
 #     --region iad \
 #     --vm-size shared-cpu-1x \
 #     --vm-memory 1024 \
-#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
+#     -- /bin/sh -lc "git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
 
 # Alternative: Use Fly Cron Manager for more control
 # See: https://fly.io/docs/blueprints/task-scheduling/
