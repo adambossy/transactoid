@@ -70,4 +70,4 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Default command: run sync first, then report (which sends email by default)
 ENTRYPOINT ["/bin/sh", "-lc"]
-CMD ["/app/.venv/bin/transactoid sync && /app/.venv/bin/transactoid report"]
+CMD ["/app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"]
