@@ -1,4 +1,4 @@
-# Fly.io configuration for Transactoid report job
+# Fly.io configuration for Transactoid sync+report job
 # This is a scheduled job, not a web service
 
 app = "transactoid"
@@ -11,7 +11,7 @@ primary_region = "iad"  # US East - close to Supabase
   PYTHONUNBUFFERED = "1"
 
 # No HTTP service - this is a scheduled job
-# The machine will start, run the report command, and exit
+# The machine starts, runs sync then report, and exits
 
 # Machine configuration for the job
 # Use the smallest machine size since this is an infrequent job
@@ -20,12 +20,19 @@ primary_region = "iad"  # US East - close to Supabase
   memory = "512mb"
 
 # To run manually:
-#   fly machine run transactoid --entrypoint "transactoid report"
+#   fly machine run . \
+#     --app transactoid \
+#     --restart no \
+#     --region iad \
+#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync && /app/.venv/bin/transactoid report"
 
-# To schedule (7 AM UTC daily):
-#   fly machine run transactoid \
-#     --schedule "0 7 * * *" \
-#     --entrypoint "transactoid report"
+# To schedule once per day:
+#   fly machine run . \
+#     --app transactoid \
+#     --schedule daily \
+#     --restart no \
+#     --region iad \
+#     -- /bin/sh -lc "/app/.venv/bin/transactoid sync && /app/.venv/bin/transactoid report"
 
 # Alternative: Use Fly Cron Manager for more control
 # See: https://fly.io/docs/blueprints/task-scheduling/

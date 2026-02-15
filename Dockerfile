@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for Transactoid report job
+# Multi-stage Dockerfile for Transactoid sync job
 # Uses uv for fast, deterministic dependency installation
 
 # =============================================================================
@@ -68,6 +68,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Default command: run the report job
-ENTRYPOINT ["transactoid"]
-CMD ["report"]
+# Default command: run sync first, then report (which sends email by default)
+ENTRYPOINT ["/bin/sh", "-lc"]
+CMD ["/app/.venv/bin/transactoid sync && /app/.venv/bin/transactoid report"]
