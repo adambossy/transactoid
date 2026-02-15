@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 from transactoid.ui.acp.notifier import UpdateNotifier
+from transactoid.ui.acp.tool_payloads import SCHEMA_INPUT_V1, SCHEMA_OUTPUT_V1
 from transactoid.ui.acp.transport import StdioTransport
 
 
@@ -340,3 +341,158 @@ class TestUpdateNotifierIntegration:
             notifications[2]["params"]["update"]["sessionUpdate"] == "tool_call_update"
         )
         assert notifications[3]["params"]["update"]["sessionUpdate"] == update_type
+
+
+class TestUpdateNotifierRichPayloads:
+    """Tests for rich payload fields (rawInput, rawOutput, etc.)."""
+
+    def test_tool_call_with_raw_input(self) -> None:
+        """Test tool_call includes rawInput when provided."""
+        transport = StdioTransport()
+        notifier = UpdateNotifier(transport)
+
+        raw_input = {
+            "schema": SCHEMA_INPUT_V1,
+            "tool": "run_sql",
+            "arguments": {"query": "SELECT 1"},
+        }
+
+        parsed = _capture_notification(
+            notifier.tool_call(
+                session_id="sess_abc123",
+                tool_call_id="call_001",
+                title="run_sql",
+                kind="execute",
+                status="pending",
+                raw_input=raw_input,
+            )
+        )
+
+        update = parsed["params"]["update"]
+        assert "rawInput" in update
+        assert update["rawInput"] == raw_input
+
+    def test_tool_call_with_content(self) -> None:
+        """Test tool_call includes content when provided."""
+        transport = StdioTransport()
+        notifier = UpdateNotifier(transport)
+
+        content = [
+            {"type": "content", "content": {"type": "text", "text": "Tool: run_sql"}}
+        ]
+
+        parsed = _capture_notification(
+            notifier.tool_call(
+                session_id="sess_abc123",
+                tool_call_id="call_001",
+                title="run_sql",
+                kind="execute",
+                status="pending",
+                content=content,
+            )
+        )
+
+        update = parsed["params"]["update"]
+        assert "content" in update
+        assert update["content"] == content
+
+    def test_tool_call_omits_optional_fields_when_none(self) -> None:
+        """Test tool_call omits rawInput, content, locations when None."""
+        transport = StdioTransport()
+        notifier = UpdateNotifier(transport)
+
+        parsed = _capture_notification(
+            notifier.tool_call(
+                session_id="sess_abc123",
+                tool_call_id="call_001",
+                title="run_sql",
+                kind="execute",
+                status="pending",
+                raw_input=None,
+                content=None,
+                locations=None,
+            )
+        )
+
+        update = parsed["params"]["update"]
+        assert "rawInput" not in update
+        assert "content" not in update
+        assert "locations" not in update
+
+    def test_tool_call_update_with_raw_output(self) -> None:
+        """Test tool_call_update includes rawOutput when provided."""
+        transport = StdioTransport()
+        notifier = UpdateNotifier(transport)
+
+        raw_output = {
+            "schema": SCHEMA_OUTPUT_V1,
+            "status": "completed",
+            "result": {"rows": [], "count": 0},
+        }
+
+        parsed = _capture_notification(
+            notifier.tool_call_update(
+                session_id="sess_abc123",
+                tool_call_id="call_001",
+                status="completed",
+                raw_output=raw_output,
+            )
+        )
+
+        update = parsed["params"]["update"]
+        assert "rawOutput" in update
+        assert update["rawOutput"] == raw_output
+
+    def test_tool_call_update_with_all_optional_fields(self) -> None:
+        """Test tool_call_update with all optional fields."""
+        transport = StdioTransport()
+        notifier = UpdateNotifier(transport)
+
+        raw_output = {"schema": SCHEMA_OUTPUT_V1, "status": "completed", "result": {}}
+        content = [{"type": "text", "text": "Done"}]
+        locations = [{"path": "/app/db.py", "line": 42}]
+
+        parsed = _capture_notification(
+            notifier.tool_call_update(
+                session_id="sess_abc123",
+                tool_call_id="call_001",
+                status="completed",
+                raw_output=raw_output,
+                content=content,
+                title="Updated title",
+                kind="fetch",
+                locations=locations,
+            )
+        )
+
+        update = parsed["params"]["update"]
+        assert update["rawOutput"] == raw_output
+        assert update["content"] == content
+        assert update["title"] == "Updated title"
+        assert update["kind"] == "fetch"
+        assert update["locations"] == locations
+
+    def test_tool_call_update_omits_optional_fields_when_none(self) -> None:
+        """Test tool_call_update omits optional fields when None."""
+        transport = StdioTransport()
+        notifier = UpdateNotifier(transport)
+
+        parsed = _capture_notification(
+            notifier.tool_call_update(
+                session_id="sess_abc123",
+                tool_call_id="call_001",
+                status="in_progress",
+                raw_output=None,
+                content=None,
+                title=None,
+                kind=None,
+                locations=None,
+            )
+        )
+
+        update = parsed["params"]["update"]
+        assert "rawOutput" not in update
+        assert "content" not in update
+        assert "title" not in update
+        assert "kind" not in update
+        assert "locations" not in update

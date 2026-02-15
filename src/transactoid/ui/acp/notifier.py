@@ -38,6 +38,9 @@ class UpdateNotifier:
         title: str,
         kind: ToolCallKind,
         status: ToolCallStatus,
+        raw_input: dict[str, Any] | None = None,
+        content: list[dict[str, Any]] | None = None,
+        locations: list[dict[str, Any]] | None = None,
     ) -> None:
         """Send a tool_call update notification.
 
@@ -51,16 +54,24 @@ class UpdateNotifier:
             title: Human-readable title describing the tool operation.
             kind: Category of tool operation (execute, fetch, edit, other).
             status: Current status of the tool call.
+            raw_input: Optional structured input payload with stable schema.
+            content: Optional rendered content blocks for display.
+            locations: Optional file locations related to this tool call.
         """
-        await self._send_update(
-            {
-                "sessionUpdate": "tool_call",
-                "toolCallId": tool_call_id,
-                "title": title,
-                "kind": kind,
-                "status": status,
-            }
-        )
+        update: dict[str, Any] = {
+            "sessionUpdate": "tool_call",
+            "toolCallId": tool_call_id,
+            "title": title,
+            "kind": kind,
+            "status": status,
+        }
+        if raw_input is not None:
+            update["rawInput"] = raw_input
+        if content is not None:
+            update["content"] = content
+        if locations is not None:
+            update["locations"] = locations
+        await self._send_update(update)
 
     async def tool_call_update(
         self,
@@ -68,6 +79,10 @@ class UpdateNotifier:
         tool_call_id: str,
         status: ToolCallStatus,
         content: list[dict[str, Any]] | None = None,
+        raw_output: dict[str, Any] | None = None,
+        title: str | None = None,
+        kind: ToolCallKind | None = None,
+        locations: list[dict[str, Any]] | None = None,
     ) -> None:
         """Send a tool_call_update notification.
 
@@ -81,6 +96,10 @@ class UpdateNotifier:
             status: New status of the tool call.
             content: Optional content blocks with tool output, typically
                 included when status is "completed" or "failed".
+            raw_output: Optional structured output payload with stable schema.
+            title: Optional updated title for the tool call.
+            kind: Optional updated kind for the tool call.
+            locations: Optional file locations related to this tool call.
         """
         update: dict[str, Any] = {
             "sessionUpdate": "tool_call_update",
@@ -89,6 +108,14 @@ class UpdateNotifier:
         }
         if content is not None:
             update["content"] = content
+        if raw_output is not None:
+            update["rawOutput"] = raw_output
+        if title is not None:
+            update["title"] = title
+        if kind is not None:
+            update["kind"] = kind
+        if locations is not None:
+            update["locations"] = locations
         await self._send_update(update)
 
     async def agent_message_chunk(

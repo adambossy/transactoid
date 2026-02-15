@@ -19,6 +19,8 @@ from transactoid.core.runtime.protocol import (
     ThoughtDeltaEvent,
     ToolCallArgsDeltaEvent,
     ToolCallCompletedEvent,
+    ToolCallInputEvent,
+    ToolCallOutputEvent,
     ToolCallRecord,
     ToolCallStartedEvent,
     ToolOutputEvent,
@@ -219,6 +221,12 @@ class GeminiCoreRuntime(CoreRuntime):
                     args_json = json.dumps(args)
                     if args_json:
                         yield ToolCallArgsDeltaEvent(call_id=call_id, delta=args_json)
+                    yield ToolCallInputEvent(
+                        call_id=call_id,
+                        tool_name=tool_name,
+                        arguments=args,
+                        runtime_info=None,
+                    )
 
                 function_response = getattr(part, "function_response", None)
                 if function_response is not None:
@@ -231,8 +239,20 @@ class GeminiCoreRuntime(CoreRuntime):
                         output = response_obj
                     else:
                         output = str(response_obj)
+
+                    status: Literal["completed", "failed"] = "completed"
+                    if isinstance(output, dict) and output.get("status") == "error":
+                        status = "failed"
+
                     yield ToolCallCompletedEvent(call_id=call_id)
                     yield ToolOutputEvent(call_id=call_id, output=output)
+                    yield ToolCallOutputEvent(
+                        call_id=call_id,
+                        status=status,
+                        output=output,
+                        runtime_info=None,
+                        named_outputs=None,
+                    )
 
                 part_text = getattr(part, "text", None)
                 if isinstance(part_text, str):

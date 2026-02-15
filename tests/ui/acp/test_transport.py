@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 import io
 import json
 from typing import Any
@@ -292,3 +293,75 @@ class TestStdioTransport:
 
         lines = mock_stdout.getvalue().strip().split("\n")
         assert len(lines) == 2
+
+    def test_write_response_serializes_decimal_values(self) -> None:
+        mock_stdout = io.StringIO()
+        response = JsonRpcResponse(
+            id=1,
+            result={
+                "transactions": [
+                    {"amount": Decimal("1522.0000000000000000"), "id": 1},
+                    {"amount": Decimal("42.99"), "id": 2},
+                ],
+                "total": Decimal("1564.99"),
+            },
+        )
+
+        async def run_test() -> None:
+            transport = StdioTransport()
+            with patch("sys.stdout", mock_stdout):
+                await transport.write_response(response)
+
+        asyncio.run(run_test())
+
+        output = mock_stdout.getvalue()
+        parsed: dict[str, Any] = json.loads(output.strip())
+
+        expected = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "transactions": [
+                    {"amount": 1522.0, "id": 1},
+                    {"amount": 42.99, "id": 2},
+                ],
+                "total": 1564.99,
+            },
+        }
+        assert parsed == expected
+
+    def test_write_notification_serializes_decimal_values(self) -> None:
+        mock_stdout = io.StringIO()
+        notification = JsonRpcNotification(
+            method="session/update",
+            params={
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "rawOutput": {
+                        "rows": [{"amount": Decimal("123.45"), "merchant": "Test"}]
+                    },
+                }
+            },
+        )
+
+        async def run_test() -> None:
+            transport = StdioTransport()
+            with patch("sys.stdout", mock_stdout):
+                await transport.write_notification(notification)
+
+        asyncio.run(run_test())
+
+        output = mock_stdout.getvalue()
+        parsed: dict[str, Any] = json.loads(output.strip())
+
+        expected = {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "rawOutput": {"rows": [{"amount": 123.45, "merchant": "Test"}]},
+                }
+            },
+        }
+        assert parsed == expected

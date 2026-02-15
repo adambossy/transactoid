@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from typing import Any
 
@@ -30,8 +31,9 @@ class GeminiToolAdapter:
             raise ValueError(f"Tool not found in registry: {tool_name}")
 
         schema_json = json.dumps(tool.input_schema, sort_keys=True)
+        properties = tool.input_schema.get("properties", {})
 
-        if not tool.input_schema.get("properties"):
+        if not properties:
 
             async def tool_func_no_args() -> dict[str, Any]:
                 return await self._invoker.invoke(tool_name=tool_name, args={})
@@ -40,19 +42,30 @@ class GeminiToolAdapter:
             tool_func_no_args.__doc__ = tool.description
             return FunctionTool(tool_func_no_args)
 
-        async def tool_func_with_args(args: dict[str, Any]) -> dict[str, Any]:
-            if not isinstance(args, dict):
-                type_name = type(args).__name__
-                return {
-                    "status": "error",
-                    "error": (f"Expected dict args for {tool_name}; got {type_name}"),
-                }
-            return await self._invoker.invoke(tool_name=tool_name, args=args)
+        # Create function with explicit parameters matching schema
+        # Google ADK requires function signature to match schema property names
+        param_names = list(properties.keys())
 
-        tool_func_with_args.__name__ = tool.name
-        tool_func_with_args.__doc__ = (
+        # Create a wrapper with the correct signature
+        async def wrapper(**kwargs: Any) -> dict[str, Any]:
+            return await self._invoker.invoke(tool_name=tool_name, args=kwargs)
+
+        # Build explicit parameter signature
+        params = [
+            inspect.Parameter(
+                name=name,
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                annotation=Any,
+            )
+            for name in param_names
+        ]
+        wrapper.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+            parameters=params, return_annotation=dict[str, Any]
+        )
+        wrapper.__name__ = tool.name
+        wrapper.__doc__ = (
             f"{tool.description}\n\n"
             "Arguments must match this JSON schema:\n"
             f"{schema_json}"
         )
-        return FunctionTool(tool_func_with_args)
+        return FunctionTool(wrapper)

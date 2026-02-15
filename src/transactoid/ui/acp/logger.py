@@ -204,3 +204,38 @@ class PromptHandlerLogger:
         self._logger.bind(event_type=event_type).debug(
             "Unhandled event type: {}", event_type
         )
+
+    def orphaned_tool_call(self, call_id: str, tool_name: str) -> None:
+        """Log orphaned tool call that didn't complete."""
+        self._logger.bind(call_id=call_id, tool_name=tool_name).warning(
+            "Orphaned tool call: call_id={} tool_name={}", call_id, tool_name
+        )
+
+    def tool_payload_built(
+        self, call_id: str, has_raw_input: bool, has_raw_output: bool
+    ) -> None:
+        """Log tool payload build success."""
+        self._logger.bind(
+            call_id=call_id,
+            has_raw_input=has_raw_input,
+            has_raw_output=has_raw_output,
+        ).debug(
+            "Tool payload built: call_id={} raw_input={} raw_output={}",
+            call_id,
+            has_raw_input,
+            has_raw_output,
+        )
+
+    def tool_payload_fallback(self, call_id: str, reason: str) -> None:
+        """Log tool payload fallback."""
+        self._logger.bind(call_id=call_id, reason=reason).warning(
+            "Tool payload fallback: call_id={} reason={}", call_id, reason
+        )
+
+    def tool_lifecycle_transition(
+        self, call_id: str, from_status: str, to_status: str
+    ) -> None:
+        """Log tool call lifecycle transition."""
+        self._logger.bind(
+            call_id=call_id, from_status=from_status, to_status=to_status
+        ).debug("Tool lifecycle: call_id={} {} -> {}", call_id, from_status, to_status)
