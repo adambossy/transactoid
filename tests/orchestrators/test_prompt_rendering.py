@@ -14,6 +14,8 @@ def test_render_prompt_replaces_agent_memory(tmp_path: Path, monkeypatch: Any) -
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
     (memory_dir / "index.md").write_text("# Memory Index")
+    (memory_dir / "merchant-rules.md").write_text("# Merchant Rules")
+    (memory_dir / "budget.md").write_text("# Budget Optional")
 
     # Monkeypatch the memory directory path
     import transactoid.orchestrators.transactoid as orchestrator_module
@@ -39,6 +41,8 @@ def test_render_prompt_replaces_agent_memory(tmp_path: Path, monkeypatch: Any) -
     )
 
     assert "# Memory Index" in result
+    assert "# Merchant Rules" in result
+    assert "# Budget Optional" not in result
     assert "{{AGENT_MEMORY}}" not in result
 
 
