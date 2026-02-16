@@ -10,14 +10,15 @@ from transactoid.orchestrators.transactoid import _render_prompt_template
 
 def test_render_prompt_replaces_agent_memory(tmp_path: Path, monkeypatch: Any) -> None:
     """{{AGENT_MEMORY}} placeholder is replaced with assembled memory."""
-    # Create memory directory
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
     (memory_dir / "index.md").write_text("# Memory Index")
     (memory_dir / "merchant-rules.md").write_text("# Merchant Rules")
     (memory_dir / "budget.md").write_text("# Budget Optional")
+    tax_returns_dir = memory_dir / "tax-returns"
+    tax_returns_dir.mkdir()
+    (tax_returns_dir / "2024.md").write_text("Sensitive tax content")
 
-    # Monkeypatch the memory directory path
     import transactoid.orchestrators.transactoid as orchestrator_module
 
     original_assemble = orchestrator_module._assemble_agent_memory
@@ -43,6 +44,9 @@ def test_render_prompt_replaces_agent_memory(tmp_path: Path, monkeypatch: Any) -
     assert "# Memory Index" in result
     assert "# Merchant Rules" in result
     assert "# Budget Optional" not in result
+    assert "Sensitive tax content" not in result
+    assert "## Local Tax Return Files (Runtime)" in result
+    assert "`tax-returns/2024.md`" in result
     assert "{{AGENT_MEMORY}}" not in result
 
 

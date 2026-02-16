@@ -17,12 +17,13 @@ Agent memory enables:
 - `index.md`: Tree-based inventory of what currently exists in `memory/`
 - `merchant-rules.md`: Merchant categorization rules mapping descriptors to taxonomy categories
 - `budget.md`: Budget preferences and budgeting guidance template (optional, on-demand)
+- `tax-returns/`: Local-only tax-return files (optional, on-demand)
 
 ## Loading Model
 
 - **Core memory (always injected):** `index.md`, `merchant-rules.md`
-- **Optional memory (discover + read on demand):** `budget.md` and future optional files
-- **Discovery source:** `index.md` provides a tree-style inventory of available memory files
+- **Optional memory (discover + read on demand):** `budget.md`, `tax-returns/*`, and future optional files
+- **Discovery source:** `index.md` provides a tree-style inventory and runtime tax-return file list
 
 ## Editing Conventions
 

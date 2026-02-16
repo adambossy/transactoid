@@ -46,12 +46,41 @@ class TargetCategory(BaseModel):
 CORE_MEMORY_FILES = ("index.md", "merchant-rules.md")
 
 
+def _build_tax_returns_inventory(*, memory_dir: Path) -> str:
+    """Build runtime inventory for local tax-return files."""
+    tax_returns_dir = memory_dir / "tax-returns"
+    if not tax_returns_dir.exists() or not tax_returns_dir.is_dir():
+        return ""
+
+    discovered_files: list[str] = []
+    for candidate in tax_returns_dir.rglob("*"):
+        if not candidate.is_file():
+            continue
+        if candidate.name.endswith(".example"):
+            continue
+        discovered_files.append(candidate.relative_to(memory_dir).as_posix())
+
+    if not discovered_files:
+        return ""
+
+    sorted_files = sorted(discovered_files)
+    lines = [
+        "## Local Tax Return Files (Runtime)",
+        "",
+        "The following local-only files were found and can be read on demand:",
+        "",
+    ]
+    lines.extend(f"- `{file_path}`" for file_path in sorted_files)
+    return "\n".join(lines)
+
+
 def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
     """
     Assemble core agent memory content.
 
     Auto-loads only core files: `index.md` and `merchant-rules.md` (in that
-    order). Optional files (such as `budget.md`) are not auto-loaded.
+    order). Optional files (such as `budget.md` and tax-return files) are not
+    auto-loaded. Tax-return file paths are surfaced in the runtime index block.
 
     Args:
         memory_dir: Path to memory directory (default: memory/)
@@ -59,13 +88,22 @@ def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
     Returns:
         Assembled memory content as markdown string, or empty string if no memory.
     """
-    memory_parts: list[str] = []
+    if not memory_dir.exists() or not memory_dir.is_dir():
+        return ""
 
-    if memory_dir.exists() and memory_dir.is_dir():
-        for file_name in CORE_MEMORY_FILES:
-            memory_file = memory_dir / file_name
-            if memory_file.exists():
-                memory_parts.append(memory_file.read_text())
+    memory_parts: list[str] = []
+    for file_name in CORE_MEMORY_FILES:
+        memory_file = memory_dir / file_name
+        if not memory_file.exists():
+            continue
+
+        file_content = memory_file.read_text()
+        if file_name == "index.md":
+            tax_returns_inventory = _build_tax_returns_inventory(memory_dir=memory_dir)
+            if tax_returns_inventory:
+                file_content = f"{file_content.rstrip()}\n\n{tax_returns_inventory}"
+
+        memory_parts.append(file_content)
 
     if not memory_parts:
         return ""

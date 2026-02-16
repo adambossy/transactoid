@@ -1,0 +1,39 @@
+# Tax Return Template (Example)
+
+This file is a template. Copy it to any filename in `memory/tax-returns/` (for example `2026.md`) and fill it in.
+
+Rules:
+- `YYYY.md` is a convention, not a requirement.
+- Files in `memory/tax-returns/` are optional context and loaded on demand.
+- File paths are listed in the runtime section of `memory/index.md` so the agent can discover them.
+- Files ending in `.example` are excluded from prompt injection and runtime inventory.
+- Do not include raw SSNs, full account numbers, or similarly sensitive identifiers.
+
+## Filing Overview
+- Tax year:
+- Filing status:
+- State(s):
+
+## Income Summary
+- W-2 wages:
+- 1099 income:
+- Other income:
+
+## Adjustments and Deductions
+- Above-the-line adjustments:
+- Standard or itemized:
+- Notable deductions:
+
+## Tax and Payments
+- Taxable income:
+- Federal tax:
+- State tax:
+- Payments/withholding:
+- Refund or amount due:
+
+## Carryovers and Elections
+- Carryovers:
+- Elections:
+
+## Notes
+- Any context the agent should remember when discussing taxes.
