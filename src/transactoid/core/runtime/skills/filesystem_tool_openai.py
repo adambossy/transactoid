@@ -2,20 +2,53 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from agents import ShellTool
+import loguru
+from loguru import logger
 
-from transactoid.core.runtime.skills.path_extraction import extract_paths_from_command
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
 from transactoid.core.runtime.skills.policy import (
     MEMORY_DIR,
-    is_command_allowed,
-    is_path_in_scope,
+    evaluate_command_policy,
 )
 
 
-def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
+class OpenAIFilesystemToolLogger:
+    """Handles all logging for OpenAI filesystem tool with business logic separated."""
+
+    def __init__(self, logger_instance: loguru.Logger = logger) -> None:
+        self._logger = logger_instance
+
+    def blocked_command(
+        self,
+        runtime: str,
+        reason: str,
+        base_command: str,
+        operation: str,
+        command: str,
+        effective_command: str,
+        policy: str,
+    ) -> None:
+        """Log blocked execute_shell_command in copy/paste-friendly JSON format."""
+        payload = {
+            "runtime": runtime,
+            "reason": reason,
+            "base_command": base_command,
+            "operation": operation,
+            "command": command,
+            "effective_command": effective_command,
+            "policy": policy,
+        }
+        self._logger.warning(
+            "BLOCKED_EXECUTE_SHELL_COMMAND {}",
+            json.dumps(payload, separators=(",", ":")),
+        )
+
+
+def create_scoped_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
     """Create a ShellTool with policy enforcement for skills and memory/.
 
     Args:
@@ -29,8 +62,11 @@ def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
         MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR
     ]
 
+    # Create logger instance
+    tool_logger = OpenAIFilesystemToolLogger()
+
     def approval_function(ctx: Any, action: Any, command: str) -> bool:
-        """Check if command is allowed under read-only policy.
+        """Check if command is allowed under scoped policy.
 
         Args:
             ctx: Run context wrapper
@@ -40,25 +76,31 @@ def create_readonly_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
         Returns:
             True if command is allowed, False otherwise
         """
-        # Validate command against allowlist
-        if not is_command_allowed(command):
-            return False
+        # Evaluate command against policy
+        policy_result = evaluate_command_policy(command, allowed_roots)
 
-        # Extract paths from command for scope validation
-        command_paths = extract_paths_from_command(command)
-        for cmd_path in command_paths:
-            if not is_path_in_scope(cmd_path, allowed_roots):
-                return False
+        if not policy_result.allowed:
+            # Log blocked command in copy/paste-friendly format
+            tool_logger.blocked_command(
+                runtime="openai",
+                reason=policy_result.reason,
+                base_command=policy_result.base_command,
+                operation=policy_result.operation,
+                command=command,
+                effective_command=policy_result.effective_command,
+                policy="scoped read/create/update/move/copy for skills and memory/",
+            )
+            return False
 
         return True
 
     # Note: ShellTool with local environment creates a default local executor
     # when executor parameter is None
     return ShellTool(
-        name="read_skill_files",
+        name="execute_shell_command",
         needs_approval=approval_function,
         environment={"type": "local"},
     )
 
 
-__all__ = ["create_readonly_shell_tool"]
+__all__ = ["create_scoped_shell_tool"]

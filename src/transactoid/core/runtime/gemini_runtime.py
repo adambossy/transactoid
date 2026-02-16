@@ -296,13 +296,14 @@ class GeminiCoreRuntime(CoreRuntime):
         from google.adk.tools.function_tool import FunctionTool
 
         async def execute_shell_command(command: str) -> dict[str, Any]:
-            """Execute read-only shell commands for skill discovery.
+            """Execute scoped shell commands for skill discovery and memory editing.
 
-            Allows: pwd, ls, find, cat, head, tail, grep, rg, sed.
-            Restricted to skill directories only.
+            Allows: pwd, ls, find, cat, head, tail, grep, rg, sed, echo, printf,
+                   touch, mkdir, mv, cp, tree.
+            Operations scoped to skill directories and memory/ directory only.
 
             Args:
-                command: Shell command to execute (read-only operations only)
+                command: Shell command to execute (scoped read/write/move/copy)
 
             Returns:
                 Command output or error message
