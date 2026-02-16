@@ -3,88 +3,227 @@
 from pathlib import Path
 
 from transactoid.core.runtime.skills.policy import (
-    is_command_allowed,
+    evaluate_command_policy,
     is_path_in_scope,
 )
 
 
-def test_is_command_allowed_read_commands() -> None:
-    """Test that read-only commands are allowed."""
-    # Input - allowed commands
-    allowed_commands = [
-        "ls -la",
-        "cat file.txt",
-        "grep pattern file.txt",
-        "find . -name '*.md'",
+def test_evaluate_command_policy_read_commands(tmp_path: Path) -> None:
+    """Test that read commands are allowed within scope."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    allowed_file = allowed_dir / "test.txt"
+    allowed_file.touch()
+    allowed_roots = [allowed_dir]
+
+    # Input - allowed read commands
+    commands = [
+        f"ls {allowed_dir}",
+        f"cat {allowed_file}",
+        f"grep pattern {allowed_file}",
+        f"find {allowed_dir} -name '*.md'",
         "pwd",
-        "head -n 10 file.txt",
-        "tail -f log.txt",
-        "rg --files",
-        "sed -n '1,10p' file.txt",
+        f"head -n 10 {allowed_file}",
+        f"tail -f {allowed_file}",
+        f"rg --files {allowed_dir}",
+        f"sed -n '1,10p' {allowed_file}",
+        f"tree {allowed_dir}",
     ]
 
     # Act & Assert
-    for command in allowed_commands:
-        assert is_command_allowed(command), f"Command should be allowed: {command}"
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert result.allowed, f"Command should be allowed: {command}"
+        assert result.operation == "read" or result.base_command == "tree"
 
 
-def test_is_command_allowed_mutating_commands() -> None:
-    """Test that mutating commands are blocked."""
+def test_evaluate_command_policy_write_commands(tmp_path: Path) -> None:
+    """Test that write commands are allowed within scope."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    allowed_roots = [allowed_dir]
+
+    # Input - allowed write commands
+    commands = [
+        f"touch {allowed_dir}/newfile.txt",
+        f"mkdir {allowed_dir}/newdir",
+        f"echo 'text' > {allowed_dir}/output.txt",
+        f"echo 'text' >> {allowed_dir}/output.txt",
+        f"printf 'text' > {allowed_dir}/output.txt",
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert result.allowed, f"Command should be allowed: {command}"
+        assert result.operation == "write"
+
+
+def test_evaluate_command_policy_move_copy_commands(tmp_path: Path) -> None:
+    """Test that mv and cp commands are allowed when both paths are in scope."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    source = allowed_dir / "source.txt"
+    source.touch()
+    dest = allowed_dir / "dest.txt"
+    allowed_roots = [allowed_dir]
+
+    # Input - allowed move/copy commands
+    commands = [
+        f"mv {source} {dest}",
+        f"cp {source} {dest}",
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert result.allowed, f"Command should be allowed: {command}"
+        assert result.operation in {"move", "copy"}
+
+
+def test_evaluate_command_policy_move_copy_denied_outside_scope(
+    tmp_path: Path,
+) -> None:
+    """Test that mv/cp are denied when either path is outside scope."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    outside_dir = tmp_path / "outside"
+    allowed_dir.mkdir()
+    outside_dir.mkdir()
+    source_in = allowed_dir / "source.txt"
+    source_out = outside_dir / "source.txt"
+    dest_in = allowed_dir / "dest.txt"
+    dest_out = outside_dir / "dest.txt"
+    source_in.touch()
+    source_out.touch()
+    allowed_roots = [allowed_dir]
+
+    # Input - denied move/copy commands
+    commands = [
+        f"mv {source_in} {dest_out}",  # source in, dest out
+        f"mv {source_out} {dest_in}",  # source out, dest in
+        f"cp {source_in} {dest_out}",  # source in, dest out
+        f"cp {source_out} {dest_in}",  # source out, dest in
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert not result.allowed, f"Command should be denied: {command}"
+        assert "outside allowed scope" in result.reason.lower()
+
+
+def test_evaluate_command_policy_bash_c_allowed(tmp_path: Path) -> None:
+    """Test that bash -c is allowed for single allowed commands."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    allowed_file = allowed_dir / "test.txt"
+    allowed_file.touch()
+    allowed_roots = [allowed_dir]
+
+    # Input - allowed bash -c commands
+    commands = [
+        f'bash -c "echo text >> {allowed_file}"',
+        f'bash -c "ls {allowed_dir}"',
+        f'bash -c "cat {allowed_file}"',
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert result.allowed, f"Command should be allowed: {command}"
+
+
+def test_evaluate_command_policy_bash_c_chained_denied(tmp_path: Path) -> None:
+    """Test that bash -c with chained commands is denied."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    allowed_roots = [allowed_dir]
+
+    # Input - denied chained bash -c commands
+    commands = [
+        f'bash -c "ls {allowed_dir} && echo done"',
+        'bash -c "cat file.txt || echo failed"',
+        'bash -c "ls; pwd"',
+        'bash -c "ls | grep pattern"',
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert not result.allowed, f"Command should be denied: {command}"
+        assert "chained" in result.reason.lower()
+
+
+def test_evaluate_command_policy_denied_commands() -> None:
+    """Test that explicitly denied commands are blocked."""
     # Input - denied commands
-    denied_commands = [
+    commands = [
         "rm file.txt",
-        "mv old.txt new.txt",
-        "cp file.txt backup.txt",
-        "mkdir newdir",
         "rmdir olddir",
         "chmod 755 file.txt",
-        "touch newfile.txt",
         "pip install package",
         "npm install",
         "apt install vim",
     ]
 
     # Act & Assert
-    for command in denied_commands:
-        assert not is_command_allowed(command), f"Command should be blocked: {command}"
+    for command in commands:
+        result = evaluate_command_policy(command, None)
+        assert not result.allowed, f"Command should be denied: {command}"
+        assert "denied" in result.reason.lower()
 
 
-def test_is_command_allowed_redirection_blocked() -> None:
-    """Test that redirection operators are blocked."""
-    # Input - commands with redirection
-    redirection_commands = [
-        "cat file.txt > output.txt",
-        "echo 'text' >> file.txt",
-        "sed 's/old/new/' < input.txt > output.txt",
-        "grep pattern file.txt > results.txt",
-    ]
-
-    # Act & Assert
-    for command in redirection_commands:
-        assert not is_command_allowed(command), (
-            f"Redirection should be blocked: {command}"
-        )
-
-
-def test_is_command_allowed_empty_command() -> None:
-    """Test that empty command is blocked."""
-    # Act
-    result = is_command_allowed("")
-
-    # Assert
-    assert not result
-
-
-def test_is_command_allowed_unknown_command() -> None:
+def test_evaluate_command_policy_unknown_command() -> None:
     """Test that unknown commands are blocked."""
     # Input
     command = "unknown_command arg1 arg2"
 
     # Act
-    result = is_command_allowed(command)
+    result = evaluate_command_policy(command, None)
 
     # Assert
-    assert not result
+    assert not result.allowed
+    assert "not in allowlist" in result.reason.lower()
+
+
+def test_evaluate_command_policy_empty_command() -> None:
+    """Test that empty command is blocked."""
+    # Act
+    result = evaluate_command_policy("", None)
+
+    # Assert
+    assert not result.allowed
+    assert result.reason == "Empty command"
+
+
+def test_evaluate_command_policy_redirection_outside_scope(tmp_path: Path) -> None:
+    """Test that redirection to paths outside scope is denied."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    outside_dir = tmp_path / "outside"
+    allowed_dir.mkdir()
+    outside_dir.mkdir()
+    outside_file = outside_dir / "output.txt"
+    allowed_roots = [allowed_dir]
+
+    # Input - denied redirection commands
+    commands = [
+        f"echo 'text' > {outside_file}",
+        f"echo 'text' >> {outside_file}",
+        f"cat input.txt > {outside_file}",
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert not result.allowed, f"Command should be denied: {command}"
+        assert "outside allowed scope" in result.reason.lower()
 
 
 def test_is_path_in_scope_within_allowed_root(tmp_path: Path) -> None:
