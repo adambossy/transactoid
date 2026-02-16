@@ -1,4 +1,4 @@
-# Report job configuration
+# Email delivery configuration
 # Note: Budget and spending thresholds are defined in the prompt template,
 # not here. This file only contains email delivery settings.
 
