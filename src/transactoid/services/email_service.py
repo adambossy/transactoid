@@ -70,7 +70,7 @@ class EmailService:
 
         for attempt in range(max_retries):
             try:
-                params: resend.Emails.SendParams = {
+                params = {
                     "from": from_str,
                     "to": to,
                     "subject": subject,
