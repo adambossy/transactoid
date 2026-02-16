@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from transactoid.core.runtime.skills.policy import (
+from transactoid.tools.execute_shell.policy import (
     evaluate_command_policy,
     is_path_in_scope,
 )
