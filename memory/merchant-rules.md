@@ -26,3 +26,8 @@ Merchant rules provide explicit mappings from merchant descriptors to taxonomy c
 - **Category:** `food_and_dining.groceries`
 - **Patterns:** `JUBILEE MARKET`, `JUBILEE MARKE`
 - **Description:** Jubilee Market grocery purchases
+
+## Rule: Margarita House Cleaning
+- **Category:** `housing_and_utilities.home_services_and_maintenance`
+- **Patterns:** `MARGARITA HOUSE CLE`
+- **Description:** Recurring house cleaning payments via Zelle to Margarita
