@@ -1,4 +1,4 @@
-# Fly.io configuration for Transactoid sync+report job
+# Fly.io configuration for Transactoid sync+run job
 # This is a scheduled job, not a web service
 
 app = "transactoid"
@@ -11,10 +11,11 @@ primary_region = "iad"  # US East - close to Supabase
   PYTHONUNBUFFERED = "1"
 
 # No HTTP service - this is a scheduled job
-# The machine pulls latest origin/main, then runs sync and report, and exits
+# The machine pulls latest origin/main, then runs sync and run, and exits
+# Email settings: configs/email.yaml
 
 # Machine configuration for the job
-# 512MB was OOM-killed during sync/report; use 1GB baseline.
+# 512MB was OOM-killed during sync/run; use 1GB baseline.
 [[vm]]
   size = "shared-cpu-1x"
   memory = "1024mb"
@@ -26,7 +27,7 @@ primary_region = "iad"  # US East - close to Supabase
 #     --region iad \
 #     --vm-size shared-cpu-1x \
 #     --vm-memory 1024 \
-#     -- /bin/sh -lc "git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
+#     -- /bin/sh -lc "git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid run --prompt-key report-monthly"
 
 # To schedule once per day:
 #   fly machine run . \
@@ -36,7 +37,7 @@ primary_region = "iad"  # US East - close to Supabase
 #     --region iad \
 #     --vm-size shared-cpu-1x \
 #     --vm-memory 1024 \
-#     -- /bin/sh -lc "git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid report"
+#     -- /bin/sh -lc "git -C /app fetch --depth=1 origin main && git -C /app checkout -B main FETCH_HEAD && /app/.venv/bin/transactoid sync \"$PLAID_ACCESS_TOKEN\" && /app/.venv/bin/transactoid run --prompt-key report-monthly"
 
 # Alternative: Use Fly Cron Manager for more control
 # See: https://fly.io/docs/blueprints/task-scheduling/
