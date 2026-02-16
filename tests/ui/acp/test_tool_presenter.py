@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from transactoid.core.runtime.protocol import NamedOutput, ToolRuntimeInfo
 from transactoid.ui.acp.tool_presenter import present_tool_input, present_tool_output
 
@@ -113,6 +115,17 @@ def test_present_unknown_tool_input() -> None:
     assert "param1" in display.content[0]["content"]["text"]
 
 
+def test_present_unknown_tool_input_with_decimal() -> None:
+    """Test unknown tool fallback serializes Decimal values."""
+    display = present_tool_input(
+        tool_name="unknown_tool",
+        arguments={"amount": Decimal("42.99")},
+    )
+
+    assert display.title == "unknown_tool"
+    assert "42.99" in display.content[0]["content"]["text"]
+
+
 def test_present_run_sql_output_success() -> None:
     """Test run_sql output presentation."""
     display = present_tool_output(
@@ -215,3 +228,16 @@ def test_present_error_fallback() -> None:
     assert len(display.content) == 1
     assert "Connection timeout" in display.content[0]["content"]["text"]
     assert "```" in display.content[0]["content"]["text"]
+
+
+def test_present_list_accounts_output_with_decimal() -> None:
+    """Test list_accounts output serializes Decimal values."""
+    display = present_tool_output(
+        tool_name="list_accounts",
+        arguments={},
+        status="completed",
+        result={"rows": [{"balance": Decimal("123.45")}]},
+    )
+
+    assert display.kind == "fetch"
+    assert "123.45" in display.content[0]["content"]["text"]

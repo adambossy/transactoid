@@ -22,6 +22,18 @@ from transactoid.core.runtime.protocol import (
 )
 
 
+def _json_default(obj: Any) -> Any:
+    """Serialize non-default JSON types used in tool payloads."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _dumps_json(payload: Any, *, indent: int = 2) -> str:
+    """Serialize tool payloads with Decimal support."""
+    return json.dumps(payload, indent=indent, default=_json_default)
+
+
 @dataclass(frozen=True, slots=True)
 class ToolDisplay:
     """Display-ready payload for a tool call phase."""
@@ -102,7 +114,7 @@ def present_tool_input(
 
     # Default: tool name as title, arguments as JSON
 
-    args_json = json.dumps(dict(arguments), indent=2)
+    args_json = _dumps_json(dict(arguments))
     return ToolDisplay(
         title=tool_name,
         kind=kind,
@@ -182,16 +194,8 @@ def present_tool_output(
 
     # Default: result as JSON
 
-    class _JSONEncoder(json.JSONEncoder):
-        def default(self, obj: Any) -> Any:
-            if isinstance(obj, Decimal):
-                return float(obj)
-            return super().default(obj)
-
-    result_json = json.dumps(
+    result_json = _dumps_json(
         result if isinstance(result, dict) else {"result": result},
-        indent=2,
-        cls=_JSONEncoder,
     )
     return ToolDisplay(
         title="",
@@ -311,12 +315,6 @@ def _present_run_sql_output(
 ) -> ToolDisplay:
     """Present run_sql output as JSON or error."""
 
-    class _JSONEncoder(json.JSONEncoder):
-        def default(self, obj: Any) -> Any:
-            if isinstance(obj, Decimal):
-                return float(obj)
-            return super().default(obj)
-
     if status == "failed":
         error_text = (
             result
@@ -338,10 +336,8 @@ def _present_run_sql_output(
             locations=[],
         )
 
-    result_json = json.dumps(
+    result_json = _dumps_json(
         result if isinstance(result, dict) else {"result": result},
-        indent=2,
-        cls=_JSONEncoder,
     )
     return ToolDisplay(
         title="",
@@ -468,7 +464,7 @@ def _present_list_accounts_output(
             locations=[],
         )
 
-    result_json = json.dumps(result, indent=2)
+    result_json = _dumps_json(result)
     return ToolDisplay(
         title="",
         kind=kind,
