@@ -726,10 +726,6 @@ async def _agent_run_impl(
     prompt_key: str | None,
     continue_run_id: str | None,
     email: list[str],
-    save_md: bool,
-    save_html: bool,
-    output_target: list[str],
-    local_dir: str | None,
     max_turns: int,
     template_vars: dict[str, str] | None = None,
 ) -> None:
@@ -737,22 +733,14 @@ async def _agent_run_impl(
     from transactoid.services.agent_run import (
         AgentRunRequest,
         AgentRunService,
-        OutputTarget,
     )
-    from transactoid.services.agent_run.pipeline import OutputPipeline
     from transactoid.taxonomy.loader import load_taxonomy_from_db
-
-    targets = tuple(OutputTarget(target) for target in output_target)
 
     request = AgentRunRequest(
         prompt=prompt,
         prompt_key=prompt_key,
         template_vars=template_vars or {},
         continue_run_id=continue_run_id,
-        save_md=save_md,
-        save_html=save_html,
-        output_targets=targets,
-        local_dir=local_dir,
         email_recipients=tuple(email),
         max_turns=max_turns,
     )
@@ -767,15 +755,13 @@ async def _agent_run_impl(
     if result.success:
         typer.echo(f"Run {result.run_id} completed in {result.duration_seconds:.1f}s")
 
-        pipeline = OutputPipeline()
-        html_text, artifacts = pipeline.process(
-            report_text=result.report_text, request=request, run_id=result.run_id
-        )
-
-        for artifact in artifacts:
-            typer.echo(f"  {artifact.artifact_type}: {artifact.key}")
-
-        if not artifacts and not email:
+        if email:
+            _send_run_email(
+                report_text=result.report_text,
+                prompt_key=prompt_key,
+                recipients=email,
+            )
+        else:
             typer.echo("\n" + result.report_text)
     else:
         typer.echo(f"Run {result.run_id} failed: {result.error}", err=True)
@@ -792,7 +778,7 @@ def run_cmd(
     prompt_key: str | None = typer.Option(
         None,
         "--prompt-key",
-        help="Promptorium key to load (e.g. 'spending-report')",
+        help="Promptorium key to load (e.g. 'report-monthly')",
     ),
     continue_run_id: str | None = typer.Option(
         None,
@@ -804,47 +790,21 @@ def run_cmd(
         "--email",
         help="Email recipient(s) for the report (repeatable)",
     ),
-    save_md: bool = typer.Option(
-        True,
-        "--save-md/--no-save-md",
-        help="Save markdown artifact",
-    ),
-    save_html: bool = typer.Option(
-        True,
-        "--save-html/--no-save-html",
-        help="Save HTML artifact",
-    ),
-    output_target: list[str] | None = typer.Option(
-        None,
-        "--output-target",
-        help="Output target: 'r2' or 'local' (repeatable, default: r2)",
-    ),
-    local_dir: str | None = typer.Option(
-        None,
-        "--local-dir",
-        help="Local directory for artifact output",
-    ),
     max_turns: int = typer.Option(
         50,
         "--max-turns",
         help="Maximum agent turns",
     ),
-    month: str | None = typer.Option(
-        None,
-        "--month",
-        "-m",
-        help="Helper: inject CURRENT_DATE/CURRENT_MONTH/CURRENT_YEAR for YYYY-MM",
-    ),
 ) -> None:
     """Execute a headless agent run.
 
-    Run the Transactoid agent with a prompt (raw text or promptorium key),
-    persist artifacts to R2 or local disk, and optionally email the output.
+    Run the Transactoid agent with a prompt (raw text or promptorium key)
+    and optionally email the output.
 
     Examples:
 
-        # Run with a promptorium key
-        transactoid run --prompt-key spending-report
+        # Run a monthly report
+        transactoid run --prompt-key report-monthly
 
         # Run with a raw prompt
         transactoid run --prompt "Summarize my spending"
@@ -852,11 +812,8 @@ def run_cmd(
         # Continue a previous run
         transactoid run --prompt "Add more detail" --continue abc123
 
-        # Save locally instead of R2
-        transactoid run --prompt-key spending-report --output-target local
-
         # Email the report
-        transactoid run --prompt-key spending-report --email user@example.com
+        transactoid run --prompt-key report-monthly --email user@example.com
     """
     if prompt is None and prompt_key is None:
         typer.echo("Either --prompt or --prompt-key is required", err=True)
@@ -866,38 +823,25 @@ def run_cmd(
         typer.echo("Only one of --prompt or --prompt-key may be provided", err=True)
         raise typer.Exit(1)
 
-    targets = output_target or ["r2"]
-    valid_targets = {"r2", "local"}
-    for target in targets:
-        if target not in valid_targets:
-            typer.echo(f"Invalid output target: {target}", err=True)
-            raise typer.Exit(1)
-
-    template_vars: dict[str, str] = {}
-    if month and prompt_key:
-        template_vars = _build_month_template_vars(month)
-
     asyncio.run(
         _agent_run_impl(
             prompt=prompt,
             prompt_key=prompt_key,
             continue_run_id=continue_run_id,
             email=email or [],
-            save_md=save_md,
-            save_html=save_html,
-            output_target=targets,
-            local_dir=local_dir,
             max_turns=max_turns,
-            template_vars=template_vars or None,
         )
     )
 
 
-def _load_report_config(config_path: str) -> dict[str, Any]:
-    """Load report configuration from YAML file."""
-    path = Path(config_path)
+_DEFAULT_EMAIL_CONFIG_PATH = "configs/email.yaml"
+
+
+def _load_email_config() -> dict[str, Any]:
+    """Load email configuration from configs/email.yaml."""
+    path = Path(_DEFAULT_EMAIL_CONFIG_PATH)
     if not path.exists():
-        typer.echo(f"Config file not found: {config_path}", err=True)
+        typer.echo(f"Config file not found: {_DEFAULT_EMAIL_CONFIG_PATH}", err=True)
         raise typer.Exit(1)
 
     with open(path) as f:
@@ -905,223 +849,56 @@ def _load_report_config(config_path: str) -> dict[str, Any]:
         return config
 
 
-def _build_month_template_vars(month: str) -> dict[str, str]:
-    """Parse YYYY-MM and return template vars for date injection."""
-    import calendar
-
-    year, month_num = map(int, month.split("-"))
-    month_name = calendar.month_name[month_num]
-    last_day = calendar.monthrange(year, month_num)[1]
-    return {
-        "CURRENT_DATE": f"{year}-{month_num:02d}-{last_day:02d}",
-        "CURRENT_MONTH": month_name,
-        "CURRENT_YEAR": str(year),
-    }
-
-
-def _resolve_report_recipients(
-    email_config: dict[str, Any],
-) -> list[str]:
-    """Resolve email recipients from config and env overrides."""
-    recipients: list[str] = email_config.get("recipients", [])
-    env_recipients = os.environ.get("REPORT_RECIPIENTS")
-    if env_recipients:
-        recipients = [r.strip() for r in env_recipients.split(",")]
-    return recipients
-
-
-async def _report_impl(
-    send_email: bool,
-    output_file: str | None,
-    config_path: str,
-    report_month: str | None = None,
+def _send_run_email(
+    *,
+    report_text: str,
+    prompt_key: str | None,
+    recipients: list[str],
 ) -> None:
-    """Generate spending report by delegating to AgentRunService."""
-    from transactoid.jobs.report.email_service import EmailService
-    from transactoid.services.agent_run import (
-        AgentRunRequest,
-        AgentRunService,
-        OutputTarget,
-    )
-    from transactoid.services.agent_run.pipeline import OutputPipeline
-    from transactoid.taxonomy.loader import load_taxonomy_from_db
+    """Send email after a completed agent run.
 
-    config = _load_report_config(config_path)
-    email_config: dict[str, Any] = config.get("email", {})
-    error_config: dict[str, Any] = config.get("error_notification", {})
-
-    template_vars: dict[str, str] = {}
-    if report_month:
-        template_vars = _build_month_template_vars(report_month)
-
-    # Pipeline handles R2; output_file is written manually below
-    output_targets: list[OutputTarget] = [OutputTarget.R2]
-
-    # Resolve email recipients
-    email_recipients: list[str] = []
-    if send_email:
-        email_recipients = _resolve_report_recipients(email_config)
-        if not email_recipients:
-            typer.echo("No recipients configured in report.yaml", err=True)
-            raise typer.Exit(1)
-
-    request = AgentRunRequest(
-        prompt_key="spending-report",
-        template_vars=template_vars,
-        save_md=True,
-        save_html=True,
-        output_targets=tuple(output_targets),
-        email_recipients=tuple(email_recipients),
-    )
-
-    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
-    db = DB(db_url)
-    taxonomy = load_taxonomy_from_db(db)
-
-    service = AgentRunService(db=db, taxonomy=taxonomy)
-
-    month_str = f" for {report_month}" if report_month else ""
-    typer.echo(f"Generating spending report{month_str}...")
-    result = await service.execute(request)
-
-    if result.success:
-        typer.echo(f"Report generated in {result.duration_seconds:.1f}s")
-
-        pipeline = OutputPipeline()
-        html_text, artifacts = pipeline.process(
-            report_text=result.report_text, request=request, run_id=result.run_id
-        )
-
-        for artifact in artifacts:
-            typer.echo(f"  {artifact.artifact_type}: {artifact.key}")
-
-        # Write to specific output file if requested
-        if output_file:
-            md_path = (
-                output_file if output_file.endswith(".md") else (f"{output_file}.md")
-            )
-            with open(md_path, "w") as fout:
-                fout.write(result.report_text)
-            typer.echo(f"Markdown report saved to: {md_path}")
-
-            if html_text:
-                html_path = md_path.replace(".md", ".html")
-                with open(html_path, "w") as fout:
-                    fout.write(html_text)
-                typer.echo(f"HTML report saved to: {html_path}")
-
-        # Send email if requested
-        if send_email and email_recipients:
-            now = datetime.now()
-            subject_template = email_config.get(
-                "subject_template", "Transactoid Spending Report - {month} {year}"
-            )
-            subject = subject_template.format(month=now.strftime("%B"), year=now.year)
-
-            try:
-                email_service = EmailService(
-                    from_address=email_config.get(
-                        "from_address", "reports@transactoid.com"
-                    ),
-                    from_name=email_config.get("from_name", "Transactoid Reports"),
-                )
-            except ValueError as exc:
-                typer.echo(f"Email service error: {exc}", err=True)
-                raise typer.Exit(1) from None
-
-            email_result = email_service.send_report(
-                to=email_recipients,
-                subject=subject,
-                html_content=html_text or result.report_text,
-                text_content=result.report_text,
-            )
-
-            if email_result.success:
-                typer.echo(f"Report sent to: {', '.join(email_recipients)}")
-            else:
-                typer.echo(f"Failed to send email: {email_result.error}", err=True)
-                raise typer.Exit(1)
-
-        elif not output_file:
-            typer.echo("\n" + "=" * 60)
-            typer.echo(result.report_text)
-            typer.echo("=" * 60)
-
-    else:
-        typer.echo(f"Report generation failed: {result.error}", err=True)
-
-        if error_config.get("enabled", False) and send_email:
-            error_recipients: list[str] = error_config.get("recipients", [])
-            if error_recipients:
-                try:
-                    email_service = EmailService(
-                        from_address=email_config.get(
-                            "from_address", "reports@transactoid.com"
-                        ),
-                        from_name=email_config.get("from_name", "Transactoid Reports"),
-                    )
-                    email_service.send_error_notification(
-                        to=error_recipients,
-                        error=result.error or "Unknown error",
-                        job_metadata={"run_id": result.run_id},
-                    )
-                    recipients_str = ", ".join(error_recipients)
-                    typer.echo(f"Error notification sent to: {recipients_str}")
-                except Exception as exc:
-                    typer.echo(f"Failed to send error notification: {exc}", err=True)
-
-        raise typer.Exit(1)
-
-
-@app.command("report")
-def report_cmd(
-    send_email: bool = typer.Option(
-        True,
-        "--send-email/--no-send-email",
-        help="Send report via email (default: True)",
-    ),
-    output_file: str | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Write report to file instead of (or in addition to) email",
-    ),
-    config_path: str = typer.Option(
-        "configs/report.yaml",
-        "--config",
-        "-c",
-        help="Path to report configuration file",
-    ),
-    month: str | None = typer.Option(
-        None,
-        "--month",
-        "-m",
-        help="Report month in YYYY-MM format (e.g., 2026-01)",
-    ),
-) -> None:
-    """Generate and send a spending report.
-
-    Compatibility alias for run --prompt-key spending-report.
-    Delegates to AgentRunService with report-specific defaults.
-
-    Examples:
-
-        # Generate and email report (default)
-        transactoid report
-
-        # Generate report without sending email (prints to stdout)
-        transactoid report --no-send-email
-
-        # Save report to file
-        transactoid report --output /tmp/report.md
-
-        # Save to file and email
-        transactoid report --output /tmp/report.md --send-email
-
-        # Generate report for a specific month
-        transactoid report --month 2026-01 --output /tmp/january-report
+    Loads sender/subject defaults from configs/email.yaml. If the agent wrote
+    an HTML file at the standardized path, attaches it as the HTML body.
     """
-    asyncio.run(_report_impl(send_email, output_file, config_path, month))
+    from transactoid.services.email_service import EmailService
+
+    config = _load_email_config()
+    email_config: dict[str, Any] = config.get("email", {})
+
+    now = datetime.now()
+    subject_template: str = email_config.get(
+        "subject_template", "Transactoid Report - {month} {year}"
+    )
+    subject = subject_template.format(month=now.strftime("%B"), year=now.year)
+
+    # Check for agent-generated HTML at the standardized path
+    html_content: str | None = None
+    if prompt_key:
+        html_path = Path(f".transactoid/reports/{prompt_key}-latest.html")
+        if html_path.exists():
+            html_content = html_path.read_text()
+
+    try:
+        email_service = EmailService(
+            from_address=email_config.get("from_address", "reports@transactoid.com"),
+            from_name=email_config.get("from_name", "Transactoid Reports"),
+        )
+    except ValueError as exc:
+        typer.echo(f"Email service error: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    email_result = email_service.send_report(
+        to=recipients,
+        subject=subject,
+        html_content=html_content or report_text,
+        text_content=report_text,
+    )
+
+    if email_result.success:
+        typer.echo(f"Report sent to: {', '.join(recipients)}")
+    else:
+        typer.echo(f"Failed to send email: {email_result.error}", err=True)
+        raise typer.Exit(1)
 
 
 def main() -> None:

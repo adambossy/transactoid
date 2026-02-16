@@ -31,14 +31,6 @@ class AgentRunRequest:
     # Continuation
     continue_run_id: str | None = None
 
-    # Output formats
-    save_md: bool = True
-    save_html: bool = True
-
-    # Where to write artifacts
-    output_targets: tuple[OutputTarget, ...] = (OutputTarget.R2,)
-    local_dir: str | None = None
-
     # Email
     email_recipients: tuple[str, ...] = ()
 
