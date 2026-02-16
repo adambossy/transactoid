@@ -6,11 +6,10 @@ import json
 from typing import Any
 
 from agents import ShellTool
-import loguru
 from loguru import logger
 
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
-from transactoid.core.runtime.skills.policy import (
+from transactoid.tools.execute_shell.policy import (
     MEMORY_DIR,
     evaluate_command_policy,
 )
@@ -19,7 +18,7 @@ from transactoid.core.runtime.skills.policy import (
 class OpenAIFilesystemToolLogger:
     """Handles all logging for OpenAI filesystem tool with business logic separated."""
 
-    def __init__(self, logger_instance: loguru.Logger = logger) -> None:
+    def __init__(self, logger_instance: Any = logger) -> None:
         self._logger = logger_instance
 
     def blocked_command(

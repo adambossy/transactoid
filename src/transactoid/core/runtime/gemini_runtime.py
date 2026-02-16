@@ -28,9 +28,9 @@ from transactoid.core.runtime.protocol import (
     classify_tool_kind,
 )
 from transactoid.core.runtime.shared_tool_invoker import SharedToolInvoker
-from transactoid.core.runtime.skills.filesystem_tool_gemini import GeminiFilesystemTool
 from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.tool_adapters.gemini import GeminiToolAdapter
+from transactoid.tools.execute_shell.gemini import GeminiFilesystemTool
 from transactoid.tools.registry import ToolRegistry
 
 
