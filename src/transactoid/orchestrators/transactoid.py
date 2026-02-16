@@ -43,12 +43,15 @@ class TargetCategory(BaseModel):
     description: str | None = None
 
 
+CORE_MEMORY_FILES = ("index.md", "merchant-rules.md")
+
+
 def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
     """
-    Assemble agent memory content from memory directory files.
+    Assemble core agent memory content.
 
-    Reads memory/index.md first, then other memory/*.md files in sorted order.
-    Returns empty string if memory directory or files are absent.
+    Auto-loads only core files: `index.md` and `merchant-rules.md` (in that
+    order). Optional files (such as `budget.md`) are not auto-loaded.
 
     Args:
         memory_dir: Path to memory directory (default: memory/)
@@ -56,20 +59,13 @@ def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
     Returns:
         Assembled memory content as markdown string, or empty string if no memory.
     """
-    if not memory_dir.exists() or not memory_dir.is_dir():
-        return ""
-
     memory_parts: list[str] = []
 
-    # Read index first if present
-    index_path = memory_dir / "index.md"
-    if index_path.exists():
-        memory_parts.append(index_path.read_text())
-
-    # Read other .md files in sorted order (excluding index.md)
-    other_files = sorted([f for f in memory_dir.glob("*.md") if f.name != "index.md"])
-    for memory_file in other_files:
-        memory_parts.append(memory_file.read_text())
+    if memory_dir.exists() and memory_dir.is_dir():
+        for file_name in CORE_MEMORY_FILES:
+            memory_file = memory_dir / file_name
+            if memory_file.exists():
+                memory_parts.append(memory_file.read_text())
 
     if not memory_parts:
         return ""
