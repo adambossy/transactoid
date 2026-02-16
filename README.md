@@ -78,6 +78,16 @@ Each skill is a directory containing a `SKILL.md` file with instructions for the
 
 See [docs/agent-skills.md](docs/agent-skills.md) for detailed documentation.
 
+### Tax Returns Memory
+
+Store private tax-return context in `memory/tax-returns/`.
+
+- Tax-return file contents are optional and loaded on demand by the agent.
+- Tax-return file paths are surfaced in `memory/index.md` runtime inventory for discovery.
+- Files ending with `.example` are excluded from prompt assembly and runtime inventory.
+- `YYYY.md` is a convention, not a requirement.
+- Only `memory/tax-returns/2026.md.example` is tracked in git; other files in this directory are local-only.
+
 ### Option 1: ACP (Agent Client Protocol) — Recommended
 
 ACP is an open protocol that allows any compatible client to communicate with AI agents. We recommend [Toad](https://github.com/batrachianai/toad), a polished terminal UI for AI agents.
