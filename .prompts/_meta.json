@@ -38,6 +38,11 @@
       "source_file": "prompts/report-daily.md",
       "version_dir": "src/transactoid/prompts/report-daily",
       "last_version": 1
+    },
+    "report-md-to-html": {
+      "source_file": "prompts/report-md-to-html.md",
+      "version_dir": "src/transactoid/prompts/report-md-to-html",
+      "last_version": 1
     }
   }
 }
