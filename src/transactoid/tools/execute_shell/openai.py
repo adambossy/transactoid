@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from typing import Any
 
 from agents import ShellTool
@@ -47,6 +49,34 @@ class OpenAIFilesystemToolLogger:
         )
 
 
+def _local_shell_executor(request: Any) -> str:
+    """Execute a local shell call for OpenAI ShellTool local environment."""
+    action = request.data.action
+    timeout_seconds = None
+    if action.timeout_ms is not None:
+        timeout_seconds = action.timeout_ms / 1000
+
+    env = os.environ.copy()
+    output_chunks: list[str] = []
+    for command in action.commands:
+        result = subprocess.run(  # noqa: S602
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=env,
+            check=False,
+        )
+        output_chunks.append(
+            f"command={command}\n"
+            f"exit_code={result.returncode}\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+    return "\n\n".join(output_chunks)
+
+
 def create_scoped_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
     """Create a ShellTool with policy enforcement for skills and memory/.
 
@@ -64,39 +94,43 @@ def create_scoped_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
     # Create logger instance
     tool_logger = OpenAIFilesystemToolLogger()
 
-    def approval_function(ctx: Any, action: Any, command: str) -> bool:
+    def approval_function(ctx: Any, action: Any, call_id: str) -> bool:
         """Check if command is allowed under scoped policy.
 
         Args:
             ctx: Run context wrapper
             action: Shell action request
-            command: Shell command to execute
+            call_id: Shell tool call identifier
 
         Returns:
             True if command is allowed, False otherwise
         """
-        # Evaluate command against policy
-        policy_result = evaluate_command_policy(command, allowed_roots)
+        commands: list[str] = []
+        if hasattr(action, "commands"):
+            commands = [str(item) for item in getattr(action, "commands", [])]
 
-        if not policy_result.allowed:
-            # Log blocked command in copy/paste-friendly format
-            tool_logger.blocked_command(
-                runtime="openai",
-                reason=policy_result.reason,
-                base_command=policy_result.base_command,
-                operation=policy_result.operation,
-                command=command,
-                effective_command=policy_result.effective_command,
-                policy="scoped read/create/update/move/copy for skills and memory/",
-            )
-            return False
+        for command in commands:
+            policy_result = evaluate_command_policy(command, allowed_roots)
+            if not policy_result.allowed:
+                # Log blocked command in copy/paste-friendly format
+                tool_logger.blocked_command(
+                    runtime="openai",
+                    reason=policy_result.reason,
+                    base_command=policy_result.base_command,
+                    operation=policy_result.operation,
+                    command=command,
+                    effective_command=policy_result.effective_command,
+                    policy=(
+                        "scoped read/create/update/move/copy for skills and memory/"
+                    ),
+                )
+                return False
 
         return True
 
-    # Note: ShellTool with local environment creates a default local executor
-    # when executor parameter is None
     return ShellTool(
         name="execute_shell_command",
+        executor=_local_shell_executor,
         needs_approval=approval_function,
         environment={"type": "local"},
     )

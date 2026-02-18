@@ -1,0 +1,60 @@
+[
+  {
+    "name": "transactoid-daily-5am-ny-0900-utc",
+    "app_name": "transactoid",
+    "schedule": "0 9 * * *",
+    "region": "iad",
+    "command": "-lc '/app/.venv/bin/transactoid run-scheduled-report'",
+    "command_timeout": 7200,
+    "enabled": true,
+    "config": {
+      "metadata": {
+        "fly_process_group": "cron"
+      },
+      "auto_destroy": true,
+      "disable_machine_autostart": true,
+      "init": {
+        "entrypoint": ["/bin/sh"]
+      },
+      "guest": {
+        "cpu_kind": "shared",
+        "cpus": 1,
+        "memory_mb": 1024
+      },
+      "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
+      "restart": {
+        "max_retries": 1,
+        "policy": "no"
+      }
+    }
+  },
+  {
+    "name": "transactoid-daily-5am-ny-1000-utc",
+    "app_name": "transactoid",
+    "schedule": "0 10 * * *",
+    "region": "iad",
+    "command": "-lc '/app/.venv/bin/transactoid run-scheduled-report'",
+    "command_timeout": 7200,
+    "enabled": true,
+    "config": {
+      "metadata": {
+        "fly_process_group": "cron"
+      },
+      "auto_destroy": true,
+      "disable_machine_autostart": true,
+      "init": {
+        "entrypoint": ["/bin/sh"]
+      },
+      "guest": {
+        "cpu_kind": "shared",
+        "cpus": 1,
+        "memory_mb": 1024
+      },
+      "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
+      "restart": {
+        "max_retries": 1,
+        "policy": "no"
+      }
+    }
+  }
+]
