@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 import json
+import os
 from typing import Any, Literal, cast
 
 from agents import Agent, ModelSettings, Runner, SQLiteSession, WebSearchTool
@@ -59,7 +60,10 @@ class OpenAICoreRuntime(CoreRuntime):
             user_dir=config.skills_user_dir,
             builtin_dir=config.skills_builtin_dir,
         )
-        if skill_paths.all_existing():
+        enable_shell_tool = os.environ.get(
+            "TRANSACTOID_ENABLE_SHELL_TOOL", "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if enable_shell_tool and skill_paths.all_existing():
             filesystem_tool = create_scoped_shell_tool(skill_paths)
             tools.append(filesystem_tool)
 

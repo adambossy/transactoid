@@ -416,7 +416,15 @@ class _MigrateTaxonomyTool(StandardTool):
             },
             "targets": {
                 "type": "array",
-                "items": {"type": "object"},
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                    },
+                    "required": ["key", "name", "description"],
+                },
                 "description": "Split targets",
             },
             "new_key": {"type": "string", "description": "New key"},
@@ -662,7 +670,7 @@ class Transactoid:
         """Compatibility shim for legacy call sites that still expect Agent."""
         runtime = self.create_runtime(
             sql_dialect=sql_dialect,
-            runtime_config=CoreRuntimeConfig(provider="openai", model="gpt-5.3"),
+            runtime_config=load_core_runtime_config_from_env(),
         )
         if not isinstance(runtime, OpenAICoreRuntime):
             raise RuntimeError("create_agent is only supported with OpenAI runtime")

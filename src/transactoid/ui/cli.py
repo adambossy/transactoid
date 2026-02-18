@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
+from html import escape
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,10 @@ import typer
 import yaml
 
 from transactoid.adapters.db.facade import DB
+from transactoid.services.scheduled_reports import (
+    NEW_YORK_TZ,
+    select_prompt_key,
+)
 
 # Load environment variables from .env
 load_dotenv()
@@ -726,6 +731,10 @@ async def _agent_run_impl(
     prompt_key: str | None,
     continue_run_id: str | None,
     email: list[str],
+    save_md: bool,
+    save_html: bool,
+    output_target: list[str],
+    local_dir: str | None,
     max_turns: int,
     template_vars: dict[str, str] | None = None,
 ) -> None:
@@ -733,14 +742,22 @@ async def _agent_run_impl(
     from transactoid.services.agent_run import (
         AgentRunRequest,
         AgentRunService,
+        OutputTarget,
     )
+    from transactoid.services.agent_run.pipeline import OutputPipeline
     from transactoid.taxonomy.loader import load_taxonomy_from_db
+
+    targets = tuple(OutputTarget(target) for target in output_target)
 
     request = AgentRunRequest(
         prompt=prompt,
         prompt_key=prompt_key,
         template_vars=template_vars or {},
         continue_run_id=continue_run_id,
+        save_md=save_md,
+        save_html=save_html,
+        output_targets=targets,
+        local_dir=local_dir,
         email_recipients=tuple(email),
         max_turns=max_turns,
     )
@@ -755,13 +772,22 @@ async def _agent_run_impl(
     if result.success:
         typer.echo(f"Run {result.run_id} completed in {result.duration_seconds:.1f}s")
 
+        pipeline = OutputPipeline()
+        html_text, artifacts = pipeline.process(
+            report_text=result.report_text, request=request, run_id=result.run_id
+        )
+
+        for artifact in artifacts:
+            typer.echo(f"  {artifact.artifact_type}: {artifact.key}")
+
         if email:
             _send_run_email(
                 report_text=result.report_text,
                 prompt_key=prompt_key,
                 recipients=email,
+                html_content=html_text,
             )
-        else:
+        elif not artifacts:
             typer.echo("\n" + result.report_text)
     else:
         typer.echo(f"Run {result.run_id} failed: {result.error}", err=True)
@@ -795,6 +821,26 @@ def run_cmd(
         "--max-turns",
         help="Maximum agent turns",
     ),
+    save_md: bool = typer.Option(
+        True,
+        "--save-md/--no-save-md",
+        help="Save markdown artifact",
+    ),
+    save_html: bool = typer.Option(
+        True,
+        "--save-html/--no-save-html",
+        help="Save HTML artifact",
+    ),
+    output_target: list[str] | None = typer.Option(
+        None,
+        "--output-target",
+        help="Output target: 'r2' or 'local' (repeatable, default: r2)",
+    ),
+    local_dir: str | None = typer.Option(
+        None,
+        "--local-dir",
+        help="Local directory for artifact output",
+    ),
 ) -> None:
     """Execute a headless agent run.
 
@@ -823,18 +869,34 @@ def run_cmd(
         typer.echo("Only one of --prompt or --prompt-key may be provided", err=True)
         raise typer.Exit(1)
 
+    targets = output_target or ["r2"]
+    valid_targets = {"r2", "local"}
+    for target in targets:
+        if target not in valid_targets:
+            typer.echo(f"Invalid output target: {target}", err=True)
+            raise typer.Exit(1)
+
     asyncio.run(
         _agent_run_impl(
             prompt=prompt,
             prompt_key=prompt_key,
             continue_run_id=continue_run_id,
             email=email or [],
+            save_md=save_md,
+            save_html=save_html,
+            output_target=targets,
+            local_dir=local_dir,
             max_turns=max_turns,
         )
     )
 
 
 _DEFAULT_EMAIL_CONFIG_PATH = "configs/email.yaml"
+_DEFAULT_SCHEDULED_EMAIL_RECIPIENTS = (
+    "jloleary0@gmail.com",
+    "adambossy@gmail.com",
+)
+_DEFAULT_VERIFIED_FROM_ADDRESS = "onboarding@resend.dev"
 
 
 def _load_email_config() -> dict[str, Any]:
@@ -854,6 +916,7 @@ def _send_run_email(
     report_text: str,
     prompt_key: str | None,
     recipients: list[str],
+    html_content: str | None = None,
 ) -> None:
     """Send email after a completed agent run.
 
@@ -871,27 +934,43 @@ def _send_run_email(
     )
     subject = subject_template.format(month=now.strftime("%B"), year=now.year)
 
-    # Check for agent-generated HTML at the standardized path
-    html_content: str | None = None
-    if prompt_key:
+    # Prefer pipeline-generated HTML; fallback to standardized report file path.
+    resolved_html_content = html_content
+    if resolved_html_content is None and prompt_key:
         html_path = Path(f".transactoid/reports/{prompt_key}-latest.html")
         if html_path.exists():
-            html_content = html_path.read_text()
+            resolved_html_content = html_path.read_text()
+
+    configured_from_address = email_config.get(
+        "from_address", _DEFAULT_VERIFIED_FROM_ADDRESS
+    )
+    from_address = str(configured_from_address)
+    if from_address.endswith("@transactoid.com"):
+        typer.echo(
+            "Configured from_address is unverified; using onboarding@resend.dev",
+            err=True,
+        )
+        from_address = _DEFAULT_VERIFIED_FROM_ADDRESS
 
     try:
         email_service = EmailService(
-            from_address=email_config.get("from_address", "reports@transactoid.com"),
+            from_address=from_address,
             from_name=email_config.get("from_name", "Transactoid Reports"),
         )
     except ValueError as exc:
         typer.echo(f"Email service error: {exc}", err=True)
         raise typer.Exit(1) from None
 
+    safe_text_content = report_text.strip() or "Transactoid generated a report."
+    safe_html_content = (
+        resolved_html_content or f"<pre>{escape(safe_text_content)}</pre>"
+    )
+
     email_result = email_service.send_report(
         to=recipients,
         subject=subject,
-        html_content=html_content or report_text,
-        text_content=report_text,
+        html_content=safe_html_content,
+        text_content=safe_text_content,
     )
 
     if email_result.success:
@@ -899,6 +978,45 @@ def _send_run_email(
     else:
         typer.echo(f"Failed to send email: {email_result.error}", err=True)
         raise typer.Exit(1)
+
+
+@app.command("run-scheduled-report")
+def run_scheduled_report_cmd(
+    email: list[str] | None = typer.Option(
+        None,
+        "--email",
+        help="Email recipient(s) for the report (repeatable)",
+    ),
+    max_turns: int = typer.Option(
+        50,
+        "--max-turns",
+        help="Maximum agent turns",
+    ),
+) -> None:
+    """Run the scheduled report with New York-time precedence rules."""
+    now_utc = datetime.now(UTC)
+    now_ny = now_utc.astimezone(NEW_YORK_TZ)
+
+    selected_prompt_key = select_prompt_key(now_utc=now_utc)
+    recipients = email or list(_DEFAULT_SCHEDULED_EMAIL_RECIPIENTS)
+    typer.echo(
+        f"Selected scheduled report prompt: {selected_prompt_key} "
+        f"({now_ny.strftime('%Y-%m-%d %H:%M:%S %Z')})"
+    )
+
+    asyncio.run(
+        _agent_run_impl(
+            prompt=None,
+            prompt_key=selected_prompt_key,
+            continue_run_id=None,
+            email=recipients,
+            save_md=True,
+            save_html=True,
+            output_target=["r2"],
+            local_dir=None,
+            max_turns=max_turns,
+        )
+    )
 
 
 def main() -> None:

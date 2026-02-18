@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from transactoid.services.agent_run.types import AgentRunRequest
+from transactoid.services.agent_run.types import AgentRunRequest, OutputTarget
 
 
 class TestAgentRunRequest:
@@ -29,11 +29,30 @@ class TestAgentRunRequest:
             AgentRunRequest(prompt="hello", prompt_key="report-monthly")
 
     def test_defaults(self):
+        # input
         request = AgentRunRequest(prompt="test")
 
-        assert request.email_recipients == ()
-        assert request.max_turns == 50
-        assert request.continue_run_id is None
+        # expected
+        expected_output = {
+            "save_md": True,
+            "save_html": True,
+            "output_targets": (OutputTarget.R2,),
+            "email_recipients": (),
+            "max_turns": 50,
+            "continue_run_id": None,
+            "local_dir": None,
+        }
+
+        # assert
+        assert {
+            "save_md": request.save_md,
+            "save_html": request.save_html,
+            "output_targets": request.output_targets,
+            "email_recipients": request.email_recipients,
+            "max_turns": request.max_turns,
+            "continue_run_id": request.continue_run_id,
+            "local_dir": request.local_dir,
+        } == expected_output
 
     def test_template_vars_default_empty(self):
         request = AgentRunRequest(prompt="test")

@@ -33,6 +33,11 @@
       "source_file": "prompts/report-annual.md",
       "version_dir": "src/transactoid/prompts/report-annual",
       "last_version": 1
+    },
+    "report-daily": {
+      "source_file": "prompts/report-daily.md",
+      "version_dir": "src/transactoid/prompts/report-daily",
+      "last_version": 1
     }
   }
 }
