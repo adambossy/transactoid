@@ -923,7 +923,7 @@ def _send_run_email(
     Loads sender/subject defaults from configs/email.yaml. If the agent wrote
     an HTML file at the standardized path, attaches it as the HTML body.
     """
-    from transactoid.services.email_service import EmailService
+    from transactoid.services.email_service import EmailService, SMTPConfig
 
     config = _load_email_config()
     email_config: dict[str, Any] = config.get("email", {})
@@ -945,17 +945,59 @@ def _send_run_email(
         "from_address", _DEFAULT_VERIFIED_FROM_ADDRESS
     )
     from_address = str(configured_from_address)
-    if from_address.endswith("@transactoid.com"):
+    provider = str(email_config.get("provider", "resend")).strip().lower()
+    if provider == "resend" and from_address.endswith("@transactoid.com"):
         typer.echo(
             "Configured from_address is unverified; using onboarding@resend.dev",
             err=True,
         )
         from_address = _DEFAULT_VERIFIED_FROM_ADDRESS
 
+    def _coerce_bool(value: Any, *, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    smtp_config: SMTPConfig | None = None
+    if provider == "smtp":
+        smtp_host = str(
+            email_config.get("smtp_host") or os.environ.get("SMTP_HOST", "")
+        )
+        smtp_port_value = email_config.get("smtp_port") or os.environ.get(
+            "SMTP_PORT", "587"
+        )
+        smtp_port = int(str(smtp_port_value))
+        smtp_username = str(
+            email_config.get("smtp_username") or os.environ.get("SMTP_USERNAME", "")
+        )
+        smtp_password = str(
+            email_config.get("smtp_password") or os.environ.get("SMTP_PASSWORD", "")
+        )
+        smtp_use_tls = _coerce_bool(
+            email_config.get("smtp_use_tls", os.environ.get("SMTP_USE_TLS")),
+            default=True,
+        )
+        smtp_use_ssl = _coerce_bool(
+            email_config.get("smtp_use_ssl", os.environ.get("SMTP_USE_SSL")),
+            default=False,
+        )
+        smtp_config = SMTPConfig(
+            host=smtp_host,
+            port=smtp_port,
+            username=smtp_username,
+            password=smtp_password,
+            use_tls=smtp_use_tls,
+            use_ssl=smtp_use_ssl,
+        )
+
     try:
         email_service = EmailService(
             from_address=from_address,
             from_name=email_config.get("from_name", "Transactoid Reports"),
+            provider=provider,
+            smtp_config=smtp_config,
         )
     except ValueError as exc:
         typer.echo(f"Email service error: {exc}", err=True)
