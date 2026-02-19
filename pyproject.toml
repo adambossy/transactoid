@@ -93,6 +93,7 @@ ignore-names = [
     "enum",
     "properties",
     "required",
+    "role",
 ]
 ignore-names-in-files = [
     "*/__init__.py",
