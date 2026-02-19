@@ -19,6 +19,13 @@ from transactoid.adapters.db.facade import DB
 from transactoid.adapters.storage.r2 import R2StorageError
 from transactoid.core.runtime.config import load_core_runtime_config_from_env
 from transactoid.orchestrators.transactoid import Transactoid
+from transactoid.services.agent_run.state import (
+    ContinuationState,
+    ContinuationStateError,
+    ConversationTurn,
+    download_continuation_state,
+    upload_continuation_state,
+)
 from transactoid.services.agent_run.trace import download_trace, upload_trace
 from transactoid.services.agent_run.types import (
     AgentRunRequest,
@@ -81,9 +88,48 @@ class AgentRunService:
         trace_path: Path,
     ) -> AgentRunResult:
         """Run the agent and persist trace, returning the result."""
+        prior_state: ContinuationState | None = None
+        if request.continue_run_id is not None:
+            try:
+                prior_state = download_continuation_state(
+                    run_id=request.continue_run_id
+                )
+            except (ContinuationStateError, Exception) as exc:
+                duration = time.monotonic() - start_mono
+                finished_at = datetime.now(UTC)
+                error_msg = (
+                    f"Cannot continue: session state for run "
+                    f"{request.continue_run_id} not found or corrupt"
+                )
+                logger.bind(run_id=run_id).error(
+                    "Continuation state load failed for {}: {}",
+                    request.continue_run_id,
+                    exc,
+                )
+                manifest = RunManifest(
+                    run_id=run_id,
+                    parent_run_id=request.continue_run_id,
+                    prompt_key=request.prompt_key,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    success=False,
+                    error=error_msg,
+                )
+                return AgentRunResult(
+                    run_id=run_id,
+                    success=False,
+                    report_text="",
+                    html_text=None,
+                    error=error_msg,
+                    duration_seconds=duration,
+                    manifest=manifest,
+                    artifacts=(),
+                )
+
         try:
             plaid_client = self._resolve_plaid_client()
             prompt = self._resolve_prompt(request)
+            input_text = _build_input_text(prompt=prompt, prior_state=prior_state)
             runtime_config = load_core_runtime_config_from_env()
             transactoid = Transactoid(
                 db=self._db,
@@ -94,11 +140,15 @@ class AgentRunService:
                 runtime_config=runtime_config,
                 sql_dialect=self._sql_dialect,
             )
-            session_key = run_id
+            session_key = (
+                request.continue_run_id
+                if request.continue_run_id is not None
+                else run_id
+            )
             session = runtime.start_session(session_key)
             try:
                 core_result = await runtime.run(
-                    input_text=prompt,
+                    input_text=input_text,
                     session=session,
                     max_turns=request.max_turns,
                 )
@@ -151,6 +201,17 @@ class AgentRunService:
             run_id=run_id, trace_path=trace_path, manifest=manifest
         )
 
+        continuation_state = ContinuationState(
+            run_id=run_id,
+            turns=[
+                ConversationTurn(role="user", content=prompt),
+                ConversationTurn(role="assistant", content=response_text),
+            ],
+        )
+        state_artifacts = _persist_continuation_state(
+            run_id=run_id, state=continuation_state
+        )
+
         return AgentRunResult(
             run_id=run_id,
             success=True,
@@ -159,7 +220,7 @@ class AgentRunService:
             error=None,
             duration_seconds=duration,
             manifest=manifest,
-            artifacts=tuple(trace_artifacts),
+            artifacts=tuple(trace_artifacts) + tuple(state_artifacts),
         )
 
     def _resolve_plaid_client(self) -> PlaidClient | None:
@@ -201,6 +262,42 @@ class AgentRunService:
         tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
         tmp.close()
         return Path(tmp.name)
+
+
+def _build_input_text(
+    *,
+    prompt: str,
+    prior_state: ContinuationState | None,
+) -> str:
+    """Build the input text for the runtime, prepending prior turns if continuing.
+
+    For continuation runs, prior turns are prepended as context blocks before
+    the current prompt.
+    """
+    if prior_state is None or not prior_state.turns:
+        return prompt
+
+    parts: list[str] = []
+    for turn in prior_state.turns:
+        parts.append(f'<prior_turn role="{turn.role}">{turn.content}</prior_turn>')
+    parts.append(f"<current_prompt>\n{prompt}\n</current_prompt>")
+    return "\n".join(parts)
+
+
+def _persist_continuation_state(
+    *,
+    run_id: str,
+    state: ContinuationState,
+) -> list[ArtifactRecord]:
+    """Upload continuation state to R2, logging warnings without raising."""
+    try:
+        artifact = upload_continuation_state(run_id=run_id, state=state)
+        return [artifact]
+    except Exception as exc:
+        logger.warning(
+            "Continuation state persistence failed for run {}: {}", run_id, exc
+        )
+        return []
 
 
 def _persist_trace(
