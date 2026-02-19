@@ -398,6 +398,50 @@ class TestExecute:
         assert state_artifact in result.artifacts
 
 
+class TestGeminiRegressionNoCrash:
+    """Regression: run-scheduled-report must not fail with 'create_agent is only
+    supported with OpenAI runtime' when provider=gemini."""
+
+    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
+    @patch("transactoid.services.agent_run.service.Transactoid")
+    @patch(
+        "transactoid.services.agent_run.service.PlaidClient.from_env",
+        side_effect=PlaidClientError("no plaid"),
+    )
+    def test_execute_with_gemini_provider_does_not_raise_create_agent_error(
+        self, _plaid, mock_transactoid, mock_load_config, _upload
+    ):
+        """Verify that calling execute() with provider=gemini succeeds and does not
+        raise RuntimeError('create_agent is only supported with OpenAI runtime').
+
+        Prior to the runtime selection refactor, run-scheduled-report would fail
+        with this error whenever TRANSACTOID_AGENT_PROVIDER was set to gemini.
+        """
+        from transactoid.core.runtime.config import CoreRuntimeConfig
+
+        gemini_config = CoreRuntimeConfig(
+            provider="gemini",
+            model="gemini-2.5-pro",
+        )
+        mock_load_config.return_value = gemini_config
+
+        mock_runtime = _make_mock_runtime(final_text="Gemini scheduled report")
+        mock_transactoid.return_value.create_runtime.return_value = mock_runtime
+
+        service = _make_service()
+        request = AgentRunRequest(prompt="Run the scheduled daily report")
+
+        result = asyncio.run(service.execute(request))
+
+        assert result.success is True
+        assert result.report_text == "Gemini scheduled report"
+        mock_transactoid.return_value.create_runtime.assert_called_once_with(
+            runtime_config=gemini_config,
+            sql_dialect="sqlite",
+        )
+
+
 class TestBuildInputText:
     def test_returns_prompt_unchanged_when_no_prior_state(self):
         output = _build_input_text(prompt="My prompt", prior_state=None)
