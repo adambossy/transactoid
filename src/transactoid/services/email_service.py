@@ -1,13 +1,27 @@
-"""Email service for sending reports via Resend."""
+"""Email service for sending reports via Resend or SMTP."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from email.message import EmailMessage
 import os
+import smtplib
 import time
-from typing import Any
+from typing import Any, cast
 
 import resend
+
+
+@dataclass(frozen=True, slots=True)
+class SMTPConfig:
+    """SMTP connection and authentication settings."""
+
+    host: str
+    port: int
+    username: str
+    password: str
+    use_tls: bool = True
+    use_ssl: bool = False
 
 
 @dataclass
@@ -20,13 +34,16 @@ class EmailResult:
 
 
 class EmailService:
-    """Email service using Resend API."""
+    """Email service using Resend API or SMTP."""
 
     def __init__(
         self,
         api_key: str | None = None,
         from_address: str = "reports@transactoid.com",
         from_name: str = "Transactoid Reports",
+        *,
+        provider: str = "resend",
+        smtp_config: SMTPConfig | None = None,
     ) -> None:
         """Initialize email service.
 
@@ -34,17 +51,36 @@ class EmailService:
             api_key: Resend API key. If None, reads from RESEND_API_KEY env var.
             from_address: Email address to send from.
             from_name: Display name for sender.
+            provider: Email provider, either ``resend`` or ``smtp``.
+            smtp_config: SMTP configuration when provider is ``smtp``.
         """
-        self._api_key = api_key or os.environ.get("RESEND_API_KEY", "")
+        self._provider = provider.strip().lower()
         self._from_address = from_address
         self._from_name = from_name
+        self._smtp_config = smtp_config
 
-        if not self._api_key:
+        if self._provider not in {"resend", "smtp"}:
             raise ValueError(
-                "Resend API key required. Set RESEND_API_KEY env var or pass api_key."
+                f"Unsupported email provider: {provider}. Use 'resend' or 'smtp'."
             )
 
-        resend.api_key = self._api_key
+        if self._provider == "resend":
+            self._api_key = api_key or os.environ.get("RESEND_API_KEY", "")
+            if not self._api_key:
+                raise ValueError(
+                    "Resend API key required. "
+                    "Set RESEND_API_KEY env var or pass api_key."
+                )
+            resend.api_key = self._api_key
+        else:
+            if smtp_config is None:
+                raise ValueError("SMTP config required when provider is 'smtp'.")
+            if not smtp_config.host.strip():
+                raise ValueError("SMTP host is required when provider is 'smtp'.")
+            if not smtp_config.username.strip():
+                raise ValueError("SMTP username is required when provider is 'smtp'.")
+            if not smtp_config.password.strip():
+                raise ValueError("SMTP password is required when provider is 'smtp'.")
 
     def send_report(
         self,
@@ -66,34 +102,22 @@ class EmailService:
         Returns:
             EmailResult with success status and message ID
         """
-        from_str = f"{self._from_name} <{self._from_address}>"
-
         for attempt in range(max_retries):
             try:
-                params = {
-                    "from": from_str,
-                    "to": to,
-                    "subject": subject,
-                    "html": html_content,
-                    "text": text_content,
-                }
-
-                response = resend.Emails.send(params)
-
-                # Response is a dict with 'id' key on success
-                if isinstance(response, dict) and "id" in response:
-                    return EmailResult(
-                        success=True,
-                        message_id=response["id"],
-                        error=None,
+                if self._provider == "smtp":
+                    return self._send_report_smtp(
+                        to=to,
+                        subject=subject,
+                        html_content=html_content,
+                        text_content=text_content,
                     )
 
-                return EmailResult(
-                    success=False,
-                    message_id=None,
-                    error=f"Unexpected response: {response}",
+                return self._send_report_resend(
+                    to=to,
+                    subject=subject,
+                    html_content=html_content,
+                    text_content=text_content,
                 )
-
             except Exception as e:
                 if attempt < max_retries - 1:
                     # Exponential backoff: 1s, 2s, 4s
@@ -112,6 +136,73 @@ class EmailService:
             message_id=None,
             error="Unexpected error in retry loop",
         )
+
+    def _send_report_resend(
+        self,
+        *,
+        to: list[str],
+        subject: str,
+        html_content: str,
+        text_content: str,
+    ) -> EmailResult:
+        from_str = f"{self._from_name} <{self._from_address}>"
+        params: dict[str, Any] = {
+            "from": from_str,
+            "to": to,
+            "subject": subject,
+            "html": html_content,
+            "text": text_content,
+        }
+
+        response = resend.Emails.send(cast(Any, params))
+
+        # Response is a dict with 'id' key on success
+        if isinstance(response, dict) and "id" in response:
+            return EmailResult(
+                success=True,
+                message_id=response["id"],
+                error=None,
+            )
+
+        return EmailResult(
+            success=False,
+            message_id=None,
+            error=f"Unexpected response: {response}",
+        )
+
+    def _send_report_smtp(
+        self,
+        *,
+        to: list[str],
+        subject: str,
+        html_content: str,
+        text_content: str,
+    ) -> EmailResult:
+        if self._smtp_config is None:
+            raise ValueError("SMTP config required when provider is 'smtp'.")
+
+        message = EmailMessage()
+        message["Subject"] = subject
+        message["From"] = f"{self._from_name} <{self._from_address}>"
+        message["To"] = ", ".join(to)
+        message.set_content(text_content)
+        message.add_alternative(html_content, subtype="html")
+
+        smtp_cfg = self._smtp_config
+        if smtp_cfg.use_ssl:
+            with smtplib.SMTP_SSL(smtp_cfg.host, smtp_cfg.port, timeout=30) as smtp:
+                smtp.login(smtp_cfg.username, smtp_cfg.password)
+                smtp.send_message(message)
+        else:
+            with smtplib.SMTP(smtp_cfg.host, smtp_cfg.port, timeout=30) as smtp:
+                smtp.ehlo()
+                if smtp_cfg.use_tls:
+                    smtp.starttls()
+                    smtp.ehlo()
+                smtp.login(smtp_cfg.username, smtp_cfg.password)
+                smtp.send_message(message)
+
+        return EmailResult(success=True, message_id=None, error=None)
 
     def send_error_notification(
         self,

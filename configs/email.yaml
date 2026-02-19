@@ -3,13 +3,28 @@
 # not here. This file only contains email delivery settings.
 
 email:
+  # Email provider: resend or smtp
+  provider: "smtp"
+
   # Recipients for the spending report
   recipients:
     - adambossy@gmail.com
 
   # Sender information
-  from_address: "onboarding@resend.dev"
+  from_address: "adambossy@gmail.com"
   from_name: "Transactoid Reports"
+
+  # SMTP settings (for provider: smtp)
+  # For Gmail:
+  #   smtp_host: smtp.gmail.com
+  #   smtp_port: 587
+  #   smtp_use_tls: true
+  # Credentials are read from env vars by default:
+  #   SMTP_USERNAME, SMTP_PASSWORD
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  smtp_use_tls: true
+  smtp_use_ssl: false
 
   # Subject line template (supports {month} and {year} placeholders)
   subject_template: "Transactoid Spending Report - {month} {year}"
