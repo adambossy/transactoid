@@ -90,6 +90,10 @@ class AgentRunService:
         """Run the agent and persist trace, returning the result."""
         prior_state: ContinuationState | None = None
         if request.continue_run_id is not None:
+            logger.bind(continue_run_id=request.continue_run_id).info(
+                "AgentRunService: loading continuation state for run {}",
+                request.continue_run_id,
+            )
             try:
                 prior_state = download_continuation_state(
                     run_id=request.continue_run_id
@@ -101,8 +105,8 @@ class AgentRunService:
                     f"Cannot continue: session state for run "
                     f"{request.continue_run_id} not found or corrupt"
                 )
-                logger.bind(run_id=run_id).error(
-                    "Continuation state load failed for {}: {}",
+                logger.bind(continue_run_id=request.continue_run_id).error(
+                    "AgentRunService: cannot load continuation state for run {}: {}",
                     request.continue_run_id,
                     exc,
                 )
@@ -131,6 +135,13 @@ class AgentRunService:
             prompt = self._resolve_prompt(request)
             input_text = _build_input_text(prompt=prompt, prior_state=prior_state)
             runtime_config = load_core_runtime_config_from_env()
+            logger.bind(
+                provider=runtime_config.provider, model=runtime_config.model
+            ).info(
+                "AgentRunService: using provider={} model={}",
+                runtime_config.provider,
+                runtime_config.model,
+            )
             transactoid = Transactoid(
                 db=self._db,
                 taxonomy=self._taxonomy,
@@ -292,10 +303,15 @@ def _persist_continuation_state(
     """Upload continuation state to R2, logging warnings without raising."""
     try:
         artifact = upload_continuation_state(run_id=run_id, state=state)
+        logger.bind(run_id=run_id).info(
+            "AgentRunService: session state persisted for run {}", run_id
+        )
         return [artifact]
     except Exception as exc:
-        logger.warning(
-            "Continuation state persistence failed for run {}: {}", run_id, exc
+        logger.bind(run_id=run_id).warning(
+            "AgentRunService: failed to persist session state for run {}: {}",
+            run_id,
+            exc,
         )
         return []
 
