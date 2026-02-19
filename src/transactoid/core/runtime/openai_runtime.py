@@ -78,11 +78,6 @@ class OpenAICoreRuntime(CoreRuntime):
             ),
         )
 
-    @property
-    def native_agent(self) -> object:
-        """Expose underlying OpenAI Agent for backward-compatible call sites."""
-        return self._agent
-
     def start_session(self, session_key: str) -> CoreSession:
         return CoreSession(
             session_id=session_key, native_session=SQLiteSession(session_key)

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-from agents import Agent
 from dotenv import load_dotenv
 from promptorium import load_prompt
 from pydantic import BaseModel
@@ -18,7 +17,6 @@ from transactoid.core.runtime import (
     create_core_runtime,
     load_core_runtime_config_from_env,
 )
-from transactoid.core.runtime.openai_runtime import OpenAICoreRuntime
 from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.skills.prompting import generate_skill_instructions
 from transactoid.rules.loader import MerchantRulesLoader
@@ -665,13 +663,3 @@ class Transactoid:
             instructions=instructions,
             registry=registry,
         )
-
-    def create_agent(self, sql_dialect: str = "postgresql") -> Agent:
-        """Compatibility shim for legacy call sites that still expect Agent."""
-        runtime = self.create_runtime(
-            sql_dialect=sql_dialect,
-            runtime_config=load_core_runtime_config_from_env(),
-        )
-        if not isinstance(runtime, OpenAICoreRuntime):
-            raise RuntimeError("create_agent is only supported with OpenAI runtime")
-        return cast(Agent, runtime.native_agent)
