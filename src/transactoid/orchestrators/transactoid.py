@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import os
 from pathlib import Path
+import sys
 from typing import Any, cast
 
 from agents import Agent
 from dotenv import load_dotenv
+from loguru import logger
 from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
@@ -23,7 +26,7 @@ from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.skills.prompting import generate_skill_instructions
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
-from transactoid.tools.amazon.scraper import scrape_with_playwriter
+from transactoid.tools.amazon.scraper import scrape_amazon_orders
 from transactoid.tools.base import StandardTool
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.migrate.migration_tool import MigrationTool
@@ -509,7 +512,7 @@ class _MigrateTaxonomyTool(StandardTool):
 
 class _ScrapeAmazonOrdersTool(StandardTool):
     _name = "scrape_amazon_orders"
-    _description = "Scrape Amazon order history with browser automation."
+    _description = "Scrape Amazon order history using Browserbase automation."
     _input_schema: ToolInputSchema = {
         "type": "object",
         "properties": {},
@@ -521,20 +524,67 @@ class _ScrapeAmazonOrdersTool(StandardTool):
 
     async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         _ = kwargs
-        print(
-            """
+        if sys.stdin.isatty():
+            print(
+                """
 === Amazon Order Scraping Setup ===
 
-1. Open Chrome and navigate to https://www.amazon.com
-2. Log in to your Amazon account
-3. Click the Playwriter extension icon in your browser toolbar
+1. Ensure BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID are set
+2. Optionally set BROWSERBASE_CONTEXT_ID for a pre-authenticated session
+3. The scraper is hardwired to the Browserbase backend
 4. When ready, type 'continue' to proceed with scraping
 """
+            )
+            user_input = input("Type 'continue' when ready: ").strip().lower()
+            if user_input != "continue":
+                return {"status": "cancelled", "message": "Scraping cancelled by user"}
+        else:
+            logger.info(
+                "Skipping interactive Amazon scrape confirmation (stdin is not a TTY)"
+            )
+
+        context_id = os.environ.get("BROWSERBASE_CONTEXT_ID")
+        login_mode_env = os.environ.get("BROWSERBASE_LOGIN_MODE", "").strip().lower()
+        login_mode = login_mode_env in {"1", "true", "yes"}
+        if context_id is None and not login_mode:
+            # For first-time setup without a saved context, allow manual login flow.
+            login_mode = True
+
+        logger.info(
+            "Starting Amazon order scrape with stagehand-browserbase backend "
+            "(context_id_set={} login_mode={})",
+            context_id is not None,
+            login_mode,
         )
-        user_input = input("Type 'continue' when ready: ").strip().lower()
-        if user_input != "continue":
-            return {"status": "cancelled", "message": "Scraping cancelled by user"}
-        return scrape_with_playwriter(self._db)
+
+        try:
+            logger.info("Running Browserbase scrape on main thread")
+            result = scrape_amazon_orders(
+                self._db,
+                backend="stagehand-browserbase",
+                context_id=context_id,
+                login_mode=login_mode,
+            )
+            logger.info("Browserbase scrape call returned")
+        except Exception:
+            logger.exception("Amazon order scrape failed with an unexpected error")
+            return {
+                "status": "error",
+                "message": "Amazon scraping failed unexpectedly",
+                "orders_created": 0,
+                "items_created": 0,
+            }
+
+        logger.info(
+            (
+                "Amazon order scrape completed: status={} "
+                "orders_created={} items_created={}"
+            ),
+            result.get("status"),
+            result.get("orders_created"),
+            result.get("items_created"),
+        )
+        return result
 
 
 def _str_or_none(value: Any) -> str | None:

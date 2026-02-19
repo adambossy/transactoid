@@ -72,7 +72,16 @@ class DB:
         Args:
             url: Database URL (e.g., "sqlite:///transactoid.db")
         """
-        self._engine = create_engine(url, echo=False)
+        engine_kwargs: dict[str, Any] = {"echo": False}
+        if not url.startswith("sqlite"):
+            # Keep long-lived CLI/ACP sessions resilient to dropped DB connections.
+            engine_kwargs.update(
+                {
+                    "pool_pre_ping": True,
+                    "pool_recycle": 300,
+                }
+            )
+        self._engine = create_engine(url, **engine_kwargs)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
 
     def create_schema(self) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agents import Agent, Runner
 from agents.mcp import MCPServerStdio, MCPServerStdioParams
+from loguru import logger
 
 from transactoid.tools.amazon.scraper import ScrapedOrder, ScrapeResult
 
@@ -38,6 +39,12 @@ class PlaywriterBackend:
         Returns:
             List of ScrapedOrder objects.
         """
+        logger.info(
+            "Playwriter scrape starting: year={} max_orders={}",
+            year,
+            max_orders,
+        )
+
         # Build instructions based on parameters
         year_instruction = f"for year {year}" if year else "for the past year"
         limit_instruction = (
@@ -77,10 +84,17 @@ class PlaywriterBackend:
         )
 
         # Run scraper agent - returns ScrapeResult
-        scrape_result = Runner.run_sync(agent, "Begin scraping Amazon orders")
+        try:
+            scrape_result = Runner.run_sync(agent, "Begin scraping Amazon orders")
+        except Exception:
+            logger.exception("Playwriter scrape run_sync failed")
+            raise
 
         final_output = scrape_result.final_output
         if final_output is None:
+            logger.warning("Playwriter scrape completed with no final output")
             return []
 
-        return list(final_output.orders)
+        orders = list(final_output.orders)
+        logger.info("Playwriter scrape completed: orders={}", len(orders))
+        return orders

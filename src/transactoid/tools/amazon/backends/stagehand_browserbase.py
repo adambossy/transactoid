@@ -7,6 +7,7 @@ import importlib
 import os
 from typing import Any
 
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from transactoid.tools.amazon.scraper import ScrapedItem, ScrapedOrder
@@ -201,19 +202,30 @@ class StagehandBrowserbaseBackend:
         Returns:
             List of ScrapedOrder objects.
         """
+        logger.info(
+            "Browserbase scrape_order_history start: year={} max_orders={} "
+            "context_id_set={} login_mode={}",
+            year,
+            max_orders,
+            self._context_id is not None,
+            self._login_mode,
+        )
         try:
             # Check if we're already in an async context
             loop = asyncio.get_running_loop()
+            logger.debug("Browserbase backend detected active event loop")
             # Already in async context - use nest_asyncio to allow nested loops
             nest_asyncio_module = importlib.import_module("nest_asyncio")
             apply = getattr(nest_asyncio_module, "apply", None)
             if callable(apply):
                 apply()
+                logger.debug("Applied nest_asyncio for nested event loop support")
             return loop.run_until_complete(
                 self._scrape_order_history_async(year=year, max_orders=max_orders)
             )
         except RuntimeError:
             # No running loop, safe to use asyncio.run()
+            logger.debug("Browserbase backend using asyncio.run (no active loop)")
             return asyncio.run(
                 self._scrape_order_history_async(year=year, max_orders=max_orders)
             )
@@ -232,12 +244,14 @@ class StagehandBrowserbaseBackend:
         Returns:
             List of ScrapedOrder objects.
         """
+        logger.info("Browserbase async scrape starting")
         try:
             stagehand_module = importlib.import_module("stagehand")
         except ImportError as e:
             raise ImportError(
                 "Stagehand is not installed. Install with: pip install stagehand"
             ) from e
+        logger.debug("Imported stagehand module successfully")
         stagehand_class = stagehand_module.Stagehand
         stagehand_config_class = stagehand_module.StagehandConfig
 
@@ -251,6 +265,7 @@ class StagehandBrowserbaseBackend:
                 "BROWSERBASE_PROJECT_ID environment variable is required for "
                 "Browserbase backend"
             )
+        logger.info("Browserbase credentials detected in environment/config")
 
         # Build session create params with optional context
         session_create_params: dict[str, Any] | None = None
@@ -263,6 +278,13 @@ class StagehandBrowserbaseBackend:
                     }
                 }
             }
+            logger.info(
+                "Using Browserbase context_id={} (persist={})",
+                self._context_id,
+                self._persist_context,
+            )
+        else:
+            logger.info("No Browserbase context ID configured")
 
         config = stagehand_config_class(
             env="BROWSERBASE",
@@ -273,16 +295,22 @@ class StagehandBrowserbaseBackend:
             browserbaseSessionCreateParams=session_create_params,
         )
 
+        logger.info("Initializing Stagehand Browserbase session")
         stagehand = stagehand_class(config)
         await stagehand.init()
+        logger.info("Stagehand init complete")
 
         # Log session URL for debugging
         session_id = getattr(stagehand, "session_id", None)
         if session_id:
             session_url = self.get_session_live_view_url(session_id)
-            print(f"[Browserbase] Session: {session_url}")
+            logger.info("Browserbase session live view: {}", session_url)
             if self._context_id:
-                print(f"[Browserbase] Using context: {self._context_id}")
+                logger.info(
+                    "Browserbase session attached to context: {}", self._context_id
+                )
+        else:
+            logger.warning("Stagehand session_id was not available after init")
 
         try:
             # Build URL with optional year filter
@@ -290,29 +318,37 @@ class StagehandBrowserbaseBackend:
             if year:
                 url = f"{url}?timeFilter=year-{year}"
 
+            logger.info("Navigating to Amazon orders URL: {}", url)
             await stagehand.page.goto(url, timeout=60000)  # 60 second timeout
+            logger.info("Navigation to Amazon orders URL completed")
 
             # Check if login is required
             page = stagehand.page
             current_url = page.url
+            logger.info("Current page URL after navigation: {}", current_url)
 
             if "signin" in current_url or "ap/signin" in current_url:
+                logger.warning("Amazon sign-in page detected")
                 if self._login_mode:
                     # Wait for user to log in via Session Live View
-                    print("[Browserbase] Login required. Please log in via Live View.")
+                    logger.info(
+                        "Login mode enabled; waiting for manual login in Live View"
+                    )
                     if session_id:
                         live_url = self.get_session_live_view_url(session_id)
-                        print(f"[Browserbase] Open: {live_url}")
-                    print("[Browserbase] Waiting up to 5 minutes for login...")
+                        logger.info(
+                            "Open Browserbase Live View for login: {}", live_url
+                        )
+                    logger.info("Waiting up to 5 minutes for Amazon login")
 
                     max_wait_seconds = 300  # 5 minutes
                     for i in range(max_wait_seconds):
                         current_url = page.url
                         if "your-orders" in current_url and "signin" not in current_url:
-                            print("[Browserbase] Login successful! On orders page.")
+                            logger.info("Login successful; now on orders page")
                             break
                         if i > 0 and i % 30 == 0:
-                            print(f"[Browserbase] Still waiting for login... ({i}s)")
+                            logger.info("Still waiting for login ({}s elapsed)", i)
                         await asyncio.sleep(1)
                     else:
                         raise TimeoutError(
@@ -345,7 +381,7 @@ class StagehandBrowserbaseBackend:
 
             while True:
                 page_num += 1
-                print(f"[Browserbase] Extracting orders from page {page_num}...")
+                logger.info("Extracting orders from page {}", page_num)
 
                 # Extract orders from current page
                 extracted: Any = await stagehand.page.extract(
@@ -359,9 +395,12 @@ class StagehandBrowserbaseBackend:
                     ),
                     schema=ExtractedOrders,
                 )
+                logger.debug(
+                    "Stagehand extraction returned payload for page {}", page_num
+                )
 
                 order_count = len(extracted.orders)
-                print(f"[Browserbase] Found {order_count} orders on page {page_num}")
+                logger.info("Found {} orders on page {}", order_count, page_num)
 
                 # Convert extracted orders to ScrapedOrder objects
                 for order in extracted.orders:
@@ -385,19 +424,29 @@ class StagehandBrowserbaseBackend:
 
                     # Check max_orders limit
                     if max_orders and len(self._collected_orders) >= max_orders:
+                        logger.info(
+                            "Reached max_orders limit ({}), stopping extraction",
+                            max_orders,
+                        )
                         return self._collected_orders[:max_orders]
 
                 # Check for next page
                 if not extracted.has_next_page:
+                    logger.info("No next page detected after page {}", page_num)
                     break
 
                 # Navigate to next page
-                print("[Browserbase] Clicking 'Next' button...")
+                logger.info("Clicking 'Next' pagination button")
                 await stagehand.page.act("Click the 'Next' pagination button")
+                logger.info("Pagination action completed")
 
             total = len(self._collected_orders)
-            print(f"[Browserbase] Finished. Total orders: {total}")
+            logger.info(
+                "Browserbase scrape finished. Total orders collected: {}", total
+            )
             return self._collected_orders
 
         finally:
+            logger.info("Closing Stagehand Browserbase session")
             await stagehand.close()
+            logger.info("Stagehand Browserbase session closed")

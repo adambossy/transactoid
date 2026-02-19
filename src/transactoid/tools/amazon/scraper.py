@@ -5,11 +5,15 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
+from dotenv import load_dotenv
+from loguru import logger
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from transactoid.adapters.db.facade import DB
     from transactoid.tools.amazon.backends.base import AmazonScraperBackend
+
+load_dotenv(override=False)
 
 
 class ScrapedItem(BaseModel):
@@ -62,6 +66,12 @@ def _get_backend(
     Raises:
         ValueError: If backend type is not supported.
     """
+    logger.info(
+        "Selecting Amazon scraper backend: backend={} context_id_set={} login_mode={}",
+        backend,
+        context_id is not None,
+        login_mode,
+    )
     if backend == "playwriter":
         from transactoid.tools.amazon.backends.playwriter import PlaywriterBackend
 
@@ -143,6 +153,15 @@ def scrape_amazon_orders(
     Returns:
         Dictionary with status and summary of scraped data.
     """
+    logger.info(
+        "Amazon scrape requested: backend={} year={} max_orders={} "
+        "context_id_set={} login_mode={}",
+        backend,
+        year,
+        max_orders,
+        context_id is not None,
+        login_mode,
+    )
     backend_instance = _get_backend(
         backend, context_id=context_id, login_mode=login_mode
     )
@@ -151,25 +170,46 @@ def scrape_amazon_orders(
     error_message: str | None = None
 
     try:
+        logger.info("Invoking backend scrape_order_history")
         orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
+        logger.info("Backend scrape_order_history returned {} orders", len(orders))
     except Exception as e:
         error_message = str(e)
+        logger.exception("Amazon scrape backend raised an exception")
         # Try to recover partial results from backend
         if hasattr(backend_instance, "collected_orders"):
             orders = backend_instance.collected_orders
             if orders:
-                print(f"[Scraper] Recovered {len(orders)} orders before failure")
+                logger.warning(
+                    "Recovered {} partial orders after backend failure", len(orders)
+                )
 
     # Persist whatever we collected (even on partial failure)
     if orders:
-        counts = _persist_orders(db, orders)
+        try:
+            counts = _persist_orders(db, orders)
+        except Exception as e:
+            logger.exception("Failed to persist scraped Amazon orders")
+            return {
+                "status": "error",
+                "message": f"Failed to persist scraped orders: {e}",
+                "orders_created": 0,
+                "items_created": 0,
+            }
+        logger.info(
+            "Persisted Amazon scrape results: orders_created={} items_created={}",
+            counts["orders_created"],
+            counts["items_created"],
+        )
         if error_message:
             msg = f"Scraped {len(orders)} orders before error: {error_message}"
+            logger.warning("Returning partial Amazon scrape result: {}", msg)
             return {
                 "status": "partial",
                 "message": msg,
                 **counts,
             }
+        logger.info("Returning successful Amazon scrape result")
         return {
             "status": "success",
             **counts,
@@ -177,6 +217,7 @@ def scrape_amazon_orders(
 
     # No orders at all
     if error_message:
+        logger.error("Returning Amazon scrape error result: {}", error_message)
         return {
             "status": "error",
             "message": error_message,
@@ -184,6 +225,7 @@ def scrape_amazon_orders(
             "items_created": 0,
         }
 
+    logger.error("Returning Amazon scrape error: scraper returned no results")
     return {
         "status": "error",
         "message": "Scraper did not return any results",
