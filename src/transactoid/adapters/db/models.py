@@ -405,3 +405,20 @@ class AmazonItemDB(Base):
     __table_args__ = (
         UniqueConstraint("order_id", "asin", name="uq_amazon_item_order_asin"),
     )
+
+
+class AmazonScraperStateDB(Base):
+    """Singleton state row for Amazon scraper runtime settings."""
+
+    __tablename__ = "amazon_scraper_state"
+
+    state_id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    browserbase_context_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from transactoid.adapters.db.models import (
     AmazonItemDB,
     AmazonOrderDB,
+    AmazonScraperStateDB,
     Base,
     Category,
     CategoryRow,
@@ -2062,6 +2063,44 @@ class DB:
                     parent_id_map[node.key] = cat.category_id
 
     # Amazon Order methods
+
+    def get_amazon_browserbase_context_id(self) -> str | None:
+        """Get persisted Browserbase context ID for Amazon scraping.
+
+        Returns:
+            Context ID if configured, otherwise None.
+        """
+        with self.session() as session:  # type: Session
+            state = (
+                session.query(AmazonScraperStateDB)
+                .filter(AmazonScraperStateDB.state_id == 1)
+                .first()
+            )
+            if state is None:
+                return None
+            return state.browserbase_context_id
+
+    def set_amazon_browserbase_context_id(self, context_id: str | None) -> None:
+        """Persist Browserbase context ID for Amazon scraping.
+
+        Args:
+            context_id: Context ID to persist, or None to clear it.
+        """
+        with self.session() as session:  # type: Session
+            state = (
+                session.query(AmazonScraperStateDB)
+                .filter(AmazonScraperStateDB.state_id == 1)
+                .first()
+            )
+            if state is None:
+                state = AmazonScraperStateDB(
+                    state_id=1,
+                    browserbase_context_id=context_id,
+                )
+                session.add(state)
+            else:
+                state.browserbase_context_id = context_id
+                state.updated_at = datetime.now()
 
     def upsert_amazon_order(
         self,

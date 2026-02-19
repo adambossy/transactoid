@@ -544,10 +544,41 @@ class _ScrapeAmazonOrdersTool(StandardTool):
             )
 
         context_id = os.environ.get("BROWSERBASE_CONTEXT_ID")
+        created_new_context = False
+        if context_id is None:
+            context_id = self._db.get_amazon_browserbase_context_id()
+            if context_id is not None:
+                logger.info("Loaded Browserbase context ID from database state")
+
+        if context_id is None:
+            logger.info(
+                "No Browserbase context ID configured; creating and persisting one"
+            )
+            try:
+                from transactoid.tools.amazon.backends.stagehand_browserbase import (
+                    StagehandBrowserbaseBackend,
+                )
+
+                context_id = StagehandBrowserbaseBackend.create_context()
+                self._db.set_amazon_browserbase_context_id(context_id)
+                created_new_context = True
+                logger.info("Created and persisted Browserbase context ID in database")
+            except Exception as e:
+                logger.exception("Failed to create/persist Browserbase context ID")
+                return {
+                    "status": "error",
+                    "message": (
+                        "Failed to create Browserbase context ID for Amazon scraping: "
+                        f"{e}"
+                    ),
+                    "orders_created": 0,
+                    "items_created": 0,
+                }
+
         login_mode_env = os.environ.get("BROWSERBASE_LOGIN_MODE", "").strip().lower()
         login_mode = login_mode_env in {"1", "true", "yes"}
-        if context_id is None and not login_mode:
-            # For first-time setup without a saved context, allow manual login flow.
+        if created_new_context and not login_mode:
+            # New context requires first-time interactive login in Live View.
             login_mode = True
 
         logger.info(

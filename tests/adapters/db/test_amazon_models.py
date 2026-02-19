@@ -245,3 +245,54 @@ class TestAmazonItemDB:
         items = db.get_amazon_items_for_order(order_id)
         assert len(items) == 1
         assert items[0].description == "Updated item"
+
+
+class TestAmazonScraperStateDB:
+    """Tests for Amazon scraper state persistence."""
+
+    def test_get_amazon_browserbase_context_id_returns_none_when_missing(
+        self, tmp_path: Path
+    ) -> None:
+        db = create_db(tmp_path)
+
+        output = db.get_amazon_browserbase_context_id()
+
+        assert output is None
+
+    def test_set_amazon_browserbase_context_id_persists_value(
+        self, tmp_path: Path
+    ) -> None:
+        db = create_db(tmp_path)
+        input_context_id = "ctx_test_123"
+
+        db.set_amazon_browserbase_context_id(input_context_id)
+        output = db.get_amazon_browserbase_context_id()
+        expected_output = input_context_id
+
+        assert output == expected_output
+
+    def test_set_amazon_browserbase_context_id_updates_existing_value(
+        self, tmp_path: Path
+    ) -> None:
+        db = create_db(tmp_path)
+        db.set_amazon_browserbase_context_id("ctx_old")
+        input_context_id = "ctx_new"
+
+        db.set_amazon_browserbase_context_id(input_context_id)
+        output = db.get_amazon_browserbase_context_id()
+        expected_output = input_context_id
+
+        assert output == expected_output
+
+    def test_set_amazon_browserbase_context_id_allows_clearing_value(
+        self, tmp_path: Path
+    ) -> None:
+        db = create_db(tmp_path)
+        db.set_amazon_browserbase_context_id("ctx_old")
+        input_context_id = None
+
+        db.set_amazon_browserbase_context_id(input_context_id)
+        output = db.get_amazon_browserbase_context_id()
+        expected_output = None
+
+        assert output == expected_output
