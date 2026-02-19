@@ -9,7 +9,6 @@ import tempfile
 import time
 import uuid
 
-from agents import Agent, Runner, SQLiteSession
 from agents.items import MessageOutputItem
 from agents.result import RunResult
 from loguru import logger
@@ -18,6 +17,7 @@ from promptorium import load_prompt
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.storage.r2 import R2StorageError
+from transactoid.core.runtime.config import load_core_runtime_config_from_env
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.services.agent_run.trace import download_trace, upload_trace
 from transactoid.services.agent_run.types import (
@@ -83,11 +83,28 @@ class AgentRunService:
         """Run the agent and persist trace, returning the result."""
         try:
             plaid_client = self._resolve_plaid_client()
-            agent = self._create_agent(plaid_client)
             prompt = self._resolve_prompt(request)
-            response_text = await self._run_agent(
-                agent, prompt, request.max_turns, trace_path
+            runtime_config = load_core_runtime_config_from_env()
+            transactoid = Transactoid(
+                db=self._db,
+                taxonomy=self._taxonomy,
+                plaid_client=plaid_client,
             )
+            runtime = transactoid.create_runtime(
+                runtime_config=runtime_config,
+                sql_dialect=self._sql_dialect,
+            )
+            session_key = run_id
+            session = runtime.start_session(session_key)
+            try:
+                core_result = await runtime.run(
+                    input_text=prompt,
+                    session=session,
+                    max_turns=request.max_turns,
+                )
+                response_text = core_result.final_text
+            finally:
+                await runtime.close()
         except Exception as exc:
             duration = time.monotonic() - start_mono
             finished_at = datetime.now(UTC)
@@ -155,15 +172,6 @@ class AgentRunService:
             logger.warning("Plaid client not available; continuing without it")
             return None
 
-    def _create_agent(self, plaid_client: PlaidClient | None) -> Agent[None]:
-        """Build a Transactoid Agent instance."""
-        transactoid = Transactoid(
-            db=self._db,
-            taxonomy=self._taxonomy,
-            plaid_client=plaid_client,
-        )
-        return transactoid.create_agent(sql_dialect=self._sql_dialect)
-
     def _resolve_prompt(self, request: AgentRunRequest) -> str:
         """Load and render the prompt for the run.
 
@@ -193,17 +201,6 @@ class AgentRunService:
         tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
         tmp.close()
         return Path(tmp.name)
-
-    @staticmethod
-    async def _run_agent(
-        agent: Agent[None], prompt: str, max_turns: int, trace_path: Path
-    ) -> str:
-        """Execute the agent and extract the response text."""
-        session = SQLiteSession(session_id="agent_run", db_path=trace_path)
-        result = await Runner.run(
-            agent, input=prompt, session=session, max_turns=max_turns
-        )
-        return _extract_response(result)
 
 
 def _persist_trace(

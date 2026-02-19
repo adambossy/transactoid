@@ -84,23 +84,32 @@ class TestExtractResponse:
         assert output == ""
 
 
+def _make_mock_runtime(*, final_text: str = "Report output") -> MagicMock:
+    mock_core_result = MagicMock()
+    mock_core_result.final_text = final_text
+
+    mock_session = MagicMock()
+
+    mock_runtime = MagicMock()
+    mock_runtime.start_session.return_value = mock_session
+    mock_runtime.run = AsyncMock(return_value=mock_core_result)
+    mock_runtime.close = AsyncMock()
+    return mock_runtime
+
+
 class TestExecute:
     @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
-    @patch("transactoid.services.agent_run.service.Runner")
+    @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
         "transactoid.services.agent_run.service.PlaidClient.from_env",
         side_effect=PlaidClientError("no plaid"),
     )
     def test_execute_with_prompt_returns_success(
-        self, _plaid, mock_transactoid, mock_runner, _upload
+        self, _plaid, mock_transactoid, mock_load_config, _upload
     ):
-        mock_agent = MagicMock()
-        mock_transactoid.return_value.create_agent.return_value = mock_agent
-
-        mock_result = MagicMock()
-        mock_result.final_output = "Report output"
-        mock_runner.run = AsyncMock(return_value=mock_result)
+        mock_runtime = _make_mock_runtime(final_text="Report output")
+        mock_transactoid.return_value.create_runtime.return_value = mock_runtime
 
         service = _make_service()
         request = AgentRunRequest(prompt="Generate report")
@@ -113,20 +122,20 @@ class TestExecute:
         assert result.run_id is not None
 
     @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
-    @patch(
-        "transactoid.services.agent_run.service.Runner",
-    )
+    @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
         "transactoid.services.agent_run.service.PlaidClient.from_env",
         side_effect=PlaidClientError("no plaid"),
     )
     def test_execute_handles_agent_error(
-        self, _plaid, mock_transactoid, mock_runner, _upload
+        self, _plaid, mock_transactoid, mock_load_config, _upload
     ):
-        mock_agent = MagicMock()
-        mock_transactoid.return_value.create_agent.return_value = mock_agent
-        mock_runner.run = AsyncMock(side_effect=RuntimeError("Agent crashed"))
+        mock_runtime = MagicMock()
+        mock_runtime.start_session.return_value = MagicMock()
+        mock_runtime.run = AsyncMock(side_effect=RuntimeError("Agent crashed"))
+        mock_runtime.close = AsyncMock()
+        mock_transactoid.return_value.create_runtime.return_value = mock_runtime
 
         service = _make_service()
         request = AgentRunRequest(prompt="Generate report")
@@ -136,3 +145,57 @@ class TestExecute:
         assert result.success is False
         assert "Agent crashed" in (result.error or "")
         assert result.manifest.success is False
+
+    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
+    @patch("transactoid.services.agent_run.service.Transactoid")
+    @patch(
+        "transactoid.services.agent_run.service.PlaidClient.from_env",
+        side_effect=PlaidClientError("no plaid"),
+    )
+    def test_execute_uses_create_runtime_for_provider_from_env(
+        self, _plaid, mock_transactoid, mock_load_config, _upload
+    ):
+        mock_runtime = _make_mock_runtime()
+        mock_transactoid.return_value.create_runtime.return_value = mock_runtime
+
+        service = _make_service()
+        request = AgentRunRequest(prompt="Generate report")
+
+        asyncio.run(service.execute(request))
+
+        mock_transactoid.return_value.create_runtime.assert_called_once()
+        mock_load_config.assert_called_once()
+
+    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
+    @patch("transactoid.services.agent_run.service.Transactoid")
+    @patch(
+        "transactoid.services.agent_run.service.PlaidClient.from_env",
+        side_effect=PlaidClientError("no plaid"),
+    )
+    def test_execute_with_gemini_provider_succeeds_when_core_runtime_returns_text(
+        self, _plaid, mock_transactoid, mock_load_config, _upload
+    ):
+        from transactoid.core.runtime.config import CoreRuntimeConfig
+
+        gemini_config = CoreRuntimeConfig(
+            provider="gemini",
+            model="gemini-2.5-pro",
+        )
+        mock_load_config.return_value = gemini_config
+
+        mock_runtime = _make_mock_runtime(final_text="Gemini report text")
+        mock_transactoid.return_value.create_runtime.return_value = mock_runtime
+
+        service = _make_service()
+        request = AgentRunRequest(prompt="Summarize spending")
+
+        result = asyncio.run(service.execute(request))
+
+        assert result.success is True
+        assert result.report_text == "Gemini report text"
+        mock_transactoid.return_value.create_runtime.assert_called_once_with(
+            runtime_config=gemini_config,
+            sql_dialect="sqlite",
+        )
