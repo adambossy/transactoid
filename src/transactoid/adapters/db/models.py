@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -407,18 +408,30 @@ class AmazonItemDB(Base):
     )
 
 
-class AmazonScraperStateDB(Base):
-    """Singleton state row for Amazon scraper runtime settings."""
+class AmazonLoginProfileDB(Base):
+    """Amazon login profile for multi-account scraping."""
 
-    __tablename__ = "amazon_scraper_state"
+    __tablename__ = "amazon_login_profiles"
 
-    state_id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    profile_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    profile_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     browserbase_context_id: Mapped[str | None] = mapped_column(
         String(128), nullable=True
     )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_auth_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_auth_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_auth_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime, nullable=False, default=datetime.utcnow
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
     )

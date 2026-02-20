@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import os
 from pathlib import Path
 import sys
 from typing import Any, cast
@@ -530,9 +529,8 @@ class _ScrapeAmazonOrdersTool(StandardTool):
 === Amazon Order Scraping Setup ===
 
 1. Ensure BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID are set
-2. Optionally set BROWSERBASE_CONTEXT_ID for a pre-authenticated session
-3. The scraper is hardwired to the Browserbase backend
-4. When ready, type 'continue' to proceed with scraping
+2. Configure Amazon login profiles via add_amazon_login
+3. When ready, type 'continue' to proceed with scraping
 """
             )
             user_input = input("Type 'continue' when ready: ").strip().lower()
@@ -543,58 +541,15 @@ class _ScrapeAmazonOrdersTool(StandardTool):
                 "Skipping interactive Amazon scrape confirmation (stdin is not a TTY)"
             )
 
-        context_id = os.environ.get("BROWSERBASE_CONTEXT_ID")
-        created_new_context = False
-        if context_id is None:
-            context_id = self._db.get_amazon_browserbase_context_id()
-            if context_id is not None:
-                logger.info("Loaded Browserbase context ID from database state")
-
-        if context_id is None:
-            logger.info(
-                "No Browserbase context ID configured; creating and persisting one"
-            )
-            try:
-                from transactoid.tools.amazon.backends.stagehand_browserbase import (
-                    StagehandBrowserbaseBackend,
-                )
-
-                context_id = StagehandBrowserbaseBackend.create_context()
-                self._db.set_amazon_browserbase_context_id(context_id)
-                created_new_context = True
-                logger.info("Created and persisted Browserbase context ID in database")
-            except Exception as e:
-                logger.exception("Failed to create/persist Browserbase context ID")
-                return {
-                    "status": "error",
-                    "message": (
-                        "Failed to create Browserbase context ID for Amazon scraping: "
-                        f"{e}"
-                    ),
-                    "orders_created": 0,
-                    "items_created": 0,
-                }
-
-        login_mode_env = os.environ.get("BROWSERBASE_LOGIN_MODE", "").strip().lower()
-        login_mode = login_mode_env in {"1", "true", "yes"}
-        if created_new_context and not login_mode:
-            # New context requires first-time interactive login in Live View.
-            login_mode = True
-
         logger.info(
             "Starting Amazon order scrape with stagehand-browserbase backend "
-            "(context_id_set={} login_mode={})",
-            context_id is not None,
-            login_mode,
+            "(profile-based multi-login)"
         )
 
         try:
-            logger.info("Running Browserbase scrape on main thread")
             result = scrape_amazon_orders(
                 self._db,
                 backend="stagehand-browserbase",
-                context_id=context_id,
-                login_mode=login_mode,
             )
             logger.info("Browserbase scrape call returned")
         except Exception:

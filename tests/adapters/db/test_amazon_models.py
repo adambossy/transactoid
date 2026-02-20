@@ -6,7 +6,11 @@ from datetime import date
 from pathlib import Path
 from typing import TypedDict
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import AmazonLoginProfileDB
 
 
 class AmazonOrderInput(TypedDict):
@@ -25,7 +29,7 @@ class AmazonItemInput(TypedDict):
     quantity: int
 
 
-def create_db(tmp_path: Path) -> DB:
+def create_test_db(tmp_path: Path) -> DB:
     """Create a test database."""
     db_path = tmp_path / "test.db"
     db = DB(f"sqlite:///{db_path}")
@@ -33,11 +37,21 @@ def create_db(tmp_path: Path) -> DB:
     return db
 
 
+def _profile_as_dict(profile: AmazonLoginProfileDB) -> dict[str, object]:
+    return {
+        "profile_key": profile.profile_key,
+        "display_name": profile.display_name,
+        "enabled": profile.enabled,
+        "sort_order": profile.sort_order,
+        "browserbase_context_id": profile.browserbase_context_id,
+    }
+
+
 class TestAmazonOrderDB:
     """Tests for AmazonOrderDB model and upsert methods."""
 
     def test_upsert_amazon_order_creates_new_order(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         input_data: AmazonOrderInput = {
             "order_id": "112-5793878-2607402",
             "order_date": date(2024, 1, 15),
@@ -55,7 +69,7 @@ class TestAmazonOrderDB:
         assert order.shipping_cents == input_data["shipping_cents"]
 
     def test_upsert_amazon_order_updates_existing_order(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -80,7 +94,7 @@ class TestAmazonOrderDB:
         assert updated_order.shipping_cents == 100
 
     def test_get_amazon_order_returns_order(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -96,13 +110,13 @@ class TestAmazonOrderDB:
         assert order.order_id == order_id
 
     def test_get_amazon_order_returns_none_for_missing(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order = db.get_amazon_order("nonexistent-order")
 
         assert order is None
 
     def test_list_amazon_orders_returns_all_orders(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         db.upsert_amazon_order(
             order_id="order-1",
             order_date=date(2024, 1, 15),
@@ -125,7 +139,7 @@ class TestAmazonItemDB:
     """Tests for AmazonItemDB model and upsert methods."""
 
     def test_upsert_amazon_item_creates_new_item(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         db.upsert_amazon_order(
             order_id="112-5793878-2607402",
             order_date=date(2024, 1, 15),
@@ -148,7 +162,7 @@ class TestAmazonItemDB:
         assert item.quantity == input_data["quantity"]
 
     def test_upsert_amazon_item_updates_existing_item(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order_id = "112-5793878-2607402"
         asin = "B0725BK81G"
         db.upsert_amazon_order(
@@ -179,7 +193,7 @@ class TestAmazonItemDB:
         assert updated_item.quantity == 2
 
     def test_get_amazon_items_for_order_returns_items(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -208,7 +222,7 @@ class TestAmazonItemDB:
     def test_get_amazon_items_for_order_returns_empty_for_no_items(
         self, tmp_path: Path
     ) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -221,7 +235,7 @@ class TestAmazonItemDB:
         assert items == []
 
     def test_unique_constraint_order_asin(self, tmp_path: Path) -> None:
-        db = create_db(tmp_path)
+        db = create_test_db(tmp_path)
         order_id = "112-5793878-2607402"
         db.upsert_amazon_order(
             order_id=order_id,
@@ -247,52 +261,142 @@ class TestAmazonItemDB:
         assert items[0].description == "Updated item"
 
 
-class TestAmazonScraperStateDB:
-    """Tests for Amazon scraper state persistence."""
+class TestAmazonLoginProfileDB:
+    def test_create_amazon_login_profile(self, tmp_path: Path) -> None:
+        # input
+        db = create_test_db(tmp_path)
 
-    def test_get_amazon_browserbase_context_id_returns_none_when_missing(
-        self, tmp_path: Path
-    ) -> None:
-        db = create_db(tmp_path)
+        # act
+        output = db.create_amazon_login_profile(
+            profile_key="primary",
+            display_name="Primary Account",
+        )
 
-        output = db.get_amazon_browserbase_context_id()
+        # expected
+        expected = {
+            "profile_key": "primary",
+            "display_name": "Primary Account",
+            "enabled": True,
+            "sort_order": 0,
+            "browserbase_context_id": None,
+        }
 
-        assert output is None
+        # assert
+        assert _profile_as_dict(output) == expected
 
-    def test_set_amazon_browserbase_context_id_persists_value(
-        self, tmp_path: Path
-    ) -> None:
-        db = create_db(tmp_path)
-        input_context_id = "ctx_test_123"
+    def test_list_amazon_login_profiles_ordering(self, tmp_path: Path) -> None:
+        # input
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="b", display_name="B", sort_order=2)
+        db.create_amazon_login_profile(profile_key="a", display_name="A", sort_order=1)
 
-        db.set_amazon_browserbase_context_id(input_context_id)
-        output = db.get_amazon_browserbase_context_id()
-        expected_output = input_context_id
+        # act
+        output = db.list_amazon_login_profiles()
 
-        assert output == expected_output
+        # assert
+        assert [p.profile_key for p in output] == ["a", "b"]
 
-    def test_set_amazon_browserbase_context_id_updates_existing_value(
-        self, tmp_path: Path
-    ) -> None:
-        db = create_db(tmp_path)
-        db.set_amazon_browserbase_context_id("ctx_old")
-        input_context_id = "ctx_new"
+    def test_list_amazon_login_profiles_enabled_only(self, tmp_path: Path) -> None:
+        # input
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="active", display_name="Active")
+        db.create_amazon_login_profile(
+            profile_key="inactive", display_name="Inactive", enabled=False
+        )
 
-        db.set_amazon_browserbase_context_id(input_context_id)
-        output = db.get_amazon_browserbase_context_id()
-        expected_output = input_context_id
+        # act
+        output = db.list_amazon_login_profiles(enabled_only=True)
 
-        assert output == expected_output
+        # assert
+        assert [p.profile_key for p in output] == ["active"]
 
-    def test_set_amazon_browserbase_context_id_allows_clearing_value(
-        self, tmp_path: Path
-    ) -> None:
-        db = create_db(tmp_path)
-        db.set_amazon_browserbase_context_id("ctx_old")
-        input_context_id = None
+    def test_update_amazon_login_profile(self, tmp_path: Path) -> None:
+        # input
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="Old Name")
 
-        db.set_amazon_browserbase_context_id(input_context_id)
-        output = db.get_amazon_browserbase_context_id()
-        expected_output = None
+        # act
+        output = db.update_amazon_login_profile(
+            profile_key="primary", display_name="New Name", enabled=False
+        )
 
-        assert output == expected_output
+        # expected
+        expected = {
+            "profile_key": "primary",
+            "display_name": "New Name",
+            "enabled": False,
+            "sort_order": 0,
+            "browserbase_context_id": None,
+        }
+
+        # assert
+        assert _profile_as_dict(output) == expected
+
+    def test_update_amazon_login_profile_not_found(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        with pytest.raises(ValueError, match="not found"):
+            db.update_amazon_login_profile(profile_key="missing", display_name="X")
+
+    def test_delete_amazon_login_profile(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="Primary")
+
+        db.delete_amazon_login_profile(profile_key="primary")
+
+        output = db.list_amazon_login_profiles()
+        assert output == []
+
+    def test_delete_amazon_login_profile_not_found(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        with pytest.raises(ValueError, match="not found"):
+            db.delete_amazon_login_profile(profile_key="missing")
+
+    def test_set_amazon_login_context_id(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="Primary")
+
+        output = db.set_amazon_login_context_id(
+            profile_key="primary", context_id="ctx-abc-123"
+        )
+
+        assert output.browserbase_context_id == "ctx-abc-123"
+
+    def test_clear_amazon_login_context_id(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="Primary")
+        db.set_amazon_login_context_id(profile_key="primary", context_id="ctx-abc")
+
+        output = db.set_amazon_login_context_id(profile_key="primary", context_id=None)
+
+        assert output.browserbase_context_id is None
+
+    def test_record_amazon_login_auth_result(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="Primary")
+
+        db.record_amazon_login_auth_result(profile_key="primary", status="success")
+
+        profile = db.get_amazon_login_profile(profile_key="primary")
+        assert profile is not None
+        assert profile.last_auth_status == "success"
+        assert profile.last_auth_error is None
+        assert profile.last_auth_at is not None
+
+    def test_record_amazon_login_auth_result_with_error(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="Primary")
+
+        db.record_amazon_login_auth_result(
+            profile_key="primary", status="failed", error="Timeout during login"
+        )
+
+        profile = db.get_amazon_login_profile(profile_key="primary")
+        assert profile is not None
+        assert profile.last_auth_status == "failed"
+        assert profile.last_auth_error == "Timeout during login"
+
+    def test_duplicate_profile_key_raises(self, tmp_path: Path) -> None:
+        db = create_test_db(tmp_path)
+        db.create_amazon_login_profile(profile_key="primary", display_name="First")
+        with pytest.raises(IntegrityError):
+            db.create_amazon_login_profile(profile_key="primary", display_name="Second")
