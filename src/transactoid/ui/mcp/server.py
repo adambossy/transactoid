@@ -249,24 +249,24 @@ def run_sql(query: str) -> dict[str, Any]:
 @mcp.tool()
 def scrape_amazon_orders(
     max_orders: int = 10,
-    backend: str = "stagehand",
-    context_id: str | None = None,
+    backend: str = "stagehand-browserbase",
 ) -> dict[str, Any]:
     """
-    Scrape Amazon order history using Stagehand browser automation.
+    Scrape Amazon order history for all enabled Amazon login profiles.
 
-    Opens a browser window for the user to log in to Amazon, then
-    automatically scrapes order history and saves to the database.
+    Runs a two-phase workflow: first authenticates each enabled profile
+    sequentially (creating Browserbase contexts on first use), then scrapes
+    order history for all ready profiles in parallel.
 
     Args:
-        max_orders: Maximum number of orders to scrape (default: 10)
-        backend: Backend to use - "stagehand" (local browser) or
-            "stagehand-browserbase" (cloud with session persistence)
-        context_id: Browserbase context ID for pre-authenticated sessions.
-            Only used with "stagehand-browserbase" backend.
+        max_orders: Maximum number of orders to scrape per profile (default: 10)
+        backend: Backend to use - "stagehand" (local browser),
+            "stagehand-browserbase" (cloud with session persistence), or
+            "playwriter".
 
     Returns:
-        Dictionary with status, orders_created, items_created counts.
+        Dictionary with top-level status, aggregate counts, and per-profile
+        breakdown.
     """
     try:
         if backend not in ("stagehand", "stagehand-browserbase", "playwriter"):
@@ -275,6 +275,11 @@ def scrape_amazon_orders(
                 "message": f"Invalid backend: {backend}",
                 "orders_created": 0,
                 "items_created": 0,
+                "profiles_total": 0,
+                "profiles_ready": 0,
+                "profiles_succeeded": 0,
+                "profiles_failed": 0,
+                "profile_results": [],
             }
         # Cast is safe after validation above
         validated_backend: BackendType = backend  # type: ignore[assignment]
@@ -282,7 +287,6 @@ def scrape_amazon_orders(
             db,
             backend=validated_backend,
             max_orders=max_orders,
-            context_id=context_id,
         )
     except Exception as e:
         return {
@@ -290,7 +294,134 @@ def scrape_amazon_orders(
             "message": str(e),
             "orders_created": 0,
             "items_created": 0,
+            "profiles_total": 0,
+            "profiles_ready": 0,
+            "profiles_succeeded": 0,
+            "profiles_failed": 0,
+            "profile_results": [],
         }
+
+
+@mcp.tool()
+def list_amazon_logins() -> dict[str, Any]:
+    """List all configured Amazon login profiles."""
+    profiles = db.list_amazon_login_profiles()
+    return {
+        "profiles": [
+            {
+                "profile_key": p.profile_key,
+                "display_name": p.display_name,
+                "enabled": p.enabled,
+                "sort_order": p.sort_order,
+                "has_context": p.browserbase_context_id is not None,
+                "last_auth_status": p.last_auth_status,
+                "last_auth_at": p.last_auth_at.isoformat() if p.last_auth_at else None,
+            }
+            for p in profiles
+        ]
+    }
+
+
+@mcp.tool()
+def add_amazon_login(
+    profile_key: str,
+    display_name: str,
+    enabled: bool = True,
+    sort_order: int = 0,
+) -> dict[str, Any]:
+    """Add a new Amazon login profile."""
+    try:
+        profile = db.create_amazon_login_profile(
+            profile_key=profile_key,
+            display_name=display_name,
+            enabled=enabled,
+            sort_order=sort_order,
+        )
+        return {
+            "status": "success",
+            "profile_key": profile.profile_key,
+            "display_name": profile.display_name,
+            "message": f"Created profile '{profile_key}'",
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool()
+def update_amazon_login(
+    profile_key: str,
+    display_name: str | None = None,
+    enabled: bool | None = None,
+    sort_order: int | None = None,
+) -> dict[str, Any]:
+    """Update an existing Amazon login profile. At least one field must be provided."""
+    if display_name is None and enabled is None and sort_order is None:
+        return {
+            "status": "error",
+            "message": (
+                "At least one of display_name, enabled, sort_order must be provided"
+            ),
+        }
+    try:
+        profile = db.update_amazon_login_profile(
+            profile_key=profile_key,
+            display_name=display_name,
+            enabled=enabled,
+            sort_order=sort_order,
+        )
+        return {
+            "status": "success",
+            "profile_key": profile.profile_key,
+            "message": f"Updated profile '{profile_key}'",
+        }
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool()
+def remove_amazon_login(profile_key: str) -> dict[str, Any]:
+    """Remove an Amazon login profile."""
+    try:
+        db.delete_amazon_login_profile(profile_key=profile_key)
+        return {"status": "success", "message": f"Removed profile '{profile_key}'"}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool()
+def clear_amazon_login_context(profile_key: str) -> dict[str, Any]:
+    """Clear the stored Browserbase context ID for an Amazon login profile.
+
+    Forces re-login on next scrape.
+    """
+    try:
+        db.set_amazon_login_context_id(profile_key=profile_key, context_id=None)
+        return {
+            "status": "success",
+            "message": f"Cleared context for profile '{profile_key}'",
+        }
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool()
+def enable_amazon_login(profile_key: str) -> dict[str, Any]:
+    """Enable an Amazon login profile."""
+    try:
+        db.update_amazon_login_profile(profile_key=profile_key, enabled=True)
+        return {"status": "success", "message": f"Enabled profile '{profile_key}'"}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool()
+def disable_amazon_login(profile_key: str) -> dict[str, Any]:
+    """Disable an Amazon login profile."""
+    try:
+        db.update_amazon_login_profile(profile_key=profile_key, enabled=False)
+        return {"status": "success", "message": f"Disabled profile '{profile_key}'"}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
 
 
 if __name__ == "__main__":

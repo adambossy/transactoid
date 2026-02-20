@@ -91,6 +91,21 @@ def present_tool_input(
             content=[],
             locations=[],
         )
+    if tool_name in {
+        "list_amazon_logins",
+        "add_amazon_login",
+        "update_amazon_login",
+        "remove_amazon_login",
+        "clear_amazon_login_context",
+        "enable_amazon_login",
+        "disable_amazon_login",
+    }:
+        return ToolDisplay(
+            title=_amazon_login_tool_title(tool_name, dict(arguments)),
+            kind=kind,
+            content=[],
+            locations=[],
+        )
     if tool_name == "migrate_taxonomy":
         return _present_migrate_taxonomy_input(arguments, kind)
     if tool_name == "upload_artifact":
@@ -167,16 +182,28 @@ def present_tool_output(
         return _present_list_accounts_output(result, status, kind)
     if tool_name == "scrape_amazon_orders":
         return _present_scrape_amazon_orders_output(result, status, kind)
+    if tool_name == "list_amazon_logins":
+        return _present_list_amazon_logins_output(result, status, kind)
+    if tool_name in {
+        "add_amazon_login",
+        "update_amazon_login",
+        "remove_amazon_login",
+        "clear_amazon_login_context",
+        "enable_amazon_login",
+        "disable_amazon_login",
+    }:
+        return _present_amazon_login_mutation_output(result, status, kind)
     if tool_name == "execute_shell" and named_outputs:
         return _present_execute_shell_output(named_outputs, status, kind)
 
     # Error case
     if status == "failed":
-        error_text = (
-            result
-            if isinstance(result, str)
-            else str(result.get("error", "Unknown error"))
-        )
+        if isinstance(result, str):
+            error_text = result
+        else:
+            error_text = str(
+                result.get("message") or result.get("error") or "Unknown error"
+            )
         return ToolDisplay(
             title="",
             kind=kind,
@@ -214,6 +241,30 @@ def present_tool_output(
 
 
 # --- Input presenters ---
+
+
+def _amazon_login_tool_title(tool_name: str, tool_input: dict[str, object]) -> str:
+    if tool_name == "list_amazon_logins":
+        return "List Amazon logins"
+    if tool_name == "add_amazon_login":
+        key = tool_input.get("profile_key", "")
+        return f"Add Amazon login: {key}"
+    if tool_name == "update_amazon_login":
+        key = tool_input.get("profile_key", "")
+        return f"Update Amazon login: {key}"
+    if tool_name == "remove_amazon_login":
+        key = tool_input.get("profile_key", "")
+        return f"Remove Amazon login: {key}"
+    if tool_name == "clear_amazon_login_context":
+        key = tool_input.get("profile_key", "")
+        return f"Clear Amazon login context: {key}"
+    if tool_name == "enable_amazon_login":
+        key = tool_input.get("profile_key", "")
+        return f"Enable Amazon login: {key}"
+    if tool_name == "disable_amazon_login":
+        key = tool_input.get("profile_key", "")
+        return f"Disable Amazon login: {key}"
+    return tool_name
 
 
 def _present_run_sql_input(
@@ -508,6 +559,49 @@ def _present_scrape_amazon_orders_output(
         kind=kind,
         content=[{"type": "text", "text": summary}],
         locations=[],
+    )
+
+
+def _present_list_amazon_logins_output(
+    result: dict[str, object] | str,
+    status: str,
+    kind: ToolCallKind,
+) -> ToolDisplay:
+    if status == "failed" or isinstance(result, str):
+        msg = result if isinstance(result, str) else "Failed to list Amazon logins"
+        return ToolDisplay(
+            title="",
+            kind=kind,
+            content=[{"type": "text", "text": str(msg)}],
+            locations=[],
+        )
+    profiles = result.get("profiles", [])
+    if not profiles:
+        text = "No Amazon login profiles configured."
+    else:
+        text = _dumps_json(profiles)
+    return ToolDisplay(
+        title="", kind=kind, content=[{"type": "text", "text": text}], locations=[]
+    )
+
+
+def _present_amazon_login_mutation_output(
+    result: dict[str, object] | str,
+    status: str,
+    kind: ToolCallKind,
+) -> ToolDisplay:
+    if isinstance(result, str):
+        return ToolDisplay(
+            title="",
+            kind=kind,
+            content=[{"type": "text", "text": result}],
+            locations=[],
+        )
+    msg = result.get("message") or (
+        "Success" if result.get("status") == "success" else "Failed"
+    )
+    return ToolDisplay(
+        title="", kind=kind, content=[{"type": "text", "text": str(msg)}], locations=[]
     )
 
 
