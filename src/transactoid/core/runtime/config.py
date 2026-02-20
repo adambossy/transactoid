@@ -42,14 +42,12 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
     model_default_map = {
         "openai": "gpt-5.3",
         "claude": "",
-        "gemini": "",
+        "gemini": "gemini-2.5-flash",
     }
     default_model = model_default_map[provider]
     model = os.environ.get("TRANSACTOID_AGENT_MODEL", default_model).strip()
     if not model:
-        raise ValueError(
-            "TRANSACTOID_AGENT_MODEL is required when provider is claude or gemini"
-        )
+        raise ValueError("TRANSACTOID_AGENT_MODEL is required when provider is claude")
 
     reasoning_effort = os.environ.get(
         "TRANSACTOID_AGENT_REASONING_EFFORT", "medium"
