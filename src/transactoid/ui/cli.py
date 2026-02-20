@@ -22,6 +22,124 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 
+amazon_login_app = typer.Typer(help="Manage Amazon login profiles.")
+app.add_typer(amazon_login_app, name="amazon-login")
+
+
+@amazon_login_app.command("add")
+def amazon_login_add(
+    key: str = typer.Option(..., "--key", help="Unique profile key (e.g. 'primary')."),
+    name: str = typer.Option(..., "--name", help="Display name for the profile."),
+    order: int = typer.Option(0, "--order", help="Sort order (lower = first)."),
+    disabled: bool = typer.Option(
+        False, "--disabled", is_flag=True, help="Create profile as disabled."
+    ),
+) -> None:
+    """Add a new Amazon login profile."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    try:
+        profile = db.create_amazon_login_profile(
+            profile_key=key,
+            display_name=name,
+            enabled=not disabled,
+            sort_order=order,
+        )
+        typer.echo(f"Created profile '{profile.profile_key}' ({profile.display_name})")
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@amazon_login_app.command("list")
+def amazon_login_list(
+    enabled_only: bool = typer.Option(
+        False, "--enabled-only", is_flag=True, help="Only show enabled profiles."
+    ),
+) -> None:
+    """List Amazon login profiles."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    profiles = db.list_amazon_login_profiles(enabled_only=enabled_only)
+    if not profiles:
+        typer.echo("No profiles configured.")
+        return
+    for profile in profiles:
+        status = "enabled" if profile.enabled else "disabled"
+        ctx = profile.browserbase_context_id or "none"
+        typer.echo(
+            f"[{profile.sort_order}] {profile.profile_key}: "
+            f"{profile.display_name} ({status}, context: {ctx})"
+        )
+
+
+@amazon_login_app.command("update")
+def amazon_login_update(
+    key: str = typer.Option(..., "--key", help="Profile key to update."),
+    name: str | None = typer.Option(None, "--name", help="New display name."),
+    order: int | None = typer.Option(None, "--order", help="New sort order."),
+    enable: bool = typer.Option(
+        False, "--enable", is_flag=True, help="Enable the profile."
+    ),
+    disable: bool = typer.Option(
+        False, "--disable", is_flag=True, help="Disable the profile."
+    ),
+) -> None:
+    """Update an Amazon login profile."""
+    if name is None and order is None and not enable and not disable:
+        typer.echo(
+            "Error: at least one of --name, --order,"
+            " --enable, --disable must be specified.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if enable and disable:
+        typer.echo("Error: --enable and --disable are mutually exclusive.", err=True)
+        raise typer.Exit(1)
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    enabled: bool | None = None
+    if enable:
+        enabled = True
+    elif disable:
+        enabled = False
+    try:
+        profile = db.update_amazon_login_profile(
+            profile_key=key,
+            display_name=name,
+            enabled=enabled,
+            sort_order=order,
+        )
+        typer.echo(f"Updated profile '{profile.profile_key}'")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@amazon_login_app.command("remove")
+def amazon_login_remove(
+    key: str = typer.Option(..., "--key", help="Profile key to remove."),
+) -> None:
+    """Remove an Amazon login profile."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    try:
+        db.delete_amazon_login_profile(profile_key=key)
+        typer.echo(f"Removed profile '{key}'")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@amazon_login_app.command("clear-context")
+def amazon_login_clear_context(
+    key: str = typer.Option(..., "--key", help="Profile key to clear context for."),
+) -> None:
+    """Clear the stored Browserbase context ID for a profile (forces re-login)."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    try:
+        db.set_amazon_login_context_id(profile_key=key, context_id=None)
+        typer.echo(f"Cleared context for profile '{key}'")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
 
 def _ensure_toad_installed() -> str:
     """Ensure Toad is installed, installing it if necessary. Returns toad path."""
@@ -370,98 +488,60 @@ def connect_account() -> None:
 @app.command("scrape-amazon")
 def scrape_amazon(
     max_orders: int | None = typer.Option(
-        None, help="Max orders to scrape (all if not set)"
+        None, help="Max orders to scrape per profile (all if not set)"
     ),
-    year: int | None = typer.Option(None, help="Filter orders by year (e.g., 2025)"),
     backend: str = typer.Option(
-        "stagehand",
+        "stagehand-browserbase",
         help="Backend: stagehand (local), stagehand-browserbase (cloud), playwriter",
-    ),
-    context_id: str | None = typer.Option(
-        None, help="Browserbase context ID for pre-authenticated sessions"
-    ),
-    create_context: bool = typer.Option(
-        False,
-        "--create-context",
-        help="Create a new Browserbase context and exit",
-    ),
-    login: bool = typer.Option(
-        False,
-        "--login",
-        help="Wait for manual login via Session Live View (for first-time auth)",
     ),
 ) -> None:
     """
-    Scrape Amazon order history using browser automation.
+    Scrape Amazon order history for all enabled login profiles.
+
+    Runs sequential auth then parallel scrape for each enabled profile.
+    Profiles are configured via add-amazon-login / list-amazon-logins.
 
     Examples:
-        # Local browser (opens visible window for login)
-        transactoid scrape-amazon --backend stagehand
+        # Scrape with default Browserbase backend
+        transactoid scrape-amazon
 
-        # Create a Browserbase context (one-time setup)
-        transactoid scrape-amazon --backend stagehand-browserbase --create-context
-
-        # First-time login with Browserbase (opens Live View for auth)
-        transactoid scrape-amazon --backend stagehand-browserbase --context-id ID \\
-            --login
-
-        # Use Browserbase with existing authenticated context
-        transactoid scrape-amazon --backend stagehand-browserbase --context-id <id>
+        # Cap orders per profile
+        transactoid scrape-amazon --max-orders 50
     """
     from transactoid.tools.amazon.scraper import scrape_amazon_orders
 
     db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
     db = DB(db_url)
 
-    if create_context:
-        if backend != "stagehand-browserbase":
-            typer.echo("Error: --create-context only works with stagehand-browserbase")
-            raise typer.Exit(1)
-
-        from transactoid.tools.amazon.backends.stagehand_browserbase import (
-            StagehandBrowserbaseBackend,
-        )
-
-        typer.echo("Creating new Browserbase context...")
-        new_context_id = StagehandBrowserbaseBackend.create_context()
-        typer.echo("\nContext created successfully!")
-        typer.echo(f"Context ID: {new_context_id}")
-        typer.echo("\nUse this context for future scrapes:")
-        typer.echo(
-            f"  transactoid scrape-amazon --backend stagehand-browserbase "
-            f"--context-id {new_context_id}"
-        )
-        return
-
     if backend not in ("stagehand", "stagehand-browserbase", "playwriter"):
         typer.echo(f"Error: Invalid backend '{backend}'")
         raise typer.Exit(1)
 
-    if login and backend != "stagehand-browserbase":
-        typer.echo("Error: --login only works with stagehand-browserbase backend")
-        raise typer.Exit(1)
-
     typer.echo(f"Scraping Amazon orders (backend={backend}, max_orders={max_orders})")
-    if year:
-        typer.echo(f"Filtering by year: {year}")
-    if context_id:
-        typer.echo(f"Using context: {context_id}")
-    if login:
-        typer.echo("Login mode: waiting for manual auth via Session Live View")
 
     result = scrape_amazon_orders(
         db,
         backend=backend,  # type: ignore[arg-type]
-        year=year,
         max_orders=max_orders,
-        context_id=context_id,
-        login_mode=login,
     )
 
-    if result.get("status") == "success":
-        typer.echo("\nSuccess!")
+    status = result.get("status")
+    if status in ("success", "partial"):
+        typer.echo("\nDone!")
+        typer.echo(f"  Status: {status}")
+        n_succeeded = result.get("profiles_succeeded", 0)
+        n_ready = result.get("profiles_ready", 0)
+        typer.echo(f"  Profiles: {n_succeeded}/{n_ready} succeeded")
         typer.echo(f"  Orders created: {result.get('orders_created', 0)}")
         typer.echo(f"  Items created: {result.get('items_created', 0)}")
+        for pr in result.get("profile_results", []):
+            typer.echo(
+                f"  [{pr.get('status', '?').upper()}] "
+                f"{pr.get('display_name', pr.get('profile_key'))}: "
+                f"{pr.get('message', '')}"
+            )
+        if status == "partial":
+            raise typer.Exit(2)
     else:
         typer.echo(f"\nError: {result.get('message', 'Unknown error')}")
         raise typer.Exit(1)
