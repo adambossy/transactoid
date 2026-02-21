@@ -194,6 +194,28 @@ fly ssh console --app transactoid-cron-manager \
 
 ---
 
+## Adding or Updating Schedules
+
+`fly ssh console --command` does NOT run through a shell — pipes are treated as
+literal arguments. Always wrap multi-command strings with `sh -c`.
+
+### Add or rewrite schedules.json (base64 write pattern)
+
+```bash
+# 1. Edit /tmp/schedules.json locally to desired state
+# 2. Encode (strip newlines so it's a single token)
+B64=$(base64 < /tmp/schedules.json | tr -d '\n')
+
+# 3. Write to cron manager (sh -c makes the pipe work)
+fly ssh console --app transactoid-cron-manager \
+  --command "sh -c 'printf \"${B64}\" | base64 -d > /data/schedules.json && echo ok'"
+
+# 4. Verify
+fly ssh console --app transactoid-cron-manager --command "cat /data/schedules.json"
+```
+
+---
+
 ## Hardening TODO
 
 - [ ] Automate cron manager image update as a post-deploy step (e.g. in `fly.toml`
