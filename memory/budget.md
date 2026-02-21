@@ -44,6 +44,7 @@
 | Housing & Utilities | Home Renovation | $177 | $180 | +$3 | |
 | Housing & Utilities | Home Services & Maint. | $1,272 | $1,270 | -$2 | |
 | Housing & Utilities | Mobile Phone | $96 | $100 | +$4 | |
+| Housing & Utilities | Mortgage Payment | $10,655 | $10,862 | +$207 | Fixed; increased Nov '25 |
 | Housing & Utilities | Rent | $3 | $0 | -$3 | |
 | Insurance | Flood Insurance | $72 | $70 | -$2 | |
 | Insurance | Home/Renters Insurance | $82 | $80 | -$2 | |
