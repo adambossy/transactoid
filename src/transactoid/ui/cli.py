@@ -892,10 +892,7 @@ def run_cmd(
 
 
 _DEFAULT_EMAIL_CONFIG_PATH = "configs/email.yaml"
-_DEFAULT_SCHEDULED_EMAIL_RECIPIENTS = (
-    "jloleary0@gmail.com",
-    "adambossy@gmail.com",
-)
+_DEFAULT_SCHEDULED_EMAIL_RECIPIENTS = ("adambossy@gmail.com",)
 _DEFAULT_VERIFIED_FROM_ADDRESS = "onboarding@resend.dev"
 
 
