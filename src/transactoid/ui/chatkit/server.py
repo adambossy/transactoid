@@ -158,7 +158,7 @@ def create_app() -> "FastAPI":
         return {"routes": routes}
 
     @app.post("/chatkit")
-    async def chatkit_endpoint(req: "Request") -> "Response":
+    async def chatkit_endpoint(req: Request) -> Response:
         """ChatKit endpoint that processes requests."""
         body = await req.body()
         print(f"Request method: {req.method}")
