@@ -27,7 +27,7 @@ from transactoid.utils.yaml import dump_yaml_basic
 
 if TYPE_CHECKING:
     from google.genai.client import Client as GeminiClient
-    from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
+    from google.genai.types import GenerateContentConfig
 
 
 def _import_gemini_client_class() -> type[GeminiClient]:
@@ -42,20 +42,16 @@ def _import_gemini_client_class() -> type[GeminiClient]:
     return Client
 
 
-def _import_gemini_type_classes() -> tuple[
-    type[GenerateContentConfig],
-    type[Tool],
-    type[GoogleSearch],
-]:
-    """Lazily import Gemini type classes for optional dependency support."""
+def _import_gemini_generate_content_config() -> type[GenerateContentConfig]:
+    """Lazily import GenerateContentConfig for optional dependency support."""
     try:
-        from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
+        from google.genai.types import GenerateContentConfig
     except ImportError as e:
         raise RuntimeError(
             "google-genai package is required for Gemini categorizer. "
             "Install with: pip install google-genai"
         ) from e
-    return GenerateContentConfig, Tool, GoogleSearch
+    return GenerateContentConfig
 
 
 @dataclass
@@ -661,27 +657,17 @@ class Categorizer:
             raise RuntimeError("Semaphore not initialized - call categorize() first")
 
         async with self._semaphore:
-            generate_content_config_class: type[GenerateContentConfig]
-            tool_class: type[Tool]
-            google_search_class: type[GoogleSearch]
-            (
-                generate_content_config_class,
-                tool_class,
-                google_search_class,
-            ) = _import_gemini_type_classes()
+            generate_content_config_class = _import_gemini_generate_content_config()
             schema = (
                 self._build_response_schema(valid_keys)["schema"]
                 if valid_keys
                 else None
             )
+            # Note: response_mime_type and grounding tools (e.g. GoogleSearch) are
+            # mutually exclusive in the Gemini API. Use structured JSON output only.
             config = generate_content_config_class(
                 response_mime_type="application/json",
                 response_json_schema=schema,
-                tools=[
-                    tool_class(
-                        google_search=google_search_class(),
-                    )
-                ],
             )
 
             response = await self._gemini_client.aio.models.generate_content(
