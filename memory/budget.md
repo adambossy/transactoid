@@ -45,14 +45,13 @@
 | Housing & Utilities | Home Services & Maint. | $1,272 | $1,270 | -$2 | |
 | Housing & Utilities | Mobile Phone | $96 | $100 | +$4 | |
 | Housing & Utilities | Mortgage Payment | $10,655 | $10,862 | +$207 | Fixed; increased Nov '25 |
-| Housing & Utilities | Rent | $3 | $0 | -$3 | |
 | Insurance | Flood Insurance | $72 | $70 | -$2 | |
 | Insurance | Home/Renters Insurance | $82 | $80 | -$2 | |
 | Pets | Food & Treats | $121 | $120 | -$1 | |
 | Pets | Grooming | $11 | $10 | -$1 | |
 | Pets | Medications & Preventives | $46 | $50 | +$4 | |
 | Pets | Supplies & Accessories | $28 | $30 | +$2 | |
-| Pets | Veterinary Care | $3,615 | $3,615 | $0 | Huge outlier |
+| Pets | Veterinary Care | $114 | $114 | $0 | |
 | Pets | Walking & Sitting | $70 | $70 | $0 | |
 | Savings & Investments | Savings Contribution | $833 | $830 | -$3 | Good habit |
 | Shopping | Beauty & Personal Care | $149 | $150 | +$1 | |
@@ -69,3 +68,5 @@
 | Travel | Baggage/Other Fees | $17 | $20 | +$3 | |
 | Travel | Flights | $80 | $80 | $0 | |
 | Travel | Lodging | $559 | $560 | +$1 | |
+| **Total** | | **$26,243** | **$26,481** | **+$238** | |
+| **Annual Total** | | **$314,916** | **$317,772** | **+$2,856** | |
