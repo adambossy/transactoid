@@ -19,6 +19,11 @@
       "last_hash": "sha256:20e296294d1ad4d9f7ad8954da83784479ad4ad86501440690821d1ba81087fc",
       "last_version": 1
     },
+    "generate-memory-index": {
+      "source_file": "prompts/generate-memory-index.md",
+      "version_dir": "src/transactoid/prompts/generate-memory-index",
+      "last_version": 1
+    },
     "report-weekly": {
       "source_file": "prompts/report-weekly.md",
       "version_dir": "src/transactoid/prompts/report-weekly",

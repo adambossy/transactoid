@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
+from transactoid.bootstrap import run_initialization_hooks
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.amazon.scraper import (
@@ -32,6 +34,9 @@ persist_tool = PersistTool(db, taxonomy)
 
 # Initialize merchant rules loader
 memory_dir = Path("memory")
+init_result = run_initialization_hooks(memory_dir=memory_dir)
+if init_result[2] is not None:
+    logger.debug("Memory index initialization hook reported error")
 merchant_rules_path = memory_dir / "merchant-rules.md"
 rules_loader = MerchantRulesLoader(merchant_rules_path, taxonomy=taxonomy)
 

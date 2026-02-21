@@ -1,13 +1,21 @@
 """Tests for skill instruction injection in Transactoid orchestrator."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from transactoid.core.runtime.config import CoreRuntimeConfig
 from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.skills.prompting import generate_skill_instructions
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.core import Taxonomy
+
+
+@pytest.fixture(autouse=True)
+def _set_openai_api_key(monkeypatch: Any) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
 
 def test_skill_instructions_injected_when_paths_exist(tmp_path: Path) -> None:

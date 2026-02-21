@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
+
+import pytest
 
 from models.transaction import Transaction
 from transactoid.taxonomy.core import CategoryNode, Taxonomy
@@ -10,6 +12,11 @@ from transactoid.tools.categorize.categorizer_tool import (
     CategorizationResult,
     Categorizer,
 )
+
+
+@pytest.fixture(autouse=True)
+def _set_openai_api_key(monkeypatch: Any) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
 
 def create_taxonomy() -> Taxonomy:

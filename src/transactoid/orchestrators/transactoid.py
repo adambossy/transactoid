@@ -5,12 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from loguru import logger
 from promptorium import load_prompt
 from pydantic import BaseModel
 import yaml
 
 from transactoid.adapters.clients.plaid import PlaidClient, PlaidClientError
 from transactoid.adapters.db.facade import DB
+from transactoid.bootstrap import run_initialization_hooks
 from transactoid.core.runtime import (
     CoreRuntime,
     CoreRuntimeConfig,
@@ -19,6 +21,7 @@ from transactoid.core.runtime import (
 )
 from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.skills.prompting import generate_skill_instructions
+from transactoid.memory import sync_memory_index
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.amazon.scraper import scrape_with_playwriter
@@ -45,34 +48,6 @@ class TargetCategory(BaseModel):
 CORE_MEMORY_FILES = ("index.md", "merchant-rules.md")
 
 
-def _build_tax_returns_inventory(*, memory_dir: Path) -> str:
-    """Build runtime inventory for local tax-return files."""
-    tax_returns_dir = memory_dir / "tax-returns"
-    if not tax_returns_dir.exists() or not tax_returns_dir.is_dir():
-        return ""
-
-    discovered_files: list[str] = []
-    for candidate in tax_returns_dir.rglob("*"):
-        if not candidate.is_file():
-            continue
-        if candidate.name.endswith(".example"):
-            continue
-        discovered_files.append(candidate.relative_to(memory_dir).as_posix())
-
-    if not discovered_files:
-        return ""
-
-    sorted_files = sorted(discovered_files)
-    lines = [
-        "## Local Tax Return Files (Runtime)",
-        "",
-        "The following local-only files were found and can be read on demand:",
-        "",
-    ]
-    lines.extend(f"- `{file_path}`" for file_path in sorted_files)
-    return "\n".join(lines)
-
-
 def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
     """
     Assemble core agent memory content.
@@ -97,11 +72,6 @@ def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
             continue
 
         file_content = memory_file.read_text()
-        if file_name == "index.md":
-            tax_returns_inventory = _build_tax_returns_inventory(memory_dir=memory_dir)
-            if tax_returns_inventory:
-                file_content = f"{file_content.rstrip()}\n\n{tax_returns_inventory}"
-
         memory_parts.append(file_content)
 
     if not memory_parts:
@@ -117,6 +87,7 @@ def _render_prompt_template(
     database_schema: dict[str, Any],
     category_taxonomy: dict[str, Any],
     sql_dialect: str = "postgresql",
+    memory_dir: Path = Path("memory"),
 ) -> str:
     """Replace placeholders in the prompt template with actual data."""
     if sql_dialect == "sqlite":
@@ -132,7 +103,7 @@ def _render_prompt_template(
         category_taxonomy, default_flow_style=False, sort_keys=False
     )
     taxonomy_rules = load_prompt("taxonomy-rules")
-    agent_memory = _assemble_agent_memory()
+    agent_memory = _assemble_agent_memory(memory_dir=memory_dir)
 
     rendered = template.replace("{{DATABASE_SCHEMA}}", schema_text)
     rendered = rendered.replace("{{CATEGORY_TAXONOMY}}", taxonomy_text)
@@ -544,6 +515,39 @@ class _ScrapeAmazonOrdersTool(StandardTool):
         return scrape_with_playwriter(self._db)
 
 
+class _GenerateMemoryIndexTool(StandardTool):
+    _name = "generate_memory_index"
+    _description = "Generate memory/index.md from the current memory directory."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "force": {
+                "type": "boolean",
+                "description": "Force rewrite even if generated content is unchanged.",
+            }
+        },
+        "required": [],
+    }
+
+    def __init__(self, memory_dir: Path) -> None:
+        self._memory_dir = memory_dir
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        force_value = kwargs.get("force", False)
+        force = bool(force_value)
+        try:
+            result = sync_memory_index(memory_dir=self._memory_dir, force=force)
+            return {
+                "status": "success",
+                "updated": result.updated,
+                "path": str(result.path),
+                "model": result.model,
+                "reason": result.reason,
+            }
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to generate index: {e}"}
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None
@@ -563,6 +567,11 @@ class Transactoid:
     ) -> None:
         self._db = db
         self._taxonomy = taxonomy
+        self._memory_dir = memory_dir
+
+        init_result = run_initialization_hooks(memory_dir=memory_dir)
+        if init_result[2] is not None:
+            logger.debug("Memory index initialization hook reported error")
 
         # Initialize merchant rules loader
         merchant_rules_path = memory_dir / "merchant-rules.md"
@@ -626,6 +635,7 @@ class Transactoid:
         registry.register(_MigrateTaxonomyTool(self._migration_tool))
         registry.register(_ScrapeAmazonOrdersTool(self._db))
         registry.register(GenerateChartTool())
+        registry.register(_GenerateMemoryIndexTool(self._memory_dir))
         return registry
 
     def create_runtime(
@@ -643,6 +653,7 @@ class Transactoid:
             database_schema=schema_hint,
             category_taxonomy=taxonomy_dict,
             sql_dialect=sql_dialect,
+            memory_dir=self._memory_dir,
         )
 
         # Inject skill discovery instructions

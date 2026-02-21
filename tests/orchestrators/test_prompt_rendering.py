@@ -45,8 +45,6 @@ def test_render_prompt_replaces_agent_memory(tmp_path: Path, monkeypatch: Any) -
     assert "# Merchant Rules" in result
     assert "# Budget Optional" not in result
     assert "Sensitive tax content" not in result
-    assert "## Local Tax Return Files (Runtime)" in result
-    assert "`tax-returns/2024.md`" in result
     assert "{{AGENT_MEMORY}}" not in result
 
 
