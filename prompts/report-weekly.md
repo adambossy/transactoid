@@ -2,22 +2,9 @@
 
 Generate a comprehensive spending report for the week ending {{CURRENT_DATE}}.
 
-## Your Budget Targets
+## Budget
 
-These are my weekly budget targets by category (derived from monthly targets):
-
-- **Housing**: $581/week (rent, utilities, maintenance)
-- **Food**: $186/week total
-  - Groceries: $116/week
-  - Restaurants/Dining: $70/week
-- **Transportation**: $93/week (gas, parking, transit, rideshare)
-- **Health & Fitness**: $47/week (gym, supplements, medical)
-- **Entertainment**: $35/week (streaming, movies, games)
-- **Shopping**: $47/week (clothing, electronics, household)
-- **Personal Care**: $23/week (haircuts, toiletries)
-- **Subscriptions**: $23/week (software, memberships)
-
-**Total Weekly Budget Target**: $1,035/week
+Check if `memory/budget.md` exists. If it does, read it to get budget targets (the file stores monthly figures — derive weekly targets by dividing by 4.33). If the file does not exist, omit all budget comparisons from the report.
 
 ## What I Consider "Unusual"
 
@@ -25,14 +12,6 @@ These are my weekly budget targets by category (derived from monthly targets):
 - Any merchant I've never transacted with before that has charges over $100
 - Any category where spending is 50% or more above the 4-week average
 - Duplicate charges from the same merchant on the same day
-
-## My Financial Goals & Priorities
-
-- **Primary goal**: Keep total weekly spending under $1,163 ($5,000/month equivalent)
-- **Savings target**: $233/week to savings ($1,000/month equivalent)
-- **OK to splurge on**: Quality food and fitness (these improve my health and productivity)
-- **Need to cut back on**: Impulse shopping, dining out, and subscription creep
-- **Seasonal considerations**: Holiday spending in Nov/Dec, travel in summer months
 
 ---
 
@@ -44,12 +23,12 @@ Please analyze my transaction data and generate a report with these sections:
 - Total spending this week vs. last week (amount and % change)
 - Top 3 areas of concern (overspending or unusual patterns)
 - Top 3 positive trends (good spending habits or savings)
-- Am I on track to meet my weekly target?
+- If budget data is available: am I on track to meet my weekly target?
 
 ### 2. Category Spending Breakdown
 For each major category:
 - Amount spent this week
-- Budget target vs. actual (over/under)
+- If budget data is available: budget target vs. actual (over/under)
 - Comparison to 4-week average
 - Flag any category where I'm spending 50%+ above average
 
