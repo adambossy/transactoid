@@ -34,3 +34,15 @@ Venmo peer-to-peer transfers. Any descriptor containing "VENMO" should be
 categorized as external P2P transfer unless context clearly indicates otherwise.
 
 ---
+
+## Rule: Julia (Nanny Payment — ATM Withdrawal)
+
+**Category:** `education_and_childcare.childcare_and_babysitting`
+
+ATM cash withdrawals used to pay Julia, our nanny. Match transactions where:
+- The descriptor indicates an ATM withdrawal (e.g., contains "ATM", "CASH WITHDRAWAL", or similar)
+- The amount is between $1,040.00 and $1,070.00
+
+The withdrawal may originate from the ATM at 896 Manhattan Ave, but is not limited to that location. Any ATM withdrawal in this dollar range should be categorized as a nanny/childcare payment.
+
+---
