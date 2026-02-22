@@ -30,6 +30,7 @@ taxonomy_version: TBD
 - Gifts & Donations — Money given without direct goods/services returned.
 - Taxes & Government — Taxes, fines, and official fees to government entities.
 - Banking Movements (Transfers, Refunds & Fees) — Non-spend movements and bank-level adjustments.
+- Childcare — Physical goods, care services, and activities for children (excluding pediatric health care).
 - Pets — All pet-related goods and services (excluding pet insurance).
 - Wedding — Wedding-specific spend; use as a dedicated project category.
 - Work Expenses — Out-of-pocket work spending and reimbursable costs.
@@ -44,7 +45,7 @@ taxonomy_version: TBD
   3) Debt & Loans (loan/card payments; card interest/fees)
   4) Insurance (all premiums), then Taxes & Government (taxes, government fees/fines)
   5) Savings & Investments (contributions, buys/sells, investment fees)
-  6) Domain spend: Housing → Food → Transport → Health → Shopping → Entertainment → Education → Travel → Pets → Gifts
+  6) Domain spend: Housing → Food → Transport → Health → Shopping → Entertainment → Education → Travel → Childcare → Pets → Gifts
   7) Special project/label categories: Work Expenses, Wedding (use when intentionally tracking the project; otherwise classify by purchase type)
   8) Other → Unknown (last resort; temporary)
 - Overlap resolution:
@@ -486,7 +487,39 @@ Excludes: interest earned → Income → Interest & Dividends.
 </details>
 
 <details>
-<summary><strong>16) Pets</strong></summary>
+<summary><strong>16) Childcare</strong></summary>
+
+Definition: Physical goods, care services, and activities specifically for children (excluding pediatric health, which belongs in Health & Wellness).
+
+Sub-categories
+- Gear — Equipment, strollers, car seats, cribs, monitors, safety items, travel accessories.
+  - Examples: stroller; car seat; baby monitor; crib; outlet covers; travel carrier.
+  - Excludes: pediatrician/medical equipment → Health & Wellness.
+- Clothing — Children's clothes, shoes, and accessories.
+  - Examples: baby onesies; toddler shoes; kids' winter coat.
+  - Excludes: adult clothing → Shopping & Personal Care → Clothing & Accessories.
+- Hygiene — Diapers, wipes, bath products, and grooming supplies for children.
+  - Examples: diapers; baby wipes; baby shampoo; diaper cream.
+  - Excludes: OTC medications → Health & Wellness → Wellness Products.
+- Feeding — Formula, baby food, bottles, and nursing supplies.
+  - Examples: infant formula; baby purees; bottles; breast pump; nursing pads.
+  - Excludes: regular groceries → Food & Dining → Groceries.
+- Care — Daycare, nanny, babysitter, and after-school care payments.
+  - Examples: daycare tuition; nanny paycheck; babysitter payment; after-school program.
+  - Excludes: parenting classes → Classes; tutoring → Education & Childcare.
+- Classes — Lessons and classes taken by or for a child, or parenting classes.
+  - Examples: swim lessons; music class; art class; mommy-and-me; parenting workshop.
+  - Excludes: school tuition → Education & Childcare → Tuition & School Fees.
+- Toys — Developmental toys, children's books, games, and crafts.
+  - Examples: building blocks; children's books; board games; art supplies for kids.
+  - Excludes: streaming/digital kids content → Entertainment & Subscriptions.
+
+Excludes: pediatrician visits, medications, vitamins → Health & Wellness; childcare insurance → Insurance.
+
+</details>
+
+<details>
+<summary><strong>17) Pets</strong></summary>
 
 Definition: Goods and services for household pets (excluding pet insurance premiums).
 
@@ -517,7 +550,7 @@ Excludes: pet insurance → Insurance → Pet Insurance.
 </details>
 
 <details>
-<summary><strong>17) Wedding</strong></summary>
+<summary><strong>18) Wedding</strong></summary>
 
 Definition: Wedding-specific spending you want tracked as a dedicated project. Use when you prefer to aggregate all wedding costs; otherwise classify by purchase type and tag “Wedding.”
 
@@ -529,7 +562,7 @@ Sub-categories
 </details>
 
 <details>
-<summary><strong>18) Work Expenses</strong></summary>
+<summary><strong>19) Work Expenses</strong></summary>
 
 Definition: Out-of-pocket expenses for work that are not payroll-deducted. Use when you expect reimbursement or want to track work costs separately.
 
@@ -543,7 +576,7 @@ Guidance: If reimbursed via P2P and unclear, use Banking Movements → Transfer:
 </details>
 
 <details>
-<summary><strong>19) Other</strong></summary>
+<summary><strong>20) Other</strong></summary>
 
 Definition: Rare, miscellaneous items that do not clearly fit elsewhere. Use sparingly and consider recategorization later.
 
@@ -555,7 +588,7 @@ Sub-categories
 </details>
 
 <details>
-<summary><strong>20) Unknown</strong></summary>
+<summary><strong>21) Unknown</strong></summary>
 
 Definition: Temporary placeholder when the merchant or purpose cannot be determined yet.
 
@@ -600,6 +633,7 @@ Sub-categories
 - Fines vs parking/tolls:
   - Parking meters/garages → Transportation & Auto → Parking & Tolls.
   - Tickets/violations → Taxes & Government → Fines & Tickets.
+- Childcare: All child-specific goods and care services under Childcare. Pediatrician visits, medications, and vitamins → Health & Wellness. School tuition → Education & Childcare. Do not use Shopping & Personal Care for items that are clearly child-specific (diapers, formula, strollers, etc.).
 - Pets: All pet spend under Pets (not Shopping), except pet insurance → Insurance → Pet Insurance.
 - Special projects:
   - Wedding and Work Expenses can override everyday categories when the intent is to manage the project budget. Otherwise classify by purchase type and add a project tag.
