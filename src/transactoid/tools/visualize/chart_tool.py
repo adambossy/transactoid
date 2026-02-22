@@ -1,0 +1,211 @@
+"""Chart generation tool — produces PNG file and ASCII plot."""
+
+from __future__ import annotations
+
+from datetime import datetime
+import io
+from pathlib import Path
+import subprocess
+from typing import Any
+import uuid
+
+# isort: off
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+# isort: on
+
+from transactoid.tools.base import StandardTool
+from transactoid.tools.protocol import ToolInputSchema
+
+CHART_COLORS = [
+    "#2563eb",
+    "#16a34a",
+    "#ca8a04",
+    "#dc2626",
+    "#7c3aed",
+    "#0891b2",
+    "#db2777",
+    "#9333ea",
+]
+
+
+def _generate_ascii_plot(
+    chart_type: str,
+    labels: list[str],
+    values: list[float],
+    title: str,
+) -> str | None:
+    """Generate an ASCII plot via gnuplot.
+
+    Returns None for pie charts, when gnuplot is not installed, or on error.
+    """
+    if chart_type == "pie":
+        return None
+
+    # Build inline data: integer x positions paired with values
+    data_lines = "\n".join(f"{idx + 1} {value}" for idx, value in enumerate(values))
+    xtics = ", ".join(f'"{label}" {idx + 1}' for idx, label in enumerate(labels))
+
+    if chart_type == "bar":
+        plot_cmd = 'set style fill solid; plot "-" using 1:2 with boxes title ""'
+    else:
+        plot_cmd = 'plot "-" using 1:2 with linespoints title ""'
+
+    script = (
+        f"set terminal dumb 80 25\n"
+        f"set title '{title}'\n"
+        f"set xtics ({xtics})\n"
+        f"{plot_cmd}\n"
+        f"{data_lines}\n"
+        f"e\n"
+    )
+
+    try:
+        result = subprocess.run(
+            ["gnuplot"],  # noqa: S607
+            input=script,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout
+        return None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+class GenerateChartTool(StandardTool):
+    """Generate a chart and save it as a PNG file."""
+
+    _name = "generate_chart"
+    _description = (
+        "Generate a chart from labeled data. Returns a file_path (absolute path to the "
+        "saved PNG) for local or inline display, and an ascii_plot (when available via "
+        "gnuplot) for terminal display."
+    )
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "chart_type": {
+                "type": "string",
+                "enum": ["bar", "line", "pie"],
+                "description": "Type of chart to generate",
+            },
+            "title": {
+                "type": "string",
+                "description": "Chart title",
+            },
+            "data": {
+                "type": "object",
+                "description": "Label-to-number mapping, e.g. {'Groceries': 450.0}",
+            },
+            "x_label": {
+                "type": "string",
+                "description": "Optional x-axis label",
+            },
+            "y_label": {
+                "type": "string",
+                "description": "Optional y-axis label",
+            },
+        },
+        "required": ["chart_type", "title", "data"],
+    }
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        chart_type = str(kwargs.get("chart_type", ""))
+        title = str(kwargs.get("title", ""))
+        data = kwargs.get("data", {})
+        x_label = str(kwargs.get("x_label", ""))
+        y_label = str(kwargs.get("y_label", ""))
+
+        if not isinstance(data, dict):
+            return {
+                "status": "error",
+                "error": (
+                    "data must be a dict mapping labels to numbers; "
+                    f"got {type(data).__name__}"
+                ),
+            }
+        if not data:
+            return {
+                "status": "error",
+                "error": "data must not be empty",
+            }
+
+        # Coerce values to float
+        labels: list[str] = []
+        values: list[float] = []
+        for label, raw_value in data.items():
+            try:
+                values.append(float(raw_value))
+            except (TypeError, ValueError):
+                return {
+                    "status": "error",
+                    "error": (
+                        f"Could not convert value for '{label}' to float: {raw_value!r}"
+                    ),
+                }
+            labels.append(str(label))
+
+        # Build figure
+        figsize = (8, 8) if chart_type == "pie" else (10, 6)
+        fig, ax = plt.subplots(figsize=figsize)
+
+        num_items = len(labels)
+        colors = (CHART_COLORS * ((num_items // len(CHART_COLORS)) + 1))[:num_items]
+
+        if chart_type == "bar":
+            ax.bar(labels, values, color=colors)
+            if x_label:
+                ax.set_xlabel(x_label)
+            if y_label:
+                ax.set_ylabel(y_label)
+            plt.xticks(rotation=45, ha="right")
+        elif chart_type == "line":
+            ax.plot(labels, values, color=CHART_COLORS[0], marker="o")
+            if x_label:
+                ax.set_xlabel(x_label)
+            if y_label:
+                ax.set_ylabel(y_label)
+            plt.xticks(rotation=45, ha="right")
+        elif chart_type == "pie":
+            ax.pie(values, labels=labels, colors=colors, autopct="%1.1f%%")
+            ax.axis("equal")
+        else:
+            plt.close(fig)
+            return {
+                "status": "error",
+                "error": f"Unsupported chart_type: {chart_type!r}",
+            }
+
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        plt.tight_layout()
+
+        # Render to PNG in memory
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        png_bytes = buf.read()
+
+        # Save PNG file
+        charts_dir = Path(".cache/charts").resolve()
+        charts_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        uid = uuid.uuid4().hex
+        filename = f"{timestamp}-{uid[:8]}-{chart_type}.png"
+        file_path = charts_dir / filename
+        file_path.write_bytes(png_bytes)
+
+        ascii_plot = _generate_ascii_plot(chart_type, labels, values, title)
+
+        return {
+            "status": "success",
+            "file_path": str(file_path),
+            "title": title,
+            "ascii_plot": ascii_plot,
+        }

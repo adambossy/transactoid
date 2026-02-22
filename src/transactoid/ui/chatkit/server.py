@@ -1,14 +1,18 @@
 """ChatKit server exposing Transactoid tools via OpenAI ChatKit SDK."""
 
-from collections.abc import AsyncIterator
+import base64
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from chatkit.types import (
     AssistantMessageContent,
     AssistantMessageContentPartTextDelta,
     AssistantMessageItem,
+    GeneratedImage,
+    GeneratedImageItem,
     ThreadItemAddedEvent,
     ThreadItemDoneEvent,
     ThreadItemUpdatedEvent,
@@ -17,14 +21,19 @@ from chatkit.types import (
     UserMessageItem,
 )
 from dotenv import load_dotenv
+from fastapi import Request, Response
 
 from transactoid.adapters.db.facade import DB
-from transactoid.core.runtime import CoreSession, TextDeltaEvent
+from transactoid.core.runtime import (
+    CoreSession,
+    TextDeltaEvent,
+    ToolCallOutputEvent,
+    ToolCallStartedEvent,
+)
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
 
     class _ChatKitServerBase:
         store: Any
@@ -52,6 +61,7 @@ class TransactoidChatKitServer(_ChatKitServerBase):
         self._transactoid = Transactoid(db=self._db, taxonomy=self._taxonomy)
         self._runtime = self._transactoid.create_runtime()
         self._runtime_sessions: dict[str, CoreSession] = {}
+        self._pending_tool_calls: dict[str, str] = {}
 
         # Create store (required by ChatKitServer)
         store = SimpleInMemoryStore()
@@ -109,6 +119,27 @@ class TransactoidChatKitServer(_ChatKitServerBase):
                         delta=runtime_event.text,
                     ),
                 )
+            elif isinstance(runtime_event, ToolCallStartedEvent):
+                self._pending_tool_calls[runtime_event.call_id] = (
+                    runtime_event.tool_name
+                )
+            elif isinstance(runtime_event, ToolCallOutputEvent):
+                tool_name = self._pending_tool_calls.pop(runtime_event.call_id, None)
+                if (
+                    tool_name == "generate_chart"
+                    and isinstance(runtime_event.output, dict)
+                    and runtime_event.status == "completed"
+                ):
+                    file_path = runtime_event.output.get("file_path", "")
+                    if isinstance(file_path, str) and file_path:
+                        for event in _emit_chart_image(
+                            file_path,
+                            runtime_event.call_id,
+                            thread,
+                            self.store,
+                            context,
+                        ):
+                            yield event
 
         yield ThreadItemDoneEvent(item=assistant_message)
 
@@ -121,10 +152,34 @@ class TransactoidChatKitServer(_ChatKitServerBase):
         return ""
 
 
-def create_app() -> "FastAPI":
+def _emit_chart_image(
+    file_path: str,
+    call_id: str,
+    thread: ThreadMetadata,
+    store: Any,
+    context: Any,
+) -> Iterator[ThreadStreamEvent]:
+    """Read PNG at file_path, convert to data URL, yield GeneratedImageItem events."""
+    try:
+        b64 = base64.b64encode(Path(file_path).read_bytes()).decode("ascii")
+    except OSError:
+        return
+
+    data_url = f"data:image/png;base64,{b64}"
+    image_item = GeneratedImageItem(
+        id=store.generate_item_id("image", thread, context),
+        thread_id=thread.id,
+        created_at=datetime.now(),
+        image=GeneratedImage(id=call_id, url=data_url),
+    )
+    yield ThreadItemAddedEvent(item=image_item)
+    yield ThreadItemDoneEvent(item=image_item)
+
+
+def create_app() -> Any:
     """Create and configure the FastAPI application."""
     from chatkit.server import StreamingResult
-    from fastapi import FastAPI, Request, Response
+    from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
 
