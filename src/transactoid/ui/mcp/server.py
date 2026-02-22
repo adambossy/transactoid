@@ -293,6 +293,38 @@ def scrape_amazon_orders(
         }
 
 
+@mcp.tool()
+async def generate_chart(
+    chart_type: str,
+    title: str,
+    data: dict[str, float],
+    x_label: str = "",
+    y_label: str = "",
+) -> dict[str, Any]:
+    """Generate a chart and return base64 PNG, file path, and optional ASCII plot.
+
+    Args:
+        chart_type: Type of chart — "bar", "line", or "pie"
+        title: Chart title
+        data: Label-to-number mapping, e.g. {"Groceries": 450.0}
+        x_label: Optional x-axis label
+        y_label: Optional y-axis label
+
+    Returns:
+        Dictionary with html_img_tag, file_path, title, and ascii_plot.
+    """
+    from transactoid.tools.visualize.chart_tool import GenerateChartTool
+
+    tool = GenerateChartTool()
+    return await tool.execute(
+        chart_type=chart_type,
+        title=title,
+        data=data,
+        x_label=x_label,
+        y_label=y_label,
+    )
+
+
 if __name__ == "__main__":
     # Run the MCP server
     mcp.run()

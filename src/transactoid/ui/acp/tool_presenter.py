@@ -93,6 +93,8 @@ def present_tool_input(
         )
     if tool_name == "migrate_taxonomy":
         return _present_migrate_taxonomy_input(arguments, kind)
+    if tool_name == "generate_chart":
+        return _present_generate_chart_input(arguments, kind)
     if tool_name == "upload_artifact":
         artifact_type = arguments.get("artifact_type", "file")
         return ToolDisplay(
@@ -167,6 +169,8 @@ def present_tool_output(
         return _present_list_accounts_output(result, status, kind)
     if tool_name == "scrape_amazon_orders":
         return _present_scrape_amazon_orders_output(result, status, kind)
+    if tool_name == "generate_chart":
+        return _present_generate_chart_output(result, status, kind)
     if tool_name == "execute_shell" and named_outputs:
         return _present_execute_shell_output(named_outputs, status, kind)
 
@@ -537,4 +541,63 @@ def _present_execute_shell_output(
             }
         ],
         locations=[],
+    )
+
+
+def _present_generate_chart_input(
+    arguments: Mapping[str, object],
+    kind: ToolCallKind,
+) -> ToolDisplay:
+    """Present generate_chart input with chart type and title."""
+    chart_type = str(arguments.get("chart_type", "chart"))
+    title = str(arguments.get("title", "Chart"))
+    return ToolDisplay(
+        title=f"Generate {chart_type} chart: {title}",
+        kind=kind,
+        content=[],
+        locations=[],
+    )
+
+
+def _present_generate_chart_output(
+    result: dict[str, object] | str,
+    status: str,
+    kind: ToolCallKind,
+) -> ToolDisplay:
+    """Present generate_chart output with ASCII plot and file path."""
+    if status == "failed" or isinstance(result, str):
+        error_text = (
+            result
+            if isinstance(result, str)
+            else str(result.get("error", "Unknown error"))
+        )
+        return ToolDisplay(
+            title="",
+            kind=kind,
+            content=[{"type": "text", "text": error_text}],
+            locations=[],
+        )
+
+    title = str(result.get("title", "Chart"))
+    file_path = str(result.get("file_path", ""))
+    ascii_plot = result.get("ascii_plot")
+    locations: list[dict[str, Any]] = [{"path": file_path}] if file_path else []
+
+    content: list[dict[str, Any]] = []
+    if ascii_plot:
+        content = [
+            {
+                "type": "content",
+                "content": {
+                    "type": "text",
+                    "text": f"```\n{ascii_plot}\n```",
+                },
+            }
+        ]
+
+    return ToolDisplay(
+        title=title,
+        kind=kind,
+        content=content,
+        locations=locations,
     )
