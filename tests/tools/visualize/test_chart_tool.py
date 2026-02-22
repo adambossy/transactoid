@@ -9,6 +9,7 @@ from unittest.mock import patch
 from transactoid.tools.visualize.chart_tool import (
     GenerateChartTool,
     _generate_ascii_plot,
+    pop_chart_path,
 )
 
 
@@ -31,9 +32,8 @@ def test_generate_chart_bar_returns_success():
     # assert
     assert output["status"] == "success"
     assert "html_img_tag" not in output
-    assert isinstance(output["file_path"], str)
-    assert output["file_path"].endswith(".png")
-    assert Path(output["file_path"]).is_absolute()
+    assert "file_path" not in output
+    pop_chart_path("Spending by Category")  # consume to avoid registry leak
 
 
 def test_generate_chart_line_returns_success():
@@ -51,9 +51,8 @@ def test_generate_chart_line_returns_success():
     # assert
     assert output["status"] == "success"
     assert "html_img_tag" not in output
-    assert isinstance(output["file_path"], str)
-    assert output["file_path"].endswith(".png")
-    assert Path(output["file_path"]).is_absolute()
+    assert "file_path" not in output
+    pop_chart_path("Monthly Spending")  # consume to avoid registry leak
 
 
 def test_generate_chart_pie_returns_success():
@@ -71,7 +70,9 @@ def test_generate_chart_pie_returns_success():
     # assert
     assert output["status"] == "success"
     assert "html_img_tag" not in output
+    assert "file_path" not in output
     assert output["ascii_plot"] is None
+    pop_chart_path("Expense Breakdown")  # consume to avoid registry leak
 
 
 def test_generate_chart_saves_png_file():
@@ -85,10 +86,12 @@ def test_generate_chart_saves_png_file():
     # act
     tool = create_chart_tool()
     output = asyncio.run(tool.execute(**input_data))
+    file_path = pop_chart_path("File Save Test")
 
     # assert
     assert output["status"] == "success"
-    assert Path(output["file_path"]).exists()
+    assert file_path is not None
+    assert Path(file_path).exists()
 
 
 def test_generate_chart_invalid_data_type():

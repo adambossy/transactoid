@@ -23,6 +23,17 @@ from transactoid.tools.protocol import ToolInputSchema
 
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}(?:-\d{2})?$")
 
+# Maps chart title → saved file path. Populated by _execute_impl and consumed
+# by the ChatKit server to emit an inline image without exposing the local path
+# to the LLM (which would embed it as a broken markdown image reference).
+_pending_chart_paths: dict[str, str] = {}
+
+
+def pop_chart_path(title: str) -> str | None:
+    """Pop and return the saved PNG path for a pending chart, or None."""
+    return _pending_chart_paths.pop(title, None)
+
+
 CHART_COLORS = [
     "#2563eb",
     "#16a34a",
@@ -86,9 +97,9 @@ class GenerateChartTool(StandardTool):
 
     _name = "generate_chart"
     _description = (
-        "Generate a chart from labeled data. Returns a file_path (absolute path to the "
-        "saved PNG) for local or inline display, and an ascii_plot (when available via "
-        "gnuplot) for terminal display."
+        "Generate a chart from labeled data. The image is displayed automatically "
+        "in the chat — do not reference any file path in your response. "
+        "Returns title and ascii_plot (when gnuplot is available) for terminal display."
     )
     _input_schema: ToolInputSchema = {
         "type": "object",
@@ -214,9 +225,12 @@ class GenerateChartTool(StandardTool):
 
         ascii_plot = _generate_ascii_plot(chart_type, labels, values, title)
 
+        # Register the path for the ChatKit server to consume; do not return it
+        # to the LLM (it would embed it as a broken markdown image reference).
+        _pending_chart_paths[title] = str(file_path)
+
         return {
             "status": "success",
-            "file_path": str(file_path),
             "title": title,
             "ascii_plot": ascii_plot,
         }
