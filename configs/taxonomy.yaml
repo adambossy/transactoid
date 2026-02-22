@@ -495,6 +495,38 @@ categories:
   name: Bank Fee/Service Charge
   description: null
   parent_key: banking_movements_transfers_refunds_and_fees
+- key: childcare
+  name: Childcare
+  description: null
+  parent_key: null
+- key: childcare.gear
+  name: Gear
+  description: null
+  parent_key: childcare
+- key: childcare.clothing
+  name: Clothing
+  description: null
+  parent_key: childcare
+- key: childcare.hygiene
+  name: Hygiene
+  description: null
+  parent_key: childcare
+- key: childcare.feeding
+  name: Feeding
+  description: null
+  parent_key: childcare
+- key: childcare.care
+  name: Care
+  description: null
+  parent_key: childcare
+- key: childcare.classes
+  name: Classes
+  description: null
+  parent_key: childcare
+- key: childcare.toys
+  name: Toys
+  description: null
+  parent_key: childcare
 - key: pets
   name: Pets
   description: null
