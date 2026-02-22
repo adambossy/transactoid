@@ -29,6 +29,7 @@ from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.protocol import ToolInputSchema
 from transactoid.tools.registry import ToolRegistry
 from transactoid.tools.sync.sync_tool import SyncTool
+from transactoid.tools.visualize.chart_tool import GenerateChartTool
 
 load_dotenv()
 
@@ -624,6 +625,7 @@ class Transactoid:
         registry.register(_TagTransactionsTool(self._persist_tool))
         registry.register(_MigrateTaxonomyTool(self._migration_tool))
         registry.register(_ScrapeAmazonOrdersTool(self._db))
+        registry.register(GenerateChartTool())
         return registry
 
     def create_runtime(

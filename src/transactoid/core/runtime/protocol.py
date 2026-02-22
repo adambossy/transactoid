@@ -140,6 +140,7 @@ def classify_tool_kind(tool_name: str) -> ToolCallKind:
         "upload_artifact": "other",
         "migrate_taxonomy": "edit",
         "connect_new_account": "other",
+        "generate_chart": "other",
     }
     return kind_map.get(tool_name, "other")
 
