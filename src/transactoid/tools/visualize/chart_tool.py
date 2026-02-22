@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import io
 from pathlib import Path
+import re
 import subprocess
 from typing import Any
 import uuid
@@ -19,6 +20,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from transactoid.tools.base import StandardTool
 from transactoid.tools.protocol import ToolInputSchema
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}(?:-\d{2})?$")
 
 CHART_COLORS = [
     "#2563eb",
@@ -150,6 +153,14 @@ class GenerateChartTool(StandardTool):
                     ),
                 }
             labels.append(str(label))
+
+        # Sort chronologically when all labels are ISO date strings (YYYY-MM or
+        # YYYY-MM-DD). Lexicographic order equals chronological order for these
+        # formats, so no date parsing is required.
+        if all(_ISO_DATE_RE.match(lbl) for lbl in labels):
+            pairs = sorted(zip(labels, values), key=lambda pair: pair[0])
+            labels = [pair[0] for pair in pairs]
+            values = [pair[1] for pair in pairs]
 
         # Build figure
         figsize = (8, 8) if chart_type == "pie" else (10, 6)
