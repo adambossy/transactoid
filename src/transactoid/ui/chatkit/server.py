@@ -32,6 +32,7 @@ from transactoid.core.runtime import (
 )
 from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.taxonomy.loader import load_taxonomy_from_db
+from transactoid.tools.visualize.chart_tool import pop_chart_path
 
 if TYPE_CHECKING:
 
@@ -130,8 +131,9 @@ class TransactoidChatKitServer(_ChatKitServerBase):
                     and isinstance(runtime_event.output, dict)
                     and runtime_event.status == "completed"
                 ):
-                    file_path = runtime_event.output.get("file_path", "")
-                    if isinstance(file_path, str) and file_path:
+                    title = str(runtime_event.output.get("title", ""))
+                    file_path = pop_chart_path(title) if title else None
+                    if file_path:
                         for event in _emit_chart_image(
                             file_path,
                             runtime_event.call_id,
