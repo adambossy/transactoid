@@ -269,16 +269,25 @@ class Categorizer:
         *,
         provider: Literal["openai", "claude", "gemini"] | None,
         model: str | None,
-    ) -> tuple[Literal["openai", "claude", "gemini"], str]:
-        """Resolve provider/model from explicit args or core runtime env config."""
+    ) -> tuple[Literal["openai", "claude", "gemini", "langgraph"], str]:
+        """Resolve provider/model from explicit args or core runtime env config.
+
+        Model resolution order (first non-empty wins):
+        1. Explicit ``model`` argument
+        2. ``TRANSACTOID_CATEGORIZER_MODEL`` env var (categorizer-specific override)
+        3. ``TRANSACTOID_AGENT_MODEL`` env var (via core runtime config)
+        4. Hardcoded provider default (fallback when env config is unavailable)
+        """
         if provider is not None and model is not None:
             return provider, model
+
+        cat_model = os.environ.get("TRANSACTOID_CATEGORIZER_MODEL", "").strip() or None
 
         try:
             runtime_config = load_core_runtime_config_from_env()
             return (
                 provider or runtime_config.provider,
-                model or runtime_config.model,
+                model or cat_model or runtime_config.model,
             )
         except Exception:
             provider_default_model = {
@@ -290,7 +299,7 @@ class Categorizer:
             # Fallback keeps backward compatibility for legacy local runs.
             return (
                 fallback_provider,
-                model or provider_default_model[fallback_provider],
+                model or cat_model or provider_default_model[fallback_provider],
             )
 
     def _init_provider_client(self) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from transactoid.core.runtime.claude_runtime import ClaudeCoreRuntime
 from transactoid.core.runtime.config import CoreRuntimeConfig
 from transactoid.core.runtime.gemini_runtime import GeminiCoreRuntime
+from transactoid.core.runtime.langgraph_runtime import LangGraphCoreRuntime
 from transactoid.core.runtime.openai_runtime import OpenAICoreRuntime
 from transactoid.core.runtime.protocol import CoreRuntime
 from transactoid.tools.registry import ToolRegistry
@@ -31,6 +32,13 @@ def create_core_runtime(
 
     if config.provider == "gemini":
         return GeminiCoreRuntime(
+            instructions=instructions,
+            registry=registry,
+            config=config,
+        )
+
+    if config.provider == "langgraph":
+        return LangGraphCoreRuntime(
             instructions=instructions,
             registry=registry,
             config=config,
