@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import os
 from typing import Literal
 
-Provider = Literal["openai", "claude", "gemini"]
+Provider = Literal["openai", "claude", "gemini", "langgraph"]
 ReasoningEffort = Literal["low", "medium", "high"]
 Verbosity = Literal["low", "medium", "high"]
 
@@ -23,6 +23,17 @@ class CoreRuntimeConfig:
     skills_builtin_dir: str = "src/transactoid/skills"
 
 
+def _require_langgraph_credentials(model: str) -> None:
+    """Validate API credentials for the LangGraph provider based on model prefix."""
+    if model.startswith("anthropic:"):
+        _require_env("ANTHROPIC_API_KEY")
+    elif model.startswith("openai:"):
+        _require_env("OPENAI_API_KEY")
+    else:
+        # Default to Google credentials for gemini or unknown model names
+        _require_env("GOOGLE_API_KEY")
+
+
 def _require_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -33,9 +44,10 @@ def _require_env(name: str) -> str:
 def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
     """Load runtime config from env and validate startup requirements."""
     provider_value = os.environ.get("TRANSACTOID_AGENT_PROVIDER", "openai").strip()
-    if provider_value not in {"openai", "claude", "gemini"}:
+    if provider_value not in {"openai", "claude", "gemini", "langgraph"}:
         raise ValueError(
-            "TRANSACTOID_AGENT_PROVIDER must be one of: openai, claude, gemini"
+            "TRANSACTOID_AGENT_PROVIDER must be one of: "
+            "openai, claude, gemini, langgraph"
         )
     provider: Provider = provider_value  # type: ignore[assignment]
 
@@ -43,6 +55,7 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
         "openai": "gpt-5.3",
         "claude": "",
         "gemini": "gemini-2.5-flash",
+        "langgraph": "gemini-3-flash-preview",
     }
     default_model = model_default_map[provider]
     model = os.environ.get("TRANSACTOID_AGENT_MODEL", default_model).strip()
@@ -82,6 +95,8 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
         _require_env("OPENAI_API_KEY")
     elif provider == "claude":
         _require_env("ANTHROPIC_API_KEY")
+    elif provider == "langgraph":
+        _require_langgraph_credentials(model)
     else:
         _require_env("GOOGLE_API_KEY")
 
