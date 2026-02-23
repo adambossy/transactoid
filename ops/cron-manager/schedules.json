@@ -1,8 +1,8 @@
 [
   {
-    "name": "transactoid-daily-5am-ny-0900-utc",
+    "name": "transactoid-daily-5am-ny-1000-utc",
     "app_name": "transactoid",
-    "schedule": "0 9 * * *",
+    "schedule": "0 10 * * *",
     "region": "iad",
     "command": "-lc '/app/.venv/bin/transactoid run-scheduled-report'",
     "command_timeout": 7200,
@@ -29,11 +29,11 @@
     }
   },
   {
-    "name": "transactoid-daily-5am-ny-1000-utc",
+    "name": "transactoid-jenny-weekly-saturday-6am-ny",
     "app_name": "transactoid",
-    "schedule": "0 10 * * *",
+    "schedule": "0 11 * * 6",
     "region": "iad",
-    "command": "-lc '/app/.venv/bin/transactoid run-scheduled-report'",
+    "command": "-lc '/app/.venv/bin/transactoid run --prompt-key report-weekly-jenny --email jloleary0@gmail.com'",
     "command_timeout": 7200,
     "enabled": true,
     "config": {
