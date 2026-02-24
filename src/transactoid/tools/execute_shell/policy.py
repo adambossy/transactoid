@@ -42,6 +42,11 @@ ALLOWED_COMMANDS = frozenset(
         "mv",
         "cp",
         "tree",
+        # PDF extraction
+        "pdftotext",
+        # Python interpreter (used by pdfplumber and other PDF skills)
+        "python",
+        "python3",
     }
 )
 
@@ -222,8 +227,17 @@ def evaluate_command_policy(
             effective_command=command,
         )
 
-    # Handle bash -c wrapper
+    # Handle bash -c wrapper and python/python3 -c (inline code, not a path)
     effective_cmd = command
+    if base_cmd in {"python", "python3"} and "-c" in command:
+        return PolicyResult(
+            allowed=True,
+            reason="Command allowed",
+            base_command=base_cmd,
+            operation="read",
+            effective_command=effective_cmd,
+        )
+
     if base_cmd == "bash" and "-c" in command:
         # Extract inner command from bash -c
         try:
