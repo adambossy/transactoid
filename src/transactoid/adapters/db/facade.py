@@ -72,7 +72,7 @@ class DB:
         Args:
             url: Database URL (e.g., "sqlite:///transactoid.db")
         """
-        self._engine = create_engine(url, echo=False)
+        self._engine = create_engine(url, echo=False, pool_pre_ping=True)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
 
     def create_schema(self) -> None:
