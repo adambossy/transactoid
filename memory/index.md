@@ -1,37 +1,47 @@
 # Memory Index
 
 Generated with:
-
 ```bash
 tree --noreport memory/
 ```
 
 ```text
 memory/
+|-- ops/
+|   `-- 20260221-172500-cron-job-hardening.md
+|-- tax-returns/
+|   |-- 2018-adam.pdf
+|   |-- 2019-adam.pdf
+|   |-- 2020-adam.pdf
+|   |-- 2021-adam.pdf
+|   |-- 2022-adam.pdf
+|   |-- 2023-adam.pdf
+|   |-- 2024-adam.pdf
+|   `-- 2025-adam-&-jenny.pdf
 |-- README.md
 |-- budget.md
 |-- index.md
-|-- merchant-rules.md
-`-- tax-returns/
-    `-- 2026.md.example
+`-- merchant-rules.md
 ```
 
 ## Annotations
 
-- `memory/`: Root directory for persistent agent memory files.
-- `memory/README.md`: Human-oriented documentation for memory purpose, conventions, and loading model.
-- `memory/budget.md`: Optional budget template; copy and adapt when budget context is needed.
-- `memory/index.md`: Tree-based inventory of `memory/` contents with one-line descriptions.
-- `memory/merchant-rules.md`: Merchant-to-category mapping rules used for categorization guidance.
-- `memory/tax-returns/`: Local-only tax return context files.
-- `memory/tax-returns/2026.md.example`: Tracked template file; excluded from prompt injection.
+*   `ops/`: Contains operational logs, incident reports, and hardening details.
+*   `tax-returns/`: Dedicated directory for storing and retrieving PDF tax documents.
+*   `budget.md`: Defines budget categories, allocations, and tracking logic.
+*   `merchant-rules.md`: specific regex or substring matching rules for transaction categorization.
+*   `README.md`: General documentation regarding the agent's memory structure.
 
 ## Tax Returns Directory
 
-Use `memory/tax-returns/` for private tax-return context.
+This directory stores runtime tax return documents. The agent scans this location to load historical tax contexts or process new returns. Files typically follow the naming convention `YYYY-name.pdf`.
 
-- `YYYY.md` is a convention, not a requirement.
-- Tax-return file contents are optional and loaded on demand by the agent.
-- Local tax-return file paths are surfaced in a runtime inventory block in this index.
-- Files ending with `.example` are excluded from prompt assembly.
-- Only `memory/tax-returns/2026.md.example` is tracked in git; other files in this directory are local-only.
+**Current Runtime Files:**
+- `tax-returns/2018-adam.pdf`
+- `tax-returns/2019-adam.pdf`
+- `tax-returns/2020-adam.pdf`
+- `tax-returns/2021-adam.pdf`
+- `tax-returns/2022-adam.pdf`
+- `tax-returns/2023-adam.pdf`
+- `tax-returns/2024-adam.pdf`
+- `tax-returns/2025-adam-&-jenny.pdf`
