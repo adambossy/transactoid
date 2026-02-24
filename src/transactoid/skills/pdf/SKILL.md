@@ -68,6 +68,18 @@ For `merge` operations also gather:
   defined in the `render-report-html` skill (colours, fonts, table layout)
   translated to the chosen PDF library.
 
+## Dependencies
+
+`pdfplumber` is a **bundled project dependency** — it is always available in the
+transactoid virtualenv without any installation step. Import it directly:
+
+```python
+import pdfplumber
+```
+
+`pdftotext` (poppler-utils) must be installed at the OS level (`brew install poppler` on
+macOS). Use it only as a fallback when a Python-based approach is insufficient.
+
 ## Python Libraries
 
 ### pdfplumber — Statement Text and Table Extraction (preferred)
