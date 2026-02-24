@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 import uuid
 
@@ -39,6 +40,7 @@ class SimpleInMemoryStore(_StoreBase):
             "task",
             "workflow",
             "attachment",
+            "image",
             "sdk_hidden_context",
         ],
         thread: ThreadMetadata,
@@ -54,9 +56,10 @@ class SimpleInMemoryStore(_StoreBase):
             self._items[thread.id] = {}
 
     async def load_thread(self, thread_id: str, context: Any) -> ThreadMetadata:
-        """Load a thread by ID."""
+        """Load a thread by ID, creating it if it doesn't exist."""
         if thread_id not in self._threads:
-            raise ValueError(f"Thread {thread_id} not found")
+            thread = ThreadMetadata(id=thread_id, created_at=datetime.now())
+            await self.save_thread(thread, context)
         return self._threads[thread_id]
 
     async def load_threads(
