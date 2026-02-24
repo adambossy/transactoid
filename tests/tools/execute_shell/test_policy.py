@@ -179,6 +179,28 @@ def test_evaluate_command_policy_denied_commands() -> None:
         assert "denied" in result.reason.lower()
 
 
+def test_evaluate_command_policy_pdf_commands(tmp_path: Path) -> None:
+    """Test that PDF extraction commands are allowed."""
+    # Setup
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    pdf_file = allowed_dir / "statement.pdf"
+    pdf_file.touch()
+    allowed_roots = [allowed_dir]
+
+    # Input
+    commands = [
+        f"pdftotext {pdf_file} -",
+        f"python3 -c \"import pdfplumber; pdf = pdfplumber.open('{pdf_file}')\"",
+        "python -c \"print('hello')\"",
+    ]
+
+    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert result.allowed, f"Command should be allowed: {command}"
+
+
 def test_evaluate_command_policy_unknown_command() -> None:
     """Test that unknown commands are blocked."""
     # Input
