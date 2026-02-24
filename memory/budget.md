@@ -7,66 +7,69 @@
 | Banking Movements | Bank Fee/Service Charge | $73 | $70 | -$3 | |
 | Banking Movements | Cash Withdrawal (ATM) | $734 | $730 | -$4 | High cash usage |
 | Banking Movements | Check Payment/Deposit | $25 | $25 | $0 | |
-| Banking Movements | Reversal/Correction | $299 | $300 | +$1 | |
-| Banking Movements | Transfer: External (P2P) | $239 | $240 | +$1 | |
+| Banking Movements | Reversal/Correction | $299 | $0 | -$299 | Not a real outflow |
+| Banking Movements | Transfer: External (P2P) | $239 | $0 | -$239 | Not a real outflow |
 | Debt & Loans | Credit Card Interest & Fees | $207 | $210 | +$3 | Avoidable expense |
-| Education & Childcare | Childcare & Babysitting | $1,456 | $1,460 | +$4 | Consistent expense |
-| Education & Childcare | Courses & Certifications | $140 | $140 | $0 | |
-| Entertainment | Books, Apps & Media | $121 | $120 | -$1 | |
-| Entertainment | Cloud & Software Subscriptions | $276 | $280 | +$4 | |
-| Entertainment | Gaming | $4 | $5 | +$1 | |
-| Entertainment | Hobbies & Leisure | $161 | $160 | -$1 | |
-| Entertainment | Music & Audio | $13 | $15 | +$2 | |
-| Entertainment | News & Publications | $36 | $40 | +$4 | |
-| Entertainment | Streaming Video | $34 | $35 | +$1 | |
-| Food & Dining | Bars & Alcohol | $194 | $190 | -$4 | |
-| Food & Dining | Coffee Shops | $313 | $310 | -$3 | High frequency? |
-| Food & Dining | Delivery & Takeout | $130 | $130 | $0 | |
-| Food & Dining | Groceries | $791 | $790 | -$1 | |
-| Food & Dining | Meal Kits | $451 | $450 | -$1 | |
-| Food & Dining | Restaurants | $743 | $740 | -$3 | |
-| Food & Dining | Treats | $167 | $170 | +$3 | |
-| Gifts & Donations | Charitable Donations | $32 | $30 | -$2 | |
-| Gifts & Donations | Crowdfunding Support | $20 | $20 | $0 | |
-| Gifts & Donations | Gifts Given | $9 | $10 | +$1 | |
+| Education & Childcare | Childcare & Babysitting | $1,456 | $3,926 | +$2,470 | 2026 weighted avg: $1,070/wk thru Sept 3; $2,885/mo Sept 4–Oct 9; $2,700/mo Oct 10–Dec 31 |
+| Education & Childcare | Courses & Certifications | $140 | $0 | -$140 | Cut |
+| Entertainment | Books, Apps & Media | $121 | $0 | -$121 | Cut |
+| Entertainment | Cloud & Software Subscriptions | $276 | $0 | -$276 | Cut |
+| Entertainment | Gaming | $4 | $0 | -$4 | Cut |
+| Entertainment | Hobbies & Leisure | $161 | $0 | -$161 | Cut |
+| Entertainment | Music & Audio | $13 | $0 | -$13 | Cut |
+| Entertainment | News & Publications | $36 | $0 | -$36 | Cut |
+| Entertainment | Streaming Video | $34 | $0 | -$34 | Cut |
+| Food & Dining | Bars & Alcohol | $194 | $30 | -$164 | Reduced |
+| Food & Dining | Coffee Shops | $313 | $50 | -$263 | Reduced |
+| Food & Dining | Delivery & Takeout | $130 | $20 | -$110 | Reduced |
+| Food & Dining | Groceries | $791 | $550 | -$241 | Reduced |
+| Food & Dining | Meal Kits | $451 | $450 | -$1 | Keep; reduces restaurant spend |
+| Food & Dining | Restaurants | $743 | $150 | -$593 | Reduced |
+| Food & Dining | Treats | $167 | $20 | -$147 | Reduced |
+| Gifts & Donations | Charitable Donations | $32 | $0 | -$32 | Cut |
+| Gifts & Donations | Crowdfunding Support | $20 | $0 | -$20 | Cut |
+| Gifts & Donations | Gifts Given | $9 | $0 | -$9 | Cut |
 | Health & Wellness | Dental | $17 | $20 | +$3 | |
-| Health & Wellness | Doctor & Hospital | $143 | $140 | -$3 | |
-| Health & Wellness | Fitness & Gym | $376 | $380 | +$4 | |
-| Health & Wellness | Medical | $160 | $160 | $0 | |
+| Health & Wellness | Doctor & Hospital | $143 | $100 | -$43 | Reduced |
+| Health & Wellness | Fitness & Gym | $376 | $380 | +$4 | Keep |
+| Health & Wellness | Medical | $160 | $120 | -$40 | Reduced |
 | Health & Wellness | Pharmacy & Prescriptions | $34 | $35 | +$1 | |
-| Health & Wellness | Supplements | $85 | $85 | $0 | |
-| Health & Wellness | Therapy | $955 | $960 | +$5 | Significant investment |
-| Health & Wellness | Vision | $170 | $170 | $0 | |
-| Health & Wellness | Wellness Products | $146 | $150 | +$4 | |
+| Health & Wellness | Supplements | $85 | $0 | -$85 | Cut |
+| Health & Wellness | Therapy | $955 | $960 | +$5 | Keep |
+| Health & Wellness | Vision | $170 | $0 | -$170 | Cut |
+| Health & Wellness | Wellness Products | $146 | $0 | -$146 | Cut |
 | Housing & Utilities | Electricity | $61 | $60 | -$1 | |
 | Housing & Utilities | Gas | $115 | $120 | +$5 | |
-| Housing & Utilities | Home Decor | $545 | $545 | $0 | |
-| Housing & Utilities | Home Renovation | $177 | $180 | +$3 | |
-| Housing & Utilities | Home Services & Maint. | $1,272 | $1,270 | -$2 | |
-| Housing & Utilities | Mobile Phone | $96 | $100 | +$4 | |
+| Housing & Utilities | Home Decor | $545 | $0 | -$545 | Cut |
+| Housing & Utilities | Home Renovation | $177 | $0 | -$177 | Cut |
+| Housing & Utilities | Home Services & Maint. | $1,272 | $350 | -$922 | Reduced |
+| Housing & Utilities | Internet | $96 | $0 | -$96 | Cut |
 | Housing & Utilities | Mortgage Payment | $10,655 | $10,862 | +$207 | Fixed; increased Nov '25 |
+| Insurance | Dental Insurance | $0 | $56.77 | +$56.77 | Fixed monthly premium |
 | Insurance | Flood Insurance | $72 | $70 | -$2 | |
+| Insurance | Health Insurance | $0 | $1,054.21 | +$1,054.21 | Fixed monthly premium |
 | Insurance | Home/Renters Insurance | $82 | $80 | -$2 | |
+| Insurance | Vision Insurance | $0 | $4.19 | +$4.19 | Fixed monthly premium |
 | Pets | Food & Treats | $121 | $120 | -$1 | |
-| Pets | Grooming | $11 | $10 | -$1 | |
+| Pets | Grooming | $11 | $0 | -$11 | Cut |
 | Pets | Medications & Preventives | $46 | $50 | +$4 | |
-| Pets | Supplies & Accessories | $28 | $30 | +$2 | |
+| Pets | Supplies & Accessories | $28 | $0 | -$28 | Cut |
 | Pets | Veterinary Care | $114 | $114 | $0 | |
-| Pets | Walking & Sitting | $70 | $70 | $0 | |
-| Savings & Investments | Savings Contribution | $833 | $830 | -$3 | Good habit |
-| Shopping | Beauty & Personal Care | $149 | $150 | +$1 | |
-| Shopping | Clothing & Accessories | $861 | $860 | -$1 | High discretionary |
-| Shopping | Dry Cleaning | $33 | $35 | +$2 | |
-| Shopping | Electronics & Gadgets | $199 | $200 | +$1 | |
-| Shopping | Furniture & Appliances | $361 | $360 | -$1 | |
-| Shopping | Household Supplies | $495 | $495 | $0 | |
-| Shopping | Postage & Shipping | $42 | $40 | -$2 | |
+| Pets | Walking & Sitting | $70 | $0 | -$70 | Cut |
+| Savings & Investments | Savings Contribution | $833 | $0 | -$833 | Cut; rebuild when income allows |
+| Shopping | Beauty & Personal Care | $149 | $25 | -$124 | Reduced |
+| Shopping | Clothing & Accessories | $861 | $125 | -$736 | Reduced |
+| Shopping | Dry Cleaning | $33 | $0 | -$33 | Cut |
+| Shopping | Electronics & Gadgets | $199 | $0 | -$199 | Cut |
+| Shopping | Furniture & Appliances | $361 | $0 | -$361 | Cut |
+| Shopping | Household Supplies | $495 | $100 | -$395 | Reduced |
+| Shopping | Postage & Shipping | $42 | $20 | -$22 | Reduced |
 | Transportation & Auto | Parking & Tolls | $7 | $10 | +$3 | |
 | Transportation & Auto | Public Transit | $42 | $40 | -$2 | |
 | Transportation & Auto | Rental Car | $10 | $10 | $0 | |
-| Transportation & Auto | Rides & Taxis | $336 | $340 | +$4 | |
-| Travel | Baggage/Other Fees | $17 | $20 | +$3 | |
-| Travel | Flights | $80 | $80 | $0 | |
-| Travel | Lodging | $559 | $560 | +$1 | |
-| **Total** | | **$26,243** | **$26,481** | **+$238** | |
-| **Annual Total** | | **$314,916** | **$317,772** | **+$2,856** | |
+| Transportation & Auto | Rides & Taxis | $336 | $0 | -$336 | Cut |
+| Travel | Baggage/Other Fees | $17 | $0 | -$17 | Cut |
+| Travel | Flights | $80 | $0 | -$80 | Cut |
+| Travel | Lodging | $559 | $0 | -$559 | Cut |
+| **Total** | | **$26,243** | **$21,117.17** | **-$5,125.83** | |
+| **Annual Total** | | **$314,916** | **$253,406.04** | **-$61,509.96** | |
