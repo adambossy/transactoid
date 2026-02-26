@@ -11,6 +11,7 @@ from transactoid.core.runtime import (
     CoreSession,
     TextDeltaEvent,
     ToolCallCompletedEvent,
+    ToolCallInputEvent,
     ToolCallStartedEvent,
     ToolOutputEvent,
     TurnCompletedEvent,
@@ -155,3 +156,108 @@ class TestPromptHandlerIntegration:
 
         assert output == expected_output
         assert session.messages[-1]["content"] == "I found 0 transactions."
+
+    def test_handle_prompt_does_not_overwrite_tool_title_with_empty_input_title(
+        self,
+    ) -> None:
+        class _CapturingNotifier:
+            def __init__(self) -> None:
+                self.tool_call_updates: list[dict[str, Any]] = []
+
+            async def tool_call(
+                self,
+                session_id: str,
+                tool_call_id: str,
+                title: str,
+                kind: str,
+                status: str,
+                raw_input: dict[str, Any] | None = None,
+                content: list[dict[str, Any]] | None = None,
+                locations: list[dict[str, Any]] | None = None,
+            ) -> None:
+                _ = (
+                    session_id,
+                    tool_call_id,
+                    title,
+                    kind,
+                    status,
+                    raw_input,
+                    content,
+                    locations,
+                )
+
+            async def tool_call_update(
+                self,
+                session_id: str,
+                tool_call_id: str,
+                status: str,
+                content: list[dict[str, Any]] | None = None,
+                raw_output: dict[str, Any] | None = None,
+                title: str | None = None,
+                kind: str | None = None,
+                locations: list[dict[str, Any]] | None = None,
+            ) -> None:
+                _ = session_id
+                self.tool_call_updates.append(
+                    {
+                        "tool_call_id": tool_call_id,
+                        "status": status,
+                        "title": title,
+                        "kind": kind,
+                        "content": content,
+                        "raw_output": raw_output,
+                        "locations": locations,
+                    }
+                )
+
+            async def agent_message_chunk(
+                self, session_id: str, content: dict[str, Any]
+            ) -> None:
+                _ = (session_id, content)
+
+            async def agent_thought_chunk(
+                self, session_id: str, content: dict[str, Any]
+            ) -> None:
+                _ = (session_id, content)
+
+        session_manager = SessionManager()
+        session_id = session_manager.create(cwd="/home/user", mcp_servers=[])
+        input_data = {
+            "sessionId": session_id,
+            "content": [{"type": "text", "text": "Show yesterday's transactions"}],
+        }
+        runtime_events = [
+            ToolCallStartedEvent(
+                call_id="call_sql",
+                tool_name="run_sql",
+                kind="execute",
+            ),
+            ToolCallInputEvent(
+                call_id="call_sql",
+                tool_name="run_sql",
+                arguments={},
+                runtime_info=None,
+            ),
+            ToolCallCompletedEvent(call_id="call_sql"),
+            ToolOutputEvent(call_id="call_sql", output={"rows": [], "count": 0}),
+            TurnCompletedEvent(final_text="Done"),
+        ]
+        notifier = _CapturingNotifier()
+
+        handler = PromptHandler(
+            session_manager=session_manager,
+            runtime=_FakeRuntime(events=runtime_events),
+            notifier=notifier,  # type: ignore[arg-type]
+        )
+
+        output = _run_async(handler.handle_prompt(input_data))
+
+        expected_output = {"stopReason": "end_turn"}
+
+        assert output == expected_output
+        pending_update = next(
+            update
+            for update in notifier.tool_call_updates
+            if update["tool_call_id"] == "call_sql" and update["status"] == "pending"
+        )
+        assert pending_update["title"] is None
