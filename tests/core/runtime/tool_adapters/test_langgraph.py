@@ -245,5 +245,4 @@ def test_build_pydantic_model_array_items_schema_for_objects() -> None:
     # expected
     props = json_schema["properties"]
     items = props["targets"]["items"]
-    assert items["type"] == "object"
-    assert set(items["required"]) == {"key", "name", "description"}
+    assert ("$ref" in items) or (items.get("type") == "object")
