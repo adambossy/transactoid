@@ -109,10 +109,10 @@ uv tool install -U batrachian-toad --python 3.14
 transactoid plaid-serve
 
 # Launch Toad with Transactoid
-toad acp "uv run transactoid acp 2>/tmp/transactoid.log" -t "Transactoid"
+toad acp "uv run transactoid acp 2>>.logs/transactoid.log" -t "Transactoid"
 ```
 
-This launches Toad's terminal UI with Transactoid as the backend agent. Logs are written to `/tmp/transactoid.log` (ACP uses stdout for JSON-RPC communication).
+This launches Toad's terminal UI with Transactoid as the backend agent. Logs are appended to `.logs/transactoid.log` (ACP uses stdout for JSON-RPC communication).
 
 > **Note**: Toad works with any ACP-compatible agent. See [agentclientprotocol.com](https://agentclientprotocol.com) for the protocol spec.
 
@@ -188,7 +188,7 @@ See the [OpenAI ChatKit SDK documentation](https://github.com/openai/chatkit) fo
 
 | Interface             | Best For                    | Command                                                                     |
 | --------------------- | --------------------------- | --------------------------------------------------------------------------- |
-| **ACP + Toad**        | Interactive terminal use    | `toad acp "uv run transactoid acp 2>/tmp/transactoid.log" -t "Transactoid"` |
+| **ACP + Toad**        | Interactive terminal use    | `toad acp "uv run transactoid acp 2>>.logs/transactoid.log" -t "Transactoid"` |
 | **MCP + Claude Code** | AI-assisted finance queries | Configure in `~/.claude/settings.json`                                      |
 | **ChatKit**           | Web UI integration          | `uv run python -m transactoid.ui.chatkit.server`                            |
 
