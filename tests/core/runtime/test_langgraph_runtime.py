@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 import pytest
 
-pytest.importorskip("langchain_core", reason="langchain-core not installed")
-pytest.importorskip("deepagents", reason="deepagents not installed")
-
+from transactoid.core.runtime.langgraph_runtime import LangGraphCoreRuntime
 from transactoid.core.runtime.protocol import (
     CoreSession,
     TextDeltaEvent,
@@ -14,7 +15,11 @@ from transactoid.core.runtime.protocol import (
     ToolCallOutputEvent,
     ToolCallStartedEvent,
     ToolOutputEvent,
+    TurnCompletedEvent,
 )
+
+pytest.importorskip("langchain_core", reason="langchain-core not installed")
+pytest.importorskip("deepagents", reason="deepagents not installed")
 
 
 def test_start_session_returns_correct_core_session() -> None:
@@ -277,3 +282,85 @@ def test_map_chunk_non_tuple_produces_no_events() -> None:
 
     # expected
     assert events == []
+
+
+def test_extract_final_text_reads_ai_content_blocks() -> None:
+    # input
+    class _FakeMessage:
+        def __init__(self, msg_type: str, content: object) -> None:
+            self.type = msg_type
+            self.content = content
+
+    input_result = {
+        "messages": [
+            _FakeMessage("human", "hello"),
+            _FakeMessage(
+                "ai",
+                [{"type": "text", "text": "Final answer from block content."}],
+            ),
+        ]
+    }
+
+    # helper setup
+    runtime = object.__new__(LangGraphCoreRuntime)
+
+    # act
+    output = runtime._extract_final_text(input_result)
+
+    # expected
+    expected_output = "Final answer from block content."
+
+    # assert
+    assert output == expected_output
+
+
+def test_run_streamed_turn_completed_uses_block_content_when_stream_delta_missing() -> (
+    None
+):
+    # input
+    input_text = "hello"
+    input_session = CoreSession(
+        session_id="sess_1",
+        native_session={"configurable": {"thread_id": "sess_1"}},
+    )
+
+    # helper setup
+    class _FakeAIMessageChunk:
+        type = "AIMessageChunk"
+
+        def __init__(self, content: object) -> None:
+            self.content = content
+            self.tool_call_chunks: list[dict[str, object]] = []
+
+    class _FakeAgent:
+        async def astream(self, *_args: object, **_kwargs: object):  # type: ignore[no-untyped-def]
+            yield (
+                _FakeAIMessageChunk(
+                    [{"type": "text", "text": "One final streamed sentence."}]
+                ),
+                {},
+            )
+
+    runtime = object.__new__(LangGraphCoreRuntime)
+    runtime_any: Any = runtime
+    runtime_any._agent = _FakeAgent()
+
+    async def _collect() -> list[object]:
+        events: list[object] = []
+        async for event in runtime.run_streamed(
+            input_text=input_text,
+            session=input_session,
+        ):
+            events.append(event)
+        return events
+
+    # act
+    output = asyncio.run(_collect())
+
+    # expected
+    final_event = output[-1]
+    expected_output = "One final streamed sentence."
+
+    # assert
+    assert isinstance(final_event, TurnCompletedEvent)
+    assert final_event.final_text == expected_output

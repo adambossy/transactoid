@@ -115,6 +115,7 @@ class LangGraphCoreRuntime(CoreRuntime):
     ) -> AsyncIterator[CoreEvent]:
         run_config = cast(RunnableConfig, session.native_session)
         accumulated_text = ""
+        fallback_final_text = ""
         seen_tool_names: dict[str, str] = {}
 
         async for chunk in self._agent.astream(
@@ -130,9 +131,12 @@ class LangGraphCoreRuntime(CoreRuntime):
             # Text delta only from AI messages (not tool messages)
             msg_type = getattr(message, "type", None)
             content = getattr(message, "content", None)
-            if msg_type != "tool" and isinstance(content, str) and content:
-                accumulated_text += content
-                yield TextDeltaEvent(text=content)
+            if msg_type != "tool":
+                text_delta = self._extract_text_content(content)
+                if text_delta:
+                    fallback_final_text = text_delta
+                    accumulated_text += text_delta
+                    yield TextDeltaEvent(text=text_delta)
 
             # Tool call chunks from AIMessageChunk
             tool_call_chunks = getattr(message, "tool_call_chunks", None) or []
@@ -189,7 +193,8 @@ class LangGraphCoreRuntime(CoreRuntime):
                     named_outputs=None,
                 )
 
-        yield TurnCompletedEvent(final_text=accumulated_text)
+        final_text = accumulated_text or fallback_final_text
+        yield TurnCompletedEvent(final_text=final_text)
 
     def _extract_final_text(self, result: dict[str, Any]) -> str:
         messages: list[Any] = result.get("messages", [])
@@ -197,8 +202,34 @@ class LangGraphCoreRuntime(CoreRuntime):
             msg_type = getattr(msg, "type", None)
             if msg_type == "ai":
                 content = getattr(msg, "content", "")
-                if isinstance(content, str):
-                    return content
+                final_text = self._extract_text_content(content)
+                if final_text:
+                    return final_text
+        return ""
+
+    def _extract_text_content(self, content: Any) -> str:
+        """Extract user-visible text from LangChain message content variants."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                if isinstance(item, dict):
+                    text_value = item.get("text")
+                    if isinstance(text_value, str):
+                        parts.append(text_value)
+                        continue
+                    content_value = item.get("content")
+                    if isinstance(content_value, str):
+                        parts.append(content_value)
+                        continue
+                text_attr = getattr(item, "text", None)
+                if isinstance(text_attr, str):
+                    parts.append(text_attr)
+            return "".join(parts)
         return ""
 
     def _extract_tool_calls(self, result: dict[str, Any]) -> list[ToolCallRecord]:
