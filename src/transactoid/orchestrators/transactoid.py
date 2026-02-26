@@ -663,12 +663,11 @@ class Transactoid:
             user_dir=config.skills_user_dir,
             builtin_dir=config.skills_builtin_dir,
         )
-        skill_instructions = generate_skill_instructions(skill_paths)
-        instructions = (
-            f"{base_instructions}\n\n{skill_instructions}"
-            if skill_instructions
-            else base_instructions
-        )
+        instructions = base_instructions
+        if config.provider != "langgraph":
+            skill_instructions = generate_skill_instructions(skill_paths)
+            if skill_instructions:
+                instructions = f"{base_instructions}\n\n{skill_instructions}"
 
         registry = self._build_tool_registry()
         return create_core_runtime(
