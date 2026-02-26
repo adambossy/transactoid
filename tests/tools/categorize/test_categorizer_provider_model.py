@@ -24,6 +24,7 @@ def test_resolve_provider_model_uses_provider_default_on_env_failure(
         "load_core_runtime_config_from_env",
         _raise_runtime_config_error,
     )
+    monkeypatch.delenv("TRANSACTOID_CATEGORIZER_MODEL", raising=False)
 
     # act
     output = categorizer._resolve_provider_model(
