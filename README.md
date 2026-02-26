@@ -74,6 +74,7 @@ Each skill is a directory containing a `SKILL.md` file with instructions for the
 #### Provider Behavior
 
 - **OpenAI/Gemini**: Agents discover skills via read-only filesystem navigation tools
+- **LangGraph**: Uses LangGraph native `skills=` support (no injected skill-discovery prompt)
 - **Claude**: Uses native Claude SDK skill support (when Claude runtime is implemented)
 
 See [docs/agent-skills.md](docs/agent-skills.md) for detailed documentation.

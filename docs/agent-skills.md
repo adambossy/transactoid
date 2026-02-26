@@ -98,6 +98,14 @@ These providers use filesystem navigation tools to discover skills:
 - Mutating commands blocked (rm, mv, cp, mkdir, etc.)
 - Redirection operators blocked (>, >>, <<, <)
 
+### LangGraph
+LangGraph runtime uses native skill loading:
+
+1. Runtime resolves configured skill directories in precedence order (project, user, built-in)
+2. Existing directories are passed directly to `create_deep_agent(..., skills=[...])`
+3. LangGraph handles skill discovery and loading natively
+4. No custom "Agent Skills" discovery prompt is injected for LangGraph provider
+
 ### Claude (Future)
 Claude runtime will use native Claude Agent SDK skill support:
 

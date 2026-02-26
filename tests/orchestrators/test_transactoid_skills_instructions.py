@@ -61,3 +61,115 @@ def test_create_runtime_without_skill_directories() -> None:
 
     # Assert - runtime was created successfully even without skill dirs
     assert runtime is not None
+
+
+def test_create_runtime_skips_custom_skill_instructions_for_langgraph(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    # input
+    input_project_skills = tmp_path / ".claude" / "skills"
+    input_project_skills.mkdir(parents=True)
+    input_config = CoreRuntimeConfig(
+        provider="langgraph",
+        model="google_genai:gemini-3-flash-preview",
+        skills_project_dir=str(input_project_skills),
+        skills_user_dir="/nonexistent/user",
+        skills_builtin_dir="/nonexistent/builtin",
+    )
+
+    # helper setup
+    input_db = MagicMock()
+    input_db.compact_schema_hint.return_value = {"tables": []}
+    input_taxonomy = Taxonomy([])
+    unit = Transactoid(db=input_db, taxonomy=input_taxonomy)
+    captured_instructions: dict[str, str] = {}
+
+    def create_runtime_stub(
+        *,
+        config: CoreRuntimeConfig,
+        instructions: str,
+        registry: object,
+    ) -> object:
+        _ = config, registry
+        captured_instructions["value"] = instructions
+        return object()
+
+    monkeypatch.setattr(
+        "transactoid.orchestrators.transactoid._render_prompt_template",
+        lambda *args, **kwargs: "BASE_INSTRUCTIONS",
+    )
+    monkeypatch.setattr(
+        "transactoid.orchestrators.transactoid.create_core_runtime",
+        create_runtime_stub,
+    )
+    monkeypatch.setattr(
+        Transactoid,
+        "_build_tool_registry",
+        lambda self: MagicMock(),
+    )
+
+    # act
+    output = unit.create_runtime(runtime_config=input_config)
+
+    # expected
+    expected_output = "BASE_INSTRUCTIONS"
+
+    # assert
+    assert output is not None and captured_instructions["value"] == expected_output
+
+
+def test_create_runtime_includes_custom_skill_instructions_for_openai(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    # input
+    input_project_skills = tmp_path / ".claude" / "skills"
+    input_project_skills.mkdir(parents=True)
+    input_config = CoreRuntimeConfig(
+        provider="openai",
+        model="gpt-5.3",
+        skills_project_dir=str(input_project_skills),
+        skills_user_dir="/nonexistent/user",
+        skills_builtin_dir="/nonexistent/builtin",
+    )
+
+    # helper setup
+    input_db = MagicMock()
+    input_db.compact_schema_hint.return_value = {"tables": []}
+    input_taxonomy = Taxonomy([])
+    unit = Transactoid(db=input_db, taxonomy=input_taxonomy)
+    captured_instructions: dict[str, str] = {}
+
+    def create_runtime_stub(
+        *,
+        config: CoreRuntimeConfig,
+        instructions: str,
+        registry: object,
+    ) -> object:
+        _ = config, registry
+        captured_instructions["value"] = instructions
+        return object()
+
+    monkeypatch.setattr(
+        "transactoid.orchestrators.transactoid._render_prompt_template",
+        lambda *args, **kwargs: "BASE_INSTRUCTIONS",
+    )
+    monkeypatch.setattr(
+        "transactoid.orchestrators.transactoid.create_core_runtime",
+        create_runtime_stub,
+    )
+    monkeypatch.setattr(
+        Transactoid,
+        "_build_tool_registry",
+        lambda self: MagicMock(),
+    )
+
+    # act
+    output = unit.create_runtime(runtime_config=input_config)
+
+    # expected
+    expected_output = captured_instructions["value"]
+
+    # assert
+    assert output is not None and "Agent Skills" in expected_output
