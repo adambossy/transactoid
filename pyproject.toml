@@ -31,6 +31,7 @@ dependencies = [
     "langchain-anthropic>=0.3.0",
     "matplotlib>=3.9",
     "pdfplumber>=0.11.0",
+    "langchain-google-vertexai>=3.2.2",
 ]
 
 [project.optional-dependencies]
