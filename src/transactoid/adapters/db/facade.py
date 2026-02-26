@@ -1292,6 +1292,52 @@ class DB:
             )
             return result
 
+    def find_plaid_matches_for_investment_dedup(
+        self,
+        candidates: list[tuple[str, str, date, int]],
+    ) -> set[tuple[str, str, date, int]]:
+        """Find PLAID rows matching natural keys for investment dedup.
+
+        Given a list of (item_id, account_id, posted_at, amount_cents) tuples,
+        returns the subset that already have an existing ``source='PLAID'`` row.
+        Used to skip inserting PLAID_INVESTMENT duplicates.
+
+        Args:
+            candidates: List of (item_id, account_id, posted_at, amount_cents) tuples.
+
+        Returns:
+            Set of tuples from *candidates* that have a matching PLAID row.
+        """
+        if not candidates:
+            return set()
+
+        with self.session() as session:  # type: Session
+            # Build OR conditions for each candidate tuple
+            from sqlalchemy import tuple_
+
+            condition = tuple_(
+                PlaidTransaction.item_id,
+                PlaidTransaction.account_id,
+                PlaidTransaction.posted_at,
+                PlaidTransaction.amount_cents,
+            ).in_(candidates)
+
+            rows = (
+                session.query(
+                    PlaidTransaction.item_id,
+                    PlaidTransaction.account_id,
+                    PlaidTransaction.posted_at,
+                    PlaidTransaction.amount_cents,
+                )
+                .filter(
+                    PlaidTransaction.source == "PLAID",
+                    condition,
+                )
+                .all()
+            )
+
+            return {(row[0], row[1], row[2], row[3]) for row in rows}
+
     # Derived Transactions methods
 
     def insert_derived_transaction(self, data: dict[str, Any]) -> DerivedTransaction:
