@@ -34,6 +34,15 @@ def _schema_to_annotation(
     if schema_type == "boolean":
         return bool
     if schema_type == "array":
+        items_spec = spec.get("items")
+        if isinstance(items_spec, dict):
+            item_type = _schema_to_annotation(
+                tool_name=tool_name,
+                field_name=f"{field_name}_item",
+                spec=items_spec,
+            )
+            # mypy cannot represent runtime generic aliases from dynamic item types.
+            return list[item_type]  # type: ignore[valid-type]
         return list[Any]
     if schema_type == "object":
         properties = spec.get("properties")
@@ -88,10 +97,6 @@ def _build_pydantic_model(tool_name: str, schema: ToolInputSchema) -> type[Any]:
         )
         description: str = param_spec.get("description", "")
         field_kwargs: dict[str, Any] = {"description": description}
-        if _schema_type_name(param_spec) == "array":
-            items_spec = param_spec.get("items")
-            if isinstance(items_spec, dict):
-                field_kwargs["json_schema_extra"] = {"items": items_spec}
         if param_name in required_set:
             fields[param_name] = (py_type, Field(..., **field_kwargs))
         else:
