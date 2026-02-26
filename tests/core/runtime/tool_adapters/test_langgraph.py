@@ -188,3 +188,62 @@ def test_build_pydantic_model_type_mapping() -> None:
     assert instance.amount == 1.5
     assert instance.active is True
     assert instance.tags == ["a", "b"]
+
+
+def test_build_pydantic_model_array_items_schema_for_primitives() -> None:
+    # input
+    schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "transaction_ids": {
+                "type": "array",
+                "items": {"type": "integer"},
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "required": ["transaction_ids", "tags"],
+    }
+
+    # act
+    model_class = _build_pydantic_model("tag_transactions", schema)
+    json_schema = model_class.model_json_schema()
+
+    # expected
+    props = json_schema["properties"]
+    assert props["transaction_ids"]["items"]["type"] == "integer"
+    assert props["tags"]["items"]["type"] == "string"
+
+
+def test_build_pydantic_model_array_items_schema_for_objects() -> None:
+    # input
+    schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "targets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                    },
+                    "required": ["key", "name", "description"],
+                },
+            }
+        },
+        "required": ["targets"],
+    }
+
+    # act
+    model_class = _build_pydantic_model("migrate_taxonomy", schema)
+    json_schema = model_class.model_json_schema()
+
+    # expected
+    props = json_schema["properties"]
+    items = props["targets"]["items"]
+    assert items["type"] == "object"
+    assert set(items["required"]) == {"key", "name", "description"}
