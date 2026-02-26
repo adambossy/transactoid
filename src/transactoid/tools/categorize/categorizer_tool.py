@@ -269,7 +269,7 @@ class Categorizer:
         *,
         provider: Literal["openai", "claude", "gemini"] | None,
         model: str | None,
-    ) -> tuple[Literal["openai", "claude", "gemini", "langgraph"], str]:
+    ) -> tuple[Literal["openai", "claude", "gemini"], str]:
         """Resolve provider/model from explicit args or core runtime env config.
 
         Model resolution order (first non-empty wins):
@@ -282,12 +282,17 @@ class Categorizer:
             return provider, model
 
         cat_model = os.environ.get("TRANSACTOID_CATEGORIZER_MODEL", "").strip() or None
+        inferred_provider = self._infer_provider_from_model(model or cat_model)
 
         try:
             runtime_config = load_core_runtime_config_from_env()
+            runtime_model = model or cat_model or runtime_config.model
             return (
-                provider or runtime_config.provider,
-                model or cat_model or runtime_config.model,
+                provider
+                or inferred_provider
+                or self._infer_provider_from_model(runtime_model)
+                or "openai",
+                runtime_model,
             )
         except Exception:
             provider_default_model = {
@@ -295,12 +300,32 @@ class Categorizer:
                 "claude": "claude-sonnet-4-5",
                 "gemini": "gemini-2.5-pro",
             }
-            fallback_provider = provider or "openai"
+            fallback_provider = provider or inferred_provider or "openai"
             # Fallback keeps backward compatibility for legacy local runs.
             return (
                 fallback_provider,
                 model or cat_model or provider_default_model[fallback_provider],
             )
+
+    def _infer_provider_from_model(
+        self,
+        model: str | None,
+    ) -> Literal["openai", "claude", "gemini"] | None:
+        """Infer categorizer provider from model naming conventions."""
+        if model is None:
+            return None
+
+        normalized = model.strip().lower()
+        if not normalized:
+            return None
+
+        if normalized.startswith(("gemini", "google/")):
+            return "gemini"
+        if normalized.startswith(("claude", "anthropic/")):
+            return "claude"
+        if normalized.startswith(("gpt", "o", "openai/")):
+            return "openai"
+        return None
 
     def _init_provider_client(self) -> None:
         """Initialize provider-specific client."""
