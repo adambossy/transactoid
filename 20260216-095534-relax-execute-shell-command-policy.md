@@ -23,7 +23,7 @@ On every blocked command, log one single-line entry:
 - JSON payload with:
   - `runtime`, `reason`, `base_command`, `operation`, `command`, `effective_command`, `policy`
 
-This goes to existing ACP log output (typically `/tmp/transactoid.log` in the CLI path).
+This goes to existing ACP log output (typically `.logs/transactoid.log` in the CLI path).
 
 ## Files to Change
 - `src/transactoid/core/runtime/skills/policy.py`

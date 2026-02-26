@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from html import escape
 import os
 from pathlib import Path
+import shlex
 import shutil
 from typing import Any, cast
 
@@ -66,7 +67,11 @@ def _launch_toad() -> None:
     """Launch Toad ACP client connected to Transactoid."""
     toad_path = _ensure_toad_installed()
 
-    cmd = "uv run transactoid acp 2>/tmp/transactoid.log"
+    log_dir = Path(".logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "transactoid.log"
+
+    cmd = f"uv run transactoid acp 2>>{shlex.quote(str(log_path))}"
     os.execvp(toad_path, [toad_path, "acp", cmd, "-t", "Transactoid"])  # noqa: S606
 
 
