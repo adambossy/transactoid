@@ -117,6 +117,8 @@ class LangGraphCoreRuntime(CoreRuntime):
         accumulated_text = ""
         fallback_final_text = ""
         seen_tool_names: dict[str, str] = {}
+        started_call_ids: set[str] = set()
+        pending_started_ids: list[str] = []
 
         async for chunk in self._agent.astream(
             {"messages": [{"role": "user", "content": input_text}]},
@@ -147,13 +149,32 @@ class LangGraphCoreRuntime(CoreRuntime):
 
                 if tool_name:
                     seen_tool_names[call_id] = tool_name
+                    if call_id not in started_call_ids:
+                        started_call_ids.add(call_id)
+                        pending_started_ids.append(call_id)
+                        yield ToolCallStartedEvent(
+                            call_id=call_id,
+                            tool_name=tool_name,
+                            kind=classify_tool_kind(tool_name),
+                        )
+                if args_delta:
+                    yield ToolCallArgsDeltaEvent(call_id=call_id, delta=args_delta)
+
+            # Some providers populate `tool_calls` only on full AI messages.
+            tool_calls = getattr(message, "tool_calls", None) or []
+            for tc in tool_calls:
+                call_id = tc.get("id", "unknown") or "unknown"
+                tool_name = tc.get("name", "") or ""
+                if tool_name:
+                    seen_tool_names[call_id] = tool_name
+                if call_id not in started_call_ids and tool_name:
+                    started_call_ids.add(call_id)
+                    pending_started_ids.append(call_id)
                     yield ToolCallStartedEvent(
                         call_id=call_id,
                         tool_name=tool_name,
                         kind=classify_tool_kind(tool_name),
                     )
-                if args_delta:
-                    yield ToolCallArgsDeltaEvent(call_id=call_id, delta=args_delta)
 
             # Tool result from ToolMessage
             if msg_type == "tool":
@@ -173,6 +194,20 @@ class LangGraphCoreRuntime(CoreRuntime):
                     )
 
                 tool_name_for_call = seen_tool_names.get(call_id, "")
+                if not tool_name_for_call:
+                    message_tool_name = getattr(message, "name", None)
+                    if isinstance(message_tool_name, str):
+                        tool_name_for_call = message_tool_name
+                if not tool_name_for_call and pending_started_ids:
+                    pending_id = pending_started_ids[0]
+                    tool_name_for_call = seen_tool_names.get(pending_id, "")
+                    if tool_name_for_call:
+                        seen_tool_names[call_id] = tool_name_for_call
+
+                if call_id in pending_started_ids:
+                    pending_started_ids.remove(call_id)
+                elif pending_started_ids and tool_name_for_call:
+                    pending_started_ids.pop(0)
                 status: Literal["completed", "failed"] = "completed"
                 if isinstance(output, dict) and output.get("status") == "error":
                     status = "failed"
