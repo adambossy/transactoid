@@ -257,7 +257,7 @@ class Categorizer:
 
         self._openai_client: AsyncOpenAI | None = None
         self._gemini_client: GeminiClient | None = None
-        self._provider_client_initialized = False
+        self._init_provider_client()
 
     @property
     def model_name(self) -> str:
@@ -349,13 +349,6 @@ class Categorizer:
             "Claude categorizer runtime is selected but SDK wiring is not "
             "implemented in this repository."
         )
-
-    def _ensure_provider_client_initialized(self) -> None:
-        """Initialize provider client lazily when an API call is required."""
-        if self._provider_client_initialized:
-            return
-        self._init_provider_client()
-        self._provider_client_initialized = True
 
     async def categorize(
         self, txns: Iterable[Transaction], *, batch_size: int | None = None
@@ -659,8 +652,6 @@ class Categorizer:
         self, prompt: str, *, valid_keys: list[str] | None = None
     ) -> str:
         """Call provider API with schema-constrained JSON output."""
-        if self._provider in {"openai", "gemini"}:
-            self._ensure_provider_client_initialized()
         if self._provider == "gemini":
             return await self._call_gemini_api(prompt, valid_keys=valid_keys)
         if self._provider == "claude":
@@ -694,7 +685,6 @@ class Categorizer:
         self, prompt: str, *, valid_keys: list[str] | None = None
     ) -> str:
         """Call Gemini API with JSON schema output and web search tool."""
-        self._ensure_provider_client_initialized()
         if self._gemini_client is None:
             raise RuntimeError("Gemini client is not initialized.")
         if self._semaphore is None:
