@@ -34,6 +34,28 @@ def _require_langgraph_credentials(model: str) -> None:
         _require_env("GOOGLE_API_KEY")
 
 
+def _normalize_langgraph_model(model: str) -> str:
+    """Normalize model to LangGraph's provider-prefixed format."""
+    normalized = model.strip()
+    if ":" in normalized:
+        return normalized
+
+    lowered = normalized.lower()
+    if lowered.startswith(("anthropic/", "claude")):
+        base_model = normalized.split("/", 1)[1] if "/" in normalized else normalized
+        return f"anthropic:{base_model}"
+    if lowered.startswith(("openai/", "gpt", "o")):
+        base_model = normalized.split("/", 1)[1] if "/" in normalized else normalized
+        return f"openai:{base_model}"
+    if lowered.startswith(("vertexai/",)):
+        base_model = normalized.split("/", 1)[1]
+        return f"vertexai:{base_model}"
+    if lowered.startswith(("google_genai/", "google/")):
+        base_model = normalized.split("/", 1)[1]
+        return f"google_genai:{base_model}"
+    return f"google_genai:{normalized}"
+
+
 def _require_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -89,6 +111,9 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
     skills_builtin_dir = os.environ.get(
         "TRANSACTOID_AGENT_SKILLS_BUILTIN_DIR", "src/transactoid/skills"
     ).strip()
+
+    if provider == "langgraph":
+        model = _normalize_langgraph_model(model)
 
     # Fail fast on missing provider credentials.
     if provider == "openai":
