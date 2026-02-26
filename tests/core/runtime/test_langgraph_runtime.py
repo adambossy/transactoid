@@ -364,3 +364,164 @@ def test_run_streamed_turn_completed_uses_block_content_when_stream_delta_missin
     # assert
     assert isinstance(final_event, TurnCompletedEvent)
     assert final_event.final_text == expected_output
+
+
+def test_run_streamed_uses_tool_calls_for_started_name() -> None:
+    # input
+    input_session = CoreSession(
+        session_id="sess_tool_calls",
+        native_session={"configurable": {"thread_id": "sess_tool_calls"}},
+    )
+
+    # helper setup
+    class _FakeAIMessage:
+        type = "ai"
+
+        def __init__(self) -> None:
+            self.content = ""
+            self.tool_call_chunks: list[dict[str, object]] = []
+            self.tool_calls = [
+                {
+                    "id": "call_abc",
+                    "name": "run_sql",
+                    "args": {"query": "SELECT 1"},
+                }
+            ]
+
+    class _FakeToolMessage:
+        type = "tool"
+
+        def __init__(self) -> None:
+            self.tool_call_id = "call_abc"
+            self.name = "run_sql"
+            self.content = '{"rows": [{"one": 1}], "count": 1}'
+
+    class _FakeAgent:
+        async def astream(self, *_args: object, **_kwargs: object):  # type: ignore[no-untyped-def]
+            yield (_FakeAIMessage(), {})
+            yield (_FakeToolMessage(), {})
+
+    runtime = object.__new__(LangGraphCoreRuntime)
+    runtime_any: Any = runtime
+    runtime_any._agent = _FakeAgent()
+
+    async def _collect() -> list[object]:
+        events: list[object] = []
+        async for event in runtime.run_streamed(
+            input_text="hello",
+            session=input_session,
+        ):
+            events.append(event)
+        return events
+
+    # act
+    output = asyncio.run(_collect())
+
+    # expected
+    started = [e for e in output if isinstance(e, ToolCallStartedEvent)]
+    assert len(started) == 1
+    assert started[0].tool_name == "run_sql"
+
+
+def test_run_streamed_uses_tool_message_name_when_call_id_unmapped() -> None:
+    # input
+    input_session = CoreSession(
+        session_id="sess_unmapped",
+        native_session={"configurable": {"thread_id": "sess_unmapped"}},
+    )
+
+    # helper setup
+    class _FakeAIChunk:
+        type = "ai"
+
+        def __init__(self) -> None:
+            self.content = ""
+            self.tool_calls: list[dict[str, object]] = []
+            # id missing and index-based fallback won't match tool_call_id below
+            self.tool_call_chunks = [{"index": 0, "args": '{"query":"SELECT 1"}'}]
+
+    class _FakeToolMessage:
+        type = "tool"
+
+        def __init__(self) -> None:
+            self.tool_call_id = "server_generated_call_id"
+            self.name = "migrate_taxonomy"
+            self.content = '{"status":"success"}'
+
+    class _FakeAgent:
+        async def astream(self, *_args: object, **_kwargs: object):  # type: ignore[no-untyped-def]
+            yield (_FakeAIChunk(), {})
+            yield (_FakeToolMessage(), {})
+
+    runtime = object.__new__(LangGraphCoreRuntime)
+    runtime_any: Any = runtime
+    runtime_any._agent = _FakeAgent()
+
+    async def _collect() -> list[object]:
+        events: list[object] = []
+        async for event in runtime.run_streamed(
+            input_text="hello",
+            session=input_session,
+        ):
+            events.append(event)
+        return events
+
+    # act
+    output = asyncio.run(_collect())
+
+    # expected
+    inputs = [e for e in output if isinstance(e, ToolCallInputEvent)]
+    assert len(inputs) == 1
+    assert inputs[0].tool_name == "migrate_taxonomy"
+
+
+def test_run_streamed_maps_unmatched_tool_result_to_pending_started_tool() -> None:
+    # input
+    input_session = CoreSession(
+        session_id="sess_pending_map",
+        native_session={"configurable": {"thread_id": "sess_pending_map"}},
+    )
+
+    # helper setup
+    class _FakeAIChunk:
+        type = "ai"
+
+        def __init__(self) -> None:
+            self.content = ""
+            self.tool_calls = [
+                {"id": "call_started", "name": "run_sql", "args": {"query": "SELECT 1"}}
+            ]
+            self.tool_call_chunks: list[dict[str, object]] = []
+
+    class _FakeToolMessage:
+        type = "tool"
+
+        def __init__(self) -> None:
+            self.tool_call_id = "different_runtime_id"
+            self.content = '{"rows":[{"one":1}],"count":1}'
+
+    class _FakeAgent:
+        async def astream(self, *_args: object, **_kwargs: object):  # type: ignore[no-untyped-def]
+            yield (_FakeAIChunk(), {})
+            yield (_FakeToolMessage(), {})
+
+    runtime = object.__new__(LangGraphCoreRuntime)
+    runtime_any: Any = runtime
+    runtime_any._agent = _FakeAgent()
+
+    async def _collect() -> list[object]:
+        events: list[object] = []
+        async for event in runtime.run_streamed(
+            input_text="hello",
+            session=input_session,
+        ):
+            events.append(event)
+        return events
+
+    # act
+    output = asyncio.run(_collect())
+
+    # expected
+    inputs = [e for e in output if isinstance(e, ToolCallInputEvent)]
+    assert len(inputs) == 1
+    assert inputs[0].tool_name == "run_sql"
