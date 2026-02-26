@@ -65,8 +65,42 @@ def test_resolve_provider_model_categorizer_env_overrides_agent_model(
         model=input_model,
     )
 
-    # expected: provider falls back to "openai" default; model uses categorizer override
-    expected_output = ("openai", "gemini-3-pro-preview")
+    # expected: provider is inferred from categorizer model override
+    expected_output = ("gemini", "gemini-3-pro-preview")
+
+    # assert
+    assert output == expected_output
+
+
+def test_resolve_provider_model_inferrs_provider_from_categorizer_model_env(
+    monkeypatch: Any,
+) -> None:
+    # input
+    input_provider = None
+    input_model = None
+
+    # helper setup
+    categorizer = object.__new__(Categorizer)
+    monkeypatch.setenv("TRANSACTOID_CATEGORIZER_MODEL", "gemini-3-pro-preview")
+
+    class _RuntimeConfig:
+        provider = "langgraph"
+        model = "gemini-3-flash-preview"
+
+    monkeypatch.setattr(
+        categorizer_tool,
+        "load_core_runtime_config_from_env",
+        lambda: _RuntimeConfig(),
+    )
+
+    # act
+    output = categorizer._resolve_provider_model(
+        provider=input_provider,
+        model=input_model,
+    )
+
+    # expected
+    expected_output = ("gemini", "gemini-3-pro-preview")
 
     # assert
     assert output == expected_output
