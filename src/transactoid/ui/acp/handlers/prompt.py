@@ -233,12 +233,13 @@ class PromptHandler:
                 arguments=event.arguments,
                 runtime_info=event.runtime_info,
             )
+            display_title = display.title or None
 
             await self._notifier.tool_call_update(
                 session_id=session_id,
                 tool_call_id=event.call_id,
                 status="pending",
-                title=display.title,
+                title=display_title,
                 kind=display.kind,
                 content=display.content,
                 locations=display.locations if display.locations else None,
@@ -261,11 +262,12 @@ class PromptHandler:
                 arguments=state.arguments,
                 runtime_info=None,
             )
+            display_title = display.title or None
             await self._notifier.tool_call_update(
                 session_id=session_id,
                 tool_call_id=event.call_id,
                 status="in_progress",
-                title=display.title,
+                title=display_title,
                 kind=display.kind,
                 content=display.content,
                 locations=display.locations if display.locations else None,
