@@ -525,3 +525,57 @@ def test_run_streamed_maps_unmatched_tool_result_to_pending_started_tool() -> No
     inputs = [e for e in output if isinstance(e, ToolCallInputEvent)]
     assert len(inputs) == 1
     assert inputs[0].tool_name == "run_sql"
+
+
+def test_extract_tool_call_chunks_filters_invalid_field_types() -> None:
+    # input
+    class _FakeMessage:
+        def __init__(self) -> None:
+            self.tool_call_chunks = [
+                {"id": 7, "index": "0", "name": "run_sql", "args": {"query": "bad"}},
+                {"id": "call_1", "index": 1, "name": "run_sql", "args": '{"query":'},
+            ]
+
+    input_message = _FakeMessage()
+
+    # helper setup
+    runtime = object.__new__(LangGraphCoreRuntime)
+
+    # act
+    output = runtime._extract_tool_call_chunks(input_message)
+
+    # expected
+    expected_output = [
+        {"name": "run_sql"},
+        {"id": "call_1", "index": 1, "name": "run_sql", "args": '{"query":'},
+    ]
+
+    # assert
+    assert output == expected_output
+
+
+def test_extract_tool_calls_from_message_filters_invalid_field_types() -> None:
+    # input
+    class _FakeMessage:
+        def __init__(self) -> None:
+            self.tool_calls = [
+                {"id": 1, "name": 2, "args": "not-a-dict"},
+                {"id": "call_2", "name": "write_todos", "args": {"todos": []}},
+            ]
+
+    input_message = _FakeMessage()
+
+    # helper setup
+    runtime = object.__new__(LangGraphCoreRuntime)
+
+    # act
+    output = runtime._extract_tool_calls_from_message(input_message)
+
+    # expected
+    expected_output = [
+        {},
+        {"id": "call_2", "name": "write_todos", "args": {"todos": []}},
+    ]
+
+    # assert
+    assert output == expected_output
