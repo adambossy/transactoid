@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from datetime import date
+from typing import TYPE_CHECKING, Any, cast
 
 import loguru
 from loguru import logger
@@ -47,6 +48,7 @@ class SyncSummary:
     items_synced: int
     investment_added: int = 0
     investment_skipped_excluded: int = 0
+    investment_deduped: int = 0
     consent_required_items: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +60,7 @@ class SyncSummary:
             "items_synced": self.items_synced,
             "investment_added": self.investment_added,
             "investment_skipped_excluded": self.investment_skipped_excluded,
+            "investment_deduped": self.investment_deduped,
         }
         if self.consent_required_items:
             result["consent_required_items"] = self.consent_required_items
@@ -298,23 +301,27 @@ class SyncTool:
         all_results: list[SyncResult] = []
         total_inv_added = 0
         total_inv_excluded = 0
+        total_inv_deduped = 0
         consent_errors: list[str] = []
 
         for (
             results,
             inv_added,
             inv_excluded,
+            inv_deduped,
             consent_error,
         ) in all_results_with_investments:
             all_results.extend(results)
             total_inv_added += inv_added
             total_inv_excluded += inv_excluded
+            total_inv_deduped += inv_deduped
             if consent_error:
                 consent_errors.append(consent_error)
 
         summary = self._aggregate_results(all_results, len(plaid_items))
         summary.investment_added = total_inv_added
         summary.investment_skipped_excluded = total_inv_excluded
+        summary.investment_deduped = total_inv_deduped
         if consent_errors:
             summary.consent_required_items = consent_errors
 
@@ -324,7 +331,7 @@ class SyncTool:
         self,
         item: PlaidItem,
         count: int,
-    ) -> tuple[list[SyncResult], int, int, str | None]:
+    ) -> tuple[list[SyncResult], int, int, int, str | None]:
         """
         Sync a single Plaid item with cursor management.
 
@@ -337,7 +344,7 @@ class SyncTool:
 
         Returns:
             Tuple of (sync_results, investment_added, investment_excluded,
-            consent_error)
+            investment_deduped, consent_error)
         """
         cursor = self._db.get_sync_cursor(item.item_id)
         results = await self._sync_item_async(
@@ -349,11 +356,14 @@ class SyncTool:
             self._db.set_sync_cursor(item.item_id, results[-1].next_cursor)
 
         # Sync investments for this item (parallel operation)
-        inv_added, inv_excluded, consent_error = await self._sync_investments_for_item(
-            item
-        )
+        (
+            inv_added,
+            inv_excluded,
+            inv_deduped,
+            consent_error,
+        ) = await self._sync_investments_for_item(item)
 
-        return (results, inv_added, inv_excluded, consent_error)
+        return (results, inv_added, inv_excluded, inv_deduped, consent_error)
 
     def _aggregate_results(
         self, results: list[SyncResult], items_synced: int
@@ -369,7 +379,7 @@ class SyncTool:
     async def _sync_investments_for_item(
         self,
         item: PlaidItem,
-    ) -> tuple[int, int, str | None]:
+    ) -> tuple[int, int, int, str | None]:
         """Sync investment transactions for a single item.
 
         Uses watermark-based incremental sync with pagination:
@@ -377,12 +387,16 @@ class SyncTool:
         - Incremental: fetch from watermark minus 7-day overlap
         - Paginated: loops through all pages until all transactions fetched
         - Dedupe by (external_id, source) handles overlaps
+        - Cross-source dedup: skips PLAID_INVESTMENT rows when a matching
+          PLAID row already exists (same item_id, account_id, posted_at,
+          amount_cents)
 
         Args:
             item: PlaidItem with access_token and item_id
 
         Returns:
-            Tuple of (added_count, excluded_count, consent_error_message)
+            Tuple of (added_count, excluded_count, deduped_count,
+            consent_error_message).
             consent_error_message is set if ADDITIONAL_CONSENT_REQUIRED
         """
         from datetime import date, timedelta
@@ -455,18 +469,54 @@ class SyncTool:
             if not investment_txns:
                 # No transactions but no error - update watermark and continue
                 self._db.set_investments_watermark(item.item_id, end_date)
-                return (0, 0, None)
+                return (0, 0, 0, None)
 
-            # Normalize and persist investment transactions
-            added_count = 0
-            excluded_count = 0
-
+            # Normalize all investment transactions first
+            normalized_pairs: list[tuple[dict[str, Any], dict[str, object]]] = []
             for inv_txn in investment_txns:
-                # Normalize to plaid_transactions format
                 txn_dict = self._normalize_investment_transaction(
                     inv_txn, securities_map, item.item_id
                 )
+                normalized_pairs.append((inv_txn, txn_dict))
 
+            # Build natural keys for cross-source dedup
+            natural_keys: list[tuple[str, str, date, int]] = [
+                (
+                    str(txn_dict["item_id"]),
+                    str(txn_dict["account_id"]),
+                    cast(date, txn_dict["posted_at"]),
+                    cast(int, txn_dict["amount_cents"]),
+                )
+                for _, txn_dict in normalized_pairs
+            ]
+            plaid_matches = self._db.find_plaid_matches_for_investment_dedup(
+                natural_keys
+            )
+
+            # Separate duplicates from unique transactions
+            skipped_dupes: list[tuple[dict[str, Any], dict[str, object]]] = []
+            unique_pairs: list[tuple[dict[str, Any], dict[str, object]]] = []
+            for idx, (inv_txn, txn_dict) in enumerate(normalized_pairs):
+                if natural_keys[idx] in plaid_matches:
+                    skipped_dupes.append((inv_txn, txn_dict))
+                else:
+                    unique_pairs.append((inv_txn, txn_dict))
+
+            deduped_count = len(skipped_dupes)
+            if deduped_count > 0:
+                self._logger._logger.info(
+                    "Skipped {} investment transactions that duplicate existing "
+                    "PLAID rows for item {}",
+                    deduped_count,
+                    item.item_id,
+                )
+                self._archive_investment_dupes_to_r2(item.item_id, skipped_dupes)
+
+            # Persist and create derived for unique transactions
+            added_count = 0
+            excluded_count = 0
+
+            for inv_txn, txn_dict in unique_pairs:
                 # Persist to plaid_transactions with source=PLAID_INVESTMENT
                 plaid_ids = self._db.bulk_upsert_plaid_transactions([txn_dict])
 
@@ -509,7 +559,7 @@ class SyncTool:
             # Update watermark after successful sync
             self._db.set_investments_watermark(item.item_id, end_date)
 
-            return (added_count, excluded_count, None)
+            return (added_count, excluded_count, deduped_count, None)
 
         except PlaidClientError as e:
             error_str = str(e)
@@ -518,13 +568,63 @@ class SyncTool:
                 return (
                     0,
                     0,
+                    0,
                     f"Investments consent required for item {item.item_id[:8]}...",
                 )
             # Other Plaid errors should not fail the whole sync
             self._logger._logger.warning(
                 "Failed to sync investments for item {}: {}", item.item_id, e
             )
-            return (0, 0, None)
+            return (0, 0, 0, None)
+
+    def _archive_investment_dupes_to_r2(
+        self,
+        item_id: str,
+        dupes: list[tuple[dict[str, Any], dict[str, object]]],
+    ) -> None:
+        """Archive skipped PLAID_INVESTMENT duplicates to R2 for auditability.
+
+        Batches all skipped transactions into a single JSON document uploaded
+        under ``investment-dedup/{item_id}/{YYYYMMDD}T{HHMMSS}Z.json``.
+
+        Args:
+            item_id: Plaid item ID.
+            dupes: List of (raw_plaid_dict, normalized_txn_dict) pairs.
+        """
+        from datetime import UTC, datetime as dt
+        import json
+
+        from transactoid.adapters.storage.r2 import R2StorageError, store_object_in_r2
+
+        now = dt.now(UTC)
+        ts_str = now.strftime("%Y%m%dT%H%M%SZ")
+        key = f"investment-dedup/{item_id}/{ts_str}.json"
+
+        payload: list[dict[str, Any]] = []
+        for raw_txn, txn_dict in dupes:
+            # Convert non-serializable values in txn_dict
+            serializable_dict: dict[str, Any] = {}
+            for k, v in txn_dict.items():
+                if isinstance(v, date):
+                    serializable_dict[k] = v.isoformat()
+                else:
+                    serializable_dict[k] = v
+            payload.append({"raw": raw_txn, "normalized": serializable_dict})
+
+        body = json.dumps(payload, indent=2).encode("utf-8")
+
+        try:
+            store_object_in_r2(
+                key=key,
+                body=body,
+                content_type="application/json",
+            )
+        except R2StorageError:
+            self._logger._logger.warning(
+                "Failed to archive {} investment dupes to R2 key {}",
+                len(dupes),
+                key,
+            )
 
     def _normalize_investment_transaction(
         self,
