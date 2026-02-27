@@ -1,0 +1,36 @@
+name: Deploy And Sync Cron
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # Run before the daily 10:00 UTC scheduled report machine.
+    - cron: "40 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy_and_sync:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy transactoid and sync cron manager
+        run: make fly-deploy-and-sync-cron
