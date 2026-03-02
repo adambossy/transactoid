@@ -12,6 +12,7 @@ from transactoid.memory.index_generation import (
     MemoryIndexSyncResult,
     sync_memory_index,
 )
+from transactoid.workspace import resolve_memory_dir
 
 _initialized_roots: set[Path] = set()
 _init_lock = threading.Lock()
@@ -19,13 +20,16 @@ _init_lock = threading.Lock()
 
 def run_initialization_hooks(
     *,
-    memory_dir: Path = Path("memory"),
+    memory_dir: Path | None = None,
 ) -> tuple[bool, MemoryIndexSyncResult | None, str | None]:
     """Run one-time initialization hooks for agent startup.
 
     This hook is intentionally best-effort. Failures are logged and surfaced in
     the returned result, but callers should continue startup.
     """
+    if memory_dir is None:
+        memory_dir = resolve_memory_dir()
+    memory_dir.mkdir(parents=True, exist_ok=True)
     resolved_memory_dir = memory_dir.resolve()
 
     with _init_lock:

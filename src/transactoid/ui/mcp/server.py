@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -22,6 +21,7 @@ from transactoid.tools.amazon.scraper import (
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.sync.sync_tool import SyncTool
+from transactoid.workspace import resolve_memory_dir
 
 # Load environment variables
 load_dotenv(override=False)
@@ -33,7 +33,7 @@ taxonomy = load_taxonomy_from_db(db)
 persist_tool = PersistTool(db, taxonomy)
 
 # Initialize merchant rules loader
-memory_dir = Path("memory")
+memory_dir = resolve_memory_dir()
 init_result = run_initialization_hooks(memory_dir=memory_dir)
 if init_result[2] is not None:
     logger.debug("Memory index initialization hook reported error")

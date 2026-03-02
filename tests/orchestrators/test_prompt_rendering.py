@@ -39,6 +39,7 @@ def test_render_prompt_replaces_agent_memory(tmp_path: Path, monkeypatch: Any) -
         template,
         database_schema=database_schema,
         category_taxonomy=category_taxonomy,
+        memory_dir=memory_dir,
     )
 
     assert "# Memory Index" in result
@@ -70,6 +71,7 @@ def test_render_prompt_handles_missing_memory(
         template,
         database_schema=database_schema,
         category_taxonomy=category_taxonomy,
+        memory_dir=Path("/nonexistent"),
     )
 
     # Empty memory should result in placeholder being replaced with empty string
