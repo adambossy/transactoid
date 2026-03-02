@@ -33,6 +33,7 @@ from transactoid.tools.protocol import ToolInputSchema
 from transactoid.tools.registry import ToolRegistry
 from transactoid.tools.sync.sync_tool import SyncTool
 from transactoid.tools.visualize.chart_tool import GenerateChartTool
+from transactoid.workspace import resolve_memory_dir
 
 load_dotenv()
 
@@ -48,7 +49,7 @@ class TargetCategory(BaseModel):
 CORE_MEMORY_FILES = ("index.md", "merchant-rules.md")
 
 
-def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
+def _assemble_agent_memory(*, memory_dir: Path) -> str:
     """
     Assemble core agent memory content.
 
@@ -57,7 +58,7 @@ def _assemble_agent_memory(*, memory_dir: Path = Path("memory")) -> str:
     auto-loaded. Tax-return file paths are surfaced in the runtime index block.
 
     Args:
-        memory_dir: Path to memory directory (default: memory/)
+        memory_dir: Workspace memory directory
 
     Returns:
         Assembled memory content as markdown string, or empty string if no memory.
@@ -87,7 +88,7 @@ def _render_prompt_template(
     database_schema: dict[str, Any],
     category_taxonomy: dict[str, Any],
     sql_dialect: str = "postgresql",
-    memory_dir: Path = Path("memory"),
+    memory_dir: Path,
 ) -> str:
     """Replace placeholders in the prompt template with actual data."""
     if sql_dialect == "sqlite":
@@ -563,10 +564,12 @@ class Transactoid:
         db: DB,
         taxonomy: Taxonomy,
         plaid_client: PlaidClient | None = None,
-        memory_dir: Path = Path("memory"),
+        memory_dir: Path | None = None,
     ) -> None:
         self._db = db
         self._taxonomy = taxonomy
+        if memory_dir is None:
+            memory_dir = resolve_memory_dir()
         self._memory_dir = memory_dir
 
         init_result = run_initialization_hooks(memory_dir=memory_dir)
