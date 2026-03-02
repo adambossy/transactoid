@@ -213,7 +213,13 @@ __marimo__/
 .certs
 .logs
 
-# Local-only tax returns memory files (track only the example template)
+# Private memory files live in ~/.transactoid/memory/ (track only .example templates)
+memory/budget.md
+memory/merchant-rules.md
+memory/index.md
+memory/ops/**
+!memory/ops/
+!memory/ops/ops-runbook.md.example
 memory/tax-returns/**
 !memory/tax-returns/
 !memory/tax-returns/2026.md.example
