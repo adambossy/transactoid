@@ -59,7 +59,9 @@ class GeminiCoreRuntime(CoreRuntime):
         )
         self._filesystem_tool: GeminiFilesystemTool | None = None
         if skill_paths.all_existing():
-            self._filesystem_tool = GeminiFilesystemTool(skill_paths)
+            self._filesystem_tool = GeminiFilesystemTool(
+                skill_paths, memory_dir=config.memory_dir
+            )
             filesystem_function_tool = self._create_filesystem_function_tool(
                 self._filesystem_tool
             )

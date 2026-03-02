@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import shlex
 import subprocess
 from typing import Any
@@ -10,11 +11,7 @@ from typing import Any
 from loguru import logger
 
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
-from transactoid.tools.execute_shell.policy import (
-    MEMORY_DIR,
-    REPORTS_DIR,
-    evaluate_command_policy,
-)
+from transactoid.tools.execute_shell.policy import evaluate_command_policy
 
 
 class GeminiFilesystemToolLogger:
@@ -55,17 +52,16 @@ class GeminiFilesystemTool:
     Allows scoped read/create/update/move/copy for skill discovery and memory/ editing.
     """
 
-    def __init__(self, skill_paths: ResolvedSkillPaths) -> None:
-        """Initialize with allowed skill directories and memory/.
+    def __init__(self, skill_paths: ResolvedSkillPaths, *, memory_dir: Path) -> None:
+        """Initialize with allowed skill directories and memory directory.
 
         Args:
             skill_paths: Resolved skill paths defining allowed scope
+            memory_dir: Workspace memory directory
         """
-        # Include skill directories, memory, and reports directories
         # Always resolve() so paths match regardless of existence at init time
         self._allowed_roots = skill_paths.all_existing() + [
-            MEMORY_DIR.resolve(),
-            REPORTS_DIR.resolve(),
+            memory_dir.resolve(),
         ]
         self._logger = GeminiFilesystemToolLogger()
 
