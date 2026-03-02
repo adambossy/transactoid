@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
-import subprocess
 from typing import Any
 
 from promptorium import load_prompt
@@ -117,21 +116,18 @@ def _append_tree_lines(*, lines: list[str], directory: Path, prefix: str) -> Non
 
 
 def _tracked_memory_files(*, memory_dir: Path) -> list[str]:
-    """Return tracked memory file paths relative to repo root when available."""
-    repo_root = _repo_root(memory_dir)
-    try:
-        result = subprocess.run(  # noqa: S603
-            ["git", "ls-files", str(memory_dir.relative_to(repo_root))],  # noqa: S607
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (OSError, ValueError, subprocess.CalledProcessError):
+    """Return memory file paths relative to memory_dir, excluding .example files."""
+    if not memory_dir.exists() or not memory_dir.is_dir():
         return []
 
-    tracked = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    return [path for path in tracked if not path.endswith(".example")]
+    files: list[str] = []
+    for candidate in memory_dir.rglob("*"):
+        if not candidate.is_file():
+            continue
+        if candidate.name.endswith(".example"):
+            continue
+        files.append(candidate.relative_to(memory_dir).as_posix())
+    return sorted(files)
 
 
 def _runtime_tax_return_files(*, memory_dir: Path) -> list[str]:
@@ -151,14 +147,6 @@ def _runtime_tax_return_files(*, memory_dir: Path) -> list[str]:
 
 def _should_ignore_from_index(*, candidate: Path) -> bool:
     return candidate.is_file() and candidate.name.endswith(".example")
-
-
-def _repo_root(memory_dir: Path) -> Path:
-    """Resolve repository root by walking up from memory directory."""
-    for parent in [memory_dir, *memory_dir.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return Path.cwd()
 
 
 def _format_lines(items: list[str]) -> str:
