@@ -64,7 +64,9 @@ class OpenAICoreRuntime(CoreRuntime):
             "TRANSACTOID_ENABLE_SHELL_TOOL", "false"
         ).strip().lower() in {"1", "true", "yes", "on"}
         if enable_shell_tool and skill_paths.all_existing():
-            filesystem_tool = create_scoped_shell_tool(skill_paths)
+            filesystem_tool = create_scoped_shell_tool(
+                skill_paths, memory_dir=config.memory_dir
+            )
             tools.append(filesystem_tool)
 
         self._agent = Agent(

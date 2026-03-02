@@ -13,15 +13,10 @@ import shlex
 __all__ = [
     "ALLOWED_COMMANDS",
     "DENIED_COMMANDS",
-    "MEMORY_DIR",
     "PolicyResult",
     "evaluate_command_policy",
     "is_path_in_scope",
-    "is_memory_write_command",
 ]
-
-# Memory directory that can be written to
-MEMORY_DIR = Path("memory")
 
 # Shell commands allowed for skill discovery and memory editing
 ALLOWED_COMMANDS = frozenset(
@@ -82,18 +77,6 @@ class PolicyResult:
     base_command: str
     operation: str
     effective_command: str
-
-
-def is_memory_write_command(command: str) -> bool:
-    """Check if command is writing to memory/ directory.
-
-    Args:
-        command: Shell command string
-
-    Returns:
-        True if command targets memory/ directory
-    """
-    return "memory/" in command or MEMORY_DIR.name in command
 
 
 def _extract_base_command(command: str) -> str:

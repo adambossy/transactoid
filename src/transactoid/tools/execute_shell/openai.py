@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import subprocess
 from typing import Any
 
@@ -11,10 +12,7 @@ from agents import ShellTool
 from loguru import logger
 
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
-from transactoid.tools.execute_shell.policy import (
-    MEMORY_DIR,
-    evaluate_command_policy,
-)
+from transactoid.tools.execute_shell.policy import evaluate_command_policy
 
 
 class OpenAIFilesystemToolLogger:
@@ -77,18 +75,20 @@ def _local_shell_executor(request: Any) -> str:
     return "\n\n".join(output_chunks)
 
 
-def create_scoped_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
-    """Create a ShellTool with policy enforcement for skills and memory/.
+def create_scoped_shell_tool(
+    skill_paths: ResolvedSkillPaths, *, memory_dir: Path
+) -> Any:
+    """Create a ShellTool with policy enforcement for skills and memory.
 
     Args:
         skill_paths: Resolved skill paths defining allowed scope
+        memory_dir: Workspace memory directory
 
     Returns:
         ShellTool instance with approval function for policy enforcement
     """
-    # Include both skill directories and memory/ directory
     allowed_roots = skill_paths.all_existing() + [
-        MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR
+        memory_dir.resolve() if memory_dir.exists() else memory_dir
     ]
 
     # Create logger instance
