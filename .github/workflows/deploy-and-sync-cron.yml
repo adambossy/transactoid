@@ -32,5 +32,8 @@ jobs:
       - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Alias fly to flyctl
+        run: ln -s "$(which flyctl)" /usr/local/bin/fly
+
       - name: Deploy transactoid and sync cron manager
         run: make fly-deploy-and-sync-cron
