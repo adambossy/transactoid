@@ -1338,6 +1338,40 @@ class DB:
 
             return {(row[0], row[1], row[2], row[3]) for row in rows}
 
+    def find_investment_dupes_with_plaid_match(self) -> list[PlaidTransaction]:
+        """Find PLAID_INVESTMENT rows that duplicate existing PLAID rows.
+
+        Self-joins ``plaid_transactions`` matching source='PLAID_INVESTMENT'
+        against source='PLAID' on (item_id, account_id, posted_at, amount_cents).
+
+        Returns:
+            List of PLAID_INVESTMENT PlaidTransaction instances (expunged).
+        """
+        from sqlalchemy.orm import aliased
+
+        inv = aliased(PlaidTransaction, name="inv")
+        plaid = aliased(PlaidTransaction, name="plaid")
+
+        with self.session() as session:  # type: Session
+            dupes: list[PlaidTransaction] = (
+                session.query(inv)
+                .join(
+                    plaid,
+                    (inv.item_id == plaid.item_id)
+                    & (inv.account_id == plaid.account_id)
+                    & (inv.posted_at == plaid.posted_at)
+                    & (inv.amount_cents == plaid.amount_cents),
+                )
+                .filter(
+                    inv.source == "PLAID_INVESTMENT",
+                    plaid.source == "PLAID",
+                )
+                .all()
+            )
+            for txn in dupes:
+                session.expunge(txn)
+            return dupes
+
     # Derived Transactions methods
 
     def insert_derived_transaction(self, data: dict[str, Any]) -> DerivedTransaction:

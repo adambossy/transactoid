@@ -1,4 +1,4 @@
-"""Tests for DB.find_plaid_matches_for_investment_dedup."""
+"""Tests for DB investment dedup facade methods."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import date
 import pytest
 
 from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import PlaidTransaction
 
 
 def _create_db(tmp_path: object) -> DB:
@@ -14,6 +15,35 @@ def _create_db(tmp_path: object) -> DB:
     db = DB("sqlite:///:memory:")
     db.create_schema()
     return db
+
+
+def _insert_txn(
+    db: DB,
+    *,
+    external_id: str,
+    source: str,
+    account_id: str,
+    item_id: str,
+    posted_at: date,
+    amount_cents: int,
+) -> PlaidTransaction:
+    """Insert a PlaidTransaction with item_id set (needed for join-based dedup)."""
+    with db.session() as session:
+        txn = PlaidTransaction(
+            external_id=external_id,
+            source=source,
+            account_id=account_id,
+            item_id=item_id,
+            posted_at=posted_at,
+            amount_cents=amount_cents,
+            currency="USD",
+            merchant_descriptor="Test Txn",
+            institution=None,
+        )
+        session.add(txn)
+        session.flush()
+        session.expunge(txn)
+        return txn
 
 
 class TestFindPlaidMatchesForInvestmentDedup:
@@ -92,3 +122,90 @@ class TestFindPlaidMatchesForInvestmentDedup:
 
         # PLAID_INVESTMENT source should not match
         assert isinstance(output, set)
+
+
+class TestFindInvestmentDupesWithPlaidMatch:
+    """Tests for DB.find_investment_dupes_with_plaid_match."""
+
+    def test_returns_investment_dupes_matching_plaid(self, tmp_path: object) -> None:
+        """PLAID_INVESTMENT rows with matching PLAID rows are returned."""
+        # setup
+        db = _create_db(tmp_path)
+        db.insert_plaid_item("item-1", access_token="tok-1")
+        _insert_txn(
+            db,
+            external_id="plaid-1",
+            source="PLAID",
+            account_id="acct-1",
+            item_id="item-1",
+            posted_at=date(2026, 2, 15),
+            amount_cents=5000,
+        )
+        _insert_txn(
+            db,
+            external_id="inv-1",
+            source="PLAID_INVESTMENT",
+            account_id="acct-1",
+            item_id="item-1",
+            posted_at=date(2026, 2, 15),
+            amount_cents=5000,
+        )
+
+        # act
+        output = db.find_investment_dupes_with_plaid_match()
+
+        # assert
+        assert len(output) == 1
+        assert output[0].external_id == "inv-1"
+        assert output[0].source == "PLAID_INVESTMENT"
+
+    def test_returns_empty_when_no_matches(self, tmp_path: object) -> None:
+        """No duplicates when PLAID_INVESTMENT has no PLAID counterpart."""
+        # setup
+        db = _create_db(tmp_path)
+        db.insert_plaid_item("item-1", access_token="tok-1")
+        _insert_txn(
+            db,
+            external_id="inv-1",
+            source="PLAID_INVESTMENT",
+            account_id="acct-1",
+            item_id="item-1",
+            posted_at=date(2026, 2, 15),
+            amount_cents=5000,
+        )
+
+        # act
+        output = db.find_investment_dupes_with_plaid_match()
+
+        # assert
+        assert output == []
+
+    def test_ignores_non_matching_amounts(self, tmp_path: object) -> None:
+        """Different amount_cents prevents a match."""
+        # setup
+        db = _create_db(tmp_path)
+        db.insert_plaid_item("item-1", access_token="tok-1")
+        _insert_txn(
+            db,
+            external_id="plaid-1",
+            source="PLAID",
+            account_id="acct-1",
+            item_id="item-1",
+            posted_at=date(2026, 2, 15),
+            amount_cents=5000,
+        )
+        _insert_txn(
+            db,
+            external_id="inv-1",
+            source="PLAID_INVESTMENT",
+            account_id="acct-1",
+            item_id="item-1",
+            posted_at=date(2026, 2, 15),
+            amount_cents=9999,
+        )
+
+        # act
+        output = db.find_investment_dupes_with_plaid_match()
+
+        # assert
+        assert output == []

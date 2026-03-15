@@ -584,47 +584,26 @@ class SyncTool:
     ) -> None:
         """Archive skipped PLAID_INVESTMENT duplicates to R2 for auditability.
 
-        Batches all skipped transactions into a single JSON document uploaded
-        under ``investment-dedup/{item_id}/{YYYYMMDD}T{HHMMSS}Z.json``.
+        Delegates to :func:`archive_investment_dupes_to_r2` after converting
+        ``(raw, normalized)`` pairs into the record format it expects.
 
         Args:
             item_id: Plaid item ID.
             dupes: List of (raw_plaid_dict, normalized_txn_dict) pairs.
         """
-        from datetime import UTC, datetime as dt
-        import json
+        from transactoid.adapters.storage.archive import (
+            archive_investment_dupes_to_r2,
+        )
 
-        from transactoid.adapters.storage.r2 import R2StorageError, store_object_in_r2
-
-        now = dt.now(UTC)
-        ts_str = now.strftime("%Y%m%dT%H%M%SZ")
-        key = f"investment-dedup/{item_id}/{ts_str}.json"
-
-        payload: list[dict[str, Any]] = []
-        for raw_txn, txn_dict in dupes:
-            # Convert non-serializable values in txn_dict
-            serializable_dict: dict[str, Any] = {}
-            for k, v in txn_dict.items():
-                if isinstance(v, date):
-                    serializable_dict[k] = v.isoformat()
-                else:
-                    serializable_dict[k] = v
-            payload.append({"raw": raw_txn, "normalized": serializable_dict})
-
-        body = json.dumps(payload, indent=2).encode("utf-8")
-
-        try:
-            store_object_in_r2(
-                key=key,
-                body=body,
-                content_type="application/json",
-            )
-        except R2StorageError:
-            self._logger._logger.warning(
-                "Failed to archive {} investment dupes to R2 key {}",
-                len(dupes),
-                key,
-            )
+        records: list[dict[str, Any]] = [
+            {"raw": raw_txn, "normalized": dict(txn_dict)}
+            for raw_txn, txn_dict in dupes
+        ]
+        archive_investment_dupes_to_r2(
+            item_id=item_id,
+            records=records,
+            key_prefix="investment-dedup",
+        )
 
     def _normalize_investment_transaction(
         self,
