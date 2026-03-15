@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from transactoid.tools.sync.sync_tool import SyncTool
 
-_R2_PATCH = "transactoid.adapters.storage.r2.store_object_in_r2"
+_R2_PATCH = "transactoid.adapters.storage.archive.store_object_in_r2"
 
 
 def _make_plaid_item(

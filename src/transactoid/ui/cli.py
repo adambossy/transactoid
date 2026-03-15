@@ -655,6 +655,90 @@ def plaid_dedupe_items(
         typer.echo("\nNo duplicates found. Database is clean.")
 
 
+@app.command("plaid-cleanup-investment-dupes")
+def plaid_cleanup_investment_dupes(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Actually delete. Default is dry-run.",
+    ),
+) -> None:
+    """
+    Find and remove PLAID_INVESTMENT rows that duplicate existing PLAID rows.
+
+    Matches on (item_id, account_id, posted_at, amount_cents). Archives
+    duplicates to R2 before deletion.
+
+    Dry-run by default. Use --apply to actually delete duplicates.
+    """
+    from collections import defaultdict
+
+    from transactoid.adapters.storage.archive import (
+        archive_investment_dupes_to_r2,
+    )
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    dupes = db.find_investment_dupes_with_plaid_match()
+    if not dupes:
+        typer.echo("No duplicates found.")
+        return
+
+    # Group by item_id
+    by_item: dict[str, list[Any]] = defaultdict(list)
+    for txn in dupes:
+        by_item[txn.item_id or "unknown"].append(txn)
+
+    # Report
+    typer.echo(f"\n{'=' * 60}")
+    typer.echo("PLAID_INVESTMENT Duplicate Report")
+    typer.echo(f"{'=' * 60}\n")
+    typer.echo(f"Total duplicates: {len(dupes)}")
+
+    for item_id, txns in sorted(by_item.items()):
+        typer.echo(f"\nItem {item_id}:")
+        for txn in sorted(txns, key=lambda t: t.posted_at):
+            amount_str = f"${txn.amount_cents / 100:,.2f}"
+            typer.echo(
+                f"  {txn.posted_at}  {amount_str:>12}  "
+                f"{txn.merchant_descriptor or '(no descriptor)'}"
+            )
+
+    if apply:
+        typer.echo(f"\n{'=' * 60}")
+        typer.echo("Applying deletions...")
+
+        for item_id, txns in by_item.items():
+            records: list[dict[str, Any]] = [
+                {
+                    "external_id": txn.external_id,
+                    "account_id": txn.account_id,
+                    "posted_at": txn.posted_at,
+                    "amount_cents": txn.amount_cents,
+                    "merchant_descriptor": txn.merchant_descriptor,
+                }
+                for txn in txns
+            ]
+            archive_investment_dupes_to_r2(
+                item_id=item_id,
+                records=records,
+                key_prefix="investment-dedup-cleanup",
+            )
+
+            external_ids = [txn.external_id for txn in txns]
+            deleted = db.delete_plaid_transactions_by_external_ids(
+                external_ids, source="PLAID_INVESTMENT"
+            )
+            typer.echo(f"  Deleted {deleted} transactions for item {item_id}")
+
+        typer.echo(f"\nDone. Deleted {len(dupes)} duplicate transactions.")
+    else:
+        typer.echo(f"\n{'=' * 60}")
+        typer.echo("DRY RUN - No changes made.")
+        typer.echo("Run with --apply to delete duplicate transactions.")
+
+
 @app.command()
 def agent() -> None:
     """
