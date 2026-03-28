@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
-SCHEDULED_REPORT_HOUR_NY = 5
 
 
 def _coerce_utc(now_utc: datetime | None) -> datetime:
@@ -18,13 +17,6 @@ def _coerce_utc(now_utc: datetime | None) -> datetime:
         return now_utc.replace(tzinfo=UTC)
 
     return now_utc.astimezone(UTC)
-
-
-def should_run_now(*, now_utc: datetime | None = None) -> bool:
-    """Return True when local New York time is 5:00 AM."""
-    now = _coerce_utc(now_utc)
-    now_ny = now.astimezone(NEW_YORK_TZ)
-    return now_ny.hour == SCHEDULED_REPORT_HOUR_NY
 
 
 def select_prompt_key(*, now_utc: datetime | None = None) -> str:
