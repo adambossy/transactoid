@@ -16,6 +16,10 @@ from transactoid.core.runtime import (
     ToolOutputEvent,
     TurnCompletedEvent,
 )
+from transactoid.services.agent_run.state import (
+    ContinuationState,
+    ConversationTurn,
+)
 from transactoid.ui.acp.handlers.prompt import PromptHandler
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.notifier import UpdateNotifier
@@ -29,6 +33,7 @@ def _run_async(coro: Any) -> Any:
 class _FakeRuntime:
     def __init__(self, events: list[Any] | None = None) -> None:
         self._events = events or [TurnCompletedEvent(final_text="Test response")]
+        self.captured_input_texts: list[str] = []
 
     def start_session(self, session_key: str) -> CoreSession:
         return CoreSession(session_id=session_key, native_session={"id": session_key})
@@ -53,7 +58,8 @@ class _FakeRuntime:
     def run_streamed(
         self, *, input_text: str, session: CoreSession
     ) -> AsyncIterator[Any]:
-        _ = (input_text, session)
+        self.captured_input_texts.append(input_text)
+        _ = session
         return self._stream()
 
 
@@ -261,3 +267,101 @@ class TestPromptHandlerIntegration:
             if update["tool_call_id"] == "call_sql" and update["status"] == "pending"
         )
         assert pending_update["title"] is None
+
+
+class TestPromptHandlerResume:
+    """Tests for prior-turn injection on resumed sessions."""
+
+    def test_prompt_prepends_prior_turns_on_resumed_session(self) -> None:
+        # input
+        continuation_state = ContinuationState(
+            run_id="abc123",
+            turns=[
+                ConversationTurn(role="user", content="Generate report"),
+                ConversationTurn(role="assistant", content="Here is the report."),
+            ],
+        )
+
+        # setup
+        session_manager = SessionManager()
+        session_id = session_manager.create_with_continuation(
+            cwd="/home/user",
+            mcp_servers=[],
+            continuation_state=continuation_state,
+        )
+        runtime = _FakeRuntime()
+        handler = PromptHandler(
+            session_manager=session_manager,
+            runtime=runtime,
+            notifier=UpdateNotifier(StdioTransport()),
+        )
+        input_data = {
+            "sessionId": session_id,
+            "content": [{"type": "text", "text": "Tell me more"}],
+        }
+
+        # act
+        _run_async(handler.handle_prompt(input_data))
+
+        # expected
+        expected_input = (
+            '<prior_turn role="user">Generate report</prior_turn>\n'
+            '<prior_turn role="assistant">Here is the report.</prior_turn>\n'
+            "<current_prompt>\nTell me more\n</current_prompt>"
+        )
+
+        # assert
+        assert len(runtime.captured_input_texts) == 1
+        assert runtime.captured_input_texts[0] == expected_input
+
+    def test_prompt_clears_continuation_after_first_prompt(self) -> None:
+        # input
+        continuation_state = ContinuationState(
+            run_id="abc123",
+            turns=[
+                ConversationTurn(role="user", content="Generate report"),
+                ConversationTurn(role="assistant", content="Here is the report."),
+            ],
+        )
+
+        # setup
+        session_manager = SessionManager()
+        session_id = session_manager.create_with_continuation(
+            cwd="/home/user",
+            mcp_servers=[],
+            continuation_state=continuation_state,
+        )
+        runtime = _FakeRuntime()
+        handler = PromptHandler(
+            session_manager=session_manager,
+            runtime=runtime,
+            notifier=UpdateNotifier(StdioTransport()),
+        )
+
+        # act — first prompt consumes continuation state
+        _run_async(
+            handler.handle_prompt(
+                {
+                    "sessionId": session_id,
+                    "content": [{"type": "text", "text": "Tell me more"}],
+                }
+            )
+        )
+        # act — second prompt should be plain
+        _run_async(
+            handler.handle_prompt(
+                {
+                    "sessionId": session_id,
+                    "content": [{"type": "text", "text": "Thanks"}],
+                }
+            )
+        )
+
+        # assert
+        session = session_manager.get(session_id)
+        assert session is not None
+        assert session.continuation_state is None
+        assert len(runtime.captured_input_texts) == 2
+        # Second prompt should be raw text, no prior_turn blocks
+        assert "<prior_turn" not in runtime.captured_input_texts[1]
+        assert runtime.captured_input_texts[1] == "Thanks"

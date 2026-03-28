@@ -22,6 +22,7 @@ from transactoid.core.runtime import (
     ToolOutputEvent,
     TurnCompletedEvent,
 )
+from transactoid.services.agent_run.state import ContinuationState
 from transactoid.ui.acp.handlers.session import SessionManager
 from transactoid.ui.acp.logger import PromptHandlerLogger
 from transactoid.ui.acp.notifier import UpdateNotifier
@@ -85,6 +86,15 @@ class PromptHandler:
         if not user_text:
             self._log.no_text_content()
             return {"error": {"code": -32602, "message": "No text content provided"}}
+
+        # If this session was resumed from a prior run, prepend prior turns
+        # on the first prompt only, then clear the state.
+        if session.continuation_state is not None:
+            user_text = _build_resumed_input(
+                prompt=user_text,
+                continuation_state=session.continuation_state,
+            )
+            session.continuation_state = None
 
         self._log.user_prompt(session_id, user_text)
         self._sessions.add_message(session_id, {"role": "user", "content": user_text})
@@ -393,3 +403,20 @@ class PromptHandler:
                         }
                     ],
                 )
+
+
+def _build_resumed_input(
+    *,
+    prompt: str,
+    continuation_state: ContinuationState,
+) -> str:
+    """Build input text with prior turns prepended for a resumed session.
+
+    Matches the format used by headless continuation in
+    ``services.agent_run.service._build_input_text``.
+    """
+    parts: list[str] = []
+    for turn in continuation_state.turns:
+        parts.append(f'<prior_turn role="{turn.role}">{turn.content}</prior_turn>')
+    parts.append(f"<current_prompt>\n{prompt}\n</current_prompt>")
+    return "\n".join(parts)
