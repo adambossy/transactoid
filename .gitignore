@@ -214,11 +214,6 @@ __marimo__/
 .logs
 .transactoid
 
-# Local-only tax returns memory files (track only the example template)
-memory/tax-returns/**
-!memory/tax-returns/
-!memory/tax-returns/2026.md.example
-
 # Local SSL key for Plaid redirect server (certificate is tracked, key is not)
 configs/plaid_redirect_localhost.key
 
