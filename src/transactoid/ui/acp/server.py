@@ -31,6 +31,7 @@ from transactoid.ui.acp.handlers import (  # noqa: E402
     SessionManager,
     handle_initialize,
     handle_session_new,
+    handle_session_resume,
 )
 from transactoid.ui.acp.logger import ACPServerLogger  # noqa: E402
 from transactoid.ui.acp.notifier import UpdateNotifier  # noqa: E402
@@ -55,6 +56,7 @@ class ACPServer:
     The server handles these JSON-RPC methods:
     - initialize: Capability negotiation with client
     - session/new: Create a new conversation session
+    - session/resume: Resume a prior headless run as an interactive session
     - session/prompt: Process user prompts and stream responses
     """
 
@@ -113,6 +115,12 @@ class ACPServer:
             return await handle_session_new(params, self._sessions)
 
         self._router.register("session/new", session_new_handler)
+
+        # Register session/resume handler with session manager
+        async def session_resume_handler(params: dict[str, Any]) -> dict[str, Any]:
+            return await handle_session_resume(params, self._sessions)
+
+        self._router.register("session/resume", session_resume_handler)
 
         # Register session/prompt handler
         async def session_prompt_handler(params: dict[str, Any]) -> dict[str, Any]:

@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import patch
 
+from transactoid.adapters.storage.r2 import R2DownloadError
+from transactoid.services.agent_run.state import (
+    ContinuationState,
+    ContinuationStateError,
+    ConversationTurn,
+)
 from transactoid.ui.acp.handlers.session import (
     Session,
     SessionManager,
     handle_session_new,
+    handle_session_resume,
 )
 
 
@@ -235,3 +243,131 @@ class TestHandleSessionNew:
         session = manager.get(result["sessionId"])
         assert session is not None
         assert session.mcp_servers == []
+
+
+def _make_continuation_state(run_id: str = "abc123") -> ContinuationState:
+    """Build a simple ContinuationState for testing."""
+    return ContinuationState(
+        run_id=run_id,
+        turns=[
+            ConversationTurn(role="user", content="Generate my monthly report"),
+            ConversationTurn(role="assistant", content="Here is your report..."),
+        ],
+    )
+
+
+class TestSessionManagerCreateWithContinuation:
+    """Tests for SessionManager.create_with_continuation."""
+
+    def test_create_with_continuation_returns_session_id(self) -> None:
+        manager = SessionManager()
+        state = _make_continuation_state()
+
+        session_id = manager.create_with_continuation(
+            cwd="/home/user", mcp_servers=[], continuation_state=state
+        )
+
+        assert session_id.startswith("sess_")
+        assert len(session_id) == 17
+
+    def test_create_with_continuation_sets_state(self) -> None:
+        manager = SessionManager()
+        state = _make_continuation_state()
+
+        session_id = manager.create_with_continuation(
+            cwd="/home/user", mcp_servers=[], continuation_state=state
+        )
+
+        session = manager.get(session_id)
+        assert session is not None
+        assert session.continuation_state is state
+
+    def test_create_with_continuation_preserves_cwd_and_mcp(self) -> None:
+        manager = SessionManager()
+        state = _make_continuation_state()
+        mcp_servers: list[dict[str, Any]] = [{"name": "s1"}]
+
+        session_id = manager.create_with_continuation(
+            cwd="/work", mcp_servers=mcp_servers, continuation_state=state
+        )
+
+        session = manager.get(session_id)
+        assert session is not None
+        assert session.cwd == "/work"
+        assert session.mcp_servers == mcp_servers
+
+
+class TestHandleSessionResume:
+    """Tests for handle_session_resume handler."""
+
+    def test_resume_missing_run_id(self) -> None:
+        manager = SessionManager()
+        params: dict[str, Any] = {"cwd": "/home/user"}
+
+        result = _run_async(handle_session_resume(params, manager))
+
+        assert "error" in result
+        assert result["error"]["code"] == -32602
+        assert "runId" in result["error"]["message"]
+
+    def test_resume_empty_run_id(self) -> None:
+        manager = SessionManager()
+        params: dict[str, Any] = {"runId": "", "cwd": "/home/user"}
+
+        result = _run_async(handle_session_resume(params, manager))
+
+        assert "error" in result
+        assert result["error"]["code"] == -32602
+
+    @patch("transactoid.ui.acp.handlers.session.download_continuation_state")
+    def test_resume_run_not_found(self, mock_download: Any) -> None:
+        mock_download.side_effect = R2DownloadError("not found")
+        manager = SessionManager()
+        params: dict[str, Any] = {"runId": "abc123"}
+
+        result = _run_async(handle_session_resume(params, manager))
+
+        assert "error" in result
+        assert "Run not found" in result["error"]["message"]
+
+    @patch("transactoid.ui.acp.handlers.session.download_continuation_state")
+    def test_resume_corrupt_state(self, mock_download: Any) -> None:
+        mock_download.side_effect = ContinuationStateError("corrupt")
+        manager = SessionManager()
+        params: dict[str, Any] = {"runId": "abc123"}
+
+        result = _run_async(handle_session_resume(params, manager))
+
+        assert "error" in result
+        assert "Corrupt state" in result["error"]["message"]
+
+    @patch("transactoid.ui.acp.handlers.session.download_continuation_state")
+    def test_resume_creates_session_with_continuation(self, mock_download: Any) -> None:
+        state = _make_continuation_state()
+        mock_download.return_value = state
+        manager = SessionManager()
+        params: dict[str, Any] = {"runId": "abc123", "cwd": "/home/user"}
+
+        result = _run_async(handle_session_resume(params, manager))
+
+        assert "sessionId" in result
+        session = manager.get(result["sessionId"])
+        assert session is not None
+        assert session.continuation_state is state
+        assert session.cwd == "/home/user"
+
+    @patch("transactoid.ui.acp.handlers.session.download_continuation_state")
+    def test_resume_passes_mcp_servers(self, mock_download: Any) -> None:
+        mock_download.return_value = _make_continuation_state()
+        manager = SessionManager()
+        mcp_servers: list[dict[str, Any]] = [{"name": "s1"}]
+        params: dict[str, Any] = {
+            "runId": "abc123",
+            "mcpServers": mcp_servers,
+        }
+
+        result = _run_async(handle_session_resume(params, manager))
+
+        session = manager.get(result["sessionId"])
+        assert session is not None
+        assert session.mcp_servers == mcp_servers
