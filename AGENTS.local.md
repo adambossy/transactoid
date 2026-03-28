@@ -65,6 +65,24 @@ The Transactoid CLI and MCP implementations must remain in parity. Any feature a
 ### Environment Loading
 Load environment variables from a `.env` file using `python-dotenv`. Call `load_dotenv(override=False)` once in the CLI entrypoint before command execution; do not override variables that are already set.
 
+### Branching Model
+- `main` is the stable production branch. Only merge to `main` when changes are tested and ready.
+- `develop` is the integration branch for staging commits from multiple feature branches before they land on `main`.
+- Feature branches are created from `develop` and merged back into `develop`.
+- When `develop` is stable and ready for release, fast-forward merge it into `main`:
+  ```bash
+  git switch main
+  git merge --ff-only develop
+  git push origin main
+  ```
+- If fast-forward fails, rebase `develop` onto `main` first:
+  ```bash
+  git switch develop
+  git rebase main
+  git switch main
+  git merge --ff-only develop
+  ```
+
 ### Git Worktrees
 - Always work in a dedicated worktree located in `.worktrees/<branch-name>` unless already in one. Check the current directory path; if not in `.worktrees/`, create a new worktree and switch to its working directory before starting work.
 - Stay inside the worktree for all development work. If you need to switch to main (e.g., to check something), always return to the worktree directory afterward.
