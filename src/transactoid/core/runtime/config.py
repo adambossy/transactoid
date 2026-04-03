@@ -76,7 +76,7 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
     model_default_map = {
         "openai": "gpt-5.3",
         "claude": "",
-        "gemini": "gemini-2.5-flash",
+        "gemini": "gemini-3.1-pro-preview",
         "langgraph": "gemini-3-flash-preview",
     }
     default_model = model_default_map[provider]
