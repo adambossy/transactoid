@@ -13,6 +13,7 @@ from loguru import logger
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
 from transactoid.tools.execute_shell.policy import (
     MEMORY_DIR,
+    REPORTS_DIR,
     evaluate_command_policy,
 )
 
@@ -86,9 +87,10 @@ def create_scoped_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
     Returns:
         ShellTool instance with approval function for policy enforcement
     """
-    # Include both skill directories and memory/ directory
+    # Include skill directories, memory, and reports directories
     allowed_roots = skill_paths.all_existing() + [
-        MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR
+        MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR,
+        REPORTS_DIR.resolve() if REPORTS_DIR.exists() else REPORTS_DIR,
     ]
 
     # Create logger instance
