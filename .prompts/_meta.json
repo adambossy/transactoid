@@ -10,56 +10,56 @@
     "categorize-transactions": {
       "source_file": "prompts/categorize-transactions.md",
       "version_dir": "src/transactoid/prompts/categorize-transactions",
-      "last_hash": "sha256:c3474a4042c6d36c4bb72ced289e5ff163c304c07001abc354b1394465f878e3",
-      "last_version": 3
+      "last_hash": "sha256:a036bae39edc54871f586305d1885dc4da2f93979e83bbdd8d3fb7cf2e8d4f45",
+      "last_version": 4
     },
     "taxonomy-rules": {
       "source_file": "prompts/taxonomy-rules.md",
       "version_dir": "src/transactoid/prompts/taxonomy-rules",
-      "last_hash": "sha256:20e296294d1ad4d9f7ad8954da83784479ad4ad86501440690821d1ba81087fc",
-      "last_version": 1
+      "last_hash": "sha256:cebd26da4736ea0fe75652bf7ec9094c8304ffea1bdb6b6042c4aadc6e26fc6a",
+      "last_version": 2
     },
     "generate-memory-index": {
       "source_file": "prompts/generate-memory-index.md",
       "version_dir": "src/transactoid/prompts/generate-memory-index",
-      "last_hash": null,
-      "last_version": 1
+      "last_hash": "sha256:6a48d23044f3cfadc088c2cb408b17ffcf6ec42c619451c1f9d17c8cc44d2322",
+      "last_version": 2
     },
     "report-weekly": {
       "source_file": "prompts/report-weekly.md",
       "version_dir": "src/transactoid/prompts/report-weekly",
-      "last_hash": null,
-      "last_version": 1
+      "last_hash": "sha256:1de44efe6c7741a32514a688289d3b6c50a40220bd78e9e2caf80944f5adb590",
+      "last_version": 2
     },
     "report-monthly": {
       "source_file": "prompts/report-monthly.md",
       "version_dir": "src/transactoid/prompts/report-monthly",
-      "last_hash": null,
-      "last_version": 1
+      "last_hash": "sha256:35ce7e34d185a780e23c6ba7fb9bb396a9ac4278755a378432ffb797dcea892a",
+      "last_version": 2
     },
     "report-annual": {
       "source_file": "prompts/report-annual.md",
       "version_dir": "src/transactoid/prompts/report-annual",
-      "last_hash": null,
-      "last_version": 1
+      "last_hash": "sha256:18be4feeef0304fe759b1e3349eac725f3eb7aafbe0e78ae3be3e0c756b53b58",
+      "last_version": 2
     },
     "report-daily": {
       "source_file": "prompts/report-daily.md",
       "version_dir": "src/transactoid/prompts/report-daily",
-      "last_hash": null,
-      "last_version": 2
+      "last_hash": "sha256:e5cabe49add6cea33db5726130d9b07304e710f58758de1fc8eeeb88bdaf3d20",
+      "last_version": 3
     },
     "report-md-to-html": {
       "source_file": "prompts/report-md-to-html.md",
       "version_dir": "src/transactoid/prompts/report-md-to-html",
-      "last_hash": null,
-      "last_version": 1
+      "last_hash": "sha256:f3d9ed3768df107f84731fc1b59740389c0fd7a0988d9fc64f66724d469daa71",
+      "last_version": 2
     },
     "report-weekly-jenny": {
       "source_file": "prompts/report-weekly-jenny.md",
       "version_dir": ".prompts/report-weekly-jenny",
-      "last_hash": "sha256:5fabe28eecddf2734b3b051613340a230e27f65f29f256e23d13675da435c17e",
-      "last_version": 1
+      "last_hash": "sha256:731c50ab41d16538e1768a892e1be76d7eea6be11b3d5d6b9296a069569afe31",
+      "last_version": 2
     }
   }
 }
