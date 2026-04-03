@@ -88,9 +88,10 @@ def create_scoped_shell_tool(skill_paths: ResolvedSkillPaths) -> Any:
         ShellTool instance with approval function for policy enforcement
     """
     # Include skill directories, memory, and reports directories
+    # Always resolve() so paths match regardless of existence at init time
     allowed_roots = skill_paths.all_existing() + [
-        MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR,
-        REPORTS_DIR.resolve() if REPORTS_DIR.exists() else REPORTS_DIR,
+        MEMORY_DIR.resolve(),
+        REPORTS_DIR.resolve(),
     ]
 
     # Create logger instance

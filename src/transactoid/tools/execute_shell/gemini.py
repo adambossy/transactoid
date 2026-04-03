@@ -62,9 +62,10 @@ class GeminiFilesystemTool:
             skill_paths: Resolved skill paths defining allowed scope
         """
         # Include skill directories, memory, and reports directories
+        # Always resolve() so paths match regardless of existence at init time
         self._allowed_roots = skill_paths.all_existing() + [
-            MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR,
-            REPORTS_DIR.resolve() if REPORTS_DIR.exists() else REPORTS_DIR,
+            MEMORY_DIR.resolve(),
+            REPORTS_DIR.resolve(),
         ]
         self._logger = GeminiFilesystemToolLogger()
 
