@@ -838,10 +838,18 @@ async def _agent_run_impl(
 
     targets = tuple(OutputTarget(target) for target in output_target)
 
+    now = datetime.now(UTC)
+    default_vars: dict[str, str] = {
+        "CURRENT_DATE": now.strftime("%Y-%m-%d"),
+        "CURRENT_MONTH": now.strftime("%B"),
+        "CURRENT_YEAR": now.strftime("%Y"),
+    }
+    merged_vars = {**default_vars, **(template_vars or {})}
+
     request = AgentRunRequest(
         prompt=prompt,
         prompt_key=prompt_key,
-        template_vars=template_vars or {},
+        template_vars=merged_vars,
         continue_run_id=continue_run_id,
         save_md=save_md,
         save_html=save_html,
