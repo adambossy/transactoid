@@ -14,14 +14,16 @@ __all__ = [
     "ALLOWED_COMMANDS",
     "DENIED_COMMANDS",
     "MEMORY_DIR",
+    "REPORTS_DIR",
     "PolicyResult",
     "evaluate_command_policy",
     "is_path_in_scope",
     "is_memory_write_command",
 ]
 
-# Memory directory that can be written to
-MEMORY_DIR = Path("memory")
+# Directories the agent is allowed to read/write
+MEMORY_DIR = Path(".transactoid/memory")
+REPORTS_DIR = Path(".transactoid/reports")
 
 # Shell commands allowed for skill discovery and memory editing
 ALLOWED_COMMANDS = frozenset(

@@ -12,6 +12,7 @@ from loguru import logger
 from transactoid.core.runtime.skills.paths import ResolvedSkillPaths
 from transactoid.tools.execute_shell.policy import (
     MEMORY_DIR,
+    REPORTS_DIR,
     evaluate_command_policy,
 )
 
@@ -60,9 +61,10 @@ class GeminiFilesystemTool:
         Args:
             skill_paths: Resolved skill paths defining allowed scope
         """
-        # Include both skill directories and memory/ directory
+        # Include skill directories, memory, and reports directories
         self._allowed_roots = skill_paths.all_existing() + [
-            MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR
+            MEMORY_DIR.resolve() if MEMORY_DIR.exists() else MEMORY_DIR,
+            REPORTS_DIR.resolve() if REPORTS_DIR.exists() else REPORTS_DIR,
         ]
         self._logger = GeminiFilesystemToolLogger()
 
