@@ -28,7 +28,7 @@ class ToolRegistry:
         tool = registry.get("my_tool")
 
         # Execute tool
-        result = await registry.execute("my_tool", param1="value")
+        result = await registry.execute(tool_name="my_tool", param1="value")
 
         # Get all tools
         all_tools = registry.all()
@@ -73,20 +73,20 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
-    async def execute(self, name: str, **kwargs: Any) -> dict[str, Any]:
+    async def execute(self, tool_name: str, **kwargs: Any) -> dict[str, Any]:
         """
         Execute a tool by name with parameters.
 
         Args:
-            name: Tool name to execute
+            tool_name: Tool name to execute
             **kwargs: Parameters to pass to tool.execute()
 
         Returns:
             Tool execution result dict
         """
-        tool = self.get(name)
+        tool = self.get(tool_name)
         if tool is None:
-            return {"status": "error", "error": f"Tool '{name}' not found"}
+            return {"status": "error", "error": f"Tool '{tool_name}' not found"}
         return await tool.execute(**kwargs)
 
     def __len__(self) -> int:
