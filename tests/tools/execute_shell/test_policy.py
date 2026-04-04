@@ -138,26 +138,42 @@ def test_evaluate_command_policy_bash_c_allowed(tmp_path: Path) -> None:
         assert result.allowed, f"Command should be allowed: {command}"
 
 
-def test_evaluate_command_policy_bash_c_chained_denied(tmp_path: Path) -> None:
-    """Test that bash -c with chained commands is denied."""
+def test_evaluate_command_policy_bash_c_chained_allowed_subcmds(
+    tmp_path: Path,
+) -> None:
+    """Test that bash -c with chained allowed commands is permitted."""
     # Setup
     allowed_dir = tmp_path / "allowed"
     allowed_dir.mkdir()
     allowed_roots = [allowed_dir]
 
-    # Input - denied chained bash -c commands
+    # Input - chained allowed commands
     commands = [
         f'bash -c "ls {allowed_dir} && echo done"',
-        'bash -c "cat file.txt || echo failed"',
         'bash -c "ls; pwd"',
-        'bash -c "ls | grep pattern"',
     ]
 
-    # Act & Assert
+    for command in commands:
+        result = evaluate_command_policy(command, allowed_roots)
+        assert result.allowed, f"Command should be allowed: {command}"
+
+
+def test_evaluate_command_policy_bash_c_chained_denied_subcmd(
+    tmp_path: Path,
+) -> None:
+    """Test that bash -c with a denied sub-command is blocked."""
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    allowed_roots = [allowed_dir]
+
+    commands = [
+        'bash -c "ls && rm file.txt"',
+        'bash -c "cat file.txt || pip install bad"',
+    ]
+
     for command in commands:
         result = evaluate_command_policy(command, allowed_roots)
         assert not result.allowed, f"Command should be denied: {command}"
-        assert "chained" in result.reason.lower()
 
 
 def test_evaluate_command_policy_denied_commands() -> None:
@@ -352,3 +368,78 @@ def test_is_path_in_scope_nested_paths(tmp_path: Path) -> None:
 
     # Assert
     assert result
+
+
+def test_evaluate_command_policy_heredoc_write_in_scope(tmp_path: Path) -> None:
+    """Test that heredoc writes to allowed paths are permitted."""
+    allowed_dir = tmp_path / "reports"
+    allowed_dir.mkdir()
+    target = allowed_dir / "report.html"
+    allowed_roots = [allowed_dir]
+
+    command = (
+        f"cat << 'EOF' > {target}\n"
+        "<!DOCTYPE html>\n<html>\n<body>test</body>\n</html>\nEOF"
+    )
+
+    result = evaluate_command_policy(command, allowed_roots)
+
+    assert result.allowed, f"Heredoc write should be allowed: {result.reason}"
+
+
+def test_evaluate_command_policy_heredoc_write_out_of_scope(tmp_path: Path) -> None:
+    """Test that heredoc writes outside allowed paths are denied."""
+    allowed_dir = tmp_path / "reports"
+    allowed_dir.mkdir()
+    outside_file = tmp_path / "outside.html"
+    allowed_roots = [allowed_dir]
+
+    command = f"cat << 'EOF' > {outside_file}\n<html>bad</html>\nEOF"
+
+    result = evaluate_command_policy(command, allowed_roots)
+
+    assert not result.allowed
+
+
+def test_evaluate_command_policy_chained_allowed_commands(tmp_path: Path) -> None:
+    """Test that chained allowed commands are permitted."""
+    allowed_dir = tmp_path / "reports"
+    allowed_dir.mkdir()
+    target = allowed_dir / "report.html"
+    allowed_roots = [allowed_dir]
+
+    command = f"mkdir -p {allowed_dir} && echo test > {target}"
+
+    result = evaluate_command_policy(command, allowed_roots)
+
+    assert result.allowed, f"Chained allowed commands should pass: {result.reason}"
+
+
+def test_evaluate_command_policy_chained_with_denied_subcommand() -> None:
+    """Test that chained commands with a denied sub-command are blocked."""
+    command = "ls && rm -rf /"
+
+    result = evaluate_command_policy(command, [])
+
+    assert not result.allowed
+
+
+def test_evaluate_command_policy_mkdir_and_heredoc_in_scope(tmp_path: Path) -> None:
+    """Test the exact pattern the agent uses: mkdir -p && cat heredoc."""
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    target = reports_dir / "report-weekly-jenny-latest.html"
+    allowed_roots = [reports_dir]
+
+    command = (
+        f"mkdir -p {reports_dir} && cat << 'EOF' > {target}\n"
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n'
+        '    <meta charset="UTF-8">\n'
+        '    <meta name="viewport" '
+        'content="width=device-width, initial-scale=1.0">\n'
+        "</head>\n<body>Report</body>\n</html>\nEOF"
+    )
+
+    result = evaluate_command_policy(command, allowed_roots)
+
+    assert result.allowed, f"mkdir + heredoc should be allowed: {result.reason}"

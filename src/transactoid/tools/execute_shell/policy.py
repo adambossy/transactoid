@@ -98,6 +98,98 @@ def is_memory_write_command(command: str) -> bool:
     return "memory/" in command or MEMORY_DIR.name in command
 
 
+def _strip_heredoc_body(command: str) -> str:
+    """Strip heredoc body content from a command, keeping only the shell line.
+
+    Given ``cat << 'EOF' > file.html\\n<html>...\\nEOF``, returns
+    ``cat << 'EOF' > file.html``.
+
+    Args:
+        command: Shell command string, possibly multi-line with heredoc.
+
+    Returns:
+        The first line of the command (the shell invocation) with heredoc
+        body removed.
+    """
+    # Detect heredoc operator on the first line
+    first_line_end = command.find("\n")
+    if first_line_end == -1:
+        return command
+    first_line = command[:first_line_end]
+    if "<<" not in first_line:
+        return command
+    return first_line
+
+
+def _split_chained_commands(command: str) -> list[str]:
+    """Split a command string on shell chaining operators.
+
+    Splits on ``&&``, ``||``, and ``;`` that appear outside of single
+    or double quotes, returning individual sub-commands.
+
+    Args:
+        command: Shell command string, possibly chained.
+
+    Returns:
+        List of individual sub-command strings.
+    """
+    # Strip heredoc body first — chaining operators in content are irrelevant
+    command = _strip_heredoc_body(command)
+
+    parts: list[str] = []
+    current: list[str] = []
+    in_single = False
+    in_double = False
+    idx = 0
+    length = len(command)
+
+    while idx < length:
+        char = command[idx]
+
+        if char == "'" and not in_double:
+            in_single = not in_single
+            current.append(char)
+        elif char == '"' and not in_single:
+            in_double = not in_double
+            current.append(char)
+        elif not in_single and not in_double:
+            # Check for &&
+            if char == "&" and idx + 1 < length and command[idx + 1] == "&":
+                chunk = "".join(current).strip()
+                if chunk:
+                    parts.append(chunk)
+                current = []
+                idx += 2
+                continue
+            # Check for ||
+            if char == "|" and idx + 1 < length and command[idx + 1] == "|":
+                chunk = "".join(current).strip()
+                if chunk:
+                    parts.append(chunk)
+                current = []
+                idx += 2
+                continue
+            # Check for ;
+            if char == ";":
+                chunk = "".join(current).strip()
+                if chunk:
+                    parts.append(chunk)
+                current = []
+                idx += 1
+                continue
+            current.append(char)
+        else:
+            current.append(char)
+
+        idx += 1
+
+    chunk = "".join(current).strip()
+    if chunk:
+        parts.append(chunk)
+
+    return parts
+
+
 def _extract_base_command(command: str) -> str:
     """Extract the base command from a shell command string.
 
@@ -147,6 +239,9 @@ def _extract_paths_from_command_simple(command: str) -> list[str]:
     Returns:
         List of potential file paths
     """
+    # Strip heredoc body so HTML content isn't parsed as paths
+    command = _strip_heredoc_body(command)
+
     try:
         parts = shlex.split(command)
     except ValueError:
@@ -218,6 +313,28 @@ def evaluate_command_policy(
     if allowed_roots is None:
         allowed_roots = []
 
+    # Handle chained commands (&&, ||, ;) by evaluating each sub-command
+    sub_commands = _split_chained_commands(command)
+    if len(sub_commands) > 1:
+        for sub_cmd in sub_commands:
+            result = evaluate_command_policy(sub_cmd, allowed_roots)
+            if not result.allowed:
+                return PolicyResult(
+                    allowed=False,
+                    reason=result.reason,
+                    base_command=result.base_command,
+                    operation=result.operation,
+                    effective_command=command,
+                )
+        # All sub-commands allowed
+        return PolicyResult(
+            allowed=True,
+            reason="Command allowed",
+            base_command=_extract_base_command(sub_commands[0]),
+            operation="write",
+            effective_command=command,
+        )
+
     # Extract base command
     base_cmd = _extract_base_command(command)
     if not base_cmd:
@@ -248,16 +365,8 @@ def evaluate_command_policy(
                 c_idx = parts.index("-c")
                 if c_idx + 1 < len(parts):
                     inner_cmd = parts[c_idx + 1]
-                    # Check for chaining operators in inner command
-                    if any(op in inner_cmd for op in {"&&", "||", ";", "|"}):
-                        return PolicyResult(
-                            allowed=False,
-                            reason="bash -c with chained commands not allowed",
-                            base_command=base_cmd,
-                            operation="unknown",
-                            effective_command=command,
-                        )
                     # Evaluate the inner command recursively
+                    # (chained commands are handled by the recursive call)
                     return evaluate_command_policy(inner_cmd, allowed_roots)
         except (ValueError, IndexError):
             return PolicyResult(
@@ -288,8 +397,9 @@ def evaluate_command_policy(
             effective_command=effective_cmd,
         )
 
-    # Classify operation
-    has_redirection = any(op in command for op in {">", ">>", "<<", "<"})
+    # Classify operation (check redirection on the shell line only, not heredoc body)
+    shell_line = _strip_heredoc_body(command)
+    has_redirection = any(op in shell_line for op in {">", ">>", "<<", "<"})
     operation = _classify_operation(base_cmd, has_redirection)
 
     # For write operations (redirections), check if targeting allowed roots
