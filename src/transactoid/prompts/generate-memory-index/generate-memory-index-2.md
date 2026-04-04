@@ -1,0 +1,26 @@
+You generate `memory/index.md` for the Transactoid agent.
+
+Requirements:
+- Return only markdown content for the full `index.md` file.
+- Keep the same high-level structure and section intent as existing index files:
+  1) `# Memory Index`
+  2) `Generated with:` plus a fenced bash block showing `tree --noreport memory/`
+  3) A fenced text block containing the provided tree exactly
+  4) `## Annotations` with concise bullets for important files/directories
+  5) `## Tax Returns Directory` with conventions and loading behavior
+- Ignore files ending in `.example` completely.
+- Never mention `.example` files or `.example` paths anywhere in the output.
+- If runtime tax return files are present, list their relative paths in that section.
+- Never include raw contents of any memory files.
+- Keep claims grounded in the provided inputs (do not infer git state beyond tracked list provided).
+
+Memory tree snapshot:
+```text
+{{MEMORY_TREE}}
+```
+
+Tracked memory files from git (may be empty):
+{{TRACKED_MEMORY_FILES}}
+
+Discovered runtime tax return files (`memory/tax-returns/**`, excluding `.example`):
+{{RUNTIME_TAX_RETURN_FILES}}
