@@ -5,8 +5,8 @@ Send the final report to jloleary0@gmail.com with subject "Weekly Spending Summa
 
 ## Budget
 
-Check if `.transactoid/memory/budget.md` exists. If it does, read it for monthly budget targets.
-Derive a 30-day target directly from the monthly figure, and a 7-day target by multiplying monthly × (7 / 30.44).
+Check if `.transactoid/memory/budget.md` exists using `execute_shell_command`. If it does, read it for monthly budget targets.
+Derive a 7-day target by multiplying the monthly "Proposed Budget" × (7 / 30.44).
 If the file does not exist, omit all budget comparison columns from the report.
 
 ---
