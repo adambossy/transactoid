@@ -8,11 +8,13 @@ from unittest.mock import patch
 import pytest
 
 from transactoid.adapters.storage.r2 import R2DownloadError
+from transactoid.core.runtime.protocol import CoreRunResult, ToolCallRecord
 from transactoid.services.agent_run.state import (
     ContinuationState,
     ConversationTurn,
     CorruptContinuationStateError,
     _serialize_state,
+    build_continuation_state,
     download_continuation_state,
     upload_continuation_state,
 )
@@ -151,3 +153,105 @@ class TestDownloadContinuationState:
 
         with pytest.raises(R2DownloadError):
             download_continuation_state(run_id="missing-run")
+
+
+class TestBuildContinuationState:
+    def test_no_tool_calls_produces_user_and_assistant_turns(self):
+        core_result = CoreRunResult(
+            final_text="Simple answer",
+            tool_calls=[],
+            raw_metadata={},
+        )
+
+        state = build_continuation_state(
+            run_id="run-1", prompt="Hello", core_result=core_result
+        )
+
+        assert len(state.turns) == 2
+        assert state.turns[0] == ConversationTurn(role="user", content="Hello")
+        assert state.turns[1] == ConversationTurn(
+            role="assistant", content="Simple answer"
+        )
+
+    def test_tool_calls_produce_intermediate_turns(self):
+        core_result = CoreRunResult(
+            final_text="Final answer",
+            tool_calls=[
+                ToolCallRecord(
+                    call_id="call_1",
+                    tool_name="run_sql",
+                    arguments={"sql": "SELECT 1"},
+                    output={"rows": [{"1": 1}]},
+                    status="completed",
+                ),
+            ],
+            raw_metadata={},
+        )
+
+        state = build_continuation_state(
+            run_id="run-2", prompt="Query data", core_result=core_result
+        )
+
+        assert len(state.turns) == 4
+        assert state.turns[0].role == "user"
+        assert state.turns[1].role == "assistant"
+        assert state.turns[2].role == "tool"
+        assert state.turns[3].role == "assistant"
+
+        # Verify function_call turn content
+        fc_data = json.loads(state.turns[1].content)
+        assert fc_data["function_call"]["name"] == "run_sql"
+        assert fc_data["function_call"]["call_id"] == "call_1"
+
+        # Verify function_response turn content
+        fr_data = json.loads(state.turns[2].content)
+        assert fr_data["function_response"]["name"] == "run_sql"
+        assert fr_data["function_response"]["status"] == "completed"
+
+    def test_multiple_tool_calls_interleaved(self):
+        core_result = CoreRunResult(
+            final_text="Done",
+            tool_calls=[
+                ToolCallRecord(
+                    call_id="c1",
+                    tool_name="run_sql",
+                    arguments={"sql": "SELECT 1"},
+                    output="ok",
+                    status="completed",
+                ),
+                ToolCallRecord(
+                    call_id="c2",
+                    tool_name="send_email",
+                    arguments={"to": "a@b.com"},
+                    output="sent",
+                    status="completed",
+                ),
+            ],
+            raw_metadata={},
+        )
+
+        state = build_continuation_state(
+            run_id="run-3", prompt="Do stuff", core_result=core_result
+        )
+
+        # user + (fc+fr) * 2 + final assistant = 6
+        assert len(state.turns) == 6
+        assert state.turns[0].role == "user"
+        assert state.turns[1].role == "assistant"
+        assert state.turns[2].role == "tool"
+        assert state.turns[3].role == "assistant"
+        assert state.turns[4].role == "tool"
+        assert state.turns[5].role == "assistant"
+
+    def test_run_id_set_on_state(self):
+        core_result = CoreRunResult(
+            final_text="answer",
+            tool_calls=[],
+            raw_metadata={},
+        )
+
+        state = build_continuation_state(
+            run_id="my-run-id", prompt="q", core_result=core_result
+        )
+
+        assert state.run_id == "my-run-id"

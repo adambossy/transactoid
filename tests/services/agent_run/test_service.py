@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from transactoid.adapters.clients.plaid import PlaidClientError
 from transactoid.adapters.storage.r2 import R2DownloadError
+from transactoid.core.runtime.protocol import CoreRunResult, ToolCallRecord
 from transactoid.services.agent_run.service import (
     AgentRunService,
     _build_input_text,
@@ -98,21 +99,28 @@ class TestExtractResponse:
         assert output == ""
 
 
-def _make_mock_runtime(*, final_text: str = "Report output") -> MagicMock:
-    mock_core_result = MagicMock()
-    mock_core_result.final_text = final_text
+def _make_mock_runtime(
+    *,
+    final_text: str = "Report output",
+    tool_calls: list[ToolCallRecord] | None = None,
+) -> MagicMock:
+    core_result = CoreRunResult(
+        final_text=final_text,
+        tool_calls=tool_calls or [],
+        raw_metadata={},
+    )
 
     mock_session = MagicMock()
 
     mock_runtime = MagicMock()
     mock_runtime.start_session.return_value = mock_session
-    mock_runtime.run = AsyncMock(return_value=mock_core_result)
+    mock_runtime.run = AsyncMock(return_value=core_result)
     mock_runtime.close = AsyncMock()
     return mock_runtime
 
 
 class TestExecute:
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -135,7 +143,7 @@ class TestExecute:
         assert result.error is None
         assert result.run_id is not None
 
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -160,7 +168,7 @@ class TestExecute:
         assert "Agent crashed" in (result.error or "")
         assert result.manifest.success is False
 
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -181,7 +189,7 @@ class TestExecute:
         mock_transactoid.return_value.create_runtime.assert_called_once()
         mock_load_config.assert_called_once()
 
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -215,9 +223,8 @@ class TestExecute:
         )
 
     @patch("transactoid.services.agent_run.service.upload_continuation_state")
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.download_continuation_state")
-    @patch("transactoid.services.agent_run.service.download_trace")
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -229,12 +236,10 @@ class TestExecute:
         _plaid,
         mock_transactoid,
         mock_load_config,
-        mock_download_trace,
         mock_download_state,
-        _upload_trace,
+        _upload_manifest,
         mock_upload_state,
     ):
-        mock_download_trace.return_value = MagicMock(exists=lambda: False)
         prior_state = ContinuationState(
             run_id="prior-run-abc",
             turns=[
@@ -275,9 +280,8 @@ class TestExecute:
         session_key_used = mock_runtime.start_session.call_args.args[0]
         assert session_key_used == "prior-run-abc"
 
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.download_continuation_state")
-    @patch("transactoid.services.agent_run.service.download_trace")
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -289,11 +293,9 @@ class TestExecute:
         _plaid,
         mock_transactoid,
         mock_load_config,
-        mock_download_trace,
         mock_download_state,
-        _upload_trace,
+        _upload_manifest,
     ):
-        mock_download_trace.return_value = MagicMock(exists=lambda: False)
         mock_download_state.side_effect = R2DownloadError("not found")
 
         mock_runtime = _make_mock_runtime()
@@ -313,9 +315,8 @@ class TestExecute:
         assert "missing-run-xyz" in result.error
         mock_runtime.run.assert_not_called()
 
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.download_continuation_state")
-    @patch("transactoid.services.agent_run.service.download_trace")
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
@@ -327,11 +328,9 @@ class TestExecute:
         _plaid,
         mock_transactoid,
         mock_load_config,
-        mock_download_trace,
         mock_download_state,
-        _upload_trace,
+        _upload_manifest,
     ):
-        mock_download_trace.return_value = MagicMock(exists=lambda: False)
         mock_download_state.side_effect = CorruptContinuationStateError(
             "Corrupt continuation state for run corrupt-run-id"
         )
@@ -354,19 +353,19 @@ class TestExecute:
         mock_runtime.run.assert_not_called()
 
     @patch("transactoid.services.agent_run.service.upload_continuation_state")
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(
         "transactoid.services.agent_run.service.PlaidClient.from_env",
         side_effect=PlaidClientError("no plaid"),
     )
-    def test_execute_persists_session_state_artifact_on_success(
+    def test_execute_persists_session_state_with_tool_calls(
         self,
         _plaid,
         mock_transactoid,
         mock_load_config,
-        _upload_trace,
+        _upload_manifest,
         mock_upload_state,
     ):
         state_artifact = ArtifactRecord(
@@ -378,7 +377,18 @@ class TestExecute:
         )
         mock_upload_state.return_value = state_artifact
 
-        mock_runtime = _make_mock_runtime(final_text="Report output")
+        tool_calls = [
+            ToolCallRecord(
+                call_id="call_1",
+                tool_name="run_sql",
+                arguments={"sql": "SELECT 1"},
+                output={"result": "ok"},
+                status="completed",
+            ),
+        ]
+        mock_runtime = _make_mock_runtime(
+            final_text="Report output", tool_calls=tool_calls
+        )
         mock_transactoid.return_value.create_runtime.return_value = mock_runtime
 
         service = _make_service()
@@ -392,17 +402,61 @@ class TestExecute:
         assert upload_call_kwargs["run_id"] == result.run_id
         uploaded_state = upload_call_kwargs["state"]
         assert isinstance(uploaded_state, ContinuationState)
+        # user + function_call + function_response + final assistant = 4 turns
+        assert len(uploaded_state.turns) == 4
+        assert uploaded_state.turns[0].role == "user"
+        assert uploaded_state.turns[1].role == "assistant"
+        assert "run_sql" in uploaded_state.turns[1].content
+        assert uploaded_state.turns[2].role == "tool"
+        assert uploaded_state.turns[3].role == "assistant"
+        assert state_artifact in result.artifacts
+
+    @patch("transactoid.services.agent_run.service.upload_continuation_state")
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
+    @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
+    @patch("transactoid.services.agent_run.service.Transactoid")
+    @patch(
+        "transactoid.services.agent_run.service.PlaidClient.from_env",
+        side_effect=PlaidClientError("no plaid"),
+    )
+    def test_execute_persists_session_state_no_tool_calls(
+        self,
+        _plaid,
+        mock_transactoid,
+        mock_load_config,
+        _upload_manifest,
+        mock_upload_state,
+    ):
+        state_artifact = ArtifactRecord(
+            artifact_type="session-state",
+            key="agent-runs/run-abc123/session-state.json",
+            target=OutputTarget.R2,
+            content_type="application/json",
+            size_bytes=200,
+        )
+        mock_upload_state.return_value = state_artifact
+
+        mock_runtime = _make_mock_runtime(final_text="Simple response")
+        mock_transactoid.return_value.create_runtime.return_value = mock_runtime
+
+        service = _make_service()
+        request = AgentRunRequest(prompt="Quick question")
+
+        result = asyncio.run(service.execute(request))
+
+        assert result.success is True
+        uploaded_state = mock_upload_state.call_args.kwargs["state"]
+        # user + final assistant = 2 turns (no tool calls)
         assert len(uploaded_state.turns) == 2
         assert uploaded_state.turns[0].role == "user"
         assert uploaded_state.turns[1].role == "assistant"
-        assert state_artifact in result.artifacts
 
 
 class TestGeminiRegressionNoCrash:
     """Regression: run-scheduled-report must not fail with 'create_agent is only
     supported with OpenAI runtime' when provider=gemini."""
 
-    @patch("transactoid.services.agent_run.service.upload_trace", return_value=[])
+    @patch("transactoid.services.agent_run.service.upload_manifest", return_value=[])
     @patch("transactoid.services.agent_run.service.load_core_runtime_config_from_env")
     @patch("transactoid.services.agent_run.service.Transactoid")
     @patch(

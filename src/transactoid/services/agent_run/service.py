@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
-from pathlib import Path
-import tempfile
 import time
 import uuid
 
@@ -22,11 +20,11 @@ from transactoid.orchestrators.transactoid import Transactoid
 from transactoid.services.agent_run.state import (
     ContinuationState,
     ContinuationStateError,
-    ConversationTurn,
+    build_continuation_state,
     download_continuation_state,
     upload_continuation_state,
 )
-from transactoid.services.agent_run.trace import download_trace, upload_trace
+from transactoid.services.agent_run.trace import upload_manifest
 from transactoid.services.agent_run.types import (
     AgentRunRequest,
     AgentRunResult,
@@ -69,15 +67,7 @@ class AgentRunService:
         started_at = datetime.now(UTC)
         start_mono = time.monotonic()
 
-        trace_path = self._resolve_trace_path(request)
-
-        try:
-            return await self._execute_inner(
-                request, run_id, started_at, start_mono, trace_path
-            )
-        finally:
-            if trace_path.exists():
-                trace_path.unlink(missing_ok=True)
+        return await self._execute_inner(request, run_id, started_at, start_mono)
 
     async def _execute_inner(
         self,
@@ -85,7 +75,6 @@ class AgentRunService:
         run_id: str,
         started_at: datetime,
         start_mono: float,
-        trace_path: Path,
     ) -> AgentRunResult:
         """Run the agent and persist trace, returning the result."""
         prior_state: ContinuationState | None = None
@@ -180,9 +169,7 @@ class AgentRunService:
                 success=False,
                 error=error_msg,
             )
-            trace_artifacts = _persist_trace(
-                run_id=run_id, trace_path=trace_path, manifest=manifest
-            )
+            manifest_artifacts = _persist_manifest(run_id=run_id, manifest=manifest)
             return AgentRunResult(
                 run_id=run_id,
                 success=False,
@@ -191,7 +178,7 @@ class AgentRunService:
                 error=error_msg,
                 duration_seconds=duration,
                 manifest=manifest,
-                artifacts=tuple(trace_artifacts),
+                artifacts=tuple(manifest_artifacts),
             )
 
         duration = time.monotonic() - start_mono
@@ -208,16 +195,12 @@ class AgentRunService:
             error=None,
         )
 
-        trace_artifacts = _persist_trace(
-            run_id=run_id, trace_path=trace_path, manifest=manifest
-        )
+        manifest_artifacts = _persist_manifest(run_id=run_id, manifest=manifest)
 
-        continuation_state = ContinuationState(
+        continuation_state = build_continuation_state(
             run_id=run_id,
-            turns=[
-                ConversationTurn(role="user", content=prompt),
-                ConversationTurn(role="assistant", content=response_text),
-            ],
+            prompt=prompt,
+            core_result=core_result,
         )
         state_artifacts = _persist_continuation_state(
             run_id=run_id, state=continuation_state
@@ -231,7 +214,7 @@ class AgentRunService:
             error=None,
             duration_seconds=duration,
             manifest=manifest,
-            artifacts=tuple(trace_artifacts) + tuple(state_artifacts),
+            artifacts=tuple(manifest_artifacts) + tuple(state_artifacts),
         )
 
     def _resolve_plaid_client(self) -> PlaidClient | None:
@@ -260,19 +243,6 @@ class AgentRunService:
             text = text.replace(f"{{{{{var_name}}}}}", var_value)
 
         return text
-
-    @staticmethod
-    def _resolve_trace_path(request: AgentRunRequest) -> Path:
-        """Get or create the trace database path.
-
-        For continuation runs, downloads the prior trace from R2.
-        For new runs, creates a temporary file.
-        """
-        if request.continue_run_id is not None:
-            return download_trace(run_id=request.continue_run_id)
-        tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
-        tmp.close()
-        return Path(tmp.name)
 
 
 def _build_input_text(
@@ -316,17 +286,16 @@ def _persist_continuation_state(
         return []
 
 
-def _persist_trace(
+def _persist_manifest(
     *,
     run_id: str,
-    trace_path: Path,
     manifest: RunManifest,
 ) -> list[ArtifactRecord]:
-    """Upload trace and manifest to R2, logging errors without raising."""
+    """Upload manifest to R2, logging errors without raising."""
     try:
-        return upload_trace(run_id=run_id, trace_path=trace_path, manifest=manifest)
+        return upload_manifest(run_id=run_id, manifest=manifest)
     except (R2StorageError, OSError, json.JSONDecodeError) as exc:
-        logger.error("Trace persistence failed for run {}: {}", run_id, exc)
+        logger.error("Manifest persistence failed for run {}: {}", run_id, exc)
         return []
 
 

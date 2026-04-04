@@ -13,6 +13,7 @@ from transactoid.adapters.storage.r2 import (
     download_object_from_r2,
     store_object_in_r2,
 )
+from transactoid.core.runtime.protocol import CoreRunResult
 from transactoid.services.agent_run.types import ArtifactRecord, OutputTarget
 
 _STATE_PREFIX = "agent-runs"
@@ -40,6 +41,70 @@ class ContinuationState:
 
     run_id: str
     turns: list[ConversationTurn]
+
+
+def build_continuation_state(
+    *,
+    run_id: str,
+    prompt: str,
+    core_result: CoreRunResult,
+) -> ContinuationState:
+    """Build a full ContinuationState from the prompt and runtime result.
+
+    Reconstructs the conversation as: user prompt, then for each tool call
+    an assistant turn (function_call) and a tool turn (function_response),
+    followed by the final assistant text.
+
+    Args:
+        run_id: Unique run identifier.
+        prompt: The original user prompt.
+        core_result: Result from the runtime containing tool_calls and final_text.
+
+    Returns:
+        ContinuationState with the full conversation history.
+    """
+    turns: list[ConversationTurn] = [
+        ConversationTurn(role="user", content=prompt),
+    ]
+
+    for tc in core_result.tool_calls:
+        turns.append(
+            ConversationTurn(
+                role="assistant",
+                content=json.dumps(
+                    {
+                        "function_call": {
+                            "call_id": tc.call_id,
+                            "name": tc.tool_name,
+                            "arguments": tc.arguments,
+                        }
+                    },
+                    default=str,
+                ),
+            )
+        )
+        turns.append(
+            ConversationTurn(
+                role="tool",
+                content=json.dumps(
+                    {
+                        "function_response": {
+                            "call_id": tc.call_id,
+                            "name": tc.tool_name,
+                            "output": tc.output,
+                            "status": tc.status,
+                        }
+                    },
+                    default=str,
+                ),
+            )
+        )
+
+    turns.append(
+        ConversationTurn(role="assistant", content=core_result.final_text),
+    )
+
+    return ContinuationState(run_id=run_id, turns=turns)
 
 
 def upload_continuation_state(

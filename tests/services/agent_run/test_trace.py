@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -14,7 +13,7 @@ from transactoid.services.agent_run.trace import (
     _serialize_manifest,
     download_manifest,
     download_trace,
-    upload_trace,
+    upload_manifest,
 )
 from transactoid.services.agent_run.types import (
     ArtifactRecord,
@@ -84,57 +83,26 @@ class TestSerializeManifest:
         assert data["success"] is True
 
 
-class TestUploadTrace:
+class TestUploadManifest:
     @patch("transactoid.services.agent_run.trace.store_object_in_r2")
-    def test_uploads_trace_and_manifest(self, mock_store, tmp_path):
-        trace_file = tmp_path / "trace.sqlite3"
-        trace_file.write_bytes(b"sqlite data")
+    def test_uploads_manifest(self, mock_store):
         manifest = _make_manifest()
 
-        records = upload_trace(
-            run_id="abc123", trace_path=trace_file, manifest=manifest
-        )
+        records = upload_manifest(run_id="abc123", manifest=manifest)
 
-        assert mock_store.call_count == 2
-        assert len(records) == 2
-
-        trace_record = next(r for r in records if r.artifact_type == "trace")
-        manifest_record = next(r for r in records if r.artifact_type == "manifest")
-
-        assert trace_record.key == "agent-runs/abc123/trace.sqlite3"
-        assert manifest_record.key == "agent-runs/abc123/manifest.json"
-
-    @patch("transactoid.services.agent_run.trace.store_object_in_r2")
-    def test_skips_trace_when_file_missing(self, mock_store):
-        missing_path = Path("/nonexistent/trace.sqlite3")
-        manifest = _make_manifest()
-
-        records = upload_trace(
-            run_id="abc123", trace_path=missing_path, manifest=manifest
-        )
-
-        # Only manifest upload called
         assert mock_store.call_count == 1
         assert len(records) == 1
         assert records[0].artifact_type == "manifest"
+        assert records[0].key == "agent-runs/abc123/manifest.json"
 
     @patch("transactoid.services.agent_run.trace.store_object_in_r2")
-    def test_trace_upload_error_logged_not_raised(self, mock_store, tmp_path):
-        trace_file = tmp_path / "trace.sqlite3"
-        trace_file.write_bytes(b"data")
-        mock_store.side_effect = [
-            R2StorageError("upload failed"),
-            MagicMock(),  # manifest succeeds
-        ]
+    def test_upload_error_logged_not_raised(self, mock_store):
+        mock_store.side_effect = R2StorageError("upload failed")
         manifest = _make_manifest()
 
-        records = upload_trace(
-            run_id="abc123", trace_path=trace_file, manifest=manifest
-        )
+        records = upload_manifest(run_id="abc123", manifest=manifest)
 
-        # Only manifest record returned
-        assert len(records) == 1
-        assert records[0].artifact_type == "manifest"
+        assert len(records) == 0
 
 
 class TestDownloadTrace:

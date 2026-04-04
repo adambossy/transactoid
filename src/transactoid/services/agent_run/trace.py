@@ -1,7 +1,7 @@
 """Trace persistence and continuation for agent runs.
 
-Handles uploading trace.sqlite3 and manifest.json to R2 after runs,
-and downloading them for continuation via --continue <run-id>.
+Handles uploading manifest.json to R2 after runs,
+and downloading traces for continuation via --continue <run-id>.
 """
 
 from __future__ import annotations
@@ -29,17 +29,15 @@ from transactoid.services.agent_run.types import (
 _TRACE_PREFIX = "agent-runs"
 
 
-def upload_trace(
+def upload_manifest(
     *,
     run_id: str,
-    trace_path: Path,
     manifest: RunManifest,
 ) -> list[ArtifactRecord]:
-    """Upload trace sqlite and manifest to R2.
+    """Upload run manifest to R2.
 
     Args:
         run_id: Unique run identifier.
-        trace_path: Path to the local trace.sqlite3 file.
         manifest: Run manifest to persist as JSON.
 
     Returns:
@@ -47,31 +45,7 @@ def upload_trace(
     """
     records: list[ArtifactRecord] = []
     timestamp = datetime.now(UTC)
-
-    trace_key = f"{_TRACE_PREFIX}/{run_id}/trace.sqlite3"
     manifest_key = f"{_TRACE_PREFIX}/{run_id}/manifest.json"
-
-    if trace_path.exists():
-        trace_body = trace_path.read_bytes()
-        try:
-            store_object_in_r2(
-                key=trace_key,
-                body=trace_body,
-                content_type="application/x-sqlite3",
-            )
-            records.append(
-                ArtifactRecord(
-                    artifact_type="trace",
-                    key=trace_key,
-                    target=OutputTarget.R2,
-                    content_type="application/x-sqlite3",
-                    size_bytes=len(trace_body),
-                    created_at=timestamp,
-                )
-            )
-            logger.info("Uploaded trace to R2: {}", trace_key)
-        except R2StorageError as exc:
-            logger.error("Failed to upload trace: {}", exc)
 
     manifest_body = _serialize_manifest(manifest)
     try:
