@@ -378,7 +378,7 @@ def is_path_in_scope(path: Path, allowed_roots: list[Path]) -> bool:
         return False
 
     try:
-        resolved = path.resolve()
+        resolved = path.expanduser().resolve()
         for root in allowed_roots:
             if resolved == root or root in resolved.parents:
                 return True
