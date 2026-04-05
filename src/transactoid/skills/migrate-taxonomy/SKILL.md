@@ -14,18 +14,18 @@ Use this skill when:
 
 ## What Gets Impacted
 
-A taxonomy migration touches multiple layers. The `migrate_taxonomy` tool handles some automatically, but several artifacts require manual follow-up:
+A taxonomy migration touches multiple layers. The `migrate_taxonomy` tool handles the database and transaction reassignment. Everything else is this skill's responsibility:
 
-| Artifact | Auto-updated by tool? | Manual step needed? |
+| Artifact | Handled by `migrate_taxonomy` tool | Handled by this skill |
 |---|---|---|
-| Database (categories table) | Yes | No |
-| Transactions (reassignment) | Yes | No |
-| `.transactoid/memory/merchant-rules.md` | Yes (via MerchantRulesLoader) | Verify |
-| `configs/merchant-rules.md` | **No** | Yes |
-| `configs/taxonomy.yaml` | **No** | Yes |
-| Taxonomy rules prompts | **No** | Yes |
-| `.transactoid/memory/budget.md` | **No** | Regenerate if affected |
-| Categorization cache | Yes (cleared) | No |
+| Database (categories table) | Yes | - |
+| Transactions (reassignment) | Yes | - |
+| Categorization cache | Yes (cleared) | - |
+| `.transactoid/memory/merchant-rules.md` | - | Yes (via `edit-merchant-rules-memory` skill) |
+| `configs/merchant-rules.md` | - | Yes |
+| `configs/taxonomy.yaml` | - | Yes |
+| Taxonomy rules prompts | - | Yes |
+| `.transactoid/memory/budget.md` | - | Regenerate if affected (via `generate-budget` skill) |
 
 ## Workflow
 
@@ -60,7 +60,7 @@ Before making changes, understand the scope:
 
 ### Step 2: Execute the migration tool
 
-Call the `migrate_taxonomy` MCP tool with the appropriate operation:
+Call the `migrate_taxonomy` MCP tool with the appropriate operation. This handles the database changes and transaction reassignment.
 
 **Add:**
 ```json
@@ -88,12 +88,11 @@ Call the `migrate_taxonomy` MCP tool with the appropriate operation:
 ```
 
 **Deprecate (soft-delete):**
-The `migrate_taxonomy` tool does not support deprecation directly. For deprecation:
-1. Recategorize all transactions from the old category to the new one using `recategorize_merchant` for each affected merchant (see the `recategorize-merchant` skill)
-2. Mark the category as deprecated in the database:
-   ```sql
-   UPDATE categories SET deprecated_at = NOW() WHERE key = '<old_key>'
-   ```
+Use `remove` with a `fallback_key` to reassign transactions, then mark the category as deprecated:
+```sql
+UPDATE categories SET deprecated_at = NOW() WHERE key = '<old_key>'
+```
+The deprecated row stays in the database (preserving FK integrity with the `transaction_category_events` audit log) but is excluded from `fetch_categories()`, `{{CATEGORY_TAXONOMY}}` prompt injection, and agent SQL queries (via `WHERE c.deprecated_at IS NULL`).
 
 ### Step 3: Update `configs/taxonomy.yaml`
 
@@ -105,9 +104,11 @@ The migration tool updates the database but does NOT update the YAML config. Edi
 - **Merge**: Remove source entries, keep target
 - **Split**: Remove source entry, add target entries
 
-### Step 4: Update `configs/merchant-rules.md`
+### Step 4: Update merchant rules
 
-The migration tool updates `.transactoid/memory/merchant-rules.md` automatically, but `configs/merchant-rules.md` is a separate checked-in file. Update it manually:
+Use the `edit-merchant-rules-memory` skill to update category keys in `.transactoid/memory/merchant-rules.md`. For each rule that references an old/removed category key, update it to the new key.
+
+Also update `configs/merchant-rules.md` (a separate checked-in file) manually:
 
 ```bash
 grep -n "<old_category_key>" configs/merchant-rules.md
@@ -137,17 +138,7 @@ The taxonomy rules prompts describe categories in natural language for the LLM c
    ```
    This uses the LLM to regenerate the full taxonomy rules from `configs/taxonomy.yaml`. Only needed for large-scale changes.
 
-### Step 6: Update `.transactoid/memory/merchant-rules.md` (verify)
-
-The migration tool's `MerchantRulesLoader` auto-updates category keys in this file. Verify the update was applied:
-
-```bash
-grep -i "<old_key>" .transactoid/memory/merchant-rules.md
-```
-
-If any stale keys remain, update them manually using the `edit-merchant-rules-memory` skill.
-
-### Step 7: Regenerate budget (if affected)
+### Step 6: Regenerate budget (if affected)
 
 If the migration touched categories that appear in the budget, regenerate it using the `generate-budget` skill. Check first:
 
@@ -157,7 +148,7 @@ grep -i "<category_name>" .transactoid/memory/budget.md
 
 If matches are found, the budget is stale and should be regenerated.
 
-### Step 8: Verify
+### Step 7: Verify
 
 Run verification queries to confirm the migration is complete:
 
@@ -180,42 +171,22 @@ Run verification queries to confirm the migration is complete:
 
 4. **Report results to user**: transaction count moved, merchant rules updated, config files changed.
 
-## Deprecation-Specific Workflow
-
-When deprecating (soft-deleting) a category rather than hard-removing it:
-
-1. **Recategorize transactions**: For each merchant under the old category, use the `recategorize-merchant` skill to move transactions to the new category and persist the merchant rule.
-
-2. **Mark deprecated in DB**:
-   ```sql
-   UPDATE categories SET deprecated_at = NOW() WHERE key = '<old_key>'
-   ```
-
-3. **Follow Steps 3-8 above** to update configs, prompts, and memory files.
-
-The deprecated category row stays in the `categories` table (preserving FK integrity with `transaction_category_events` audit log) but is excluded from:
-- `fetch_categories()` (filtered by default)
-- `{{CATEGORY_TAXONOMY}}` prompt injection
-- Agent SQL queries (via `WHERE c.deprecated_at IS NULL` directive)
-
 ## Example: Merge Overlapping Categories
 
 **User**: "Merge childcare_and_babysitting into childcare.care"
 
 1. Query transactions under `education_and_childcare.childcare_and_babysitting` -> 30 transactions, 14 merchants
 2. Present impact: "30 transactions across 14 merchants will move to childcare.care"
-3. Recategorize each merchant via `recategorize_merchant` MCP tool
-4. Mark old category deprecated: `UPDATE categories SET deprecated_at = NOW() WHERE key = '...'`
-5. Remove entry from `configs/taxonomy.yaml`
+3. Call `migrate_taxonomy` with `{"operation": "merge", "source_keys": ["education_and_childcare.childcare_and_babysitting"], "target_key": "childcare.care"}`
+4. Remove entry from `configs/taxonomy.yaml`
+5. Use `edit-merchant-rules-memory` skill to update `.transactoid/memory/merchant-rules.md`
 6. Update `configs/merchant-rules.md` (Julia nanny rule -> `childcare.care`)
-7. Update `.transactoid/memory/merchant-rules.md` (Tameka rule -> `childcare.care`)
-8. Remove from `prompts/taxonomy-rules.md` and versioned copy
-9. Verify: 0 transactions remain, deprecated_at is set, no stale references
+7. Remove from `prompts/taxonomy-rules.md` and versioned copy
+8. Verify: 0 transactions remain on old key, no stale references
 
 ## Important Notes
 
 - **Always present impact before executing**: Taxonomy changes can affect many transactions and downstream artifacts.
-- **Deprecation preserves audit trail**: The `transaction_category_events` table stores category keys as strings, so history is readable even after the category is deprecated.
 - **Two merchant-rules files exist**: `configs/merchant-rules.md` (checked in) and `.transactoid/memory/merchant-rules.md` (agent memory). Both must be updated.
 - **Taxonomy rules are versioned**: Edit the latest version in `src/transactoid/prompts/taxonomy-rules/` and the working copy in `prompts/taxonomy-rules.md`.
 - **Budget becomes stale**: After any migration affecting budgeted categories, regenerate using the `generate-budget` skill.
