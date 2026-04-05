@@ -29,3 +29,8 @@ def resolve_workspace_dir() -> Path:
 def resolve_memory_dir() -> Path:
     """Return the ``memory/`` subdirectory inside the workspace."""
     return resolve_workspace_dir() / "memory"
+
+
+def resolve_reports_dir() -> Path:
+    """Return the ``reports/`` subdirectory inside the workspace."""
+    return resolve_workspace_dir() / "reports"

@@ -20,6 +20,7 @@ class CoreRuntimeConfig:
     verbosity: Verbosity = "high"
     enable_web_search: bool = True
     memory_dir: Path = Path.home() / ".transactoid" / "memory"
+    reports_dir: Path = Path.home() / ".transactoid" / "reports"
     skills_project_dir: str = ".claude/skills"
     skills_user_dir: str = "~/.claude/skills"
     skills_builtin_dir: str = "src/transactoid/skills"
@@ -67,9 +68,10 @@ def _require_env(name: str) -> str:
 
 def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
     """Load runtime config from env and validate startup requirements."""
-    from transactoid.workspace import resolve_memory_dir
+    from transactoid.workspace import resolve_memory_dir, resolve_reports_dir
 
     memory_dir = resolve_memory_dir()
+    reports_dir = resolve_reports_dir()
     provider_value = os.environ.get("TRANSACTOID_AGENT_PROVIDER", "openai").strip()
     if provider_value not in {"openai", "claude", "gemini", "langgraph"}:
         raise ValueError(
@@ -137,6 +139,7 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
         verbosity=verbosity,  # type: ignore[arg-type]
         enable_web_search=enable_web_search,
         memory_dir=memory_dir,
+        reports_dir=reports_dir,
         skills_project_dir=skills_project_dir,
         skills_user_dir=skills_user_dir,
         skills_builtin_dir=skills_builtin_dir,
