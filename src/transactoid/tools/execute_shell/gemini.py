@@ -103,18 +103,30 @@ class GeminiFilesystemTool:
                 "policy": "Scoped read/create/update/move/copy for skills and memory/",
             }
 
-        # Execute command via subprocess (shell=False for security)
-        # S603 is acceptable here because command is validated by policy allowlist
+        # Execute command via subprocess
+        # Command is validated by policy allowlist; use shell mode when
+        # redirection operators are present so > / >> are interpreted.
+        has_redirection = any(op in command for op in {">", ">>", "<", "<<"})
         try:
-            args = shlex.split(command)
-            result = subprocess.run(  # noqa: S603
-                args,
-                shell=False,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
+            if has_redirection:
+                result = subprocess.run(  # noqa: S602
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            else:
+                args = shlex.split(command)
+                result = subprocess.run(  # noqa: S603
+                    args,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
             output = result.stdout if result.returncode == 0 else result.stderr
             return {
                 "output": output,
