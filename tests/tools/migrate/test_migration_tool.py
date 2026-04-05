@@ -37,6 +37,7 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
             name="Food",
             description="All food spend",
             parent_key=None,
+            deprecated_at=None,
         ),
         CategoryRow(
             category_id=2,
@@ -45,6 +46,7 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
             name="Groceries",
             description=None,
             parent_key="food",
+            deprecated_at=None,
         ),
         CategoryRow(
             category_id=3,
@@ -53,6 +55,7 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
             name="Restaurants",
             description="Dining out",
             parent_key="food",
+            deprecated_at=None,
         ),
         CategoryRow(
             category_id=4,
@@ -61,6 +64,7 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
             name="Travel",
             description="Travel expenses",
             parent_key=None,
+            deprecated_at=None,
         ),
     ]
     db.replace_categories_rows(categories)

@@ -33,6 +33,7 @@ def create_sample_taxonomy(db: DB) -> Taxonomy:
             name="Food",
             description="All food spend",
             parent_key=None,
+            deprecated_at=None,
         ),
     ]
     db.replace_categories_rows(categories)

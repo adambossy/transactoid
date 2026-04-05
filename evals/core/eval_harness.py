@@ -96,6 +96,7 @@ class EvalHarness:
                     name=cat_data["name"],
                     description=cat_data.get("description"),
                     parent_key=cat_data.get("parent_key"),
+                    deprecated_at=None,
                 )
             )
 

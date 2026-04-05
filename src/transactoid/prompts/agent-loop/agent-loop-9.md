@@ -71,13 +71,16 @@ The database uses a two-table architecture for transactions:
 - Each item gets its own category for accurate spending analysis
 - User edits (categories, verification) are preserved during Plaid updates
 
+**Deprecated Categories:**
+Some categories have been retired and replaced. When JOINing the `categories` table, always filter `WHERE c.deprecated_at IS NULL` to exclude them from analysis, grouping, and display. The injected category taxonomy already excludes deprecated categories.
+
 **Example Query:**
 ```sql
--- CORRECT: Use derived_transactions
+-- CORRECT: Use derived_transactions with active categories
 SELECT SUM(amount_cents) / 100.0 as total_spent
 FROM derived_transactions dt
 JOIN categories c ON dt.category_id = c.category_id
-WHERE c.key LIKE 'food.%' AND dt.posted_at >= '2025-01-01';
+WHERE c.deprecated_at IS NULL AND c.key LIKE 'food.%' AND dt.posted_at >= '2025-01-01';
 
 -- WRONG: Do not use plaid_transactions for spending analysis
 -- SELECT ... FROM plaid_transactions ...

@@ -77,6 +77,7 @@ class Category(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
+    deprecated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
 
     # Relationships
     parent: Mapped[Category | None] = relationship(
@@ -316,6 +317,7 @@ class CategoryRow(TypedDict):
     name: str
     description: str | None
     parent_key: str | None
+    deprecated_at: datetime | None
 
 
 @dataclass

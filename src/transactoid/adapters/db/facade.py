@@ -60,6 +60,10 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
         "May have multiple rows per Plaid transaction "
         "(Amazon item splits)."
     ),
+    "categories": (
+        "Filter WHERE deprecated_at IS NULL to exclude retired categories. "
+        "Always include this filter when JOINing categories for analysis."
+    ),
 }
 
 
@@ -822,14 +826,23 @@ class DB:
             related_table_names.add(foreign_key.target_fullname.split(".", 1)[0])
         return sorted(related_table_names)
 
-    def fetch_categories(self) -> list[CategoryRow]:
-        """Fetch all categories as CategoryRow TypedDicts.
+    def fetch_categories(
+        self, *, include_deprecated: bool = False
+    ) -> list[CategoryRow]:
+        """Fetch categories as CategoryRow TypedDicts.
+
+        Args:
+            include_deprecated: If True, include deprecated categories.
+                Defaults to False (only active categories).
 
         Returns:
             List of CategoryRow dictionaries
         """
         with self.session() as session:  # type: Session
-            categories = session.query(Category).all()
+            query = session.query(Category)
+            if not include_deprecated:
+                query = query.filter(Category.deprecated_at.is_(None))
+            categories = query.all()
 
             # Build parent_key lookup
             id_to_key: dict[int, str] = {cat.category_id: cat.key for cat in categories}
@@ -848,6 +861,7 @@ class DB:
                         name=cat.name,
                         description=cat.description,
                         parent_key=parent_key,
+                        deprecated_at=cat.deprecated_at,
                     )
                 )
 

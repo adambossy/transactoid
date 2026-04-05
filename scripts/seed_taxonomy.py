@@ -176,6 +176,7 @@ def _build_category_rows_with_parent_ids(
             "name": cfg.name,
             "description": cfg.description,
             "parent_key": cfg.parent_key,
+            "deprecated_at": None,
         }
         if cfg.parent_key is not None:
             parent_id = key_to_id.get(cfg.parent_key)
