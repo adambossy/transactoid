@@ -119,6 +119,37 @@ def _classify_operation(base_command: str, has_redirection: bool) -> str:
     return "unknown"
 
 
+def _extract_redirection_targets(command: str) -> list[str]:
+    """Extract file paths that appear after redirection operators (>, >>).
+
+    For write commands the only paths that matter for scope validation
+    are the redirection targets, not the content being written.
+
+    Args:
+        command: Shell command string
+
+    Returns:
+        List of redirection target paths
+    """
+    targets: list[str] = []
+    # Walk the raw command to find > / >> operators and capture the next token
+    raw_parts = command.split()
+    idx = 0
+    while idx < len(raw_parts):
+        token = raw_parts[idx]
+        if token in {">", ">>"}:
+            if idx + 1 < len(raw_parts):
+                targets.append(raw_parts[idx + 1])
+                idx += 2
+                continue
+        elif token.startswith(">>"):
+            targets.append(token[2:])
+        elif token.startswith(">") and len(token) > 1:
+            targets.append(token[1:])
+        idx += 1
+    return targets
+
+
 def _extract_paths_from_command_simple(command: str) -> list[str]:
     """Extract file paths from a command using simple heuristics.
 
@@ -273,10 +304,9 @@ def evaluate_command_policy(
     has_redirection = any(op in command for op in {">", ">>", "<<", "<"})
     operation = _classify_operation(base_cmd, has_redirection)
 
-    # For write operations (redirections), check if targeting allowed roots
+    # For write operations (redirections), validate only the redirection targets
     if has_redirection and operation == "write":
-        # Extract paths and validate scope
-        paths = _extract_paths_from_command_simple(command)
+        paths = _extract_redirection_targets(command)
         if paths:
             valid, reason = _validate_paths_in_scope(paths, allowed_roots)
             if not valid:
