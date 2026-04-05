@@ -76,13 +76,17 @@ def _local_shell_executor(request: Any) -> str:
 
 
 def create_scoped_shell_tool(
-    skill_paths: ResolvedSkillPaths, *, memory_dir: Path
+    skill_paths: ResolvedSkillPaths,
+    *,
+    memory_dir: Path,
+    reports_dir: Path,
 ) -> Any:
     """Create a ShellTool with policy enforcement for skills and memory.
 
     Args:
         skill_paths: Resolved skill paths defining allowed scope
         memory_dir: Workspace memory directory
+        reports_dir: Workspace reports directory
 
     Returns:
         ShellTool instance with approval function for policy enforcement
@@ -90,6 +94,7 @@ def create_scoped_shell_tool(
     # Always resolve() so paths match regardless of existence at init time
     allowed_roots = skill_paths.all_existing() + [
         memory_dir.resolve(),
+        reports_dir.resolve(),
     ]
 
     # Create logger instance

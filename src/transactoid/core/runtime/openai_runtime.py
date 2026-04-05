@@ -65,7 +65,9 @@ class OpenAICoreRuntime(CoreRuntime):
         ).strip().lower() in {"1", "true", "yes", "on"}
         if enable_shell_tool and skill_paths.all_existing():
             filesystem_tool = create_scoped_shell_tool(
-                skill_paths, memory_dir=config.memory_dir
+                skill_paths,
+                memory_dir=config.memory_dir,
+                reports_dir=config.reports_dir,
             )
             tools.append(filesystem_tool)
 

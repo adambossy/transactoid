@@ -52,16 +52,24 @@ class GeminiFilesystemTool:
     Allows scoped read/create/update/move/copy for skill discovery and memory/ editing.
     """
 
-    def __init__(self, skill_paths: ResolvedSkillPaths, *, memory_dir: Path) -> None:
+    def __init__(
+        self,
+        skill_paths: ResolvedSkillPaths,
+        *,
+        memory_dir: Path,
+        reports_dir: Path,
+    ) -> None:
         """Initialize with allowed skill directories and memory directory.
 
         Args:
             skill_paths: Resolved skill paths defining allowed scope
             memory_dir: Workspace memory directory
+            reports_dir: Workspace reports directory
         """
         # Always resolve() so paths match regardless of existence at init time
         self._allowed_roots = skill_paths.all_existing() + [
             memory_dir.resolve(),
+            reports_dir.resolve(),
         ]
         self._logger = GeminiFilesystemToolLogger()
 
