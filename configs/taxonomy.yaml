@@ -363,10 +363,6 @@ categories:
   name: Courses & Certifications
   description: null
   parent_key: education_and_childcare
-- key: education_and_childcare.childcare_and_babysitting
-  name: Childcare & Babysitting
-  description: null
-  parent_key: education_and_childcare
 - key: education_and_childcare.school_activities_and_lunch
   name: School Activities & Lunch
   description: null

@@ -368,8 +368,6 @@ Sub-categories
   - Examples: textbooks; calculators; art supplies.
 - Courses & Certifications — Continuing education, online courses, bootcamps.
   - Examples: Coursera; professional certification exam fee; coding bootcamp.
-- Childcare & Babysitting — Daycare, sitters, after-school care.
-  - Examples: daycare tuition; babysitter payment; nanny share.
 - School Activities & Lunch — Clubs, field trips, lunch accounts.
   - Examples: PTA fees; field trip payment; school lunch top-up.
 

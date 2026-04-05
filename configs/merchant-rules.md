@@ -37,7 +37,7 @@ categorized as external P2P transfer unless context clearly indicates otherwise.
 
 ## Rule: Julia (Nanny Payment — ATM Withdrawal)
 
-**Category:** `education_and_childcare.childcare_and_babysitting`
+**Category:** `childcare.care`
 
 ATM cash withdrawals used to pay Julia, our nanny. Match transactions where:
 - The descriptor indicates an ATM withdrawal (e.g., contains "ATM", "CASH WITHDRAWAL", or similar)
