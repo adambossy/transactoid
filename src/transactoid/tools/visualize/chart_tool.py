@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import io
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -114,25 +115,37 @@ class GenerateChartTool(StandardTool):
                 "description": "Chart title",
             },
             "data": {
-                "type": "object",
-                "description": "Label-to-number mapping, e.g. {'Groceries': 450.0}",
+                "type": "string",
+                "description": (
+                    "JSON-encoded label-to-number mapping, "
+                    "e.g. '{\"Groceries\": 450.0}'"
+                ),
             },
             "x_label": {
                 "type": "string",
-                "description": "Optional x-axis label",
+                "description": "Optional x-axis label (empty string if not needed)",
             },
             "y_label": {
                 "type": "string",
-                "description": "Optional y-axis label",
+                "description": "Optional y-axis label (empty string if not needed)",
             },
         },
-        "required": ["chart_type", "title", "data"],
+        "required": ["chart_type", "title", "data", "x_label", "y_label"],
     }
 
     async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         chart_type = str(kwargs.get("chart_type", ""))
         title = str(kwargs.get("title", ""))
-        data = kwargs.get("data", {})
+        raw_data: Any = kwargs.get("data", {})
+        if isinstance(raw_data, str):
+            try:
+                raw_data = json.loads(raw_data)
+            except json.JSONDecodeError:
+                return {
+                    "status": "error",
+                    "error": f"data must be valid JSON; got {raw_data!r}",
+                }
+        data: dict[str, Any] = raw_data
         x_label = str(kwargs.get("x_label", ""))
         y_label = str(kwargs.get("y_label", ""))
 
