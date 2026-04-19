@@ -23,12 +23,12 @@
       },
       "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
       "env": {
-        "TRANSACTOID_WORKSPACE": "/workspace"
+        "TRANSACTOID_WORKSPACE": "/app/.transactoid"
       },
       "mounts": [
         {
           "name": "transactoid_workspace",
-          "path": "/workspace"
+          "path": "/app/.transactoid"
         }
       ],
       "restart": {
@@ -61,12 +61,12 @@
       },
       "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
       "env": {
-        "TRANSACTOID_WORKSPACE": "/workspace"
+        "TRANSACTOID_WORKSPACE": "/app/.transactoid"
       },
       "mounts": [
         {
           "name": "transactoid_workspace",
-          "path": "/workspace"
+          "path": "/app/.transactoid"
         }
       ],
       "restart": {
