@@ -22,7 +22,7 @@ def test_generate_chart_bar_returns_success():
     input_data = {
         "chart_type": "bar",
         "title": "Spending by Category",
-        "data": {"Groceries": 450.0, "Dining": 200.0, "Transport": 150.0},
+        "data": {"Spending": {"Groceries": 450.0, "Dining": 200.0, "Transport": 150.0}},
     }
 
     # act
@@ -41,7 +41,7 @@ def test_generate_chart_line_returns_success():
     input_data = {
         "chart_type": "line",
         "title": "Monthly Spending",
-        "data": {"Jan": 1200.0, "Feb": 980.0, "Mar": 1350.0},
+        "data": {"Spending": {"Jan": 1200.0, "Feb": 980.0, "Mar": 1350.0}},
     }
 
     # act
@@ -60,7 +60,9 @@ def test_generate_chart_pie_returns_success():
     input_data = {
         "chart_type": "pie",
         "title": "Expense Breakdown",
-        "data": {"Housing": 2000.0, "Food": 600.0, "Entertainment": 300.0},
+        "data": {
+            "Spending": {"Housing": 2000.0, "Food": 600.0, "Entertainment": 300.0}
+        },
     }
 
     # act
@@ -80,7 +82,7 @@ def test_generate_chart_saves_png_file():
     input_data = {
         "chart_type": "bar",
         "title": "File Save Test",
-        "data": {"A": 100.0, "B": 200.0},
+        "data": {"Spending": {"A": 100.0, "B": 200.0}},
     }
 
     # act
@@ -126,6 +128,49 @@ def test_generate_chart_empty_data():
     # assert
     assert output["status"] == "error"
     assert "error" in output
+
+
+def test_generate_chart_line_multi_series_returns_success():
+    # input
+    input_data = {
+        "chart_type": "line",
+        "title": "Monthly Spending by Category",
+        "data": {
+            "Groceries": {"2024-01": 450.0, "2024-02": 380.0, "2024-03": 420.0},
+            "Dining": {"2024-01": 200.0, "2024-02": 175.0, "2024-03": 230.0},
+        },
+    }
+
+    # act
+    tool = create_chart_tool()
+    output = asyncio.run(tool.execute(**input_data))
+
+    # assert
+    assert output["status"] == "success"
+    assert "html_img_tag" not in output
+    assert "file_path" not in output
+    assert output["ascii_plot"] is None  # not supported for multi-series
+    pop_chart_path("Monthly Spending by Category")  # consume to avoid registry leak
+
+
+def test_generate_chart_multi_series_error_for_bar():
+    # input
+    input_data = {
+        "chart_type": "bar",
+        "title": "Bad Multi-Series Bar",
+        "data": {
+            "Series A": {"Jan": 100.0, "Feb": 200.0},
+            "Series B": {"Jan": 150.0, "Feb": 250.0},
+        },
+    }
+
+    # act
+    tool = create_chart_tool()
+    output = asyncio.run(tool.execute(**input_data))
+
+    # assert
+    assert output["status"] == "error"
+    assert "one series" in output["error"].lower()
 
 
 def test_generate_ascii_plot_returns_none_for_pie():
