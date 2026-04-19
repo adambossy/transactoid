@@ -42,11 +42,27 @@ if [[ "$existing_volume_count" == "0" ]]; then
     --region "$WORKSPACE_VOLUME_REGION" \
     --size "$WORKSPACE_VOLUME_SIZE_GB" \
     --yes
-  echo "Volume created. Seed it with local ~/.transactoid contents by running:"
+  echo "Volume created. Seed it from the workspace repo by running:"
   echo "  ./scripts/seed_workspace_volume.sh"
 else
   echo "Workspace volume '$WORKSPACE_VOLUME_NAME' already present in $WORKSPACE_VOLUME_REGION."
 fi
+
+# Resolve the volume id so we can substitute it into schedules.json. The
+# Fly Machines API requires the `volume` (id) field on mounts; the `name`
+# field is a CLI-only convenience and is rejected by the cron manager.
+workspace_volume_id="$(
+  fly volumes list --app "$APP_NAME" --json \
+    | jq -r --arg name "$WORKSPACE_VOLUME_NAME" --arg region "$WORKSPACE_VOLUME_REGION" \
+        '[.[] | select(.name == $name and .region == $region)] | sort_by(.created_at) | last | .id // empty'
+)"
+
+if [[ -z "$workspace_volume_id" ]]; then
+  echo "Unable to resolve volume id for '$WORKSPACE_VOLUME_NAME' in $WORKSPACE_VOLUME_REGION" >&2
+  exit 1
+fi
+
+echo "Workspace volume id: $workspace_volume_id"
 
 # Resolve the latest image from the main app's running machines.
 latest_image="$(
@@ -61,9 +77,20 @@ fi
 
 echo "Latest image for $APP_NAME: $latest_image"
 
-# Render the image tag into the schedules file in-place for the deploy.
-# The cron-manager Dockerfile copies this file into the image.
-rendered="$(jq --arg image "$latest_image" 'map(.config.image = $image)' "$SCHEDULES_SOURCE")"
+# Render the image tag and workspace volume id into the schedules file
+# in-place for the deploy. The cron-manager Dockerfile copies this file
+# into the image, and the cron-manager API requires concrete volume ids
+# when dispatching machines.
+rendered="$(
+  jq --arg image "$latest_image" --arg volume_id "$workspace_volume_id" '
+    map(
+      .config.image = $image
+      | if (.config.mounts? // []) | length > 0 then
+          .config.mounts |= map(. + {volume: $volume_id} | del(.name))
+        else . end
+    )
+  ' "$SCHEDULES_SOURCE"
+)"
 echo "$rendered" > "$SCHEDULES_SOURCE"
 
 # Deploy the cron manager. On startup, its SyncSchedules logic reads
