@@ -22,6 +22,15 @@
         "memory_mb": 1024
       },
       "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
+      "env": {
+        "TRANSACTOID_WORKSPACE": "/workspace"
+      },
+      "mounts": [
+        {
+          "name": "transactoid_workspace",
+          "path": "/workspace"
+        }
+      ],
       "restart": {
         "max_retries": 1,
         "policy": "no"
@@ -51,6 +60,15 @@
         "memory_mb": 1024
       },
       "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
+      "env": {
+        "TRANSACTOID_WORKSPACE": "/workspace"
+      },
+      "mounts": [
+        {
+          "name": "transactoid_workspace",
+          "path": "/workspace"
+        }
+      ],
       "restart": {
         "max_retries": 1,
         "policy": "no"

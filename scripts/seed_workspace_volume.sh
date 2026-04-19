@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Seed the shared transactoid_workspace Fly volume by cloning
+# https://github.com/adambossy/transactoid-workspace so scheduled cron
+# machines start with memory/ and reports/ populated (budget.md, index.md,
+# merchant-rules.md, ...).
+#
+# The volume is attached to an ephemeral machine for the copy and then
+# the machine is destroyed, releasing the volume back to the cron pool.
+
+APP_NAME="${APP_NAME:-transactoid}"
+WORKSPACE_VOLUME_NAME="${WORKSPACE_VOLUME_NAME:-transactoid_workspace}"
+WORKSPACE_VOLUME_REGION="${WORKSPACE_VOLUME_REGION:-iad}"
+WORKSPACE_MOUNT_PATH="${WORKSPACE_MOUNT_PATH:-/workspace}"
+WORKSPACE_REPO_URL="${WORKSPACE_REPO_URL:-https://github.com/adambossy/transactoid-workspace.git}"
+WORKSPACE_REPO_REF="${WORKSPACE_REPO_REF:-main}"
+
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing required command: $cmd" >&2
+    exit 1
+  fi
+}
+
+require_cmd fly
+require_cmd jq
+require_cmd tar
+require_cmd git
+
+clone_dir="$(mktemp -d -t transactoid-workspace-seed.XXXXXX)"
+cleanup_clone() {
+  rm -rf "$clone_dir"
+}
+trap cleanup_clone EXIT
+
+echo "Cloning $WORKSPACE_REPO_URL@$WORKSPACE_REPO_REF into $clone_dir..."
+git clone --depth 1 --branch "$WORKSPACE_REPO_REF" "$WORKSPACE_REPO_URL" "$clone_dir"
+
+echo "Picking latest image for $APP_NAME..."
+image="$(
+  fly machines list --app "$APP_NAME" --json \
+    | jq -r 'sort_by(.updated_at) | last | .config.image // empty'
+)"
+if [[ -z "$image" ]]; then
+  echo "Unable to determine image for app: $APP_NAME" >&2
+  exit 1
+fi
+echo "Using image: $image"
+
+echo "Launching one-off seeder machine with $WORKSPACE_VOLUME_NAME attached..."
+machine_json="$(
+  fly machine run "$image" \
+    --app "$APP_NAME" \
+    --region "$WORKSPACE_VOLUME_REGION" \
+    --volume "$WORKSPACE_VOLUME_NAME:$WORKSPACE_MOUNT_PATH" \
+    --vm-size shared-cpu-1x \
+    --vm-memory 512 \
+    --restart no \
+    --detach \
+    --json \
+    --entrypoint /bin/sh \
+    --command "-lc 'sleep 900'"
+)"
+
+machine_id="$(echo "$machine_json" | jq -r '.id')"
+if [[ -z "$machine_id" || "$machine_id" == "null" ]]; then
+  echo "Failed to launch seeder machine." >&2
+  echo "$machine_json" >&2
+  exit 1
+fi
+echo "Seeder machine id: $machine_id"
+
+destroy_machine() {
+  echo "Destroying seeder machine $machine_id..."
+  fly machine destroy "$machine_id" --app "$APP_NAME" --force >/dev/null || true
+  cleanup_clone
+}
+trap destroy_machine EXIT
+
+echo "Waiting for machine to be running..."
+fly machine status "$machine_id" --app "$APP_NAME" >/dev/null
+for _ in $(seq 1 30); do
+  state="$(fly machine status "$machine_id" --app "$APP_NAME" --json | jq -r '.state // empty')"
+  if [[ "$state" == "started" ]]; then
+    break
+  fi
+  sleep 2
+done
+
+echo "Uploading workspace repo contents to $WORKSPACE_MOUNT_PATH..."
+# Stream a tarball over SSH and extract it inside the mount point. This
+# preserves permissions and handles nested directories (memory/, reports/).
+# The .git directory is included so follow-up pulls from the seeder are
+# possible without re-cloning.
+tar -C "$clone_dir" -cf - . \
+  | fly ssh console --app "$APP_NAME" --machine "$machine_id" \
+      -C "/bin/sh -lc 'mkdir -p $WORKSPACE_MOUNT_PATH && tar -C $WORKSPACE_MOUNT_PATH -xf -'"
+
+echo "Seed complete."
