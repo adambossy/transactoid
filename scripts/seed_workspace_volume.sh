@@ -49,25 +49,27 @@ if [[ -z "$image" ]]; then
 fi
 echo "Using image: $image"
 
-echo "Launching one-off seeder machine with $WORKSPACE_VOLUME_NAME attached..."
-machine_json="$(
-  fly machine run "$image" \
-    --app "$APP_NAME" \
-    --region "$WORKSPACE_VOLUME_REGION" \
-    --volume "$WORKSPACE_VOLUME_NAME:$WORKSPACE_MOUNT_PATH" \
-    --vm-size shared-cpu-1x \
-    --vm-memory 512 \
-    --restart no \
-    --detach \
-    --json \
-    --entrypoint /bin/sh \
-    --command "-lc 'sleep 900'"
-)"
+machine_name="transactoid-seed-$(date -u +%Y%m%d%H%M%S)"
+echo "Launching one-off seeder machine '$machine_name' with $WORKSPACE_VOLUME_NAME attached..."
+fly machine run "$image" \
+  --app "$APP_NAME" \
+  --region "$WORKSPACE_VOLUME_REGION" \
+  --name "$machine_name" \
+  --volume "$WORKSPACE_VOLUME_NAME:$WORKSPACE_MOUNT_PATH" \
+  --vm-size shared-cpu-1x \
+  --vm-memory 512 \
+  --restart no \
+  --detach \
+  --entrypoint /bin/sh \
+  -- -lc 'sleep 900'
 
-machine_id="$(echo "$machine_json" | jq -r '.id')"
+machine_id="$(
+  fly machines list --app "$APP_NAME" --json \
+    | jq -r --arg name "$machine_name" '.[] | select(.name == $name) | .id' \
+    | head -n 1
+)"
 if [[ -z "$machine_id" || "$machine_id" == "null" ]]; then
-  echo "Failed to launch seeder machine." >&2
-  echo "$machine_json" >&2
+  echo "Failed to locate seeder machine '$machine_name'." >&2
   exit 1
 fi
 echo "Seeder machine id: $machine_id"
@@ -80,14 +82,17 @@ destroy_machine() {
 trap destroy_machine EXIT
 
 echo "Waiting for machine to be running..."
-fly machine status "$machine_id" --app "$APP_NAME" >/dev/null
-for _ in $(seq 1 30); do
-  state="$(fly machine status "$machine_id" --app "$APP_NAME" --json | jq -r '.state // empty')"
+for _ in $(seq 1 60); do
+  state="$(fly machines list --app "$APP_NAME" --json | jq -r --arg id "$machine_id" '.[] | select(.id == $id) | .state // empty')"
   if [[ "$state" == "started" ]]; then
     break
   fi
   sleep 2
 done
+if [[ "$state" != "started" ]]; then
+  echo "Machine did not reach 'started' state (last: $state)." >&2
+  exit 1
+fi
 
 echo "Uploading workspace repo contents to $WORKSPACE_MOUNT_PATH..."
 # Stream a tarball over SSH and extract it inside the mount point. This
