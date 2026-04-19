@@ -98,9 +98,11 @@ class GenerateChartTool(StandardTool):
 
     _name = "generate_chart"
     _description = (
-        "Generate a chart from labeled data. The image is displayed automatically "
-        "in the chat — do not reference any file path in your response. "
-        "Returns title and ascii_plot (when gnuplot is available) for terminal display."
+        "Generate a chart from labeled data. Supports bar, line, and pie charts. "
+        "Line charts support multiple series for comparison. "
+        "The image is displayed automatically in the chat — do not reference any "
+        "file path in your response. Returns title and ascii_plot (when gnuplot is "
+        "available) for terminal display."
     )
     _input_schema: ToolInputSchema = {
         "type": "object",
@@ -117,8 +119,10 @@ class GenerateChartTool(StandardTool):
             "data": {
                 "type": "string",
                 "description": (
-                    "JSON-encoded label-to-number mapping, "
-                    "e.g. '{\"Groceries\": 450.0}'"
+                    "JSON-encoded series-name to label-to-number mapping. Bar and "
+                    "pie require exactly one series; line charts support multiple. "
+                    "The series name labels the legend. "
+                    'Example: \'{"Spending": {"Jan": 450.0, "Feb": 300.0}}\''
                 ),
             },
             "x_label": {
@@ -153,7 +157,7 @@ class GenerateChartTool(StandardTool):
             return {
                 "status": "error",
                 "error": (
-                    "data must be a dict mapping labels to numbers; "
+                    "data must be a series-name to label-to-number dict; "
                     f"got {type(data).__name__}"
                 ),
             }
@@ -163,59 +167,110 @@ class GenerateChartTool(StandardTool):
                 "error": "data must not be empty",
             }
 
-        # Coerce values to float
-        labels: list[str] = []
-        values: list[float] = []
-        for label, raw_value in data.items():
-            try:
-                values.append(float(raw_value))
-            except (TypeError, ValueError):
+        # Parse all series upfront before touching matplotlib.
+        series: dict[str, dict[str, float]] = {}
+        for series_name, series_data in data.items():
+            if not isinstance(series_data, dict):
                 return {
                     "status": "error",
                     "error": (
-                        f"Could not convert value for '{label}' to float: {raw_value!r}"
+                        f"Series '{series_name}' must be a label-to-number dict; "
+                        f"got {type(series_data).__name__}"
                     ),
                 }
-            labels.append(str(label))
+            parsed: dict[str, float] = {}
+            for label, raw_value in series_data.items():
+                try:
+                    parsed[str(label)] = float(raw_value)
+                except (TypeError, ValueError):
+                    return {
+                        "status": "error",
+                        "error": (
+                            f"Could not convert value for '{label}' in series "
+                            f"'{series_name}' to float: {raw_value!r}"
+                        ),
+                    }
+            series[str(series_name)] = parsed
 
-        # Sort chronologically when all labels are ISO date strings (YYYY-MM or
-        # YYYY-MM-DD). Lexicographic order equals chronological order for these
-        # formats, so no date parsing is required.
-        if all(_ISO_DATE_RE.match(lbl) for lbl in labels):
-            pairs = sorted(zip(labels, values), key=lambda pair: pair[0])
-            labels = [pair[0] for pair in pairs]
-            values = [pair[1] for pair in pairs]
-
-        # Build figure
-        figsize = (8, 8) if chart_type == "pie" else (10, 6)
-        fig, ax = plt.subplots(figsize=figsize)
-
-        num_items = len(labels)
-        colors = (CHART_COLORS * ((num_items // len(CHART_COLORS)) + 1))[:num_items]
-
-        if chart_type == "bar":
-            ax.bar(labels, values, color=colors)
-            if x_label:
-                ax.set_xlabel(x_label)
-            if y_label:
-                ax.set_ylabel(y_label)
-            plt.xticks(rotation=45, ha="right")
-        elif chart_type == "line":
-            ax.plot(labels, values, color=CHART_COLORS[0], marker="o")
-            if x_label:
-                ax.set_xlabel(x_label)
-            if y_label:
-                ax.set_ylabel(y_label)
-            plt.xticks(rotation=45, ha="right")
-        elif chart_type == "pie":
-            ax.pie(values, labels=labels, colors=colors, autopct="%1.1f%%")
-            ax.axis("equal")
-        else:
-            plt.close(fig)
+        if chart_type in ("bar", "pie") and len(series) > 1:
             return {
                 "status": "error",
-                "error": f"Unsupported chart_type: {chart_type!r}",
+                "error": (
+                    f"{chart_type} charts support only one series; got {len(series)}"
+                ),
             }
+
+        ascii_plot: str | None = None
+
+        if chart_type == "line":
+            # Collect all x-labels in insertion order, sort if ISO dates.
+            all_labels_seen: set[str] = set()
+            all_labels: list[str] = []
+            for series_vals in series.values():
+                for label in series_vals:
+                    if label not in all_labels_seen:
+                        all_labels.append(label)
+                        all_labels_seen.add(label)
+            if all(_ISO_DATE_RE.match(lbl) for lbl in all_labels):
+                all_labels = sorted(all_labels)
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for idx, (series_name, series_vals) in enumerate(series.items()):
+                color = CHART_COLORS[idx % len(CHART_COLORS)]
+                s_labels = [lbl for lbl in all_labels if lbl in series_vals]
+                s_values = [series_vals[lbl] for lbl in s_labels]
+                ax.plot(s_labels, s_values, color=color, marker="o", label=series_name)
+            if len(series) > 1:
+                ax.legend()
+            if x_label:
+                ax.set_xlabel(x_label)
+            if y_label:
+                ax.set_ylabel(y_label)
+            plt.xticks(rotation=45, ha="right")
+
+            if len(series) == 1:
+                single_vals = next(iter(series.values()))
+                s_labels = [lbl for lbl in all_labels if lbl in single_vals]
+                s_values = [single_vals[lbl] for lbl in s_labels]
+                ascii_plot = _generate_ascii_plot(chart_type, s_labels, s_values, title)
+
+        else:
+            # bar or pie: single series (already validated above).
+            series_vals = next(iter(series.values()))
+            labels = list(series_vals.keys())
+            values = list(series_vals.values())
+
+            # Sort chronologically when all labels are ISO date strings (YYYY-MM or
+            # YYYY-MM-DD). Lexicographic order equals chronological order for these
+            # formats, so no date parsing is required.
+            if all(_ISO_DATE_RE.match(lbl) for lbl in labels):
+                pairs = sorted(zip(labels, values), key=lambda pair: pair[0])
+                labels = [pair[0] for pair in pairs]
+                values = [pair[1] for pair in pairs]
+
+            num_items = len(labels)
+            colors = (CHART_COLORS * ((num_items // len(CHART_COLORS)) + 1))[:num_items]
+            figsize = (8, 8) if chart_type == "pie" else (10, 6)
+            fig, ax = plt.subplots(figsize=figsize)
+
+            if chart_type == "bar":
+                ax.bar(labels, values, color=colors)
+                if x_label:
+                    ax.set_xlabel(x_label)
+                if y_label:
+                    ax.set_ylabel(y_label)
+                plt.xticks(rotation=45, ha="right")
+            elif chart_type == "pie":
+                ax.pie(values, labels=labels, colors=colors, autopct="%1.1f%%")
+                ax.axis("equal")
+            else:
+                plt.close(fig)
+                return {
+                    "status": "error",
+                    "error": f"Unsupported chart_type: {chart_type!r}",
+                }
+
+            ascii_plot = _generate_ascii_plot(chart_type, labels, values, title)
 
         ax.set_title(title, fontsize=14, fontweight="bold")
         plt.tight_layout()
@@ -235,8 +290,6 @@ class GenerateChartTool(StandardTool):
         filename = f"{timestamp}-{uid[:8]}-{chart_type}.png"
         file_path = charts_dir / filename
         file_path.write_bytes(png_bytes)
-
-        ascii_plot = _generate_ascii_plot(chart_type, labels, values, title)
 
         # Register the path for the ChatKit server to consume; do not return it
         # to the LLM (it would embed it as a broken markdown image reference).
