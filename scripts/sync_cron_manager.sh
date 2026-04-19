@@ -5,6 +5,9 @@ APP_NAME="${APP_NAME:-transactoid}"
 CRON_MANAGER_APP="${CRON_MANAGER_APP:-transactoid-cron-manager}"
 CRON_MANAGER_DIR="${CRON_MANAGER_DIR:-ops/cron-manager}"
 SCHEDULES_SOURCE="${CRON_MANAGER_DIR}/schedules.json"
+WORKSPACE_VOLUME_NAME="${WORKSPACE_VOLUME_NAME:-transactoid_workspace}"
+WORKSPACE_VOLUME_REGION="${WORKSPACE_VOLUME_REGION:-iad}"
+WORKSPACE_VOLUME_SIZE_GB="${WORKSPACE_VOLUME_SIZE_GB:-1}"
 
 require_cmd() {
   local cmd="$1"
@@ -20,6 +23,29 @@ require_cmd jq
 if [[ ! -f "$SCHEDULES_SOURCE" ]]; then
   echo "Schedules source not found: $SCHEDULES_SOURCE" >&2
   exit 1
+fi
+
+# Ensure the shared workspace volume exists in the target region so the
+# cron machines can mount ~/.transactoid (memory/, reports/) persistently.
+# Without this, every scheduled run starts with an empty workspace and
+# artifacts like budget.md are missing.
+existing_volume_count="$(
+  fly volumes list --app "$APP_NAME" --json \
+    | jq --arg name "$WORKSPACE_VOLUME_NAME" --arg region "$WORKSPACE_VOLUME_REGION" \
+        '[.[] | select(.name == $name and .region == $region)] | length'
+)"
+
+if [[ "$existing_volume_count" == "0" ]]; then
+  echo "Creating workspace volume '$WORKSPACE_VOLUME_NAME' in $WORKSPACE_VOLUME_REGION..."
+  fly volumes create "$WORKSPACE_VOLUME_NAME" \
+    --app "$APP_NAME" \
+    --region "$WORKSPACE_VOLUME_REGION" \
+    --size "$WORKSPACE_VOLUME_SIZE_GB" \
+    --yes
+  echo "Volume created. Seed it with local ~/.transactoid contents by running:"
+  echo "  ./scripts/seed_workspace_volume.sh"
+else
+  echo "Workspace volume '$WORKSPACE_VOLUME_NAME' already present in $WORKSPACE_VOLUME_REGION."
 fi
 
 # Resolve the latest image from the main app's running machines.
