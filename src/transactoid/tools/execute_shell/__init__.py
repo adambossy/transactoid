@@ -1,16 +1,10 @@
-"""Execute shell command tool with policy enforcement.
+"""OpenAI runtime shell tool.
 
-Provides shell command execution for runtime environments with security
-policy enforcement and provider-specific implementations.
-
-Import from submodules:
-    - transactoid.tools.execute_shell.policy - Policy evaluation
-    - transactoid.tools.execute_shell.gemini - Gemini implementation
-    - transactoid.tools.execute_shell.openai - OpenAI implementation
+The Gemini runtime uses ADK's built-in ``EnvironmentToolset`` directly (see
+``transactoid.core.runtime.gemini_runtime``), so only the OpenAI shim lives
+here.
 """
 
 __all__ = [
-    "gemini",
     "openai",
-    "policy",
 ]
