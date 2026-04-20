@@ -93,4 +93,4 @@ Once you have produced the markdown report above:
 
 1. Include the full markdown report in your final response.
 2. Convert the markdown report to a styled HTML document following the render-report-html skill instructions (consult `src/transactoid/skills/render-report-html/SKILL.md`).
-3. Write the HTML file to `.transactoid/reports/report-monthly-latest.html` using `execute_shell_command`.
+3. Write the HTML file to `.transactoid/reports/report-monthly-latest.html`.
