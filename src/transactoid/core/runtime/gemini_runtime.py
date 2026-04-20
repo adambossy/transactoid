@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 from google.adk.agents import LlmAgent
+from google.adk.environment._local_environment import LocalEnvironment
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.tools.environment import EnvironmentToolset
 from google.genai import types as genai_types
 
 from transactoid.core.runtime.config import CoreRuntimeConfig
@@ -28,9 +31,7 @@ from transactoid.core.runtime.protocol import (
     classify_tool_kind,
 )
 from transactoid.core.runtime.shared_tool_invoker import SharedToolInvoker
-from transactoid.core.runtime.skills.paths import resolve_skill_paths
 from transactoid.core.runtime.tool_adapters.gemini import GeminiToolAdapter
-from transactoid.tools.execute_shell.gemini import GeminiFilesystemTool
 from transactoid.tools.registry import ToolRegistry
 
 
@@ -46,28 +47,20 @@ class GeminiCoreRuntime(CoreRuntime):
     ) -> None:
         self._registry = registry
         self._invoker = SharedToolInvoker(registry)
-        self._tools = GeminiToolAdapter(
-            registry=registry,
-            invoker=self._invoker,
-        ).adapt_all()
-
-        # Add read-only filesystem tool for skill discovery
-        skill_paths = resolve_skill_paths(
-            project_dir=config.skills_project_dir,
-            user_dir=config.skills_user_dir,
-            builtin_dir=config.skills_builtin_dir,
+        self._tools: list[Any] = list(
+            GeminiToolAdapter(
+                registry=registry,
+                invoker=self._invoker,
+            ).adapt_all()
         )
-        self._filesystem_tool: GeminiFilesystemTool | None = None
-        if skill_paths.all_existing():
-            self._filesystem_tool = GeminiFilesystemTool(
-                skill_paths,
-                memory_dir=config.memory_dir,
-                reports_dir=config.reports_dir,
-            )
-            filesystem_function_tool = self._create_filesystem_function_tool(
-                self._filesystem_tool
-            )
-            self._tools.append(filesystem_function_tool)
+
+        # ADK's EnvironmentToolset exposes Execute / ReadFile / WriteFile /
+        # EditFile. WriteFile lets the model persist multi-line HTML reports
+        # without heredocs. working_dir matches the process CWD so
+        # prompt-relative paths like `.transactoid/reports/...` resolve into
+        # the mounted workspace.
+        self._environment = LocalEnvironment(working_dir=Path.cwd())
+        self._tools.append(EnvironmentToolset(environment=self._environment))
 
         session_service_factory: Any = InMemorySessionService
         self._session_service = session_service_factory()
@@ -285,33 +278,3 @@ class GeminiCoreRuntime(CoreRuntime):
             role="user",
             parts=[genai_types.Part.from_text(text=input_text)],
         )
-
-    def _create_filesystem_function_tool(
-        self, filesystem_tool: GeminiFilesystemTool
-    ) -> Any:
-        """Create a FunctionTool for filesystem operations.
-
-        Args:
-            filesystem_tool: The GeminiFilesystemTool instance to wrap
-
-        Returns:
-            FunctionTool instance for ADK
-        """
-        from google.adk.tools.function_tool import FunctionTool
-
-        async def execute_shell_command(command: str) -> dict[str, Any]:
-            """Execute scoped shell commands for skill discovery and memory editing.
-
-            Allows: pwd, ls, find, cat, head, tail, grep, rg, sed, echo, printf,
-                   touch, mkdir, mv, cp, tree.
-            Operations scoped to skill directories and memory/ directory only.
-
-            Args:
-                command: Shell command to execute (scoped read/write/move/copy)
-
-            Returns:
-                Command output or error message
-            """
-            return await filesystem_tool.execute_command(command)
-
-        return FunctionTool(execute_shell_command)
