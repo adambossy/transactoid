@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape
 import os
 from pathlib import Path
@@ -993,6 +993,39 @@ _DEFAULT_SCHEDULED_EMAIL_RECIPIENTS = ("adambossy@gmail.com",)
 _DEFAULT_VERIFIED_FROM_ADDRESS = "onboarding@resend.dev"
 
 
+def _format_report_email_subject(
+    *, prompt_key: str | None, now: datetime, fallback_template: str
+) -> str:
+    """Build the email subject for a scheduled report run.
+
+    Daily/weekly/monthly/annual prompts each get a period-specific subject; any
+    other prompt_key falls back to the configured template.
+    """
+    if prompt_key == "report-daily":
+        return f"Transactoid Daily Report - {now.strftime('%B')} {now.day}, {now.year}"
+    if prompt_key in {"report-weekly", "report-weekly-jenny"}:
+        start = now - timedelta(days=6)
+        if start.month == now.month and start.year == now.year:
+            return (
+                f"Transactoid Weekly Report - {start.strftime('%B')} "
+                f"{start.day}-{now.day}, {now.year}"
+            )
+        if start.year == now.year:
+            return (
+                f"Transactoid Weekly Report - {start.strftime('%B')} {start.day}-"
+                f"{now.strftime('%B')} {now.day}, {now.year}"
+            )
+        return (
+            f"Transactoid Weekly Report - {start.strftime('%B')} {start.day}, "
+            f"{start.year}-{now.strftime('%B')} {now.day}, {now.year}"
+        )
+    if prompt_key == "report-monthly":
+        return f"Transactoid Monthly Report - {now.strftime('%B')} {now.year}"
+    if prompt_key == "report-annual":
+        return f"Transactoid Annual Report - {now.year}"
+    return fallback_template.format(month=now.strftime("%B"), year=now.year)
+
+
 def _load_email_config() -> dict[str, Any]:
     """Load email configuration from configs/email.yaml."""
     path = Path(_DEFAULT_EMAIL_CONFIG_PATH)
@@ -1026,7 +1059,9 @@ def _send_run_email(
     subject_template: str = email_config.get(
         "subject_template", "Transactoid Report - {month} {year}"
     )
-    subject = subject_template.format(month=now.strftime("%B"), year=now.year)
+    subject = _format_report_email_subject(
+        prompt_key=prompt_key, now=now, fallback_template=subject_template
+    )
 
     # Prefer pipeline-generated HTML; fallback to standardized report file path.
     resolved_html_content = html_content

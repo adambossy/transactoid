@@ -26,8 +26,11 @@ email:
   smtp_use_tls: true
   smtp_use_ssl: false
 
-  # Subject line template (supports {month} and {year} placeholders)
-  subject_template: "Transactoid Spending Report - {month} {year}"
+  # Fallback subject template for runs with no recognized prompt_key.
+  # Daily/weekly/monthly/annual report prompts use period-specific subjects
+  # (e.g., "Transactoid Daily Report - April 27, 2026") built in the CLI.
+  # Supports {month} and {year} placeholders.
+  subject_template: "Transactoid Report - {month} {year}"
 
 error_notification:
   # Whether to send error notifications when report generation fails
