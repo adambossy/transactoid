@@ -39,9 +39,15 @@ echo "Cloning $WORKSPACE_REPO_URL@$WORKSPACE_REPO_REF into $clone_dir..."
 git clone --depth 1 --branch "$WORKSPACE_REPO_REF" "$WORKSPACE_REPO_URL" "$clone_dir"
 
 echo "Picking latest image for $APP_NAME..."
+# Use the release history (atomic, canonical) instead of `fly machines list`
+# which can return an older image from an ephemeral cron machine that
+# launched right after a fresh deploy.
 image="$(
-  fly machines list --app "$APP_NAME" --json \
-    | jq -r 'sort_by(.updated_at) | last | .config.image // empty'
+  fly releases --app "$APP_NAME" --json \
+    | jq -r '
+        [.[] | select(.Status == "complete" and .InProgress == false)]
+        | sort_by(.CreatedAt) | last | .ImageRef // empty
+      '
 )"
 if [[ -z "$image" ]]; then
   echo "Unable to determine image for app: $APP_NAME" >&2
