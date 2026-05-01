@@ -64,10 +64,19 @@ fi
 
 echo "Workspace volume id: $workspace_volume_id"
 
-# Resolve the latest image from the main app's running machines.
+# Resolve the latest image from the app's release history. We deliberately
+# do NOT use `fly machines list | ... .config.image` here: that pool
+# includes ephemeral cron machines (auto_destroy=true) whose config
+# snapshots the image they launched with, so a cron machine that started
+# moments after a fresh `fly deploy` can win the `sort_by(.updated_at) | last`
+# ranking and bind cron to an older image. The releases endpoint is the
+# canonical, atomic record of the most recently published deploy.
 latest_image="$(
-  fly machines list --app "$APP_NAME" --json \
-    | jq -r 'sort_by(.updated_at) | last | .config.image // empty'
+  fly releases --app "$APP_NAME" --json \
+    | jq -r '
+        [.[] | select(.Status == "complete" and .InProgress == false)]
+        | sort_by(.CreatedAt) | last | .ImageRef // empty
+      '
 )"
 
 if [[ -z "$latest_image" ]]; then
