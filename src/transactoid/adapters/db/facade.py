@@ -18,7 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from transactoid.adapters.db.models import (
     AmazonItemDB,
@@ -1991,15 +1991,22 @@ class DB:
             category_id: Category ID to filter by
 
         Returns:
-            List of DerivedTransaction instances
+            List of DerivedTransaction instances with `plaid_transaction`
+            eager-loaded so callers can read its attributes after the session
+            closes. Other relationships remain lazy and will raise
+            DetachedInstanceError if accessed.
         """
         with self.session() as session:  # type: Session
             txns = (
                 session.query(DerivedTransaction)
+                .options(joinedload(DerivedTransaction.plaid_transaction))
                 .filter_by(category_id=category_id)
                 .all()
             )
             for txn in txns:
+                # Expunge the joined parent before the txn so neither is
+                # expired by the implicit commit on session exit.
+                session.expunge(txn.plaid_transaction)
                 session.expunge(txn)
             return txns
 

@@ -361,6 +361,32 @@ def test_merge_categories_reassigns_transactions() -> None:
     assert refreshed[0].category_id == groceries_id
 
 
+def test_get_transactions_by_category_id_eager_loads_plaid_transaction() -> None:
+    db = create_db()
+    create_sample_taxonomy(db)
+    restaurants_id = db.get_category_id_by_key("food.restaurants")
+    assert restaurants_id is not None
+    db.insert_transaction(
+        {
+            "external_id": "ext_eager",
+            "source": "PLAID",
+            "account_id": "acc_eager",
+            "posted_at": date(2024, 1, 15),
+            "amount_cents": 1234,
+            "currency": "USD",
+            "category_id": restaurants_id,
+        }
+    )
+
+    output = db.get_transactions_by_category_id(restaurants_id)
+    expected_output = {"account_id": "acc_eager", "currency": "USD"}
+
+    assert {
+        "account_id": output[0].plaid_transaction.account_id,
+        "currency": output[0].plaid_transaction.currency,
+    } == expected_output
+
+
 def test_merge_categories_fails_for_nonexistent_source() -> None:
     db = create_db()
     taxonomy = create_sample_taxonomy(db)
