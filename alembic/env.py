@@ -9,29 +9,25 @@ from alembic import context
 # Load environment variables from .env file
 load_dotenv()
 
-# Import the Base and all models for autogenerate support
-# Import all models to ensure they're registered with Base
 from transactoid.adapters.db.models import (  # noqa: F401, E402
     Base,
     Category,
     DerivedTransaction,
+    EmailReceipt,
     Merchant,
+    PendingReceiptMatch,
     PlaidItem,
     PlaidTransaction,
     Tag,
+    TransactionItem,
     TransactionTag,
 )
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Get database URL from environment variables
 database_url = os.environ.get("DATABASE_URL") or config.get_main_option(
     "sqlalchemy.url"
 )
@@ -39,14 +35,7 @@ database_url = os.environ.get("DATABASE_URL") or config.get_main_option(
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
 target_metadata = Base.metadata
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
 
 def run_migrations_offline() -> None:
