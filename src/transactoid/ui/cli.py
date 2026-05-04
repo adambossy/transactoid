@@ -16,10 +16,15 @@ import yaml
 
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.db.models import AmazonLoginProfileDB
+from transactoid.errors import RefundError, SplitError
+from transactoid.services.refund import record_refund
 from transactoid.services.scheduled_reports import (
     NEW_YORK_TZ,
     select_prompt_key,
 )
+from transactoid.services.split import split_transaction
+
+_SPLIT_AMOUNT_LIMIT = 1_000_000
 
 # Load environment variables from .env
 load_dotenv()
@@ -375,6 +380,111 @@ def taxonomy_split(
         target_description = parts[2] if len(parts) == 3 and parts[2] else None
         targets.append((key, target_name, target_description))
     _run_taxonomy_op(operation="split", source_key=source_key, targets=targets)
+
+
+@app.command("split")
+def split_cmd(
+    txn_id: int = typer.Argument(..., help="Derived transaction ID to split"),
+    amounts: list[float] = typer.Argument(
+        ..., help="Dollar amounts for each part (≥2 required)"
+    ),
+) -> None:
+    """Split a derived transaction into N parts.
+
+    AMOUNTs are in dollars (e.g. 30.00 15.00). They must sum exactly to
+    the original transaction amount. Penny-precision (2 decimal places) is
+    required; ambiguous values like 12.345 are rejected.
+
+    Examples:
+
+        # Split TXN-42 ($50.00) into two parts
+        transactoid split 42 30.00 20.00
+
+        # Three-way split
+        transactoid split 99 10.00 25.50 14.50
+    """
+    parts_cents: list[int] = []
+    for raw in amounts:
+        scaled = raw * 100
+        rounded = round(scaled)
+        if abs(scaled - rounded) > 0.001:
+            typer.echo(
+                f"Invalid amount {raw!r}: must have at most 2 decimal places",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if rounded <= 0:
+            typer.echo(
+                f"amount ${raw:.2f} is not positive; split parts must be positive",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if rounded > _SPLIT_AMOUNT_LIMIT * 100:
+            typer.echo(
+                f"amount ${raw:,.2f} exceeds the per-part limit "
+                f"(${_SPLIT_AMOUNT_LIMIT:,}); did you mistype?",
+                err=True,
+            )
+            raise typer.Exit(1)
+        parts_cents.append(rounded)
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    try:
+        new_ids = split_transaction(db, txn_id, parts_cents)
+    except SplitError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    parts_summary = ", ".join(
+        f"{new_id} ${cents / 100:.2f}"
+        for new_id, cents in zip(new_ids, parts_cents, strict=True)
+    )
+    typer.echo(f"Split TXN-{txn_id} into {len(new_ids)} parts: {parts_summary}")
+
+
+@app.command("refund")
+def refund_cmd(
+    refund_txn_id: int = typer.Argument(
+        ..., help="Derived transaction ID of the refund"
+    ),
+    of: int = typer.Option(
+        ..., "--of", help="Derived transaction ID of the original charge"
+    ),
+) -> None:
+    """Link a refund transaction to the original charge it offsets.
+
+    Records a user-initiated refund link between two derived transactions.
+    REFUND_TXN_ID must be the refund row (typically negative amount);
+    --of must be the original charge being refunded.
+
+    Net spend is computed via SUM(amount_cents) — refunds subtract naturally
+    because they carry negative amounts. The link is for traceability only.
+
+    Example:
+
+        # Link refund TXN-99 to original charge TXN-42
+        transactoid refund 99 --of 42
+    """
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    try:
+        result = record_refund(db, refund_txn_id=refund_txn_id, original_txn_id=of)
+    except RefundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    for warning in result.warnings:
+        typer.echo(f"Warning: {warning}", err=True)
+
+    refund_amount = result.refund_amount_cents / 100
+    original_amount = result.original_amount_cents / 100
+    typer.echo(
+        f"Linked refund TXN-{refund_txn_id} (${refund_amount:.2f}) "
+        f"to original TXN-{of} (${original_amount:.2f})."
+    )
 
 
 async def _categorize_impl(
