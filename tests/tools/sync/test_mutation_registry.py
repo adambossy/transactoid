@@ -67,4 +67,4 @@ def test_mutation_registry_default_mutation_preserves_llm_summary() -> None:
     expected_output = llm_summary
 
     # assert
-    assert output.derived_data_list[0]["web_search_summary"] == expected_output
+    assert output.derived_data_list[0].web_search_summary == expected_output

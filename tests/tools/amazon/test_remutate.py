@@ -10,6 +10,7 @@ from transactoid.tools.amazon.remutate import (
     SupportsRemutation,
     remutate_amazon_orders,
 )
+from transactoid.tools.sync.mutation_plugin import DerivedTransactionPayload
 
 
 class FakeRunner:
@@ -167,14 +168,14 @@ def test_remutate_dry_run_flags_verified_overwrite(tmp_path: Path) -> None:
     db, plaid_id = create_db_with_one_match(tmp_path)
     db.bulk_insert_derived_transactions(
         [
-            {
-                "plaid_transaction_id": plaid_id,
-                "external_id": "P1",
-                "amount_cents": 4999,
-                "posted_at": date(2026, 1, 20),
-                "merchant_descriptor": "AMAZON.COM",
-                "is_verified": True,
-            }
+            DerivedTransactionPayload(
+                plaid_transaction_id=plaid_id,
+                external_id="P1",
+                amount_cents=4999,
+                posted_at=date(2026, 1, 20),
+                merchant_descriptor="AMAZON.COM",
+                is_verified=True,
+            )
         ]
     )
 
