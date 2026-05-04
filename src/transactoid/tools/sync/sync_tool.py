@@ -21,6 +21,7 @@ from transactoid.tools.protocol import ToolInputSchema
 from transactoid.tools.sync.investment_classification import (
     investment_activity_reporting_mode,
 )
+from transactoid.tools.sync.mutation_plugin import DerivedTransactionPayload
 from transactoid.tools.sync.mutation_registry import MutationRegistry
 
 if TYPE_CHECKING:
@@ -530,14 +531,16 @@ class SyncTool:
                     transaction_name=inv_txn.get("name", ""),
                 )
 
-                derived_data = {
-                    "plaid_transaction_id": plaid_ids[0],
-                    "external_id": inv_txn["investment_transaction_id"],
-                    "amount_cents": txn_dict["amount_cents"],
-                    "posted_at": txn_dict["posted_at"],
-                    "merchant_descriptor": txn_dict["merchant_descriptor"],
-                    "reporting_mode": reporting_mode,
-                }
+                derived_payload = DerivedTransactionPayload(
+                    plaid_transaction_id=plaid_ids[0],
+                    external_id=inv_txn["investment_transaction_id"],
+                    amount_cents=int(txn_dict["amount_cents"]),  # type: ignore[arg-type]
+                    posted_at=txn_dict["posted_at"],  # type: ignore[arg-type]
+                    merchant_descriptor=str(txn_dict["merchant_descriptor"])
+                    if txn_dict.get("merchant_descriptor")
+                    else None,
+                    reporting_mode=reporting_mode,
+                )
 
                 # Check if derived already exists
                 existing_derived = self._db.get_derived_by_plaid_ids([plaid_ids[0]])
@@ -549,7 +552,7 @@ class SyncTool:
                     )
                 else:
                     # Insert new derived
-                    self._db.bulk_insert_derived_transactions([derived_data])
+                    self._db.bulk_insert_derived_transactions([derived_payload])
 
                 if reporting_mode == "DEFAULT_EXCLUDE":
                     excluded_count += 1
@@ -1119,7 +1122,7 @@ class SyncTool:
         self._mutation_registry.initialize_plugins(plaid_txns_list)
 
         # Collect all derived data and plaid_ids to delete
-        all_new_derived_data: list[dict[str, Any]] = []
+        all_new_derived_data: list[DerivedTransactionPayload] = []
         plaid_ids_to_delete: list[int] = []
         unchanged_derived_ids: list[int] = []
 
@@ -1153,14 +1156,13 @@ class SyncTool:
         if plaid_ids_to_delete:
             self._db.delete_derived_by_plaid_ids(plaid_ids_to_delete)
 
-        # Bulk insert all new derived in single call
         new_ids = self._db.bulk_insert_derived_transactions(all_new_derived_data)
         return unchanged_derived_ids + new_ids
 
     @staticmethod
     def _derived_unchanged(
         old: DerivedTransaction,
-        new_data: dict[str, Any],
+        new_payload: DerivedTransactionPayload,
     ) -> bool:
         """Check if derived transaction data is unchanged.
 
@@ -1168,9 +1170,9 @@ class SyncTool:
         merchant descriptor). If all match, the mutation can be skipped.
         """
         return (
-            old.amount_cents == new_data.get("amount_cents")
-            and old.posted_at == new_data.get("posted_at")
-            and old.merchant_descriptor == new_data.get("merchant_descriptor")
+            old.amount_cents == new_payload.amount_cents
+            and old.posted_at == new_payload.posted_at
+            and old.merchant_descriptor == new_payload.merchant_descriptor
         )
 
     def _get_excluded_account_id(self, access_token: str) -> str | None:

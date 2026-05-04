@@ -259,6 +259,7 @@ def import_transactions(
         dry_run: If True, only print what would happen.
     """
     from transactoid.adapters.db.facade import DB
+    from transactoid.tools.sync.mutation_plugin import DerivedTransactionPayload
 
     db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
     db = DB(db_url)
@@ -287,19 +288,21 @@ def import_transactions(
         existing_derived_pids: set[int] = {r[0] for r in result.fetchall()}
 
     # Step 3: Build derived data for new rows only
-    derived_data: list[dict[str, object]] = []
+    derived_data: list[DerivedTransactionPayload] = []
     for row, plaid_id in zip(rows, plaid_ids, strict=True):
         if plaid_id in existing_derived_pids:
             continue
         derived_data.append(
-            {
-                "plaid_transaction_id": plaid_id,
-                "external_id": row["external_id"],
-                "amount_cents": row["amount_cents"],
-                "posted_at": row["posted_at"],
-                "merchant_descriptor": row["merchant_descriptor"],
-                "reporting_mode": "DEFAULT_INCLUDE",
-            }
+            DerivedTransactionPayload(
+                plaid_transaction_id=plaid_id,
+                external_id=str(row["external_id"]),
+                amount_cents=row["amount_cents"],  # type: ignore[arg-type]
+                posted_at=row["posted_at"],  # type: ignore[arg-type]
+                merchant_descriptor=str(row["merchant_descriptor"])
+                if row.get("merchant_descriptor")
+                else None,
+                reporting_mode="DEFAULT_INCLUDE",
+            )
         )
 
     skipped = len(plaid_ids) - len(derived_data)

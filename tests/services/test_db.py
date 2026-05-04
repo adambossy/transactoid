@@ -18,6 +18,7 @@ from transactoid.adapters.db.models import (
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import get_category_id, load_taxonomy_from_db
 from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
+from transactoid.tools.sync.mutation_plugin import DerivedTransactionPayload
 
 
 def make_category_lookup(db: DB, taxonomy: Taxonomy) -> Callable[[str], int | None]:
@@ -39,6 +40,13 @@ def create_db() -> DB:
         assert session.bind is not None
         Base.metadata.create_all(session.bind)
     return db
+
+
+def _insert_derived(db: DB, payload: DerivedTransactionPayload) -> DerivedTransaction:
+    """Insert a single derived transaction via the typed bulk path; return ORM row."""
+    (txn_id,) = db.bulk_insert_derived_transactions([payload])
+    rows = db.get_derived_transactions_by_ids([txn_id])
+    return rows[0]
 
 
 def create_sample_taxonomy(db: DB) -> Taxonomy:
@@ -905,6 +913,9 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
         "transaction_category_events",
         "tags",
         "transaction_tags",
+        "transaction_items",
+        "email_receipts",
+        "pending_receipt_matches",
     }
     output_tables = set(hint["tables"])
     assert output_tables == expected_tables
@@ -948,25 +959,27 @@ def test_bulk_update_derived_web_search_summaries_sets_and_clears_values() -> No
         merchant_descriptor="Merchant B",
         institution=None,
     )
-    first = db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid1.plaid_transaction_id,
-            "external_id": "derived_1",
-            "amount_cents": 1000,
-            "posted_at": date(2024, 1, 15),
-            "merchant_descriptor": "Merchant A",
-            "web_search_summary": "stale",
-        }
+    first = _insert_derived(
+        db,
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid1.plaid_transaction_id,
+            external_id="derived_1",
+            amount_cents=1000,
+            posted_at=date(2024, 1, 15),
+            merchant_descriptor="Merchant A",
+            web_search_summary="stale",
+        ),
     )
-    second = db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid2.plaid_transaction_id,
-            "external_id": "derived_2",
-            "amount_cents": 2000,
-            "posted_at": date(2024, 1, 16),
-            "merchant_descriptor": "Merchant B",
-            "web_search_summary": "stale",
-        }
+    second = _insert_derived(
+        db,
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid2.plaid_transaction_id,
+            external_id="derived_2",
+            amount_cents=2000,
+            posted_at=date(2024, 1, 16),
+            merchant_descriptor="Merchant B",
+            web_search_summary="stale",
+        ),
     )
     updates = {
         first.transaction_id: input_data["first_summary"],
@@ -1121,32 +1134,35 @@ def test_get_derived_by_plaid_ids_returns_grouped_dict() -> None:
     )
 
     # Create derived transactions - 2 for plaid1, 1 for plaid2
-    derived1a = db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid1.plaid_transaction_id,
-            "external_id": "ext_1-item1",
-            "amount_cents": 2500,
-            "posted_at": date(2024, 1, 15),
-            "merchant_descriptor": "Amazon: Item 1",
-        }
+    derived1a = _insert_derived(
+        db,
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid1.plaid_transaction_id,
+            external_id="ext_1-item1",
+            amount_cents=2500,
+            posted_at=date(2024, 1, 15),
+            merchant_descriptor="Amazon: Item 1",
+        ),
     )
-    derived1b = db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid1.plaid_transaction_id,
-            "external_id": "ext_1-item2",
-            "amount_cents": 2500,
-            "posted_at": date(2024, 1, 15),
-            "merchant_descriptor": "Amazon: Item 2",
-        }
+    derived1b = _insert_derived(
+        db,
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid1.plaid_transaction_id,
+            external_id="ext_1-item2",
+            amount_cents=2500,
+            posted_at=date(2024, 1, 15),
+            merchant_descriptor="Amazon: Item 2",
+        ),
     )
-    derived2 = db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid2.plaid_transaction_id,
-            "external_id": "ext_2",
-            "amount_cents": 3000,
-            "posted_at": date(2024, 1, 16),
-            "merchant_descriptor": "Walmart",
-        }
+    derived2 = _insert_derived(
+        db,
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid2.plaid_transaction_id,
+            external_id="ext_2",
+            amount_cents=3000,
+            posted_at=date(2024, 1, 16),
+            merchant_descriptor="Walmart",
+        ),
     )
 
     # Fetch in bulk
@@ -1224,31 +1240,31 @@ def test_bulk_insert_derived_transactions_creates_multiple() -> None:
     )
 
     # Bulk insert derived transactions
-    data_list = [
-        {
-            "plaid_transaction_id": plaid1.plaid_transaction_id,
-            "external_id": "derived_1",
-            "amount_cents": 500,
-            "posted_at": date(2024, 1, 15),
-            "merchant_descriptor": "Amazon: Item 1",
-        },
-        {
-            "plaid_transaction_id": plaid1.plaid_transaction_id,
-            "external_id": "derived_2",
-            "amount_cents": 500,
-            "posted_at": date(2024, 1, 15),
-            "merchant_descriptor": "Amazon: Item 2",
-        },
-        {
-            "plaid_transaction_id": plaid2.plaid_transaction_id,
-            "external_id": "derived_3",
-            "amount_cents": 2000,
-            "posted_at": date(2024, 1, 16),
-            "merchant_descriptor": "Test",
-        },
+    payload_list = [
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid1.plaid_transaction_id,
+            external_id="derived_1",
+            amount_cents=500,
+            posted_at=date(2024, 1, 15),
+            merchant_descriptor="Amazon: Item 1",
+        ),
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid1.plaid_transaction_id,
+            external_id="derived_2",
+            amount_cents=500,
+            posted_at=date(2024, 1, 15),
+            merchant_descriptor="Amazon: Item 2",
+        ),
+        DerivedTransactionPayload(
+            plaid_transaction_id=plaid2.plaid_transaction_id,
+            external_id="derived_3",
+            amount_cents=2000,
+            posted_at=date(2024, 1, 16),
+            merchant_descriptor="Test",
+        ),
     ]
 
-    transaction_ids = db.bulk_insert_derived_transactions(data_list)
+    transaction_ids = db.bulk_insert_derived_transactions(payload_list)
 
     assert len(transaction_ids) == 3
 
@@ -1265,6 +1281,41 @@ def test_bulk_insert_derived_transactions_empty_list() -> None:
     db = create_db()
     result = db.bulk_insert_derived_transactions([])
     assert result == []
+
+
+def test_bulk_insert_derived_transactions_reporting_mode_persisted() -> None:
+    """reporting_mode on the payload is written to the DB on first insert."""
+    # input
+    db = create_db()
+    plaid = db.upsert_plaid_transaction(
+        external_id="inv_001",
+        source="PLAID_INVESTMENT",
+        account_id="acc_inv",
+        posted_at=date(2024, 3, 1),
+        amount_cents=50000,
+        currency="USD",
+        merchant_descriptor="Dividend",
+        institution=None,
+    )
+
+    payload = DerivedTransactionPayload(
+        plaid_transaction_id=plaid.plaid_transaction_id,
+        external_id="inv_001",
+        amount_cents=50000,
+        posted_at=date(2024, 3, 1),
+        merchant_descriptor="Dividend",
+        reporting_mode="DEFAULT_EXCLUDE",
+    )
+
+    # act
+    (txn_id,) = db.bulk_insert_derived_transactions([payload])
+    rows = db.get_derived_transactions_by_ids([txn_id])
+
+    # expected
+    expected_output = "DEFAULT_EXCLUDE"
+
+    # assert
+    assert rows[0].reporting_mode == expected_output
 
 
 def test_delete_derived_by_plaid_ids_deletes_all() -> None:
@@ -1294,21 +1345,21 @@ def test_delete_derived_by_plaid_ids_deletes_all() -> None:
     )
 
     # Insert derived transactions
-    db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid1.plaid_transaction_id,
-            "external_id": "derived_1",
-            "amount_cents": 1000,
-            "posted_at": date(2024, 1, 15),
-        }
-    )
-    db.insert_derived_transaction(
-        {
-            "plaid_transaction_id": plaid2.plaid_transaction_id,
-            "external_id": "derived_2",
-            "amount_cents": 2000,
-            "posted_at": date(2024, 1, 16),
-        }
+    db.bulk_insert_derived_transactions(
+        [
+            DerivedTransactionPayload(
+                plaid_transaction_id=plaid1.plaid_transaction_id,
+                external_id="derived_1",
+                amount_cents=1000,
+                posted_at=date(2024, 1, 15),
+            ),
+            DerivedTransactionPayload(
+                plaid_transaction_id=plaid2.plaid_transaction_id,
+                external_id="derived_2",
+                amount_cents=2000,
+                posted_at=date(2024, 1, 16),
+            ),
+        ]
     )
 
     # Delete only plaid1's derived

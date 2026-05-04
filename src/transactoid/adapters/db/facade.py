@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 if TYPE_CHECKING:
     from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
+    from transactoid.tools.sync.mutation_plugin import (
+        DerivedTransactionPayload,
+        TransactionItemPayload,
+    )
 
 from sqlalchemy import (
     Table,
@@ -31,13 +35,16 @@ from transactoid.adapters.db.models import (
     Category,
     CategoryRow,
     DerivedTransaction,
+    EmailReceipt,
     Merchant,
+    PendingReceiptMatch,
     PlaidItem,
     PlaidTransaction,
     SaveOutcome,
     SaveRowOutcome,
     Tag,
     TransactionCategoryEvent,
+    TransactionItem,
     TransactionTag,
     normalize_merchant_name,
 )
@@ -53,6 +60,9 @@ _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     TransactionCategoryEvent,
     Tag,
     TransactionTag,
+    TransactionItem,
+    EmailReceipt,
+    PendingReceiptMatch,
 )
 
 _COMPACT_SCHEMA_NOTES: dict[str, str] = {
@@ -62,7 +72,37 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
     "derived_transactions": (
         "Primary table for all spending queries and analysis. "
         "May have multiple rows per Plaid transaction "
-        "(Amazon item splits)."
+        "(Amazon item splits). "
+        "A refund row is a negative-amount derived_transactions row that may carry "
+        "refund_of_transaction_id linking it to the original positive-amount charge "
+        "it offsets. Net spend is computed by SUM(amount_cents) directly — refunds "
+        "subtract because they are negative; the refund_of_transaction_id is for "
+        "traceability, not arithmetic. refund_matched_by records who created the "
+        "link ('user' or 'auto'); refund_matched_at records when."
+    ),
+    "transaction_items": (
+        "Itemization table. One row per line item within a transaction. "
+        "amount_cents is synthetic and proportionally allocated so that all items "
+        "for a transaction sum exactly to the parent "
+        "derived_transactions.amount_cents. "
+        "itemization_source indicates the origin of the data "
+        "('amazon_scrape', 'email_receipt', or 'manual'); "
+        "nullable source_ref carries an opaque reference to the upstream record "
+        "(e.g. Amazon order_id or, in future, a Gmail message_id) "
+        "depending on itemization_source."
+    ),
+    "email_receipts": (
+        "Parsed Gmail receipts; message_id is the dedup key. "
+        "Sidecar table: the items it produces live in transaction_items with "
+        "itemization_source='email_receipt' and source_ref=message_id. "
+        "Do NOT query or return the subject or sender columns — they contain "
+        "PII and must not appear in LLM responses."
+    ),
+    "pending_receipt_matches": (
+        "Low-confidence email-receipt candidates queued for human review in the "
+        "web UI. transaction_items rows are NOT written until the candidate is "
+        "status='confirmed'. match_score is composite [0.0, 1.0]; lower means "
+        "more uncertain."
     ),
     "categories": (
         "Filter WHERE deprecated_at IS NULL to exclude retired categories. "
@@ -448,7 +488,7 @@ class DB:
     def insert_transaction(self, data: dict[str, Any]) -> DerivedTransaction:
         """Insert a new derived transaction (legacy wrapper).
 
-        DEPRECATED: Use insert_derived_transaction() instead.
+        DEPRECATED: New call sites should use bulk_insert_derived_transactions.
         This method creates both a PlaidTransaction and DerivedTransaction
         for backward compatibility.
 
@@ -461,7 +501,8 @@ class DB:
         Returns:
             Created DerivedTransaction instance
         """
-        # First create PlaidTransaction
+        from transactoid.tools.sync.mutation_plugin import DerivedTransactionPayload
+
         plaid_txn = self.upsert_plaid_transaction(
             external_id=data["external_id"],
             source=data.get("source", "PLAID"),
@@ -473,22 +514,24 @@ class DB:
             institution=data.get("institution"),
         )
 
-        # Then create DerivedTransaction
-        derived_data = {
-            "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-            "external_id": data["external_id"],
-            "amount_cents": data["amount_cents"],
-            "posted_at": data["posted_at"],
-            "merchant_descriptor": data.get("merchant_descriptor"),
-            "merchant_id": data.get("merchant_id"),
-            "category_id": data.get("category_id"),
-            "category_model": data.get("category_model"),
-            "category_method": data.get("category_method"),
-            "category_assigned_at": data.get("category_assigned_at"),
-            "web_search_summary": data.get("web_search_summary"),
-            "is_verified": data.get("is_verified", False),
-        }
-        return self.insert_derived_transaction(derived_data)
+        payload = DerivedTransactionPayload(
+            plaid_transaction_id=plaid_txn.plaid_transaction_id,
+            external_id=data["external_id"],
+            amount_cents=data["amount_cents"],
+            posted_at=data["posted_at"],
+            merchant_descriptor=data.get("merchant_descriptor"),
+            merchant_id=data.get("merchant_id"),
+            category_id=data.get("category_id"),
+            category_model=data.get("category_model"),
+            category_method=data.get("category_method"),
+            category_assigned_at=data.get("category_assigned_at"),
+            category_reason=data.get("category_reason"),
+            web_search_summary=data.get("web_search_summary"),
+            is_verified=data.get("is_verified", False),
+        )
+        (txn_id,) = self.bulk_insert_derived_transactions([payload])
+        rows = self.get_derived_transactions_by_ids([txn_id])
+        return rows[0]
 
     def update_transaction_mutable(
         self,
@@ -1460,95 +1503,9 @@ class DB:
 
     # Derived Transactions methods
 
-    def insert_derived_transaction(self, data: dict[str, Any]) -> DerivedTransaction:
-        """Insert a new derived transaction.
-
-        Args:
-            data: Derived transaction data dictionary with fields:
-                - plaid_transaction_id, external_id, amount_cents, posted_at
-                - merchant_descriptor (optional), merchant_id (optional)
-                - category_id (optional)
-                - web_search_summary (optional)
-                - is_verified (default: False)
-
-        Returns:
-            Created DerivedTransaction instance
-        """
-        with self.session() as session:  # type: Session
-            now = datetime.now()
-            # Resolve merchant if merchant_descriptor is provided
-            merchant_id = data.get("merchant_id")
-            if (
-                merchant_id is None
-                and "merchant_descriptor" in data
-                and data["merchant_descriptor"]
-            ):
-                normalized_name = normalize_merchant_name(data["merchant_descriptor"])
-                merchant = (
-                    session.query(Merchant)
-                    .filter(Merchant.normalized_name == normalized_name)
-                    .first()
-                )
-                if merchant is None:
-                    merchant = Merchant(
-                        normalized_name=normalized_name,
-                        display_name=data["merchant_descriptor"],
-                    )
-                    session.add(merchant)
-                    session.flush()
-                merchant_id = merchant.merchant_id
-
-            category_id = data.get("category_id")
-            category_method = data.get("category_method")
-            category_assigned_at = data.get("category_assigned_at")
-            if category_id is not None and category_method is None:
-                category_method = "manual"
-            if category_id is not None and category_assigned_at is None:
-                category_assigned_at = now
-
-            derived_txn = DerivedTransaction(
-                plaid_transaction_id=data["plaid_transaction_id"],
-                external_id=data["external_id"],
-                amount_cents=data["amount_cents"],
-                posted_at=data["posted_at"],
-                merchant_descriptor=data.get("merchant_descriptor"),
-                merchant_id=merchant_id,
-                category_id=category_id,
-                category_model=data.get("category_model"),
-                category_method=category_method,
-                category_assigned_at=category_assigned_at,
-                web_search_summary=data.get("web_search_summary"),
-                is_verified=data.get("is_verified", False),
-            )
-            session.add(derived_txn)
-            session.flush()
-            if category_id is not None:
-                key_by_id = self._resolve_category_keys(session, {category_id})
-                category_key = key_by_id.get(category_id)
-                if category_key is None:
-                    raise ValueError(f"Category with ID {category_id} does not exist")
-                method_for_event = cast(
-                    CategoryMethod, category_method if category_method else "manual"
-                )
-                self._insert_category_event(
-                    session,
-                    transaction_id=derived_txn.transaction_id,
-                    from_category_id=None,
-                    to_category_id=category_id,
-                    from_category_key=None,
-                    to_category_key=category_key,
-                    method=method_for_event,
-                    model=data.get("category_model"),
-                    reason=data.get("category_reason"),
-                    created_at=category_assigned_at or now,
-                )
-            session.refresh(derived_txn)
-            session.expunge(derived_txn)
-            return derived_txn
-
     def bulk_insert_derived_transactions(
         self,
-        data_list: list[dict[str, Any]],
+        payload_list: list[DerivedTransactionPayload],
     ) -> list[int]:
         """Bulk insert derived transactions efficiently.
 
@@ -1558,26 +1515,21 @@ class DB:
         - Bulk insert of all derived transactions
 
         Args:
-            data_list: List of derived transaction data dictionaries with fields:
-                - plaid_transaction_id, external_id, amount_cents, posted_at
-                - merchant_descriptor (optional), merchant_id (optional)
-                - category_id (optional)
-                - web_search_summary (optional)
-                - is_verified (default: False)
+            payload_list: Typed payloads produced by mutation plugins.
 
         Returns:
             List of created transaction IDs
         """
-        if not data_list:
+        if not payload_list:
             return []
 
         with self.session() as session:  # type: Session
             # Step 1: Collect unique merchant descriptors
             descriptors: set[str] = set()
-            for data in data_list:
-                if data.get("merchant_id") is None and data.get("merchant_descriptor"):
+            for payload in payload_list:
+                if payload.merchant_id is None and payload.merchant_descriptor:
                     descriptors.add(
-                        normalize_merchant_name(data["merchant_descriptor"])
+                        normalize_merchant_name(payload.merchant_descriptor)
                     )
 
             # Step 2: Fetch existing merchants in single query
@@ -1593,13 +1545,13 @@ class DB:
 
             # Step 3: Create missing merchants
             new_merchants = []
-            for data in data_list:
-                if data.get("merchant_id") is None and data.get("merchant_descriptor"):
-                    normalized = normalize_merchant_name(data["merchant_descriptor"])
+            for payload in payload_list:
+                if payload.merchant_id is None and payload.merchant_descriptor:
+                    normalized = normalize_merchant_name(payload.merchant_descriptor)
                     if normalized not in merchant_map:
                         new_merchant = Merchant(
                             normalized_name=normalized,
-                            display_name=data["merchant_descriptor"],
+                            display_name=payload.merchant_descriptor,
                         )
                         new_merchants.append(new_merchant)
                         merchant_map[normalized] = -1  # Placeholder
@@ -1614,33 +1566,37 @@ class DB:
             # Step 4: Prepare derived transaction objects
             now = datetime.now()
             derived_txns = []
-            for data in data_list:
-                merchant_id = data.get("merchant_id")
-                if merchant_id is None and data.get("merchant_descriptor"):
-                    normalized = normalize_merchant_name(data["merchant_descriptor"])
+            for payload in payload_list:
+                merchant_id = payload.merchant_id
+                if merchant_id is None and payload.merchant_descriptor:
+                    normalized = normalize_merchant_name(payload.merchant_descriptor)
                     merchant_id = merchant_map.get(normalized)
 
-                category_id = data.get("category_id")
-                category_method = data.get("category_method")
-                category_assigned_at = data.get("category_assigned_at")
+                category_id = payload.category_id
+                category_method = payload.category_method
+                category_assigned_at = payload.category_assigned_at
                 if category_id is not None and category_method is None:
                     category_method = "manual"
                 if category_id is not None and category_assigned_at is None:
                     category_assigned_at = now
 
                 derived_txn = DerivedTransaction(
-                    plaid_transaction_id=data["plaid_transaction_id"],
-                    external_id=data["external_id"],
-                    amount_cents=data["amount_cents"],
-                    posted_at=data["posted_at"],
-                    merchant_descriptor=data.get("merchant_descriptor"),
+                    plaid_transaction_id=payload.plaid_transaction_id,
+                    external_id=payload.external_id,
+                    amount_cents=payload.amount_cents,
+                    posted_at=payload.posted_at,
+                    merchant_descriptor=payload.merchant_descriptor,
                     merchant_id=merchant_id,
                     category_id=category_id,
-                    category_model=data.get("category_model"),
+                    category_model=payload.category_model,
                     category_method=category_method,
                     category_assigned_at=category_assigned_at,
-                    web_search_summary=data.get("web_search_summary"),
-                    is_verified=data.get("is_verified", False),
+                    web_search_summary=payload.web_search_summary,
+                    is_verified=payload.is_verified,
+                    reporting_mode=payload.reporting_mode,
+                    split_source=payload.split_source,
+                    split_group_id=payload.split_group_id,
+                    split_index=payload.split_index,
                 )
                 derived_txns.append(derived_txn)
 
@@ -1653,7 +1609,7 @@ class DB:
                 txn.category_id for txn in derived_txns if txn.category_id is not None
             }
             key_by_id = self._resolve_category_keys(session, set(category_ids))
-            for txn, data in zip(derived_txns, data_list, strict=True):
+            for txn, payload in zip(derived_txns, payload_list, strict=True):
                 if txn.category_id is None:
                     continue
                 category_key = key_by_id.get(txn.category_id)
@@ -1671,14 +1627,67 @@ class DB:
                     to_category_key=category_key,
                     method=cast(CategoryMethod, method_value),
                     model=txn.category_model,
-                    reason=data.get("category_reason"),
+                    reason=payload.category_reason,
                     created_at=txn.category_assigned_at or now,
                 )
+
+            items_by_transaction: list[tuple[int, list[TransactionItemPayload]]] = [
+                (txn.transaction_id, payload.items)
+                for txn, payload in zip(derived_txns, payload_list, strict=True)
+                if payload.items
+            ]
+            if items_by_transaction:
+                self._bulk_insert_transaction_items(session, items_by_transaction)
 
             # Get IDs
             transaction_ids = [txn.transaction_id for txn in derived_txns]
 
             return transaction_ids
+
+    def _bulk_insert_transaction_items(
+        self,
+        session: Session,
+        items_by_transaction: list[tuple[int, list[TransactionItemPayload]]],
+    ) -> None:
+        """Bulk insert transaction items in a single add_all call.
+
+        Args:
+            session: Active SQLAlchemy session (must be inside a session context).
+            items_by_transaction: List of (transaction_id, items) tuples.
+                All items across all transactions are inserted in one operation.
+        """
+        item_rows: list[TransactionItem] = []
+        for transaction_id, item_payloads in items_by_transaction:
+            for ip in item_payloads:
+                item_rows.append(
+                    TransactionItem(
+                        transaction_id=transaction_id,
+                        description=ip.description,
+                        amount_cents=ip.amount_cents,
+                        quantity=ip.quantity,
+                        itemization_source=ip.itemization_source,
+                        source_ref=ip.source_ref,
+                    )
+                )
+        if item_rows:
+            session.add_all(item_rows)
+            session.flush()
+
+    def bulk_insert_transaction_items(
+        self,
+        items_by_transaction: list[tuple[int, list[TransactionItemPayload]]],
+    ) -> None:
+        """Public facade for bulk-inserting transaction items.
+
+        Inserts all items across all transactions in a single operation (no N+1).
+
+        Args:
+            items_by_transaction: List of (transaction_id, items) tuples.
+        """
+        if not items_by_transaction:
+            return
+        with self.session() as session:  # type: Session
+            self._bulk_insert_transaction_items(session, items_by_transaction)
 
     def get_derived_by_plaid_id(
         self,
@@ -2598,3 +2607,75 @@ class DB:
             if profile is not None:
                 session.expunge(profile)
             return profile
+
+    def get_amazon_order_for_plaid_txn(
+        self, session: Session, plaid_transaction_id: int
+    ) -> AmazonOrderDB | None:
+        """Return the matched Amazon order for a Plaid transaction, or None.
+
+        Loads the PlaidTransaction from the given session (no second session
+        opened), then uses the existing AmazonOrderIndex / match_orders_to_transactions
+        logic to find the first matching order. Returns the AmazonOrderDB row, or
+        None if no match exists.
+
+        Args:
+            session: Caller's active SQLAlchemy session.
+            plaid_transaction_id: PK of the plaid_transaction to check.
+
+        Returns:
+            The matched AmazonOrderDB instance if one exists, else None.
+        """
+        from transactoid.adapters.amazon.order_index import AmazonOrderIndex
+        from transactoid.adapters.amazon.plaid_matcher import (
+            match_orders_to_transactions,
+        )
+
+        plaid_txn = session.get(PlaidTransaction, plaid_transaction_id)
+        if plaid_txn is None:
+            return None
+
+        index = AmazonOrderIndex.from_db(self)
+        if index.order_count == 0:
+            return None
+
+        orders = index.list_orders()
+        matches = match_orders_to_transactions(orders, [plaid_txn])
+
+        for order_id, matched_plaid_id in matches.items():
+            if matched_plaid_id == plaid_transaction_id:
+                order = (
+                    session.query(AmazonOrderDB)
+                    .filter(AmazonOrderDB.order_id == order_id)
+                    .first()
+                )
+                return order
+
+        return None
+
+    def create_refund_link(
+        self,
+        session: Session,
+        refund_txn_id: int,
+        original_txn_id: int,
+        matched_by: str,
+        matched_at: datetime,
+    ) -> None:
+        """Write all three refund link fields atomically on an already-loaded row.
+
+        The row must already be loaded in the caller's session; this method
+        performs only the three-column update, no validation. Caller owns the
+        session and is responsible for committing.
+
+        Args:
+            session: Caller's active SQLAlchemy session.
+            refund_txn_id: PK of the derived_transaction that is the refund.
+            original_txn_id: PK of the original derived_transaction being refunded.
+            matched_by: Who created the link ('user' or 'auto').
+            matched_at: UTC timestamp when the link was established.
+        """
+        row = session.get(DerivedTransaction, refund_txn_id)
+        if row is None:
+            return
+        row.refund_of_transaction_id = original_txn_id
+        row.refund_matched_by = matched_by
+        row.refund_matched_at = matched_at
