@@ -1,5 +1,3 @@
-Responses must ALWAYS begin with the fox emoji: 🦊
-
 ### Linting and verification
 
 Before completing your work, always run the linter, type-checker, code formatter and dead code detector.

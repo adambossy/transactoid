@@ -91,16 +91,6 @@ Load environment variables from a `.env` file using `python-dotenv`. Call `load_
   2. Switch to the main branch worktree
   3. Remove the worktree using `git worktree remove <path>`
 
-### Git Stacking with Graphite
-- Track branches in the stack using `gt branch track` after creating a new worktree and checking out the branch
-- Before starting work, run `gt sync` to pull remote changes and maintain stack relationships
-- Create atomic changesets: treat each branch as a single logical change with one commit. Use `gt modify -a` to amend existing commits rather than adding new commits
-- Stage and create new stacked branches with `gt create -am "description"` or `gt c -am "description"` for rapid iteration
-- Push stacked changes with `gt submit` or `gt submit --stack` to push all branches in the stack
-- Navigate between branches: use `gt up`/`gt down` for adjacent branches or `gt checkout` for interactive selection
-- When modifying mid-stack branches, Graphite auto-rebases all dependent branches above
-- For concurrent agent work, each agent operates on its own worktree/branch in the stack
-
 ### Scale Assumptions
 This app targets a single-user workflow. Do not assume external clients, observability stacks, or production-grade frills by default.
 
