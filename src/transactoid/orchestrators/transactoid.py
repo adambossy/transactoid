@@ -27,6 +27,7 @@ from transactoid.taxonomy.core import Taxonomy
 from transactoid.tools.amazon.scraper import scrape_with_playwriter
 from transactoid.tools.base import StandardTool
 from transactoid.tools.categorize.categorizer_tool import Categorizer
+from transactoid.tools.migrate.dispatcher import run_migration
 from transactoid.tools.migrate.migration_tool import MigrationTool
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.protocol import ToolInputSchema
@@ -411,76 +412,34 @@ class _MigrateTaxonomyTool(StandardTool):
         self._migration_tool = migration_tool
 
     async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
-        operation = str(kwargs.get("operation", ""))
-        source_key = kwargs.get("source_key")
-        target_key = kwargs.get("target_key")
-        source_keys = kwargs.get("source_keys")
-        targets = kwargs.get("targets")
-        new_key = kwargs.get("new_key")
-        name = kwargs.get("name")
-        parent_key = kwargs.get("parent_key")
-        description = kwargs.get("description")
-        fallback_key = kwargs.get("fallback_key")
-
-        if operation == "add":
-            if not new_key or not name:
-                return {"success": False, "error": "add requires key and name"}
-            result = self._migration_tool.add_category(
-                str(new_key),
-                str(name),
-                _str_or_none(parent_key),
-                _str_or_none(description),
-            )
-        elif operation == "remove":
-            if not source_key:
-                return {"success": False, "error": "remove requires source_key"}
-            result = self._migration_tool.remove_category(
-                str(source_key), _str_or_none(fallback_key)
-            )
-        elif operation == "rename":
-            if not source_key or not new_key:
-                return {
-                    "success": False,
-                    "error": "rename requires source_key and new_key",
-                }
-            result = self._migration_tool.rename_category(str(source_key), str(new_key))
-        elif operation == "merge":
-            if not source_keys or not target_key:
-                return {
-                    "success": False,
-                    "error": "merge requires source_keys and target_key",
-                }
-            merge_source_keys = [str(value) for value in source_keys]
-            result = self._migration_tool.merge_categories(
-                merge_source_keys,
-                str(target_key),
-            )
-        elif operation == "split":
-            if not source_key or not targets:
-                return {
-                    "success": False,
-                    "error": "split requires source_key and targets",
-                }
+        targets_raw = kwargs.get("targets")
+        targets: list[tuple[str, str, str | None]] | None = None
+        if targets_raw:
             target_models = [
-                TargetCategory.model_validate(target) for target in targets
+                TargetCategory.model_validate(target) for target in targets_raw
             ]
-            target_tuples: list[tuple[str, str, str | None]] = [
+            targets = [
                 (item.key, item.name, item.description) for item in target_models
             ]
-            result = self._migration_tool.split_category(str(source_key), target_tuples)
-        else:
-            return {"success": False, "error": f"Unknown operation: {operation}"}
 
-        return {
-            "success": result.success,
-            "operation": result.operation,
-            "affected_transactions": result.affected_transaction_count,
-            "recategorized": result.recategorized_count,
-            "verified_retained": result.verified_retained_count,
-            "verified_demoted": result.verified_demoted_count,
-            "errors": result.errors,
-            "summary": result.summary,
-        }
+        source_keys_raw = kwargs.get("source_keys")
+        source_keys: list[str] | None = None
+        if source_keys_raw:
+            source_keys = [str(value) for value in source_keys_raw]
+
+        return run_migration(
+            self._migration_tool,
+            operation=str(kwargs.get("operation", "")),
+            source_key=_str_or_none(kwargs.get("source_key")),
+            target_key=_str_or_none(kwargs.get("target_key")),
+            source_keys=source_keys,
+            targets=targets,
+            new_key=_str_or_none(kwargs.get("new_key")),
+            name=_str_or_none(kwargs.get("name")),
+            parent_key=_str_or_none(kwargs.get("parent_key")),
+            description=_str_or_none(kwargs.get("description")),
+            fallback_key=_str_or_none(kwargs.get("fallback_key")),
+        )
 
 
 class _ScrapeAmazonOrdersTool(StandardTool):

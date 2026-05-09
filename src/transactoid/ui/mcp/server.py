@@ -19,6 +19,8 @@ from transactoid.tools.amazon.scraper import (
     scrape_amazon_orders as _scrape_amazon,
 )
 from transactoid.tools.categorize.categorizer_tool import Categorizer
+from transactoid.tools.migrate.dispatcher import run_migration
+from transactoid.tools.migrate.migration_tool import MigrationTool
 from transactoid.tools.persist.persist_tool import PersistTool
 from transactoid.tools.sync.sync_tool import SyncTool
 from transactoid.workspace import resolve_memory_dir
@@ -39,6 +41,11 @@ if init_result[2] is not None:
     logger.debug("Memory index initialization hook reported error")
 merchant_rules_path = memory_dir / "merchant-rules.md"
 rules_loader = MerchantRulesLoader(merchant_rules_path, taxonomy=taxonomy)
+
+# MigrationTool needs a Categorizer for split's constrained-recategorization;
+# merge no longer consults it (see migration_tool.merge_categories docstring).
+_migration_categorizer = Categorizer(taxonomy, rules_loader=rules_loader)
+migration_tool = MigrationTool(db, taxonomy, _migration_categorizer)
 
 # Create FastMCP server
 mcp = FastMCP(name="transactoid")
@@ -143,6 +150,71 @@ def tag_transactions(transaction_ids: list[int], tags: list[str]) -> dict[str, A
         }
     except Exception as e:
         return {"status": "error", "message": str(e), "applied": 0, "created_tags": []}
+
+
+@mcp.tool()
+def migrate_taxonomy(
+    operation: str,
+    source_key: str | None = None,
+    target_key: str | None = None,
+    source_keys: list[str] | None = None,
+    targets: list[dict[str, str | None]] | None = None,
+    new_key: str | None = None,
+    name: str | None = None,
+    parent_key: str | None = None,
+    description: str | None = None,
+    fallback_key: str | None = None,
+) -> dict[str, Any]:
+    """
+    Perform a taxonomy migration: add, remove, rename, merge, or split.
+
+    Required arguments per operation:
+    - **add**: new_key, name; optional parent_key, description
+    - **remove**: source_key; optional fallback_key (required if category has txns)
+    - **rename**: source_key, new_key
+    - **merge**: source_keys, target_key
+    - **split**: source_key, targets (list of {key, name, description})
+
+    Merge does not consult the LLM — it bulk-reassigns every source-category
+    transaction to target_key and preserves is_verified (merging is itself a
+    user-driven verification of the new bucket). Split uses constrained
+    recategorization among the new targets.
+
+    Returns a result dict with: success, operation, affected_transactions,
+    recategorized, verified_retained, verified_demoted, errors, summary.
+    """
+    typed_targets: list[tuple[str, str, str | None]] | None = None
+    if targets:
+        typed_targets = []
+        for target in targets:
+            key = target.get("key")
+            target_name = target.get("name")
+            if not isinstance(key, str) or not isinstance(target_name, str):
+                return {
+                    "success": False,
+                    "operation": operation,
+                    "errors": ["each target requires string 'key' and 'name'"],
+                    "summary": "Failed: malformed targets",
+                }
+            target_description = target.get("description")
+            description_value = (
+                target_description if isinstance(target_description, str) else None
+            )
+            typed_targets.append((key, target_name, description_value))
+
+    return run_migration(
+        migration_tool,
+        operation=operation,
+        source_key=source_key,
+        target_key=target_key,
+        source_keys=source_keys,
+        targets=typed_targets,
+        new_key=new_key,
+        name=name,
+        parent_key=parent_key,
+        description=description,
+        fallback_key=fallback_key,
+    )
 
 
 @mcp.tool()

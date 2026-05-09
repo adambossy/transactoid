@@ -126,6 +126,137 @@ def clear_cache(namespace: str = "default") -> None:
     return None
 
 
+taxonomy_app = typer.Typer(
+    help="Migrate the category taxonomy: add, remove, rename, merge, split.",
+    no_args_is_help=True,
+)
+app.add_typer(taxonomy_app, name="taxonomy")
+
+
+def _build_migration_tool() -> Any:
+    """Construct a MigrationTool wired to the configured database."""
+    from transactoid.bootstrap import run_initialization_hooks
+    from transactoid.rules.loader import MerchantRulesLoader
+    from transactoid.taxonomy.loader import load_taxonomy_from_db
+    from transactoid.tools.categorize.categorizer_tool import Categorizer
+    from transactoid.tools.migrate.migration_tool import MigrationTool
+    from transactoid.workspace import resolve_memory_dir
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+    taxonomy = load_taxonomy_from_db(db)
+
+    memory_dir = resolve_memory_dir()
+    run_initialization_hooks(memory_dir=memory_dir)
+    rules_loader = MerchantRulesLoader(
+        memory_dir / "merchant-rules.md", taxonomy=taxonomy
+    )
+
+    categorizer = Categorizer(taxonomy, rules_loader=rules_loader)
+    return MigrationTool(db, taxonomy, categorizer)
+
+
+def _emit_migration_result(result: dict[str, Any]) -> None:
+    """Print a migration result and exit non-zero on failure."""
+    summary = result.get("summary") or ""
+    if result.get("success"):
+        typer.echo(summary or "ok")
+        return
+    errors = result.get("errors") or []
+    if summary:
+        typer.echo(summary, err=True)
+    for error in errors:
+        typer.echo(f"  - {error}", err=True)
+    raise typer.Exit(1)
+
+
+def _run_taxonomy_op(**kwargs: Any) -> None:
+    from transactoid.tools.migrate.dispatcher import run_migration
+
+    migration_tool = _build_migration_tool()
+    result = run_migration(migration_tool, **kwargs)
+    _emit_migration_result(result)
+
+
+@taxonomy_app.command("add")
+def taxonomy_add(
+    new_key: str = typer.Argument(..., help="New category key (e.g. food.coffee)"),
+    name: str = typer.Argument(..., help="Display name"),
+    parent_key: str | None = typer.Option(
+        None, "--parent-key", help="Parent category key (omit for root)"
+    ),
+    description: str | None = typer.Option(
+        None, "--description", help="Optional description"
+    ),
+) -> None:
+    """Add a new category to the taxonomy."""
+    _run_taxonomy_op(
+        operation="add",
+        new_key=new_key,
+        name=name,
+        parent_key=parent_key,
+        description=description,
+    )
+
+
+@taxonomy_app.command("remove")
+def taxonomy_remove(
+    key: str = typer.Argument(..., help="Category key to remove"),
+    fallback_key: str | None = typer.Option(
+        None,
+        "--fallback-key",
+        help="Reassign existing transactions to this key before removal",
+    ),
+) -> None:
+    """Remove a category. Required fallback_key if it has transactions."""
+    _run_taxonomy_op(operation="remove", source_key=key, fallback_key=fallback_key)
+
+
+@taxonomy_app.command("rename")
+def taxonomy_rename(
+    old_key: str = typer.Argument(..., help="Existing category key"),
+    new_key: str = typer.Argument(..., help="New category key"),
+) -> None:
+    """Rename a category key."""
+    _run_taxonomy_op(operation="rename", source_key=old_key, new_key=new_key)
+
+
+@taxonomy_app.command("merge")
+def taxonomy_merge(
+    source_keys: list[str] = typer.Argument(
+        ..., help="One or more source category keys to merge"
+    ),
+    target_key: str = typer.Option(..., "--target", "-t", help="Target category key"),
+) -> None:
+    """Merge sources into a target category. Preserves is_verified on each row."""
+    _run_taxonomy_op(operation="merge", source_keys=source_keys, target_key=target_key)
+
+
+@taxonomy_app.command("split")
+def taxonomy_split(
+    source_key: str = typer.Argument(..., help="Category key to split"),
+    target: list[str] = typer.Option(
+        ...,
+        "--target",
+        help=("Target spec 'key:name[:description]'. Repeat for multiple targets."),
+    ),
+) -> None:
+    """Split a category into multiple targets via constrained recategorization."""
+    targets: list[tuple[str, str, str | None]] = []
+    for spec in target:
+        parts = spec.split(":", 2)
+        if len(parts) < 2 or not parts[0] or not parts[1]:
+            typer.echo(
+                f"Invalid --target '{spec}': expected 'key:name[:description]'",
+                err=True,
+            )
+            raise typer.Exit(2)
+        key, target_name = parts[0], parts[1]
+        target_description = parts[2] if len(parts) == 3 and parts[2] else None
+        targets.append((key, target_name, target_description))
+    _run_taxonomy_op(operation="split", source_key=source_key, targets=targets)
+
+
 async def _categorize_impl(
     source: str | None,
     batch_size: int,
