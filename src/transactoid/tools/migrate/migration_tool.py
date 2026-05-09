@@ -263,22 +263,33 @@ class MigrationTool:
         self,
         source_keys: list[str],
         target_key: str,
-        *,
-        recategorize: bool = False,
     ) -> MigrationResult:
         """
         Merge multiple categories into a target category.
 
+        Merging is itself a form of verification: by collapsing several
+        categories into one, the user is asserting "this new (merged) category
+        is the right category, and I'm re-assigning this explicit set of
+        transactions to it." There is no per-row category decision left to
+        make, so we never invoke the categorizer here -- doing so would let
+        the LLM "improve" assignments toward sibling sources that are about
+        to be deleted, leaving rows with a NULL category_id but populated
+        provenance fields and violating
+        ck_derived_transactions_category_provenance_consistency at the
+        downstream replace_categories_from_taxonomy flush.
+
+        is_verified is preserved by default for the same reason: a row the
+        user previously verified in a source bucket is still verified in the
+        merged bucket -- the user just made the bucket coarser.
+
         Args:
             source_keys: List of category keys to merge
             target_key: Target category key (must exist)
-            recategorize: If True, run LLM recategorization on affected txns
 
         Returns:
             MigrationResult with operation outcome
         """
         try:
-            # Get target category ID
             target_id = get_category_id(self._db, self._taxonomy, target_key)
             if target_id is None:
                 return MigrationResult(
@@ -288,7 +299,6 @@ class MigrationTool:
                     summary="Failed: target category not found",
                 )
 
-            # Collect all affected transactions
             all_transactions: list[tuple[DBTransaction, bool]] = []
             for source_key in source_keys:
                 source_id = get_category_id(self._db, self._taxonomy, source_key)
@@ -305,36 +315,28 @@ class MigrationTool:
 
             affected_count = len(all_transactions)
 
-            if recategorize and affected_count > 0:
-                # Run recategorization with full taxonomy
-                result = self._recategorize_with_threshold(all_transactions, target_key)
-            else:
-                # Simple reassignment without recategorization
-                txn_ids = [t[0].transaction_id for t in all_transactions]
-                self._db.reassign_transactions_to_category(
-                    txn_ids,
-                    target_id,
-                    reason=f"taxonomy_merge:{','.join(source_keys)}->{target_key}",
-                )
-                result = MigrationResult(
-                    operation="merge",
-                    success=True,
-                    affected_transaction_count=affected_count,
-                    verified_retained_count=sum(
-                        1 for _, was_verified in all_transactions if was_verified
-                    ),
-                )
+            # Bulk reassign every source txn to target. reset_verified defaults
+            # to False, so previously-verified rows stay verified -- the merge
+            # is the user's re-affirmation that they belong in this bucket.
+            txn_ids = [t[0].transaction_id for t in all_transactions]
+            self._db.reassign_transactions_to_category(
+                txn_ids,
+                target_id,
+                reason=f"taxonomy_merge:{','.join(source_keys)}->{target_key}",
+            )
+            result = MigrationResult(
+                operation="merge",
+                success=True,
+                affected_transaction_count=affected_count,
+                verified_retained_count=sum(
+                    1 for _, was_verified in all_transactions if was_verified
+                ),
+            )
 
-            # Update taxonomy (remove source categories)
             new_taxonomy = self._taxonomy.merge_categories(source_keys, target_key)
-
-            # Sync to database
             self._db.replace_categories_from_taxonomy(new_taxonomy)
-
-            # Update internal reference
             self._taxonomy = new_taxonomy
 
-            # Clear cache
             self._clear_cache()
 
             result.summary = (
@@ -443,30 +445,6 @@ class MigrationTool:
             "category_id": None,
             "personal_finance_category": None,
         }
-
-    def _recategorize_with_threshold(
-        self,
-        transactions: list[tuple[DBTransaction, bool]],
-        target_key: str,
-    ) -> MigrationResult:
-        """
-        Recategorize transactions and apply confidence threshold.
-
-        For verified transactions:
-        - If new confidence >= threshold: keep verified
-        - If new confidence < threshold: demote to unverified
-        """
-        from models.transaction import Transaction as TxnDict
-
-        txn_dicts: list[TxnDict] = []
-        for txn, _ in transactions:
-            txn_dict = self._db_txn_to_categorizer_input(txn)
-            txn_dicts.append(txn_dict)  # type: ignore[arg-type]
-
-        # Run categorization (handles both sync and async calling contexts)
-        categorized = _run_async_safely(self._categorizer.categorize(txn_dicts))
-
-        return self._apply_categorization_results(transactions, categorized, target_key)
 
     def _recategorize_constrained_with_threshold(
         self,

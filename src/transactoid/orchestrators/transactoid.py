@@ -403,7 +403,6 @@ class _MigrateTaxonomyTool(StandardTool):
             "parent_key": {"type": "string", "description": "Parent key"},
             "description": {"type": "string", "description": "Description"},
             "fallback_key": {"type": "string", "description": "Fallback key"},
-            "recategorize": {"type": "boolean", "description": "Recategorize"},
         },
         "required": ["operation"],
     }
@@ -422,7 +421,6 @@ class _MigrateTaxonomyTool(StandardTool):
         parent_key = kwargs.get("parent_key")
         description = kwargs.get("description")
         fallback_key = kwargs.get("fallback_key")
-        recategorize = bool(kwargs.get("recategorize", False))
 
         if operation == "add":
             if not new_key or not name:
@@ -456,7 +454,6 @@ class _MigrateTaxonomyTool(StandardTool):
             result = self._migration_tool.merge_categories(
                 merge_source_keys,
                 str(target_key),
-                recategorize=recategorize,
             )
         elif operation == "split":
             if not source_key or not targets:

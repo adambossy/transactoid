@@ -349,9 +349,7 @@ def test_merge_categories_reassigns_transactions() -> None:
         }
     )
 
-    result = tool.merge_categories(
-        ["food.restaurants"], "food.groceries", recategorize=False
-    )
+    result = tool.merge_categories(["food.restaurants"], "food.groceries")
 
     assert result.success is True
     assert result.affected_transaction_count == 1
@@ -409,6 +407,124 @@ def test_merge_categories_fails_for_nonexistent_target() -> None:
 
     assert result.success is False
     assert "not found" in result.errors[0]
+
+
+def test_merge_categories_preserves_is_verified() -> None:
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+    tool = MigrationTool(db, taxonomy, categorizer)
+
+    restaurants_id = db.get_category_id_by_key("food.restaurants")
+    assert restaurants_id is not None
+    txn = db.insert_transaction(
+        {
+            "external_id": "ext_verified",
+            "source": "PLAID",
+            "account_id": "acc_v",
+            "posted_at": date(2024, 1, 16),
+            "amount_cents": 4200,
+            "currency": "USD",
+            "category_id": restaurants_id,
+            "category_method": "manual",
+            "category_assigned_at": date(2024, 1, 16),
+            "is_verified": True,
+        }
+    )
+
+    result = tool.merge_categories(["food.restaurants"], "food.groceries")
+
+    refreshed = db.fetch_transactions_by_ids_preserving_order([txn.transaction_id])
+    groceries_id = db.get_category_id_by_key("food.groceries")
+    output = {
+        "success": result.success,
+        "verified_retained": result.verified_retained_count,
+        "category_id": refreshed[0].category_id,
+        "is_verified": refreshed[0].is_verified,
+    }
+    expected_output = {
+        "success": True,
+        "verified_retained": 1,
+        "category_id": groceries_id,
+        "is_verified": True,
+    }
+
+    assert output == expected_output
+
+
+def test_merge_categories_collapses_multiple_sources_without_llm() -> None:
+    """
+    Regression: merging multiple sources used to call the unconstrained LLM
+    categorizer. The LLM could pick a sibling source (about-to-be-deleted)
+    as the new home, and the subsequent Category delete would null only the
+    FK column, violating ck_derived_transactions_category_provenance_consistency.
+    Merge must now reassign every source txn directly to target without
+    consulting the categorizer.
+    """
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    # categorizer left unconfigured on purpose: any call to it would raise
+    # AttributeError, proving the merge path no longer touches it.
+    raise_on_use = MagicMock()
+    raise_on_use.categorize.side_effect = AssertionError(
+        "merge_categories must not invoke the categorizer"
+    )
+    raise_on_use.categorize_constrained.side_effect = AssertionError(
+        "merge_categories must not invoke the categorizer"
+    )
+    tool = MigrationTool(db, taxonomy, cast("Categorizer", raise_on_use))
+
+    restaurants_id = db.get_category_id_by_key("food.restaurants")
+    travel_id = db.get_category_id_by_key("travel")
+    assert restaurants_id is not None
+    assert travel_id is not None
+    txn_a = db.insert_transaction(
+        {
+            "external_id": "ext_multi_a",
+            "source": "PLAID",
+            "account_id": "acc_m",
+            "posted_at": date(2024, 1, 17),
+            "amount_cents": 1000,
+            "currency": "USD",
+            "category_id": restaurants_id,
+        }
+    )
+    txn_b = db.insert_transaction(
+        {
+            "external_id": "ext_multi_b",
+            "source": "PLAID",
+            "account_id": "acc_m",
+            "posted_at": date(2024, 1, 18),
+            "amount_cents": 2000,
+            "currency": "USD",
+            "category_id": travel_id,
+        }
+    )
+
+    result = tool.merge_categories(["food.restaurants", "travel"], "food.groceries")
+
+    refreshed = db.fetch_transactions_by_ids_preserving_order(
+        [txn_a.transaction_id, txn_b.transaction_id]
+    )
+    groceries_id = db.get_category_id_by_key("food.groceries")
+    output = {
+        "success": result.success,
+        "operation": result.operation,
+        "affected": result.affected_transaction_count,
+        "category_ids": [t.category_id for t in refreshed],
+        "food_restaurants_present": tool.taxonomy.is_valid_key("food.restaurants"),
+        "travel_present": tool.taxonomy.is_valid_key("travel"),
+    }
+    expected_output = {
+        "success": True,
+        "operation": "merge",
+        "affected": 2,
+        "category_ids": [groceries_id, groceries_id],
+        "food_restaurants_present": False,
+        "travel_present": False,
+    }
+
+    assert output == expected_output
 
 
 # --- Split Category Tests ---

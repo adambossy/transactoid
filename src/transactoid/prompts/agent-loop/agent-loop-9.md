@@ -127,9 +127,9 @@ WHERE c.deprecated_at IS NULL AND c.key LIKE 'food.%' AND dt.posted_at >= '2025-
      - **add**: `key` (str), `name` (str), `parent_key` (str|null), `description` (str|null)
      - **remove**: `key` (str), `fallback_key` (str|null) — fallback required if category has transactions
      - **rename**: `old_key` (str), `new_key` (str)
-     - **merge**: `source_keys` (list[str]), `target_key` (str), `recategorize` (bool, default false)
+     - **merge**: `source_keys` (list[str]), `target_key` (str)
      - **split**: `source_key` (str), `targets` (list of [key, name, description] tuples)
-   - Purpose: Modify the category taxonomy structure. Automatically recategorizes affected transactions when needed. For verified transactions, confidence threshold determines whether verified status is retained or demoted.
+   - Purpose: Modify the category taxonomy structure. For **merge**, all transactions in the source categories are reassigned to the target — merging is itself a form of verification (the user is asserting the merged category is correct), so previously-verified rows stay verified and the LLM is not consulted. For **split**, affected transactions are recategorized among the new targets via constrained categorization.
    - Use this tool when the user wants to reorganize categories, consolidate similar categories, or split overly broad categories into more specific ones.
 
 #### Database Schema
