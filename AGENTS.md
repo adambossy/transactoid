@@ -286,3 +286,23 @@ def test_<unit>_<behavior>():
   - Reserve print() only for CLI user interaction or test output
 
 When in doubt, choose the option that improves local readability for the next reader and keeps the public surface simple and predictable.
+
+## Querying transactions in the presence of refunds
+
+Refunds are linked to their originals via `derived_transactions.refund_of_transaction_id`. The FK is the truth — do **not** rely on the sign of `amount_cents` to identify refunds. Some bank providers report expenses as negative and deposits as positive (or vice versa), so sign-based heuristics break across sources.
+
+For spend analysis, exclude both the refund row and the original it offsets, treating each linked pair as net-neutral:
+
+```sql
+SELECT SUM(amount_cents) FROM derived_transactions d
+WHERE d.refund_of_transaction_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM derived_transactions r
+    WHERE r.refund_of_transaction_id = d.transaction_id
+  )
+  -- plus your filters: merchant, date range, category, etc.
+```
+
+This is sign-agnostic. Partial refunds are over-excluded — the un-refunded portion silently drops out — but partial refunds are rare enough that the simplification is worth it versus a per-transaction net computation. If you need to list refunds explicitly (not for spend totals), query `WHERE refund_of_transaction_id IS NOT NULL` directly.
+
+The same instruction is encoded in `_COMPACT_SCHEMA_NOTES["derived_transactions"]` so the LLM agent that constructs SQL via `run_sql` follows the same rule.
