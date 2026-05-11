@@ -24,11 +24,13 @@ class AmazonOrderIndex:
         self._items_by_order = items_by_order
 
     @classmethod
-    def from_db(cls, db: DB) -> AmazonOrderIndex:
+    def from_db(cls, db: DB, *, profile_id: int | None = None) -> AmazonOrderIndex:
         """Load index from persisted Amazon order/item tables.
 
         Args:
             db: Database facade used to read Amazon orders and items.
+            profile_id: When provided, scopes the index to orders attributed to
+                that amazon_login_profiles row. Defaults to all profiles.
 
         Returns:
             AmazonOrderIndex populated from database rows.
@@ -36,7 +38,7 @@ class AmazonOrderIndex:
         orders_by_id: dict[str, AmazonOrder] = {}
         items_by_order: dict[str, list[AmazonItem]] = {}
 
-        for order in db.list_amazon_orders():
+        for order in db.list_amazon_orders(profile_id=profile_id):
             orders_by_id[order.order_id] = AmazonOrder(
                 order_id=order.order_id,
                 order_date=order.order_date,

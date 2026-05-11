@@ -7,24 +7,12 @@ Rendered content generation is handled by tool_presenter.py.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from decimal import Decimal
-import json
 from typing import Any
 
 from transactoid.core.runtime.protocol import NamedOutput, ToolRuntimeInfo
 
 SCHEMA_INPUT_V1 = "transactoid.tool_call.input.v1"
 SCHEMA_OUTPUT_V1 = "transactoid.tool_call.output.v1"
-
-
-class DatabaseJSONEncoder(json.JSONEncoder):
-    """JSON encoder that handles database types like Decimal, datetime, etc."""
-
-    def default(self, obj: Any) -> Any:
-        """Convert non-serializable types to serializable ones."""
-        if isinstance(obj, Decimal):
-            return float(obj)
-        return super().default(obj)
 
 
 def build_raw_input(

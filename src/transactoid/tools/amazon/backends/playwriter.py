@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from agents import Agent, Runner
 from agents.mcp import MCPServerStdio, MCPServerStdioParams
+from loguru import logger
 
 from transactoid.tools.amazon.scraper import ScrapedOrder, ScrapeResult
 
@@ -26,30 +29,55 @@ class PlaywriterBackend:
 
     def scrape_order_history(
         self,
-        year: int | None = None,
+        *,
+        since: date | None = None,
+        until: date | None = None,
         max_orders: int | None = None,
     ) -> list[ScrapedOrder]:
         """Scrape Amazon order history via Playwriter MCP.
 
         Args:
-            year: Optional year to filter orders. If None, scrapes past year.
+            since: Inclusive lower bound on ``order_date``.
+            until: Inclusive upper bound on ``order_date``.
             max_orders: Optional maximum orders to scrape.
 
         Returns:
             List of ScrapedOrder objects.
         """
-        # Build instructions based on parameters
-        year_instruction = f"for year {year}" if year else "for the past year"
+        logger.info(
+            "Playwriter scrape starting: since={} until={} max_orders={}",
+            since,
+            until,
+            max_orders,
+        )
+
+        if since is not None and until is not None:
+            window_instruction = (
+                f"for orders dated on or after {since.isoformat()} and "
+                f"on or before {until.isoformat()}"
+            )
+        elif since is not None:
+            window_instruction = f"for orders dated on or after {since.isoformat()}"
+        elif until is not None:
+            window_instruction = f"for orders dated on or before {until.isoformat()}"
+        else:
+            window_instruction = "for the past year"
+
         limit_instruction = (
             f"Stop after scraping {max_orders} orders."
             if max_orders
-            else "Scrape all available orders."
+            else "Scrape all available orders that match the date window."
         )
 
         instructions = f"""
         Navigate to https://www.amazon.com/your-orders/orders
 
-        Scrape all purchase history {year_instruction}. For each order:
+        Scrape Amazon purchase history {window_instruction}. Amazon's UI only
+        shows the past 3 months by default — use the time-filter dropdown
+        (or the ?timeFilter=year-YYYY URL parameter) to iterate year-by-year
+        as needed to cover the requested window.
+
+        For each order:
         1. Extract order ID (e.g., "113-5524816-2451403")
         2. Extract order date (YYYY-MM-DD format)
         3. Extract order total, tax, and shipping (convert to cents, $49.77 -> 4977)
@@ -61,13 +89,11 @@ class PlaywriterBackend:
         Return ALL scraped data as structured JSON matching the output schema.
         """
 
-        # Create Playwriter MCP server
         playwriter_server = MCPServerStdio(
             params=MCPServerStdioParams(command="npx", args=["playwriter"]),
             name="playwriter",
         )
 
-        # Create agent with Playwriter MCP - returns structured JSON
         agent = Agent(
             name="AmazonScraper",
             instructions=instructions,
@@ -76,11 +102,17 @@ class PlaywriterBackend:
             output_type=ScrapeResult,
         )
 
-        # Run scraper agent - returns ScrapeResult
-        scrape_result = Runner.run_sync(agent, "Begin scraping Amazon orders")
+        try:
+            scrape_result = Runner.run_sync(agent, "Begin scraping Amazon orders")
+        except Exception:
+            logger.exception("Playwriter scrape run_sync failed")
+            raise
 
         final_output = scrape_result.final_output
         if final_output is None:
+            logger.warning("Playwriter scrape completed with no final output")
             return []
 
-        return list(final_output.orders)
+        orders = list(final_output.orders)
+        logger.info("Playwriter scrape completed: orders={}", len(orders))
+        return orders

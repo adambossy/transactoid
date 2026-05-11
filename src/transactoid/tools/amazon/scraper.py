@@ -5,11 +5,16 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
+from dotenv import load_dotenv
+from loguru import logger
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from transactoid.adapters.db.facade import DB
+    from transactoid.adapters.db.models import AmazonLoginProfileDB
     from transactoid.tools.amazon.backends.base import AmazonScraperBackend
+
+load_dotenv(override=False)
 
 
 class ScrapedItem(BaseModel):
@@ -41,6 +46,21 @@ class ScrapeResult(BaseModel):
 BackendType = Literal["playwriter", "stagehand", "stagehand-browserbase"]
 
 
+def _max_or_none(*candidates: date | None) -> date | None:
+    """Return the latest non-``None`` date among ``candidates`` (or ``None``)."""
+    present = [c for c in candidates if c is not None]
+    if not present:
+        return None
+    return max(present)
+
+
+def _resolve_effective_since(
+    user_since: date | None, db_floor: date | None
+) -> date | None:
+    """Pick the tighter of ``user_since`` and ``db_floor`` (``None`` = no bound)."""
+    return _max_or_none(user_since, db_floor)
+
+
 def _get_backend(
     backend: BackendType,
     *,
@@ -62,6 +82,12 @@ def _get_backend(
     Raises:
         ValueError: If backend type is not supported.
     """
+    logger.info(
+        "Selecting Amazon scraper backend: backend={} context_id_set={} login_mode={}",
+        backend,
+        context_id is not None,
+        login_mode,
+    )
     if backend == "playwriter":
         from transactoid.tools.amazon.backends.playwriter import PlaywriterBackend
 
@@ -82,15 +108,19 @@ def _get_backend(
         raise ValueError(f"Unsupported backend: {backend}")
 
 
-def _persist_orders(db: DB, orders: list[ScrapedOrder]) -> dict[str, int]:
+def _persist_orders(
+    db: DB, orders: list[ScrapedOrder], profile_id: int
+) -> tuple[int, int]:
     """Persist scraped orders to database.
 
     Args:
         db: Database facade for persisting data.
         orders: List of scraped orders to persist.
+        profile_id: ID of the amazon_login_profiles row whose context produced
+            this scrape; attributed onto every upserted order.
 
     Returns:
-        Dictionary with orders_created and items_created counts.
+        Tuple of (orders_created, items_created) counts.
     """
     orders_created = 0
     items_created = 0
@@ -100,6 +130,7 @@ def _persist_orders(db: DB, orders: list[ScrapedOrder]) -> dict[str, int]:
             order_id=order.order_id,
             order_date=date.fromisoformat(order.order_date),
             order_total_cents=order.order_total_cents,
+            profile_id=profile_id,
             tax_cents=order.tax_cents,
             shipping_cents=order.shipping_cents,
         )
@@ -115,88 +146,434 @@ def _persist_orders(db: DB, orders: list[ScrapedOrder]) -> dict[str, int]:
             )
             items_created += 1
 
-    return {"orders_created": orders_created, "items_created": items_created}
+    return orders_created, items_created
+
+
+def _ensure_auth(
+    db: DB,
+    profile: AmazonLoginProfileDB,
+    backend: BackendType,
+) -> AmazonLoginProfileDB:
+    """Ensure a profile is authenticated, creating a context and logging in if needed.
+
+    Uses an optimistic strategy: if a context_id already exists and the last auth
+    was successful, treat the profile as ready without launching a new browser
+    session. This avoids an extra browser spin-up just for checking.
+
+    If no context_id exists, creates one via the backend, runs an interactive
+    login flow, and persists the new context_id to the DB.
+
+    Args:
+        db: Database facade.
+        profile: The login profile to authenticate.
+        backend: Backend type to use.
+
+    Returns:
+        Updated profile (with context_id populated if newly created).
+
+    Raises:
+        Exception: If context creation or login fails.
+    """
+    if profile.browserbase_context_id is not None:
+        # Optimistic: treat existing context as valid. If the session is
+        # actually expired, the scrape phase will surface the error.
+        logger.bind(profile_key=profile.profile_key).info(
+            "Profile has existing context_id; treating as ready (optimistic)"
+        )
+        return profile
+
+    # No context yet — create one and run interactive login.
+    logger.bind(profile_key=profile.profile_key).info(
+        "No context found; creating new Browserbase context and starting login flow"
+    )
+
+    if backend == "stagehand-browserbase":
+        from transactoid.tools.amazon.backends.stagehand_browserbase import (
+            StagehandBrowserbaseBackend,
+        )
+
+        context_id = StagehandBrowserbaseBackend.create_context()
+        profile = db.set_amazon_login_context_id(
+            profile_key=profile.profile_key, context_id=context_id
+        )
+        logger.bind(profile_key=profile.profile_key).info(
+            "Created and persisted Browserbase context_id"
+        )
+    else:
+        # Non-Browserbase backends do not use persistent contexts.
+        logger.bind(profile_key=profile.profile_key).info(
+            "Backend {} does not use persistent contexts; skipping context creation",
+            backend,
+        )
+        context_id = None
+
+    # Run login-mode scrape so the user can authenticate via Session Live View.
+    backend_instance = _get_backend(backend, context_id=context_id, login_mode=True)
+    backend_instance.scrape_order_history(since=None, until=None, max_orders=0)
+
+    db.record_amazon_login_auth_result(
+        profile_key=profile.profile_key, status="success"
+    )
+    logger.bind(profile_key=profile.profile_key).info(
+        "Login flow completed; profile is now ready"
+    )
+    return profile
+
+
+def _scrape_one_profile(
+    db: DB,
+    profile: AmazonLoginProfileDB,
+    backend: BackendType,
+    max_orders: int | None,
+    since: date | None,
+    until: date | None,
+    is_unbounded_request: bool,
+) -> dict[str, Any]:
+    """Run a scrape for a single profile and persist results.
+
+    Args:
+        db: Database facade for persisting scraped data.
+        profile: The authenticated login profile to scrape.
+        backend: Backend type to use.
+        max_orders: Optional cap on orders scraped.
+        since: Inclusive lower bound on order_date (effective floor — already
+            includes the DB-derived floor; profile watermark is layered on top
+            inside this function).
+        until: Inclusive upper bound on order_date.
+        is_unbounded_request: True when the user's original request had no
+            ``since``/``until``/``max_orders`` constraints. Only an unbounded
+            request that returns successfully advances the profile's
+            ``history_complete_through`` watermark.
+
+    Returns:
+        Per-profile result dict conforming to the result contract.
+    """
+    log = logger.bind(profile_key=profile.profile_key)
+    final_since = _max_or_none(since, profile.history_complete_through)
+    if final_since != since:
+        log.info(
+            "Profile watermark {} supersedes effective_since {}",
+            profile.history_complete_through,
+            since,
+        )
+    log.info(
+        "Starting scrape for profile '{}' (since={} until={} max_orders={})",
+        profile.display_name,
+        final_since,
+        until,
+        max_orders,
+    )
+
+    backend_instance = _get_backend(
+        backend,
+        context_id=profile.browserbase_context_id,
+        login_mode=False,
+    )
+    try:
+        orders = backend_instance.scrape_order_history(
+            since=final_since, until=until, max_orders=max_orders
+        )
+    except Exception as exc:
+        # Why: Browserbase sessions can die mid-scrape (timeouts, target loss);
+        # extracted-but-unreturned rows live in the backend's `collected_orders`.
+        # Persist them so a partial scrape isn't a total loss; upserts dedup.
+        partial_orders: list[ScrapedOrder] = list(
+            getattr(backend_instance, "collected_orders", [])
+        )
+        if partial_orders:
+            orders_created, items_created = _persist_orders(
+                db, partial_orders, profile.profile_id
+            )
+            log.warning(
+                "Scrape raised after partial extraction: "
+                "persisted {} orders, {} items; error={}",
+                orders_created,
+                items_created,
+                exc,
+            )
+            return {
+                "profile_key": profile.profile_key,
+                "display_name": profile.display_name,
+                "status": "partial",
+                "orders_created": orders_created,
+                "items_created": items_created,
+                "message": (
+                    f"Partial scrape: persisted {orders_created} orders, "
+                    f"{items_created} items before error: {exc}"
+                ),
+            }
+        log.warning("Scrape raised with no partial results: {}", exc)
+        raise
+    orders_created, items_created = _persist_orders(db, orders, profile.profile_id)
+
+    if is_unbounded_request:
+        watermark = date.today()
+        db.set_amazon_profile_history_watermark(
+            profile_id=profile.profile_id, through_date=watermark
+        )
+        log.info("Advanced history_complete_through watermark to {}", watermark)
+
+    log.success(
+        "Scrape complete: orders_created={} items_created={}",
+        orders_created,
+        items_created,
+    )
+    return {
+        "profile_key": profile.profile_key,
+        "display_name": profile.display_name,
+        "status": "success",
+        "orders_created": orders_created,
+        "items_created": items_created,
+        "message": f"Scraped {orders_created} orders, {items_created} items",
+    }
+
+
+def _scrape_profile_with_retry(
+    db: DB,
+    profile: AmazonLoginProfileDB,
+    backend: BackendType,
+    max_orders: int | None,
+    since: date | None,
+    until: date | None,
+    is_unbounded_request: bool,
+) -> dict[str, Any]:
+    """Scrape a single profile. Persists partial results on failure.
+
+    Why no retry: Browserbase sessions are paid-per-minute and a fresh session
+    starts iteration from page 1 — re-extracting rows already persisted in the
+    failed attempt. Partial-persist + caller-driven re-run is cheaper.
+    """
+    log = logger.bind(profile_key=profile.profile_key)
+    try:
+        return _scrape_one_profile(
+            db, profile, backend, max_orders, since, until, is_unbounded_request
+        )
+    except Exception as exc:
+        log.error("Scrape failed: {}", exc)
+        return {
+            "profile_key": profile.profile_key,
+            "display_name": profile.display_name,
+            "status": "error",
+            "orders_created": 0,
+            "items_created": 0,
+            "message": str(exc),
+        }
+
+
+def _run_parallel_scrape(
+    db: DB,
+    ready_profiles: list[AmazonLoginProfileDB],
+    backend: BackendType,
+    max_orders: int | None,
+    since: date | None,
+    until: date | None,
+    is_unbounded_request: bool,
+) -> list[dict[str, Any]]:
+    """Run scraping for all ready profiles, one at a time on the main thread.
+
+    Despite the name (preserved for plan/test continuity), this runs
+    sequentially. The Stagehand client registers a SIGINT handler in its
+    constructor via signal.signal(), which only works on the main thread of
+    the main interpreter. A ThreadPoolExecutor would therefore raise
+    "signal only works in main thread of the main interpreter" before the
+    Browserbase session ever opens. True concurrency would require running
+    backends as coroutines on a shared event loop on the main thread; that
+    refactor is out of scope here.
+    """
+    return [
+        _scrape_profile_with_retry(
+            db, profile, backend, max_orders, since, until, is_unbounded_request
+        )
+        for profile in ready_profiles
+    ]
+
+
+def _aggregate_results(
+    profiles_total: int,
+    profiles_ready: int,
+    profile_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate per-profile results into a top-level summary.
+
+    Args:
+        profiles_total: Total number of enabled profiles.
+        profiles_ready: Number of profiles that passed the auth phase.
+        profile_results: List of per-profile result dicts.
+
+    Returns:
+        Top-level result dict conforming to the result contract.
+    """
+    succeeded = [r for r in profile_results if r["status"] == "success"]
+    failed = [r for r in profile_results if r["status"] != "success"]
+    total_orders = sum(r["orders_created"] for r in profile_results)
+    total_items = sum(r["items_created"] for r in profile_results)
+
+    if succeeded and len(succeeded) == len(profile_results):
+        status = "success"
+    elif succeeded:
+        status = "partial"
+    else:
+        status = "error"
+
+    return {
+        "status": status,
+        "orders_created": total_orders,
+        "items_created": total_items,
+        "profiles_total": profiles_total,
+        "profiles_ready": profiles_ready,
+        "profiles_succeeded": len(succeeded),
+        "profiles_failed": len(failed),
+        "message": (
+            f"{len(succeeded)}/{profiles_ready} profiles succeeded, "
+            f"{total_orders} orders, {total_items} items"
+        ),
+        "profile_results": profile_results,
+    }
+
+
+def _error_result(message: str, *, profiles_total: int = 0) -> dict[str, Any]:
+    """Build a top-level error result with zero counts.
+
+    Args:
+        message: Human-readable error description.
+        profiles_total: Total number of profiles considered (default 0).
+
+    Returns:
+        Top-level result dict with status "error".
+    """
+    return {
+        "status": "error",
+        "orders_created": 0,
+        "items_created": 0,
+        "profiles_total": profiles_total,
+        "profiles_ready": 0,
+        "profiles_succeeded": 0,
+        "profiles_failed": 0,
+        "message": message,
+        "profile_results": [],
+    }
 
 
 def scrape_amazon_orders(
     db: DB,
-    backend: BackendType = "playwriter",
-    year: int | None = None,
+    *,
+    backend: BackendType = "stagehand-browserbase",
+    since: date | None = None,
+    until: date | None = None,
     max_orders: int | None = None,
-    context_id: str | None = None,
-    login_mode: bool = False,
+    profile_key: str | None = None,
 ) -> dict[str, Any]:
-    """Scrape Amazon orders using the specified backend.
+    """Scrape Amazon order history for all enabled login profiles.
+
+    Runs a two-phase workflow:
+    1. Sequential auth phase — validates (or establishes) authentication for
+       each enabled profile, creating Browserbase contexts on first use.
+    2. Sequential scrape phase — scrapes order history for each ready profile,
+       with one retry per profile on failure.
+
+    The orchestrator queries ``MIN(plaid_transactions.posted_at)`` and uses
+    that as a lower bound: orders predating the earliest Plaid transaction
+    cannot match against a real charge, so there is no value in scraping
+    them. The DB floor is combined with ``since`` (the tighter of the two
+    wins). When the DB has no transactions, only the user's ``since`` (if
+    any) applies and a warning is logged.
 
     Args:
-        db: Database facade for persisting scraped data.
+        db: Database facade for persisting scraped data and profile state.
         backend: Browser backend to use ("playwriter", "stagehand", or
             "stagehand-browserbase").
-        year: Optional year to filter orders (e.g., 2024).
-        max_orders: Optional maximum number of orders to scrape.
-        context_id: Optional Browserbase context ID for session persistence.
-            Only applicable for "stagehand-browserbase" backend. Use
-            StagehandBrowserbaseBackend.create_context() to create one.
-        login_mode: If True, wait for manual login via Session Live View.
-            Only applicable for "stagehand-browserbase" backend.
+        since: Inclusive lower bound on ``order_date``. ``None`` means no
+            user-supplied bound — the DB floor still applies.
+        until: Inclusive upper bound on ``order_date``.
+        max_orders: Optional maximum number of orders to scrape per profile.
+        profile_key: If set, scrape only the profile with this key (must be
+            enabled). When ``None``, scrape all enabled profiles.
 
     Returns:
-        Dictionary with status and summary of scraped data.
+        Dictionary with top-level status and per-profile breakdown conforming
+        to the result contract.
     """
-    backend_instance = _get_backend(
-        backend, context_id=context_id, login_mode=login_mode
+    is_unbounded_request = since is None and until is None and max_orders is None
+    db_floor = db.min_plaid_transaction_date()
+    if db_floor is None:
+        logger.warning("No plaid_transactions in DB; scraping with no DB-derived floor")
+    effective_since = _resolve_effective_since(since, db_floor)
+    if effective_since != since:
+        logger.info("DB floor {} supersedes user --since {}", db_floor, since)
+
+    profiles = db.list_amazon_login_profiles(enabled_only=True)
+    if profile_key is not None:
+        profiles = [p for p in profiles if p.profile_key == profile_key]
+        if not profiles:
+            return _error_result(
+                f"No enabled Amazon login profile with key '{profile_key}'.",
+                profiles_total=0,
+            )
+    if not profiles:
+        return _error_result(
+            "No enabled Amazon login profiles configured. "
+            "Use add_amazon_login to add a profile.",
+            profiles_total=0,
+        )
+
+    logger.info(
+        "Starting Amazon scrape: backend={} profiles={} since={} until={} "
+        "max_orders={}",
+        backend,
+        len(profiles),
+        effective_since,
+        until,
+        max_orders,
     )
 
-    orders: list[ScrapedOrder] = []
-    error_message: str | None = None
+    # Sequential auth phase
+    ready_profiles: list[AmazonLoginProfileDB] = []
+    for profile in profiles:
+        log = logger.bind(profile_key=profile.profile_key)
+        log.info("Auth phase: checking profile '{}'", profile.display_name)
+        try:
+            authenticated = _ensure_auth(db, profile, backend)
+            ready_profiles.append(authenticated)
+            log.info("Profile '{}' ready for scraping", profile.display_name)
+        except Exception as exc:
+            log.error("Auth failed for profile '{}': {}", profile.display_name, exc)
+            db.record_amazon_login_auth_result(
+                profile_key=profile.profile_key,
+                status="failed",
+                error=str(exc),
+            )
 
-    try:
-        orders = backend_instance.scrape_order_history(year=year, max_orders=max_orders)
-    except Exception as e:
-        error_message = str(e)
-        # Try to recover partial results from backend
-        if hasattr(backend_instance, "collected_orders"):
-            orders = backend_instance.collected_orders
-            if orders:
-                print(f"[Scraper] Recovered {len(orders)} orders before failure")
+    if not ready_profiles:
+        return _error_result(
+            "All profiles failed authentication.",
+            profiles_total=len(profiles),
+        )
 
-    # Persist whatever we collected (even on partial failure)
-    if orders:
-        counts = _persist_orders(db, orders)
-        if error_message:
-            msg = f"Scraped {len(orders)} orders before error: {error_message}"
-            return {
-                "status": "partial",
-                "message": msg,
-                **counts,
-            }
-        return {
-            "status": "success",
-            **counts,
-        }
+    logger.info(
+        "{}/{} profiles passed auth; starting scrape",
+        len(ready_profiles),
+        len(profiles),
+    )
 
-    # No orders at all
-    if error_message:
-        return {
-            "status": "error",
-            "message": error_message,
-            "orders_created": 0,
-            "items_created": 0,
-        }
+    profile_results = _run_parallel_scrape(
+        db,
+        ready_profiles,
+        backend,
+        max_orders,
+        effective_since,
+        until,
+        is_unbounded_request,
+    )
 
-    return {
-        "status": "error",
-        "message": "Scraper did not return any results",
-        "orders_created": 0,
-        "items_created": 0,
-    }
+    return _aggregate_results(len(profiles), len(ready_profiles), profile_results)
 
 
 def scrape_with_playwriter(db: DB) -> dict[str, Any]:
     """Execute Playwriter-powered scraping via OpenAI, then upsert results.
 
-    This is a convenience function that uses the Playwriter backend with
-    default settings. For more control, use scrape_amazon_orders() directly.
+    This is a convenience wrapper around scrape_amazon_orders() using the
+    Playwriter backend. For profile-based multi-login scraping, use
+    scrape_amazon_orders() directly.
 
     Args:
         db: Database facade for persisting scraped data.

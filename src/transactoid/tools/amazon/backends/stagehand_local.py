@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 import importlib
 import os
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from transactoid.tools.amazon.backends.stagehand_browserbase import (
+    PageOutcome,
+    _page_url,
+    _years_for_window,
+)
 from transactoid.tools.amazon.scraper import ScrapedItem, ScrapedOrder
 
 
@@ -66,52 +72,57 @@ class StagehandLocalBackend:
         self._model_api_key = model_api_key or os.getenv(
             "MODEL_API_KEY", os.getenv("GOOGLE_API_KEY", "")
         )
+        self._collected_orders: list[ScrapedOrder] = []
 
     def scrape_order_history(
         self,
-        year: int | None = None,
+        *,
+        since: date | None = None,
+        until: date | None = None,
         max_orders: int | None = None,
     ) -> list[ScrapedOrder]:
         """Scrape Amazon order history via Stagehand LOCAL mode.
 
         Args:
-            year: Optional year to filter orders.
-            max_orders: Optional maximum orders to scrape.
+            since: Inclusive lower bound on ``order_date``.
+            until: Inclusive upper bound on ``order_date``.
+            max_orders: Optional maximum orders across all visited years.
 
         Returns:
             List of ScrapedOrder objects.
         """
         try:
-            # Check if we're already in an async context
             loop = asyncio.get_running_loop()
-            # Already in async context - use nest_asyncio to allow nested loops
             nest_asyncio_module = importlib.import_module("nest_asyncio")
             apply = getattr(nest_asyncio_module, "apply", None)
             if callable(apply):
                 apply()
             return loop.run_until_complete(
-                self._scrape_order_history_async(year=year, max_orders=max_orders)
+                self._scrape_order_history_async(
+                    since=since, until=until, max_orders=max_orders
+                )
             )
         except RuntimeError:
-            # No running loop, safe to use asyncio.run()
-            return asyncio.run(
-                self._scrape_order_history_async(year=year, max_orders=max_orders)
-            )
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                return loop.run_until_complete(
+                    self._scrape_order_history_async(
+                        since=since, until=until, max_orders=max_orders
+                    )
+                )
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
 
     async def _scrape_order_history_async(
         self,
-        year: int | None = None,
-        max_orders: int | None = None,
+        *,
+        since: date | None,
+        until: date | None,
+        max_orders: int | None,
     ) -> list[ScrapedOrder]:
-        """Async implementation of order history scraping.
-
-        Args:
-            year: Optional year to filter orders.
-            max_orders: Optional maximum orders to scrape.
-
-        Returns:
-            List of ScrapedOrder objects.
-        """
+        """Async implementation of order history scraping."""
         try:
             stagehand_module = importlib.import_module("stagehand")
         except ImportError as e:
@@ -137,25 +148,18 @@ class StagehandLocalBackend:
         print("[Stagehand] Browser initialized successfully")
 
         try:
-            # Build URL with optional year filter
-            url = "https://www.amazon.com/your-orders/orders"
-            if year:
-                url = f"{url}?timeFilter=year-{year}"
-
-            await stagehand.page.goto(url, timeout=60000)  # 60 second timeout
+            base_url = "https://www.amazon.com/your-orders/orders"
+            await stagehand.page.goto(base_url, timeout=60000)
 
             # Wait for user to authenticate if needed
-            # Check if we're on a login page and wait for user to complete login
             page = stagehand.page
             max_wait_seconds = 300  # 5 minutes to log in
 
             for _ in range(max_wait_seconds):
                 current_url = page.url
-                # Check if we're on the orders page (not login/signin)
                 if "your-orders" in current_url and "signin" not in current_url:
                     print(f"[Stagehand] Detected orders page: {current_url}")
                     break
-                # Still on login page, wait for user
                 await asyncio.sleep(1)
             else:
                 raise TimeoutError(
@@ -163,78 +167,157 @@ class StagehandLocalBackend:
                     "Please log in within 5 minutes."
                 )
 
-            # Give the orders page time to fully load
-            print("[Stagehand] Waiting 2 seconds for page to fully load...")
-            await asyncio.sleep(2)
-            print("[Stagehand] Starting extraction loop...")
+            year_filters = _years_for_window(
+                since=since,
+                until=until,
+                max_orders=max_orders,
+                today=date.today(),
+            )
+            print(
+                f"[Stagehand] Year filters resolved: {year_filters} "
+                f"(since={since} until={until})"
+            )
 
-            all_orders: list[ScrapedOrder] = []
-            page_num = 0
+            self._collected_orders = []
 
-            while True:
-                page_num += 1
+            for year_filter in year_filters:
+                if year_filter is not None:
+                    year_url = _page_url(base_url, year_filter, page_num=1)
+                    await stagehand.page.goto(year_url, timeout=60000)
 
-                # Extract orders from current page
-                print(f"[Stagehand] Extracting orders from page {page_num}...")
-                print(f"[Stagehand] Current URL: {page.url}")
+                print("[Stagehand] Waiting 2 seconds for page to fully load...")
+                await asyncio.sleep(2)
+                print("[Stagehand] Starting extraction loop...")
 
-                try:
-                    extracted: Any = await stagehand.page.extract(
-                        instruction=(
-                            "Extract all orders visible on this page. "
-                            "For each order, get the order ID, "
-                            "date (YYYY-MM-DD format), "
-                            "total amount in cents, tax in cents, shipping in cents, "
-                            "and all items with ASIN, description, price in cents, "
-                            "and quantity. Also check if there's a 'Next' link."
-                        ),
-                        schema=ExtractedOrders,
+                outcome = await self._extract_pages_in_current_view(
+                    stagehand,
+                    base_url=base_url,
+                    since=since,
+                    until=until,
+                    max_orders=max_orders,
+                    year_filter=year_filter,
+                )
+                if outcome == "limit_hit":
+                    return self._collected_orders[:max_orders]
+                if outcome == "past_floor":
+                    print(
+                        f"[Stagehand] Year {year_filter} fully older than "
+                        f"since={since}; halting iteration"
                     )
-                    print(f"[Stagehand] Extraction result: {extracted}")
-                    order_count = len(extracted.orders)
-                    print(f"[Stagehand] Found {order_count} orders on page {page_num}")
-                except Exception as extract_error:
-                    print(f"[Stagehand] ERROR during extraction: {extract_error}")
-                    import traceback
-
-                    traceback.print_exc()
-                    raise
-
-                # Convert extracted orders to ScrapedOrder objects
-                for order in extracted.orders:
-                    scraped_order = ScrapedOrder(
-                        order_id=order.order_id,
-                        order_date=order.order_date,
-                        order_total_cents=order.order_total_cents,
-                        tax_cents=order.tax_cents,
-                        shipping_cents=order.shipping_cents,
-                        items=[
-                            ScrapedItem(
-                                asin=item.asin,
-                                description=item.description,
-                                price_cents=item.price_cents,
-                                quantity=item.quantity,
-                            )
-                            for item in order.items
-                        ],
-                    )
-                    all_orders.append(scraped_order)
-
-                    # Check max_orders limit
-                    if max_orders and len(all_orders) >= max_orders:
-                        return all_orders[:max_orders]
-
-                # Check for next page
-                if not extracted.has_next_page:
                     break
 
-                # Navigate to next page
-                print("[Stagehand] Clicking 'Next' button...")
-                await stagehand.page.act("Click the 'Next' pagination button")
-
-            print(f"[Stagehand] Finished scraping. Total orders: {len(all_orders)}")
-            return all_orders
+            print(
+                f"[Stagehand] Finished scraping. Total orders: "
+                f"{len(self._collected_orders)}"
+            )
+            return self._collected_orders
 
         finally:
             print("[Stagehand] Closing browser...")
             await stagehand.close()
+
+    async def _extract_pages_in_current_view(
+        self,
+        stagehand: Any,
+        *,
+        base_url: str,
+        since: date | None,
+        until: date | None,
+        max_orders: int | None,
+        year_filter: int | None,
+    ) -> PageOutcome:
+        """Extract every paginated page in the current view.
+
+        Returns ``"limit_hit"`` when ``max_orders`` is reached, ``"past_floor"``
+        when the current year produced ≥1 order all strictly older than
+        ``since``, or ``"continue"`` to advance to the next year.
+        """
+        view_label = f"year={year_filter}" if year_filter is not None else "default"
+        page_num = 0
+        had_extractions = False
+        all_older_than_since = True
+        while True:
+            page_num += 1
+            print(
+                f"[Stagehand] Extracting orders from page {page_num} ({view_label})..."
+            )
+            print(f"[Stagehand] Current URL: {stagehand.page.url}")
+
+            try:
+                extracted: Any = await stagehand.page.extract(
+                    instruction=(
+                        "Extract all orders visible on this page. "
+                        "For each order, get the order ID, "
+                        "date (YYYY-MM-DD format), "
+                        "total amount in cents, tax in cents, shipping in cents, "
+                        "and all items with ASIN, description, price in cents, "
+                        "and quantity. Also check if there's a 'Next' link."
+                    ),
+                    schema=ExtractedOrders,
+                )
+                print(f"[Stagehand] Extraction result: {extracted}")
+                order_count = len(extracted.orders)
+                print(
+                    f"[Stagehand] Found {order_count} orders on page {page_num} "
+                    f"({view_label})"
+                )
+            except Exception as extract_error:
+                print(f"[Stagehand] ERROR during extraction: {extract_error}")
+                import traceback
+
+                traceback.print_exc()
+                raise
+
+            for order in extracted.orders:
+                had_extractions = True
+                try:
+                    parsed_date = date.fromisoformat(order.order_date)
+                except ValueError:
+                    print(
+                        f"[Stagehand] Skipping order {order.order_id} with "
+                        f"unparsable date '{order.order_date}'"
+                    )
+                    continue
+
+                if until is not None and parsed_date > until:
+                    continue
+                if since is not None and parsed_date < since:
+                    continue
+                if since is None or parsed_date >= since:
+                    all_older_than_since = False
+
+                scraped_order = ScrapedOrder(
+                    order_id=order.order_id,
+                    order_date=order.order_date,
+                    order_total_cents=order.order_total_cents,
+                    tax_cents=order.tax_cents,
+                    shipping_cents=order.shipping_cents,
+                    items=[
+                        ScrapedItem(
+                            asin=item.asin,
+                            description=item.description,
+                            price_cents=item.price_cents,
+                            quantity=item.quantity,
+                        )
+                        for item in order.items
+                    ],
+                )
+                self._collected_orders.append(scraped_order)
+
+                if max_orders and len(self._collected_orders) >= max_orders:
+                    return "limit_hit"
+
+            if order_count == 0:
+                if since is not None and had_extractions and all_older_than_since:
+                    return "past_floor"
+                return "continue"
+
+            if not extracted.has_next_page:
+                if since is not None and had_extractions and all_older_than_since:
+                    return "past_floor"
+                return "continue"
+
+            next_url = _page_url(base_url, year_filter, page_num=page_num + 1)
+            print(f"[Stagehand] Navigating to next page: {next_url}")
+            await stagehand.page.goto(next_url, timeout=60000)
+            await asyncio.sleep(2)

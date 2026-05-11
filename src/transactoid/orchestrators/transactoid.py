@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ from transactoid.core.runtime.skills.prompting import generate_skill_instruction
 from transactoid.memory import sync_memory_index
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.core import Taxonomy
-from transactoid.tools.amazon.scraper import scrape_with_playwriter
+from transactoid.tools.amazon.scraper import scrape_amazon_orders
 from transactoid.tools.base import StandardTool
 from transactoid.tools.categorize.categorizer_tool import Categorizer
 from transactoid.tools.migrate.dispatcher import run_migration
@@ -444,7 +445,7 @@ class _MigrateTaxonomyTool(StandardTool):
 
 class _ScrapeAmazonOrdersTool(StandardTool):
     _name = "scrape_amazon_orders"
-    _description = "Scrape Amazon order history with browser automation."
+    _description = "Scrape Amazon order history using Browserbase automation."
     _input_schema: ToolInputSchema = {
         "type": "object",
         "properties": {},
@@ -456,20 +457,292 @@ class _ScrapeAmazonOrdersTool(StandardTool):
 
     async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
         _ = kwargs
-        print(
-            """
+        if sys.stdin.isatty():
+            print(
+                """
 === Amazon Order Scraping Setup ===
 
-1. Open Chrome and navigate to https://www.amazon.com
-2. Log in to your Amazon account
-3. Click the Playwriter extension icon in your browser toolbar
-4. When ready, type 'continue' to proceed with scraping
+1. Ensure BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID are set
+2. Configure Amazon login profiles via add_amazon_login
+3. When ready, type 'continue' to proceed with scraping
 """
+            )
+            user_input = input("Type 'continue' when ready: ").strip().lower()
+            if user_input != "continue":
+                return {"status": "cancelled", "message": "Scraping cancelled by user"}
+        else:
+            logger.info(
+                "Skipping interactive Amazon scrape confirmation (stdin is not a TTY)"
+            )
+
+        logger.info(
+            "Starting Amazon order scrape with stagehand-browserbase backend "
+            "(profile-based multi-login)"
         )
-        user_input = input("Type 'continue' when ready: ").strip().lower()
-        if user_input != "continue":
-            return {"status": "cancelled", "message": "Scraping cancelled by user"}
-        return scrape_with_playwriter(self._db)
+
+        try:
+            result = scrape_amazon_orders(
+                self._db,
+                backend="stagehand-browserbase",
+            )
+            logger.info("Browserbase scrape call returned")
+        except Exception:
+            logger.exception("Amazon order scrape failed with an unexpected error")
+            return {
+                "status": "error",
+                "message": "Amazon scraping failed unexpectedly",
+                "orders_created": 0,
+                "items_created": 0,
+            }
+
+        logger.info(
+            (
+                "Amazon order scrape completed: status={} "
+                "orders_created={} items_created={}"
+            ),
+            result.get("status"),
+            result.get("orders_created"),
+            result.get("items_created"),
+        )
+        return result
+
+
+class _ListAmazonLoginsTool(StandardTool):
+    _name = "list_amazon_logins"
+    _description = "List all configured Amazon login profiles."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        _ = kwargs
+        profiles = self._db.list_amazon_login_profiles()
+        return {
+            "profiles": [
+                {
+                    "profile_key": p.profile_key,
+                    "display_name": p.display_name,
+                    "enabled": p.enabled,
+                    "sort_order": p.sort_order,
+                    "has_context": p.browserbase_context_id is not None,
+                    "last_auth_status": p.last_auth_status,
+                    "last_auth_at": p.last_auth_at.isoformat()
+                    if p.last_auth_at
+                    else None,
+                }
+                for p in profiles
+            ]
+        }
+
+
+class _AddAmazonLoginTool(StandardTool):
+    _name = "add_amazon_login"
+    _description = "Add a new Amazon login profile."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "profile_key": {
+                "type": "string",
+                "description": "Unique profile key (e.g. 'primary').",
+            },
+            "display_name": {
+                "type": "string",
+                "description": "Human-readable name for this account.",
+            },
+            "enabled": {
+                "type": "boolean",
+                "description": "Whether the profile is active (default true).",
+            },
+            "sort_order": {
+                "type": "integer",
+                "description": "Sort order (lower = runs first, default 0).",
+            },
+        },
+        "required": ["profile_key", "display_name"],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        profile_key = str(kwargs["profile_key"])
+        display_name = str(kwargs["display_name"])
+        enabled = bool(kwargs.get("enabled", True))
+        sort_order = int(kwargs.get("sort_order", 0))
+        try:
+            profile = self._db.create_amazon_login_profile(
+                profile_key=profile_key,
+                display_name=display_name,
+                enabled=enabled,
+                sort_order=sort_order,
+            )
+            return {
+                "status": "success",
+                "profile_key": profile.profile_key,
+                "message": f"Created profile '{profile_key}'",
+            }
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+
+
+class _UpdateAmazonLoginTool(StandardTool):
+    _name = "update_amazon_login"
+    _description = (
+        "Update an existing Amazon login profile. "
+        "At least one of display_name, enabled, or sort_order must be provided."
+    )
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "profile_key": {"type": "string", "description": "Profile key to update."},
+            "display_name": {"type": "string", "description": "New display name."},
+            "enabled": {"type": "boolean", "description": "New enabled state."},
+            "sort_order": {"type": "integer", "description": "New sort order."},
+        },
+        "required": ["profile_key"],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        profile_key = str(kwargs["profile_key"])
+        display_name = _str_or_none(kwargs.get("display_name"))
+        enabled: bool | None = None
+        if "enabled" in kwargs and kwargs["enabled"] is not None:
+            enabled = bool(kwargs["enabled"])
+        sort_order: int | None = None
+        if "sort_order" in kwargs and kwargs["sort_order"] is not None:
+            sort_order = int(kwargs["sort_order"])
+        if display_name is None and enabled is None and sort_order is None:
+            return {
+                "status": "error",
+                "message": (
+                    "At least one of display_name, enabled, sort_order must be provided"
+                ),
+            }
+        try:
+            profile = self._db.update_amazon_login_profile(
+                profile_key=profile_key,
+                display_name=display_name,
+                enabled=enabled,
+                sort_order=sort_order,
+            )
+            return {
+                "status": "success",
+                "profile_key": profile.profile_key,
+                "message": f"Updated profile '{profile_key}'",
+            }
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+
+class _RemoveAmazonLoginTool(StandardTool):
+    _name = "remove_amazon_login"
+    _description = "Remove an Amazon login profile."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "profile_key": {"type": "string", "description": "Profile key to remove."},
+        },
+        "required": ["profile_key"],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        profile_key = str(kwargs["profile_key"])
+        try:
+            self._db.delete_amazon_login_profile(profile_key=profile_key)
+            return {"status": "success", "message": f"Removed profile '{profile_key}'"}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+
+class _ClearAmazonLoginContextTool(StandardTool):
+    _name = "clear_amazon_login_context"
+    _description = (
+        "Clear the stored Browserbase context ID for an Amazon login profile "
+        "(forces re-login on next scrape)."
+    )
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "profile_key": {
+                "type": "string",
+                "description": "Profile key to clear context for.",
+            },
+        },
+        "required": ["profile_key"],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        profile_key = str(kwargs["profile_key"])
+        try:
+            self._db.set_amazon_login_context_id(
+                profile_key=profile_key, context_id=None
+            )
+            return {
+                "status": "success",
+                "message": f"Cleared context for profile '{profile_key}'",
+            }
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+
+class _EnableAmazonLoginTool(StandardTool):
+    _name = "enable_amazon_login"
+    _description = "Enable an Amazon login profile."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "profile_key": {"type": "string", "description": "Profile key to enable."},
+        },
+        "required": ["profile_key"],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        profile_key = str(kwargs["profile_key"])
+        try:
+            self._db.update_amazon_login_profile(profile_key=profile_key, enabled=True)
+            return {"status": "success", "message": f"Enabled profile '{profile_key}'"}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+
+class _DisableAmazonLoginTool(StandardTool):
+    _name = "disable_amazon_login"
+    _description = "Disable an Amazon login profile."
+    _input_schema: ToolInputSchema = {
+        "type": "object",
+        "properties": {
+            "profile_key": {"type": "string", "description": "Profile key to disable."},
+        },
+        "required": ["profile_key"],
+    }
+
+    def __init__(self, db: DB) -> None:
+        self._db = db
+
+    async def _execute_impl(self, **kwargs: Any) -> dict[str, Any]:
+        profile_key = str(kwargs["profile_key"])
+        try:
+            self._db.update_amazon_login_profile(profile_key=profile_key, enabled=False)
+            return {"status": "success", "message": f"Disabled profile '{profile_key}'"}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
 
 
 class _GenerateMemoryIndexTool(StandardTool):
@@ -595,6 +868,13 @@ class Transactoid:
         registry.register(_ScrapeAmazonOrdersTool(self._db))
         registry.register(GenerateChartTool())
         registry.register(_GenerateMemoryIndexTool(self._memory_dir))
+        registry.register(_ListAmazonLoginsTool(self._db))
+        registry.register(_AddAmazonLoginTool(self._db))
+        registry.register(_UpdateAmazonLoginTool(self._db))
+        registry.register(_RemoveAmazonLoginTool(self._db))
+        registry.register(_ClearAmazonLoginContextTool(self._db))
+        registry.register(_EnableAmazonLoginTool(self._db))
+        registry.register(_DisableAmazonLoginTool(self._db))
         return registry
 
     def create_runtime(

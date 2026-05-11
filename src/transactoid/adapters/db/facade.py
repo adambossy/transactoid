@@ -13,15 +13,19 @@ from sqlalchemy import (
     UniqueConstraint,
     case,
     create_engine,
+    event,
+    func,
     inspect,
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from transactoid.adapters.db.models import (
     AmazonItemDB,
+    AmazonLoginProfileDB,
     AmazonOrderDB,
     Base,
     Category,
@@ -67,16 +71,38 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
 }
 
 
+def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
+    """Enable SQLite FK enforcement so RESTRICT/CASCADE behave like Postgres."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 class DB:
     """Database service layer providing ORM models and helper methods."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, enforce_sqlite_fks: bool = False) -> None:
         """Initialize database connection.
 
         Args:
             url: Database URL (e.g., "sqlite:///transactoid.db")
+            enforce_sqlite_fks: When True and the URL is SQLite, enable
+                ``PRAGMA foreign_keys=ON`` so RESTRICT/CASCADE behave like
+                Postgres. Off by default — pre-existing tests rely on the
+                permissive default.
         """
-        self._engine = create_engine(url, echo=False, pool_pre_ping=True)
+        engine_kwargs: dict[str, Any] = {"echo": False}
+        if not url.startswith("sqlite"):
+            # Keep long-lived CLI/ACP sessions resilient to dropped DB connections.
+            engine_kwargs.update(
+                {
+                    "pool_pre_ping": True,
+                    "pool_recycle": 300,
+                }
+            )
+        self._engine = create_engine(url, **engine_kwargs)
+        if url.startswith("sqlite") and enforce_sqlite_fks:
+            event.listen(self._engine, "connect", _enable_sqlite_foreign_keys)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
 
     def create_schema(self) -> None:
@@ -971,19 +997,6 @@ class DB:
                 item.sync_cursor = cursor
                 item.updated_at = datetime.now()
 
-    def get_investments_watermark(self, item_id: str) -> date | None:
-        """Get the investments watermark for a Plaid item.
-
-        Args:
-            item_id: Plaid item ID
-
-        Returns:
-            Watermark date or None if not set
-        """
-        with self.session() as session:  # type: Session
-            item = session.query(PlaidItem).filter_by(item_id=item_id).first()
-            return item.investments_synced_through if item else None
-
     def set_investments_watermark(self, item_id: str, watermark_date: date) -> None:
         """Set the investments watermark for a Plaid item.
 
@@ -1125,6 +1138,14 @@ class DB:
             return target_item
 
     # Plaid Transactions methods
+
+    def min_plaid_transaction_date(self) -> date | None:
+        """Return the earliest ``posted_at`` across all plaid_transactions."""
+        with self.session() as session:  # type: Session
+            result = session.query(func.min(PlaidTransaction.posted_at)).scalar()
+            if result is None:
+                return None
+            return cast(date, result)
 
     def upsert_plaid_transaction(
         self,
@@ -2160,6 +2181,8 @@ class DB:
         order_id: str,
         order_date: date,
         order_total_cents: int,
+        *,
+        profile_id: int,
         tax_cents: int = 0,
         shipping_cents: int = 0,
     ) -> AmazonOrderDB:
@@ -2169,6 +2192,8 @@ class DB:
             order_id: Amazon order ID (e.g., "113-5524816-2451403")
             order_date: Date of the order
             order_total_cents: Total amount in cents
+            profile_id: ID of the amazon_login_profiles row that produced this
+                scrape. Last-writer-wins on re-scrape under a different profile.
             tax_cents: Tax amount in cents
             shipping_cents: Shipping amount in cents
 
@@ -2185,6 +2210,7 @@ class DB:
             if order is None:
                 order = AmazonOrderDB(
                     order_id=order_id,
+                    profile_id=profile_id,
                     order_date=order_date,
                     order_total_cents=order_total_cents,
                     tax_cents=tax_cents,
@@ -2192,6 +2218,7 @@ class DB:
                 )
                 session.add(order)
             else:
+                order.profile_id = profile_id
                 order.order_date = order_date
                 order.order_total_cents = order_total_cents
                 order.tax_cents = tax_cents
@@ -2272,14 +2299,23 @@ class DB:
                 session.expunge(order)
             return order
 
-    def list_amazon_orders(self) -> list[AmazonOrderDB]:
-        """List all Amazon orders.
+    def list_amazon_orders(
+        self, *, profile_id: int | None = None
+    ) -> list[AmazonOrderDB]:
+        """List Amazon orders, optionally filtered by profile.
+
+        Args:
+            profile_id: When provided, only orders attributed to this profile
+                are returned.
 
         Returns:
             List of AmazonOrderDB instances
         """
         with self.session() as session:  # type: Session
-            orders = session.query(AmazonOrderDB).all()
+            query = session.query(AmazonOrderDB)
+            if profile_id is not None:
+                query = query.filter(AmazonOrderDB.profile_id == profile_id)
+            orders = query.all()
             for order in orders:
                 session.expunge(order)
             return orders
@@ -2302,3 +2338,176 @@ class DB:
             for item in items:
                 session.expunge(item)
             return items
+
+    def list_amazon_login_profiles(
+        self, *, enabled_only: bool = False
+    ) -> list[AmazonLoginProfileDB]:
+        """List all Amazon login profiles ordered by sort_order, profile_id."""
+        with self.session() as session:  # type: Session
+            query = session.query(AmazonLoginProfileDB)
+            if enabled_only:
+                query = query.filter(AmazonLoginProfileDB.enabled.is_(True))
+            profiles = query.order_by(
+                AmazonLoginProfileDB.sort_order.asc(),
+                AmazonLoginProfileDB.profile_id.asc(),
+            ).all()
+            session.expunge_all()
+            return profiles
+
+    def create_amazon_login_profile(
+        self,
+        *,
+        profile_key: str,
+        display_name: str,
+        enabled: bool = True,
+        sort_order: int = 0,
+    ) -> AmazonLoginProfileDB:
+        """Create a new Amazon login profile."""
+        with self.session() as session:  # type: Session
+            profile = AmazonLoginProfileDB(
+                profile_key=profile_key,
+                display_name=display_name,
+                enabled=enabled,
+                sort_order=sort_order,
+            )
+            session.add(profile)
+            session.commit()
+            session.refresh(profile)
+            session.expunge(profile)
+            return profile
+
+    def update_amazon_login_profile(
+        self,
+        *,
+        profile_key: str,
+        display_name: str | None = None,
+        enabled: bool | None = None,
+        sort_order: int | None = None,
+    ) -> AmazonLoginProfileDB:
+        """Update fields on an existing Amazon login profile."""
+        with self.session() as session:  # type: Session
+            profile = (
+                session.query(AmazonLoginProfileDB)
+                .filter(AmazonLoginProfileDB.profile_key == profile_key)
+                .one_or_none()
+            )
+            if profile is None:
+                raise ValueError(f"Amazon login profile not found: {profile_key!r}")
+            if display_name is not None:
+                profile.display_name = display_name
+            if enabled is not None:
+                profile.enabled = enabled
+            if sort_order is not None:
+                profile.sort_order = sort_order
+            profile.updated_at = datetime.utcnow()
+            session.commit()
+            session.refresh(profile)
+            session.expunge(profile)
+            return profile
+
+    def delete_amazon_login_profile(self, *, profile_key: str) -> None:
+        """Delete an Amazon login profile by key.
+
+        Raises:
+            ValueError: If the profile does not exist, or if it has attributed
+                amazon_orders rows blocking the FK delete (RESTRICT).
+        """
+        with self.session() as session:  # type: Session
+            profile = (
+                session.query(AmazonLoginProfileDB)
+                .filter(AmazonLoginProfileDB.profile_key == profile_key)
+                .one_or_none()
+            )
+            if profile is None:
+                raise ValueError(f"Amazon login profile not found: {profile_key!r}")
+            attributed_count = (
+                session.query(AmazonOrderDB)
+                .filter(AmazonOrderDB.profile_id == profile.profile_id)
+                .count()
+            )
+            session.delete(profile)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                session.rollback()
+                raise ValueError(
+                    f"cannot delete profile {profile_key!r}: it has "
+                    f"{attributed_count} attributed orders; reassign or wipe "
+                    "them first"
+                ) from exc
+
+    def set_amazon_login_context_id(
+        self, *, profile_key: str, context_id: str | None
+    ) -> AmazonLoginProfileDB:
+        """Set or clear the Browserbase context ID for a profile."""
+        with self.session() as session:  # type: Session
+            profile = (
+                session.query(AmazonLoginProfileDB)
+                .filter(AmazonLoginProfileDB.profile_key == profile_key)
+                .one_or_none()
+            )
+            if profile is None:
+                raise ValueError(f"Amazon login profile not found: {profile_key!r}")
+            profile.browserbase_context_id = context_id
+            profile.updated_at = datetime.utcnow()
+            session.commit()
+            session.refresh(profile)
+            session.expunge(profile)
+            return profile
+
+    def record_amazon_login_auth_result(
+        self,
+        *,
+        profile_key: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        """Record the result of a login auth attempt for a profile."""
+        with self.session() as session:  # type: Session
+            profile = (
+                session.query(AmazonLoginProfileDB)
+                .filter(AmazonLoginProfileDB.profile_key == profile_key)
+                .one_or_none()
+            )
+            if profile is None:
+                raise ValueError(f"Amazon login profile not found: {profile_key!r}")
+            profile.last_auth_at = datetime.utcnow()
+            profile.last_auth_status = status
+            profile.last_auth_error = error
+            profile.updated_at = datetime.utcnow()
+            session.commit()
+
+    def set_amazon_profile_history_watermark(
+        self,
+        *,
+        profile_id: int,
+        through_date: date,
+    ) -> None:
+        """Mark a profile's history as fully scraped through ``through_date``."""
+        with self.session() as session:  # type: Session
+            profile = (
+                session.query(AmazonLoginProfileDB)
+                .filter(AmazonLoginProfileDB.profile_id == profile_id)
+                .one_or_none()
+            )
+            if profile is None:
+                raise ValueError(
+                    f"Amazon login profile not found: profile_id={profile_id}"
+                )
+            profile.history_complete_through = through_date
+            profile.updated_at = datetime.utcnow()
+            session.commit()
+
+    def get_amazon_login_profile(
+        self, *, profile_key: str
+    ) -> AmazonLoginProfileDB | None:
+        """Get a single Amazon login profile by key."""
+        with self.session() as session:  # type: Session
+            profile = (
+                session.query(AmazonLoginProfileDB)
+                .filter(AmazonLoginProfileDB.profile_key == profile_key)
+                .one_or_none()
+            )
+            if profile is not None:
+                session.expunge(profile)
+            return profile

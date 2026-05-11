@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 from typing import Any, cast
@@ -14,6 +15,7 @@ import typer
 import yaml
 
 from transactoid.adapters.db.facade import DB
+from transactoid.adapters.db.models import AmazonLoginProfileDB
 from transactoid.services.scheduled_reports import (
     NEW_YORK_TZ,
     select_prompt_key,
@@ -27,6 +29,124 @@ app = typer.Typer(
     invoke_without_command=True,
     no_args_is_help=False,
 )
+
+amazon_login_app = typer.Typer(help="Manage Amazon login profiles.")
+app.add_typer(amazon_login_app, name="amazon-login")
+
+
+@amazon_login_app.command("add")
+def amazon_login_add(
+    key: str = typer.Option(..., "--key", help="Unique profile key (e.g. 'primary')."),
+    name: str = typer.Option(..., "--name", help="Display name for the profile."),
+    order: int = typer.Option(0, "--order", help="Sort order (lower = first)."),
+    disabled: bool = typer.Option(
+        False, "--disabled", is_flag=True, help="Create profile as disabled."
+    ),
+) -> None:
+    """Add a new Amazon login profile."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    try:
+        profile = db.create_amazon_login_profile(
+            profile_key=key,
+            display_name=name,
+            enabled=not disabled,
+            sort_order=order,
+        )
+        typer.echo(f"Created profile '{profile.profile_key}' ({profile.display_name})")
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@amazon_login_app.command("list")
+def amazon_login_list(
+    enabled_only: bool = typer.Option(
+        False, "--enabled-only", is_flag=True, help="Only show enabled profiles."
+    ),
+) -> None:
+    """List Amazon login profiles."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    profiles = db.list_amazon_login_profiles(enabled_only=enabled_only)
+    if not profiles:
+        typer.echo("No profiles configured.")
+        return
+    for profile in profiles:
+        status = "enabled" if profile.enabled else "disabled"
+        ctx = profile.browserbase_context_id or "none"
+        typer.echo(
+            f"[{profile.sort_order}] {profile.profile_key}: "
+            f"{profile.display_name} ({status}, context: {ctx})"
+        )
+
+
+@amazon_login_app.command("update")
+def amazon_login_update(
+    key: str = typer.Option(..., "--key", help="Profile key to update."),
+    name: str | None = typer.Option(None, "--name", help="New display name."),
+    order: int | None = typer.Option(None, "--order", help="New sort order."),
+    enable: bool = typer.Option(
+        False, "--enable", is_flag=True, help="Enable the profile."
+    ),
+    disable: bool = typer.Option(
+        False, "--disable", is_flag=True, help="Disable the profile."
+    ),
+) -> None:
+    """Update an Amazon login profile."""
+    if name is None and order is None and not enable and not disable:
+        typer.echo(
+            "Error: at least one of --name, --order,"
+            " --enable, --disable must be specified.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if enable and disable:
+        typer.echo("Error: --enable and --disable are mutually exclusive.", err=True)
+        raise typer.Exit(1)
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    enabled: bool | None = None
+    if enable:
+        enabled = True
+    elif disable:
+        enabled = False
+    try:
+        profile = db.update_amazon_login_profile(
+            profile_key=key,
+            display_name=name,
+            enabled=enabled,
+            sort_order=order,
+        )
+        typer.echo(f"Updated profile '{profile.profile_key}'")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@amazon_login_app.command("remove")
+def amazon_login_remove(
+    key: str = typer.Option(..., "--key", help="Profile key to remove."),
+) -> None:
+    """Remove an Amazon login profile."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    try:
+        db.delete_amazon_login_profile(profile_key=key)
+        typer.echo(f"Removed profile '{key}'")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@amazon_login_app.command("clear-context")
+def amazon_login_clear_context(
+    key: str = typer.Option(..., "--key", help="Profile key to clear context for."),
+) -> None:
+    """Clear the stored Browserbase context ID for a profile (forces re-login)."""
+    db = DB(os.environ.get("DATABASE_URL") or "sqlite:///:memory:")
+    try:
+        db.set_amazon_login_context_id(profile_key=key, context_id=None)
+        typer.echo(f"Cleared context for profile '{key}'")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
 def _ensure_toad_installed() -> str:
@@ -510,99 +630,91 @@ def connect_account() -> None:
 
 @app.command("scrape-amazon")
 def scrape_amazon(
+    since: datetime | None = typer.Option(
+        None,
+        help="Inclusive lower bound on order date (YYYY-MM-DD).",
+        formats=["%Y-%m-%d"],
+    ),
+    until: datetime | None = typer.Option(
+        None,
+        help="Inclusive upper bound on order date (YYYY-MM-DD).",
+        formats=["%Y-%m-%d"],
+    ),
     max_orders: int | None = typer.Option(
-        None, help="Max orders to scrape (all if not set)"
+        None, help="Max orders to scrape per profile (all if not set)"
     ),
-    year: int | None = typer.Option(None, help="Filter orders by year (e.g., 2025)"),
+    key: str | None = typer.Option(
+        None,
+        "--key",
+        help="Scrape only this profile key (must be enabled). Default: all enabled.",
+    ),
     backend: str = typer.Option(
-        "stagehand",
+        "stagehand-browserbase",
         help="Backend: stagehand (local), stagehand-browserbase (cloud), playwriter",
-    ),
-    context_id: str | None = typer.Option(
-        None, help="Browserbase context ID for pre-authenticated sessions"
-    ),
-    create_context: bool = typer.Option(
-        False,
-        "--create-context",
-        help="Create a new Browserbase context and exit",
-    ),
-    login: bool = typer.Option(
-        False,
-        "--login",
-        help="Wait for manual login via Session Live View (for first-time auth)",
     ),
 ) -> None:
     """
-    Scrape Amazon order history using browser automation.
+    Scrape Amazon order history for all enabled login profiles.
+
+    Runs sequential auth then sequential scrape for each enabled profile.
+    Profiles are configured via add-amazon-login / list-amazon-logins.
+
+    The orchestrator floors --since at the earliest plaid_transactions.posted_at
+    in the DB; orders predating any real charge are skipped automatically.
 
     Examples:
-        # Local browser (opens visible window for login)
-        transactoid scrape-amazon --backend stagehand
+        # Full history (DB-floored)
+        transactoid scrape-amazon
 
-        # Create a Browserbase context (one-time setup)
-        transactoid scrape-amazon --backend stagehand-browserbase --create-context
+        # Bounded date window
+        transactoid scrape-amazon --since 2025-01-01 --until 2025-12-31
 
-        # First-time login with Browserbase (opens Live View for auth)
-        transactoid scrape-amazon --backend stagehand-browserbase --context-id ID \\
-            --login
-
-        # Use Browserbase with existing authenticated context
-        transactoid scrape-amazon --backend stagehand-browserbase --context-id <id>
+        # Cap orders per profile
+        transactoid scrape-amazon --max-orders 50
     """
     from transactoid.tools.amazon.scraper import scrape_amazon_orders
 
     db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
     db = DB(db_url)
 
-    if create_context:
-        if backend != "stagehand-browserbase":
-            typer.echo("Error: --create-context only works with stagehand-browserbase")
-            raise typer.Exit(1)
-
-        from transactoid.tools.amazon.backends.stagehand_browserbase import (
-            StagehandBrowserbaseBackend,
-        )
-
-        typer.echo("Creating new Browserbase context...")
-        new_context_id = StagehandBrowserbaseBackend.create_context()
-        typer.echo("\nContext created successfully!")
-        typer.echo(f"Context ID: {new_context_id}")
-        typer.echo("\nUse this context for future scrapes:")
-        typer.echo(
-            f"  transactoid scrape-amazon --backend stagehand-browserbase "
-            f"--context-id {new_context_id}"
-        )
-        return
-
     if backend not in ("stagehand", "stagehand-browserbase", "playwriter"):
         typer.echo(f"Error: Invalid backend '{backend}'")
         raise typer.Exit(1)
 
-    if login and backend != "stagehand-browserbase":
-        typer.echo("Error: --login only works with stagehand-browserbase backend")
-        raise typer.Exit(1)
+    since_date = since.date() if since is not None else None
+    until_date = until.date() if until is not None else None
 
-    typer.echo(f"Scraping Amazon orders (backend={backend}, max_orders={max_orders})")
-    if year:
-        typer.echo(f"Filtering by year: {year}")
-    if context_id:
-        typer.echo(f"Using context: {context_id}")
-    if login:
-        typer.echo("Login mode: waiting for manual auth via Session Live View")
+    typer.echo(
+        f"Scraping Amazon orders (backend={backend}, since={since_date}, "
+        f"until={until_date}, max_orders={max_orders}, key={key})"
+    )
 
     result = scrape_amazon_orders(
         db,
         backend=backend,  # type: ignore[arg-type]
-        year=year,
+        since=since_date,
+        until=until_date,
         max_orders=max_orders,
-        context_id=context_id,
-        login_mode=login,
+        profile_key=key,
     )
 
-    if result.get("status") == "success":
-        typer.echo("\nSuccess!")
+    status = result.get("status")
+    if status in ("success", "partial"):
+        typer.echo("\nDone!")
+        typer.echo(f"  Status: {status}")
+        n_succeeded = result.get("profiles_succeeded", 0)
+        n_ready = result.get("profiles_ready", 0)
+        typer.echo(f"  Profiles: {n_succeeded}/{n_ready} succeeded")
         typer.echo(f"  Orders created: {result.get('orders_created', 0)}")
         typer.echo(f"  Items created: {result.get('items_created', 0)}")
+        for pr in result.get("profile_results", []):
+            typer.echo(
+                f"  [{pr.get('status', '?').upper()}] "
+                f"{pr.get('display_name', pr.get('profile_key'))}: "
+                f"{pr.get('message', '')}"
+            )
+        if status == "partial":
+            raise typer.Exit(2)
     else:
         typer.echo(f"\nError: {result.get('message', 'Unknown error')}")
         raise typer.Exit(1)
@@ -1010,6 +1122,7 @@ async def _agent_run_impl(
 
         if email:
             _send_run_email(
+                db=db,
                 report_text=result.report_text,
                 prompt_key=prompt_key,
                 recipients=email,
@@ -1169,8 +1282,69 @@ def _load_email_config() -> dict[str, Any]:
         return config
 
 
+_AMAZON_AUTH_STALE_DAYS = 30
+
+
+def _is_amazon_auth_expired(profile: AmazonLoginProfileDB, *, now: datetime) -> bool:
+    """A profile's auth is considered expired if its last attempt failed,
+    has never run, or hasn't been refreshed inside the staleness window.
+
+    Why a 30-day staleness window: Amazon session cookies survive Browserbase
+    context reuse for weeks, but eventually rotate. The orchestrator's auth
+    phase short-circuits when ``browserbase_context_id`` is set and never
+    re-records ``last_auth_at`` on the happy path, so a long-lived ``success``
+    can mask a context that's drifted close to expiry. Surfacing the warning
+    a month out gives the user time to re-auth before the next scrape silently
+    fails.
+    """
+    if profile.last_auth_status == "failed":
+        return True
+    if profile.last_auth_at is None:
+        return True
+    return (now - profile.last_auth_at) > timedelta(days=_AMAZON_AUTH_STALE_DAYS)
+
+
+def _build_amazon_auth_alert(db: DB) -> tuple[str, str] | None:
+    """Build (html, text) banners listing enabled profiles whose auth looks expired.
+
+    Returns ``None`` when every enabled profile looks healthy.
+    """
+    profiles = db.list_amazon_login_profiles(enabled_only=True)
+    expired = [p for p in profiles if _is_amazon_auth_expired(p, now=datetime.utcnow())]
+    if not expired:
+        return None
+    profile_lines = ", ".join(f"{p.display_name} ({p.profile_key})" for p in expired)
+    html = (
+        '<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;'
+        "padding:12px 16px;border-radius:6px;margin:0 0 16px 0;font-size:14px;"
+        'line-height:1.45;">'
+        "<strong>Amazon login expired:</strong> "
+        f"{profile_lines}. Re-authenticate via "
+        '<code style="background:#fee2e2;padding:1px 4px;border-radius:3px;">'
+        "transactoid amazon-login refresh --key &lt;profile_key&gt;</code> "
+        "before the next scheduled scrape, or new orders will not be ingested."
+        "</div>"
+    )
+    text = (
+        f"[ALERT] Amazon login expired: {profile_lines}. "
+        "Re-authenticate via `transactoid amazon-login refresh --key <profile_key>` "
+        "before the next scheduled scrape, or new orders will not be ingested.\n\n"
+    )
+    return (html, text)
+
+
+def _inject_alert_html(html_content: str, alert_html: str) -> str:
+    """Insert the alert banner immediately after ``<body>``; prepend if missing."""
+    body_match = re.search(r"<body[^>]*>", html_content, flags=re.IGNORECASE)
+    if body_match:
+        idx = body_match.end()
+        return html_content[:idx] + "\n" + alert_html + html_content[idx:]
+    return alert_html + html_content
+
+
 def _send_run_email(
     *,
+    db: DB,
     report_text: str,
     prompt_key: str | None,
     recipients: list[str],
@@ -1180,6 +1354,8 @@ def _send_run_email(
 
     Loads sender/subject defaults from configs/email.yaml. If the agent wrote
     an HTML file at the standardized path, attaches it as the HTML body.
+    Prepends an Amazon-auth-expired banner to both bodies when any enabled
+    profile's login looks stale.
     """
     from transactoid.services.email_service import EmailService, SMTPConfig
 
@@ -1267,6 +1443,12 @@ def _send_run_email(
     safe_html_content = (
         resolved_html_content or f"<pre>{escape(safe_text_content)}</pre>"
     )
+
+    alert = _build_amazon_auth_alert(db)
+    if alert is not None:
+        alert_html, alert_text = alert
+        safe_html_content = _inject_alert_html(safe_html_content, alert_html)
+        safe_text_content = alert_text + safe_text_content
 
     email_result = email_service.send_report(
         to=recipients,

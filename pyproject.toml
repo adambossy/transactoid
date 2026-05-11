@@ -37,6 +37,7 @@ dependencies = [
 [project.optional-dependencies]
 stagehand = [
     "stagehand>=0.5.9",
+    "nest-asyncio>=1.6.0",
 ]
 
 [project.scripts]

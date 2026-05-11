@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -358,6 +359,12 @@ class AmazonOrderDB(Base):
     __tablename__ = "amazon_orders"
 
     order_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("amazon_login_profiles.profile_id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     order_total_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     tax_cents: Mapped[int] = mapped_column(
@@ -406,4 +413,34 @@ class AmazonItemDB(Base):
 
     __table_args__ = (
         UniqueConstraint("order_id", "asin", name="uq_amazon_item_order_asin"),
+    )
+
+
+class AmazonLoginProfileDB(Base):
+    """Amazon login profile for multi-account scraping."""
+
+    __tablename__ = "amazon_login_profiles"
+
+    profile_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    profile_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    browserbase_context_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_auth_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_auth_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_auth_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    history_complete_through: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
     )

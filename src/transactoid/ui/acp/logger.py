@@ -129,74 +129,10 @@ class PromptHandlerLogger:
             "handle_prompt returning end_turn"
         )
 
-    def processing_event(self, event_type: str, event_class: str) -> None:
-        """Log event processing at debug level."""
-        self._logger.bind(event_type=event_type, event_class=event_class).debug(
-            "Processing event: type={}, event={}", event_type, event_class
-        )
-
-    def raw_response_no_data(self) -> None:
-        """Log raw response with no data."""
-        self._logger.debug("raw_response_event with no data, skipping")
-
-    def raw_response_data_type(self, data_type: str) -> None:
-        """Log raw response data type."""
-        self._logger.bind(data_type=data_type).debug(
-            "raw_response_event data.type={}", data_type
-        )
-
     def tool_call_started(self, name: str, call_id: str) -> None:
         """Log tool call started."""
         self._logger.bind(tool_name=name, call_id=call_id).info(
             "Tool call started: name={} call_id={}", name, call_id
-        )
-
-    def output_item_done(self, call_id: str | None, item_type: str) -> None:
-        """Log output item done at debug level."""
-        self._logger.bind(call_id=call_id, item_type=item_type).debug(
-            "output_item.done: call_id={} item.type={}", call_id, item_type
-        )
-
-    def run_item_stream_event(self, item_type: str, item: Any) -> None:
-        """Log run item stream event (item truncated to 1000 chars)."""
-        item_str = _truncate(repr(item))
-        self._logger.bind(item_type=item_type).info(
-            "run_item_stream_event: item type={}, item={}", item_type, item_str
-        )
-
-    def tool_output(
-        self, call_id: str, output_len: int, tracked: bool, tracked_ids: list[str]
-    ) -> None:
-        """Log tool output details."""
-        self._logger.bind(
-            call_id=call_id,
-            output_len=output_len,
-            tracked=tracked,
-            tracked_ids=tracked_ids,
-        ).info(
-            "Tool output: call_id={} output_len={} tracked={} tracked_ids={}",
-            call_id,
-            output_len,
-            tracked,
-            tracked_ids,
-        )
-
-    def tool_output_text(self, text: str) -> None:
-        """Log tool output text (truncated to 500 chars)."""
-        self._logger.info("Tool output text: {}", text[:500])
-
-    def tool_output_unknown(self, call_id: str, tracked_ids: list[str]) -> None:
-        """Log warning for unknown tool call output."""
-        self._logger.bind(call_id=call_id, tracked_ids=tracked_ids).warning(
-            "Tool output for unknown call_id={}, tracked_ids={}, skipping",
-            call_id,
-            tracked_ids,
-        )
-
-    def non_tool_output_item(self, item_type: str) -> None:
-        """Log non-ToolCallOutputItem at debug level."""
-        self._logger.bind(item_type=item_type).debug(
-            "run_item_stream_event with non-ToolCallOutputItem: {}", item_type
         )
 
     def unhandled_event(self, event_type: str) -> None:
@@ -210,32 +146,3 @@ class PromptHandlerLogger:
         self._logger.bind(call_id=call_id, tool_name=tool_name).warning(
             "Orphaned tool call: call_id={} tool_name={}", call_id, tool_name
         )
-
-    def tool_payload_built(
-        self, call_id: str, has_raw_input: bool, has_raw_output: bool
-    ) -> None:
-        """Log tool payload build success."""
-        self._logger.bind(
-            call_id=call_id,
-            has_raw_input=has_raw_input,
-            has_raw_output=has_raw_output,
-        ).debug(
-            "Tool payload built: call_id={} raw_input={} raw_output={}",
-            call_id,
-            has_raw_input,
-            has_raw_output,
-        )
-
-    def tool_payload_fallback(self, call_id: str, reason: str) -> None:
-        """Log tool payload fallback."""
-        self._logger.bind(call_id=call_id, reason=reason).warning(
-            "Tool payload fallback: call_id={} reason={}", call_id, reason
-        )
-
-    def tool_lifecycle_transition(
-        self, call_id: str, from_status: str, to_status: str
-    ) -> None:
-        """Log tool call lifecycle transition."""
-        self._logger.bind(
-            call_id=call_id, from_status=from_status, to_status=to_status
-        ).debug("Tool lifecycle: call_id={} {} -> {}", call_id, from_status, to_status)
