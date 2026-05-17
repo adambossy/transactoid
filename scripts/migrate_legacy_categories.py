@@ -181,6 +181,7 @@ def build_category_rows(
             "name": parent.display_name,
             "description": None,
             "parent_key": None,
+            "deprecated_at": None,
         }
         rows.append(parent_row)
         id_by_code[parent.code] = next_id
@@ -198,6 +199,7 @@ def build_category_rows(
                 "name": child.display_name,
                 "description": None,
                 "parent_key": parent_slug,
+                "deprecated_at": None,
             }
             rows.append(child_row)
             id_by_code[child.code] = next_id

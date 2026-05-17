@@ -34,6 +34,7 @@ def _create_sample_taxonomy(db: DB) -> Taxonomy:
                 name="Food",
                 description=None,
                 parent_key=None,
+                deprecated_at=None,
             ),
             CategoryRow(
                 category_id=2,
@@ -42,6 +43,7 @@ def _create_sample_taxonomy(db: DB) -> Taxonomy:
                 name="Groceries",
                 description=None,
                 parent_key="food",
+                deprecated_at=None,
             ),
             CategoryRow(
                 category_id=3,
@@ -50,6 +52,7 @@ def _create_sample_taxonomy(db: DB) -> Taxonomy:
                 name="Restaurants",
                 description=None,
                 parent_key="food",
+                deprecated_at=None,
             ),
         ]
     )
