@@ -720,6 +720,68 @@ def scrape_amazon(
         raise typer.Exit(1)
 
 
+@app.command("remutate-amazon")
+def remutate_amazon(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show counts only; write nothing."
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", help="Skip the confirmation prompt and apply."
+    ),
+) -> None:
+    """
+    Re-split pre-existing Plaid txns that now match scraped Amazon orders.
+
+    The sync mutation phase only sees newly-fetched Plaid txns, so a charge
+    that posted before an Amazon scrape never gets split. This command re-runs
+    the match -> split -> categorize chain over a bounded window of already
+    persisted Plaid transactions to backfill those splits.
+
+    Examples:
+        # Preview scope (incl. destructive overwrites), write nothing
+        transactoid remutate-amazon --dry-run
+
+        # Apply without the confirmation prompt
+        transactoid remutate-amazon --yes
+    """
+    from transactoid.tools.amazon.remutate import remutate_amazon_orders
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    # Always preview first so the user sees scope (and any destructive
+    # overwrite of manual/verified rows) before the write commits.
+    preview = remutate_amazon_orders(db, dry_run=True)
+    typer.echo(preview["message"])
+    if preview["overwrites"]:
+        typer.echo(
+            f"  {preview['overwrites']} manually-categorized/verified row(s) "
+            "will be DELETED and replaced:"
+        )
+        for d in preview["overwrite_details"]:
+            typer.echo(
+                f"    plaid={d['plaid_transaction_id']} "
+                f"drv={d['derived_transaction_id']} {d['posted_at']} "
+                f"${d['amount_cents'] / 100:.2f} "
+                f"verified={d['is_verified']} method={d['category_method']} "
+                f"{d['merchant_descriptor']!r}"
+            )
+
+    if dry_run or preview["status"] == "noop" or preview["matched"] == 0:
+        return
+
+    if not yes and not typer.confirm(
+        f"\nSplit {preview['matched']} Plaid txns into per-item derived rows?"
+    ):
+        typer.echo("Aborted.")
+        raise typer.Exit(1)
+
+    result = remutate_amazon_orders(db, dry_run=False)
+    typer.echo(result["message"])
+    if result["status"] != "ok":
+        raise typer.Exit(1)
+
+
 @app.command("reset-investment-watermark")
 def reset_investment_watermark(
     item_id: str | None = typer.Option(

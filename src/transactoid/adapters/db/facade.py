@@ -1147,6 +1147,43 @@ class DB:
                 return None
             return cast(date, result)
 
+    def amazon_order_date_bounds(self) -> tuple[date, date] | None:
+        """Return ``(min, max)`` of ``amazon_orders.order_date``.
+
+        Returns ``None`` when there are no scraped Amazon orders.
+        """
+        with self.session() as session:  # type: Session
+            row = session.query(
+                func.min(AmazonOrderDB.order_date),
+                func.max(AmazonOrderDB.order_date),
+            ).one()
+            lo, hi = row
+            if lo is None or hi is None:
+                return None
+            return (cast(date, lo), cast(date, hi))
+
+    def list_plaid_transactions_in_date_range(
+        self, *, start: date, end: date
+    ) -> list[PlaidTransaction]:
+        """List Plaid transactions with ``start <= posted_at <= end``.
+
+        Ordered by ``posted_at`` for deterministic downstream matching.
+        Rows are detached so callers can use them outside the session.
+        """
+        with self.session() as session:  # type: Session
+            txns = (
+                session.query(PlaidTransaction)
+                .filter(
+                    PlaidTransaction.posted_at >= start,
+                    PlaidTransaction.posted_at <= end,
+                )
+                .order_by(PlaidTransaction.posted_at.asc())
+                .all()
+            )
+            for txn in txns:
+                session.expunge(txn)
+            return txns
+
     def upsert_plaid_transaction(
         self,
         external_id: str,

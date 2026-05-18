@@ -15,6 +15,9 @@ from transactoid.adapters.db.facade import DB
 from transactoid.bootstrap import run_initialization_hooks
 from transactoid.rules.loader import MerchantRulesLoader
 from transactoid.taxonomy.loader import load_taxonomy_from_db
+from transactoid.tools.amazon.remutate import (
+    remutate_amazon_orders as _remutate_amazon,
+)
 from transactoid.tools.amazon.scraper import (
     BackendType,
     scrape_amazon_orders as _scrape_amazon,
@@ -405,6 +408,46 @@ def scrape_amazon_orders(
             "profiles_succeeded": 0,
             "profiles_failed": 0,
             "profile_results": [],
+        }
+
+
+@mcp.tool()
+def remutate_amazon_orders(dry_run: bool = True) -> dict[str, Any]:
+    """
+    Re-split pre-existing Plaid txns that now match scraped Amazon orders.
+
+    The sync mutation phase only sees newly-fetched Plaid txns, so a charge
+    that posted before an Amazon scrape never gets split. This re-runs the
+    match -> split -> categorize chain over a bounded window of already
+    persisted Plaid transactions.
+
+    Destructive: matched Plaid txns have their existing derived rows deleted
+    and replaced by per-item splits. ``dry_run`` defaults to True; the
+    returned ``overwrite_details`` lists any manually-categorized or verified
+    rows that an apply (``dry_run=False``) would replace. Inspect a dry run
+    before applying.
+
+    Args:
+        dry_run: When True (default), compute and return scope without
+            writing. Pass False to apply the splits.
+
+    Returns:
+        Result dict: status, candidates, matched, overwrites,
+        overwrite_details, derived_after_split, categorized, dry_run, message.
+    """
+    try:
+        return _remutate_amazon(db, dry_run=dry_run)
+    except Exception as e:
+        return {
+            "status": "error",
+            "candidates": 0,
+            "matched": 0,
+            "overwrites": 0,
+            "overwrite_details": [],
+            "derived_after_split": 0,
+            "categorized": 0,
+            "dry_run": dry_run,
+            "message": str(e),
         }
 
 
