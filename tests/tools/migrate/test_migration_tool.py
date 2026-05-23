@@ -10,8 +10,13 @@ from transactoid.adapters.db.models import (
     CategoryRow,
     TransactionCategoryEvent,
 )
+from transactoid.taxonomy import loader as taxonomy_loader
 from transactoid.taxonomy.core import Taxonomy
-from transactoid.taxonomy.loader import load_taxonomy_from_db
+from transactoid.taxonomy.loader import (
+    clear_category_id_cache,
+    get_category_id,
+    load_taxonomy_from_db,
+)
 from transactoid.tools.migrate.migration_tool import MigrationTool
 
 if TYPE_CHECKING:
@@ -587,6 +592,42 @@ def test_merge_categories_with_existing_audit_events() -> None:
 
     output = {"success": result.success, "is_deprecated": deprecated_at is not None}
     expected_output = {"success": True, "is_deprecated": True}
+
+    assert output == expected_output
+
+
+def test_merge_clears_category_id_cache() -> None:
+    """
+    Regression: the in-process _category_id_cache in taxonomy/loader.py used
+    to leak across taxonomy operations. Once a deprecated key's lookup was
+    cached as None, the cache prevented any subsequent operation from finding
+    that category — including after resurrection. MigrationTool._clear_cache
+    must wipe the cache so the next operation does a fresh DB lookup.
+    """
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+    tool = MigrationTool(db, taxonomy, categorizer)
+
+    clear_category_id_cache()
+    # Populate the cache via a real lookup.
+    get_category_id(db, taxonomy, "food.restaurants")
+    populated_before = len(taxonomy_loader._category_id_cache) > 0
+
+    result = tool.merge_categories(["food.restaurants"], "food.groceries")
+
+    empty_after = len(taxonomy_loader._category_id_cache) == 0
+
+    output = {
+        "success": result.success,
+        "populated_before": populated_before,
+        "empty_after": empty_after,
+    }
+    expected_output = {
+        "success": True,
+        "populated_before": True,
+        "empty_after": True,
+    }
 
     assert output == expected_output
 

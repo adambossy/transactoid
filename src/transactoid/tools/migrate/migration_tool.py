@@ -9,7 +9,7 @@ from transactoid.adapters.cache.file_cache import FileCache
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.db.models import DerivedTransaction as DBTransaction
 from transactoid.taxonomy.core import Taxonomy
-from transactoid.taxonomy.loader import get_category_id
+from transactoid.taxonomy.loader import clear_category_id_cache, get_category_id
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -537,6 +537,15 @@ class MigrationTool:
         )
 
     def _clear_cache(self) -> None:
-        """Clear the categorization cache after taxonomy changes."""
+        """Clear caches after taxonomy changes.
+
+        The in-process category-id cache holds stale mappings once a
+        category is added, removed, or has its key/deprecation state
+        changed. Without this, a deprecated key's lookup stays cached as
+        None even after resurrection, blocking any future operation on
+        it. The categorize file cache stores LLM responses keyed on the
+        prompt+taxonomy fingerprint; taxonomy changes invalidate those.
+        """
+        clear_category_id_cache()
         if self._file_cache is not None:
             self._file_cache.clear_namespace("categorize")
