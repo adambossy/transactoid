@@ -221,7 +221,10 @@ class DB:
             return [txn_map[tid] for tid in ids if tid in txn_map]
 
     def get_category_id_by_key(self, key: str) -> int | None:
-        """Get category ID by key.
+        """Get active category ID by key.
+
+        Deprecated categories (`deprecated_at IS NOT NULL`) are excluded —
+        a deprecated key resolves to None so it cannot accept new assignments.
 
         Args:
             key: Category key
@@ -230,11 +233,18 @@ class DB:
             Category ID or None if not found
         """
         with self.session() as session:  # type: Session
-            category = session.query(Category).filter(Category.key == key).first()
+            category = (
+                session.query(Category)
+                .filter(Category.key == key, Category.deprecated_at.is_(None))
+                .first()
+            )
             return category.category_id if category else None
 
     def get_category_ids_by_keys(self, keys: list[str]) -> dict[str, int]:
-        """Get category IDs for multiple keys in a single query.
+        """Get active category IDs for multiple keys in a single query.
+
+        Deprecated categories are excluded; missing or deprecated keys are
+        omitted from the returned dict.
 
         Args:
             keys: List of category keys
@@ -246,7 +256,11 @@ class DB:
             return {}
 
         with self.session() as session:  # type: Session
-            categories = session.query(Category).filter(Category.key.in_(keys)).all()
+            categories = (
+                session.query(Category)
+                .filter(Category.key.in_(keys), Category.deprecated_at.is_(None))
+                .all()
+            )
             return {cat.key: cat.category_id for cat in categories}
 
     def _resolve_category_keys(
@@ -2072,6 +2086,10 @@ class DB:
         """
         Update category key (for rename operations).
 
+        Only active categories are considered: an archived ghost row with the
+        same `new_key` does not block the rename, and a deprecated row at
+        `old_key` is treated as not-found.
+
         Args:
             old_key: Current category key
             new_key: New category key
@@ -2080,12 +2098,20 @@ class DB:
             ValueError: If old_key does not exist or new_key already exists
         """
         with self.session() as session:  # type: Session
-            old_category = session.query(Category).filter_by(key=old_key).first()
+            old_category = (
+                session.query(Category)
+                .filter(Category.key == old_key, Category.deprecated_at.is_(None))
+                .first()
+            )
             if not old_category:
                 msg = f"Category with key '{old_key}' does not exist"
                 raise ValueError(msg)
 
-            new_category = session.query(Category).filter_by(key=new_key).first()
+            new_category = (
+                session.query(Category)
+                .filter(Category.key == new_key, Category.deprecated_at.is_(None))
+                .first()
+            )
             if new_category:
                 msg = f"Category with key '{new_key}' already exists"
                 raise ValueError(msg)
@@ -2115,9 +2141,15 @@ class DB:
             return
 
         with self.session() as session:  # type: Session
-            # Validate category exists
+            # Validate category exists and is active. Deprecated categories
+            # cannot accept new transaction assignments.
             category = (
-                session.query(Category).filter_by(category_id=new_category_id).first()
+                session.query(Category)
+                .filter(
+                    Category.category_id == new_category_id,
+                    Category.deprecated_at.is_(None),
+                )
+                .first()
             )
             if not category:
                 msg = f"Category with ID {new_category_id} does not exist"
@@ -2137,79 +2169,97 @@ class DB:
         """
         Sync categories in DB with taxonomy contents, preserving category IDs.
 
-        Used after taxonomy modifications to sync DB with in-memory taxonomy.
-        Preserves existing category IDs to maintain foreign key integrity.
+        Categories that drop out of the taxonomy are soft-deleted via
+        `deprecated_at`, not hard-deleted, so audit-trail rows in
+        `transaction_category_events` keep referential integrity. If the
+        user re-adds a previously deprecated key, the existing row is
+        resurrected (`deprecated_at` reset to NULL) so its `category_id` —
+        and any historical events pointing at it — stay linked to the same
+        logical category.
 
         Args:
             taxonomy: Taxonomy instance to sync from
         """
+        now = datetime.now()
         with self.session() as session:  # type: Session
-            # Get existing categories by key
-            existing = {c.key: c for c in session.query(Category).all()}
-            existing_keys = set(existing.keys())
+            # Load all rows (active + deprecated) so we can resurrect on key reuse.
+            existing_by_key = {c.key: c for c in session.query(Category).all()}
+            existing_active = {
+                key: cat
+                for key, cat in existing_by_key.items()
+                if cat.deprecated_at is None
+            }
 
-            # Get new taxonomy nodes
             all_nodes = taxonomy.all_nodes()
-            new_keys = {n.key for n in all_nodes}
+            new_keys = {node.key for node in all_nodes}
 
-            # Delete categories no longer in taxonomy
-            keys_to_delete = existing_keys - new_keys
-            for key in keys_to_delete:
-                session.delete(existing[key])
+            # Deprecate active rows that fell out of the taxonomy.
+            keys_to_deprecate = set(existing_active) - new_keys
+            for key in keys_to_deprecate:
+                existing_active[key].deprecated_at = now
             session.flush()
 
-            # Build parent_id mapping (existing + new)
-            parent_id_map: dict[str, int] = {}
-            for key, cat in existing.items():
-                if key in new_keys:
-                    parent_id_map[key] = cat.category_id
+            # Build parent_id mapping seeded with currently-active rows we keep.
+            parent_id_map: dict[str, int] = {
+                key: cat.category_id
+                for key, cat in existing_active.items()
+                if key in new_keys
+            }
 
-            # Process nodes: parents first, then children
-            parent_nodes = [n for n in all_nodes if n.parent_key is None]
-            child_nodes = [n for n in all_nodes if n.parent_key is not None]
+            parent_nodes = [node for node in all_nodes if node.parent_key is None]
+            child_nodes = [node for node in all_nodes if node.parent_key is not None]
 
-            # Update or insert parents
             for node in parent_nodes:
-                if node.key in existing:
-                    # Update existing
-                    cat = existing[node.key]
-                    cat.name = node.name
-                    cat.description = node.description
-                    cat.parent_id = None
-                else:
-                    # Insert new
-                    cat = Category(
-                        key=node.key,
-                        name=node.name,
-                        description=node.description,
-                        parent_id=None,
-                    )
-                    session.add(cat)
-                    session.flush()
-                    parent_id_map[node.key] = cat.category_id
+                cat = self._upsert_or_resurrect_category(
+                    session,
+                    node=node,
+                    parent_id=None,
+                    existing_by_key=existing_by_key,
+                )
+                parent_id_map[node.key] = cat.category_id
 
-            # Update or insert children
             for node in child_nodes:
                 parent_id = (
                     parent_id_map.get(node.parent_key) if node.parent_key else None
                 )
-                if node.key in existing:
-                    # Update existing
-                    cat = existing[node.key]
-                    cat.name = node.name
-                    cat.description = node.description
-                    cat.parent_id = parent_id
-                else:
-                    # Insert new
-                    cat = Category(
-                        key=node.key,
-                        name=node.name,
-                        description=node.description,
-                        parent_id=parent_id,
-                    )
-                    session.add(cat)
-                    session.flush()
-                    parent_id_map[node.key] = cat.category_id
+                cat = self._upsert_or_resurrect_category(
+                    session,
+                    node=node,
+                    parent_id=parent_id,
+                    existing_by_key=existing_by_key,
+                )
+                parent_id_map[node.key] = cat.category_id
+
+    def _upsert_or_resurrect_category(
+        self,
+        session: Session,
+        *,
+        node: Any,
+        parent_id: int | None,
+        existing_by_key: dict[str, Category],
+    ) -> Category:
+        """Update active row, resurrect deprecated row, or insert a new one."""
+        cat = existing_by_key.get(node.key)
+        if cat is not None:
+            # Resurrect deprecated rows so the existing category_id (and any
+            # transaction_category_events that reference it) stays linked.
+            if cat.deprecated_at is not None:
+                cat.deprecated_at = None
+            cat.name = node.name
+            cat.description = node.description
+            cat.parent_id = parent_id
+            return cat
+
+        cat = Category(
+            key=node.key,
+            name=node.name,
+            description=node.description,
+            parent_id=parent_id,
+        )
+        session.add(cat)
+        session.flush()
+        existing_by_key[node.key] = cat
+        return cat
 
     # Amazon Order methods
 

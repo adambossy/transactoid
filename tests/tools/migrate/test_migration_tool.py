@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from transactoid.adapters.db.facade import DB
-from transactoid.adapters.db.models import CategoryRow
+from transactoid.adapters.db.models import (
+    Category,
+    CategoryRow,
+    TransactionCategoryEvent,
+)
 from transactoid.taxonomy.core import Taxonomy
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.migrate.migration_tool import MigrationTool
@@ -523,6 +527,66 @@ def test_merge_categories_collapses_multiple_sources_without_llm() -> None:
         "food_restaurants_present": False,
         "travel_present": False,
     }
+
+    assert output == expected_output
+
+
+def test_merge_categories_with_existing_audit_events() -> None:
+    """
+    Regression: when transaction_category_events already references the source
+    category (from a prior reassignment), hard-deleting that category violates
+    `transaction_category_events_from_category_id_fkey`. Soft-delete must
+    deprecate the source instead so audit history stays linked.
+    """
+    db = create_db()
+    taxonomy = create_sample_taxonomy(db)
+    categorizer = create_mock_categorizer()
+    tool = MigrationTool(db, taxonomy, categorizer)
+
+    restaurants_id = db.get_category_id_by_key("food.restaurants")
+    groceries_id = db.get_category_id_by_key("food.groceries")
+    assert restaurants_id is not None
+    assert groceries_id is not None
+
+    # Seed an audit event pointing at food.restaurants from a *prior* reassign.
+    # Use a real transaction so the FK to derived_transactions is valid.
+    txn = db.insert_transaction(
+        {
+            "external_id": "ext_audit",
+            "source": "PLAID",
+            "account_id": "acc_audit",
+            "posted_at": date(2024, 1, 19),
+            "amount_cents": 1500,
+            "currency": "USD",
+            "category_id": groceries_id,
+        }
+    )
+    with db.session() as session:
+        session.add(
+            TransactionCategoryEvent(
+                transaction_id=txn.transaction_id,
+                from_category_id=restaurants_id,  # source about to be deprecated
+                to_category_id=groceries_id,
+                from_category_key="food.restaurants",
+                to_category_key="food.groceries",
+                method="taxonomy_migration",
+                model=None,
+                reason="prior_migration",
+                created_at=datetime.now(),
+            )
+        )
+        session.flush()
+
+    result = tool.merge_categories(["food.restaurants"], "food.groceries")
+
+    with db.session() as session:
+        deprecated = (
+            session.query(Category).filter(Category.key == "food.restaurants").first()
+        )
+        deprecated_at = deprecated.deprecated_at if deprecated is not None else None
+
+    output = {"success": result.success, "is_deprecated": deprecated_at is not None}
+    expected_output = {"success": True, "is_deprecated": True}
 
     assert output == expected_output
 

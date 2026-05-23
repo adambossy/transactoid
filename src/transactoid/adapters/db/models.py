@@ -12,6 +12,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -59,6 +60,15 @@ class Category(Base):
     """Category model."""
 
     __tablename__ = "categories"
+    __table_args__ = (
+        Index(
+            "uq_categories_key_active",
+            "key",
+            unique=True,
+            postgresql_where=text("deprecated_at IS NULL"),
+            sqlite_where=text("deprecated_at IS NULL"),
+        ),
+    )
 
     category_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
@@ -66,7 +76,7 @@ class Category(Base):
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("categories.category_id"), nullable=True
     )
-    key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    key: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     rules: Mapped[str | None] = mapped_column(
