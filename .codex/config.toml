@@ -1,0 +1,22 @@
+[mcp_servers.playwriter]
+args = ["playwriter"]
+command = "npx"
+
+[mcp_servers.promptorium-python]
+args = [
+    "run",
+    "prompts-mcp",
+]
+command = "uv"
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp"
+
+[mcp_servers.transactoid]
+args = [
+    "run",
+    "python",
+    "-m",
+    "transactoid.ui.mcp.server",
+]
+command = "uv"
