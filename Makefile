@@ -6,6 +6,7 @@ fly-sync-cron:
 fly-deploy-and-sync-cron:
 	fly deploy --app transactoid
 	$(MAKE) fly-sync-cron
+	$(MAKE) fly-seed-workspace
 
 fly-seed-workspace:
 	./scripts/seed_workspace_volume.sh
