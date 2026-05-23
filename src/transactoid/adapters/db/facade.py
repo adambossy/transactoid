@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from transactoid.tools.categorize.categorizer_tool import CategorizedTransaction
     from transactoid.tools.sync.mutation_plugin import (
@@ -28,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from transactoid.adapters.db.models import (
+    AccountSignConvention,
     AmazonItemDB,
     AmazonLoginProfileDB,
     AmazonOrderDB,
@@ -63,6 +66,7 @@ _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     TransactionItem,
     EmailReceipt,
     PendingReceiptMatch,
+    AccountSignConvention,
 )
 
 _COMPACT_SCHEMA_NOTES: dict[str, str] = {
@@ -124,6 +128,20 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
     "categories": (
         "Filter WHERE deprecated_at IS NULL to exclude retired categories. "
         "Always include this filter when JOINing categories for analysis."
+    ),
+    "account_sign_conventions": (
+        "Per-account lookup for expense sign convention. "
+        "sign_convention is either 'expense_positive' (expenses are positive "
+        "amount_cents, the Plaid default) or 'expense_negative' (expenses are "
+        "negative amount_cents, used by some institutions). "
+        "account_id matches plaid_transactions.account_id. "
+        "Rows are normally populated automatically by the seeding pipeline "
+        "(provenance='seeded'); manual overrides have provenance='manual'. "
+        "Missing rows should be treated as 'expense_positive'. "
+        "To normalize plaid_transactions.amount_cents for spend analysis: "
+        "LEFT JOIN account_sign_conventions a ON a.account_id = pt.account_id, "
+        "then use CASE WHEN COALESCE(a.sign_convention, 'expense_positive') = "
+        "'expense_negative' THEN -pt.amount_cents ELSE pt.amount_cents END."
     ),
 }
 
@@ -2696,3 +2714,102 @@ class DB:
         row.refund_of_transaction_id = original_txn_id
         row.refund_matched_by = matched_by
         row.refund_matched_at = matched_at
+
+    _DEFAULT_SIGN_CONVENTION: str = "expense_positive"
+
+    def get_sign_convention(self, account_id: str) -> str:
+        """Return the sign convention for an account.
+
+        Returns 'expense_positive' as the default when no row exists.
+        Logs a WARNING when the default is used — every known account should
+        have been seeded by the time this is called.
+
+        Args:
+            account_id: The Plaid account_id to look up.
+
+        Returns:
+            'expense_positive' or 'expense_negative'.
+        """
+        with self.session() as session:  # type: Session
+            row = session.get(AccountSignConvention, account_id)
+            if row is None:
+                logger.bind(account_id=account_id).warning(
+                    "No sign convention found for account {}; falling back to '{}'",
+                    account_id,
+                    self._DEFAULT_SIGN_CONVENTION,
+                )
+                return self._DEFAULT_SIGN_CONVENTION
+            convention: str = row.sign_convention
+            return convention
+
+    def bulk_get_sign_conventions(self, account_ids: list[str]) -> dict[str, str]:
+        """Return {account_id: convention} for all given account_ids.
+
+        Missing account_ids receive the default 'expense_positive'.
+
+        Args:
+            account_ids: List of Plaid account_ids to look up.
+
+        Returns:
+            Dict mapping each account_id to its convention string.
+        """
+        if not account_ids:
+            return {}
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(AccountSignConvention)
+                .filter(AccountSignConvention.account_id.in_(account_ids))
+                .all()
+            )
+            result: dict[str, str] = {
+                row.account_id: row.sign_convention for row in rows
+            }
+        for account_id in account_ids:
+            if account_id not in result:
+                logger.bind(account_id=account_id).warning(
+                    "No sign convention found for account {}; falling back to '{}'",
+                    account_id,
+                    self._DEFAULT_SIGN_CONVENTION,
+                )
+                result[account_id] = self._DEFAULT_SIGN_CONVENTION
+        return result
+
+    def set_sign_convention(
+        self,
+        account_id: str,
+        sign_convention: str,
+        *,
+        provenance: str = "manual",
+        notes: str | None = None,
+    ) -> None:
+        """Upsert a sign convention for an account.
+
+        ON CONFLICT updates sign_convention, provenance, updated_at, and notes;
+        account_id and created_at are preserved.
+        When notes is None (omitted), the existing notes value is left unchanged
+        on the update path.
+
+        Args:
+            account_id: The Plaid account_id to set a convention for.
+            sign_convention: 'expense_positive' or 'expense_negative'.
+            provenance: 'manual' or 'seeded'. Defaults to 'manual'.
+            notes: Optional free-text note about the convention.
+                   When omitted (None), existing notes are preserved on update.
+        """
+        with self.session() as session:  # type: Session
+            row = session.get(AccountSignConvention, account_id)
+            if row is None:
+                row = AccountSignConvention(
+                    account_id=account_id,
+                    sign_convention=sign_convention,
+                    provenance=provenance,
+                    notes=notes,
+                )
+                session.add(row)
+            else:
+                row.sign_convention = sign_convention
+                row.provenance = provenance
+                row.updated_at = datetime.utcnow()
+                if notes is not None:
+                    row.notes = notes
+            session.flush()

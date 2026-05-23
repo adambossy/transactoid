@@ -916,6 +916,7 @@ def test_compact_schema_hint_returns_schema_metadata() -> None:
         "transaction_items",
         "email_receipts",
         "pending_receipt_matches",
+        "account_sign_conventions",
     }
     output_tables = set(hint["tables"])
     assert output_tables == expected_tables
