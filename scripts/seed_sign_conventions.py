@@ -59,6 +59,11 @@ def seed_sign_conventions(*, dry_run: bool = False) -> dict[str, int]:
         f"skipped_existing={counts['skipped_existing']}, "
         f"default_applied={counts['default_applied']}"
     )
+    if not dry_run:
+        print(
+            "NEXT STEP: run `scripts/backfill_sign_conventions.py` to normalize "
+            "historical rows for expense_negative accounts."
+        )
     return counts
 
 

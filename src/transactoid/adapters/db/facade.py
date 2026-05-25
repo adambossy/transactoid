@@ -99,7 +99,15 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
         "portion is silently dropped) but partial refunds are rare enough that "
         "this is the right trade-off versus a per-transaction net computation. "
         "To LIST refunds explicitly (not for spend totals), query rows directly: "
-        "WHERE refund_of_transaction_id IS NOT NULL."
+        "WHERE refund_of_transaction_id IS NOT NULL. "
+        "\n"
+        "Amounts on derived_transactions are sign-normalized for rows synced after "
+        "the sign-convention rollout (PR #13). Run "
+        "`scripts/backfill_sign_conventions.py` once after `alembic upgrade head` "
+        "to retroactively normalize historical rows. After that backfill has run, "
+        "use SUM(amount_cents) directly in spend queries on derived_transactions; "
+        "do not consult account_sign_conventions for those queries (that table is "
+        "only relevant when joining plaid_transactions raw data)."
     ),
     "transaction_items": (
         "Itemization table. One row per line item within a transaction. "
