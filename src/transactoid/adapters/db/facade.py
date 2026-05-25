@@ -2813,3 +2813,104 @@ class DB:
                 if notes is not None:
                     row.notes = notes
             session.flush()
+
+    def seed_sign_conventions_from_institutions(
+        self,
+        institution_mapping: dict[str, str],
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        """Seed account_sign_conventions for every account_id in plaid_transactions.
+
+        For each distinct account_id in plaid_transactions, looks up its
+        institution via plaid_transactions.institution (denormalized; always
+        present for PLAID rows, may be NULL for CSV-sourced rows) and maps to
+        a convention via institution_mapping. Accounts whose institution is
+        NULL or not in the map get the default 'expense_positive'.
+
+        ON CONFLICT DO NOTHING — accounts that already have a row in
+        account_sign_conventions (e.g., from a prior manual override via
+        set_sign_convention) are preserved unchanged.
+
+        All rows inserted carry provenance='seeded'.
+
+        Institution names are matched verbatim. `plaid_transactions.institution`
+        must equal the dict key exactly (case-sensitive, whitespace-significant).
+        New institutions are silently mapped to the default; verify by querying
+        `account_sign_conventions WHERE provenance='seeded' AND notes LIKE
+        'Seeded from institution=...'` after seeding.
+
+        Args:
+            institution_mapping: dict mapping institution name -> sign_convention.
+            dry_run: If True, performs all queries and classification but does
+                not commit. Returns the same counts as a real run would produce.
+
+        Returns:
+            Counts: {"inserted": N, "skipped_existing": M, "default_applied": K}
+            where 'default_applied' counts rows where institution was NULL or not
+            in the map and the default was used.
+        """
+        session: Session = self._session_factory()
+        try:
+            rows = (
+                session.query(PlaidTransaction.account_id, PlaidTransaction.institution)
+                .distinct()
+                .all()
+            )
+            pairs: list[tuple[str, str | None]] = [
+                (str(row.account_id), row.institution) for row in rows
+            ]
+
+            # Batch existence check — one query for all candidate account_ids.
+            account_ids = [account_id for account_id, _ in pairs]
+            existing_ids: set[str] = set()
+            if account_ids:
+                existing_rows = (
+                    session.query(AccountSignConvention.account_id)
+                    .filter(AccountSignConvention.account_id.in_(account_ids))
+                    .all()
+                )
+                existing_ids = {str(r.account_id) for r in existing_rows}
+
+            inserted = 0
+            skipped_existing = 0
+            default_applied = 0
+
+            for account_id, institution in pairs:
+                convention: str
+                if institution is not None and institution in institution_mapping:
+                    convention = institution_mapping[institution]
+                else:
+                    convention = self._DEFAULT_SIGN_CONVENTION
+
+                if account_id in existing_ids:
+                    skipped_existing += 1
+                    continue
+
+                if institution is None or institution not in institution_mapping:
+                    default_applied += 1
+
+                notes = f"Seeded from institution={institution!r}"
+                new_row = AccountSignConvention(
+                    account_id=account_id,
+                    sign_convention=convention,
+                    provenance="seeded",
+                    notes=notes,
+                )
+                session.add(new_row)
+                inserted += 1
+
+            if dry_run:
+                session.rollback()
+            else:
+                session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+        return {
+            "inserted": inserted,
+            "skipped_existing": skipped_existing,
+            "default_applied": default_applied,
+        }
