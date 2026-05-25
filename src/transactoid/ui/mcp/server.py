@@ -14,6 +14,10 @@ from transactoid.adapters.clients.plaid import PlaidClient
 from transactoid.adapters.db.facade import DB
 from transactoid.bootstrap import run_initialization_hooks
 from transactoid.rules.loader import MerchantRulesLoader
+from transactoid.services.re_derive import (
+    ReDeriveResult,
+    re_derive_account as _re_derive_account,
+)
 from transactoid.taxonomy.loader import load_taxonomy_from_db
 from transactoid.tools.amazon.remutate import (
     remutate_amazon_orders as _remutate_amazon,
@@ -603,6 +607,131 @@ def disable_amazon_login(profile_key: str) -> dict[str, Any]:
         return {"status": "success", "message": f"Disabled profile '{profile_key}'"}
     except ValueError as exc:
         return {"status": "error", "message": str(exc)}
+
+
+_MCP_VALID_SIGN_CONVENTIONS = frozenset({"expense_positive", "expense_negative"})
+
+
+@mcp.tool()
+def set_sign_convention(
+    account_id: str,
+    convention: str,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """Set the sign convention for a Plaid account.
+
+    Records whether the account reports expenses as positive amounts
+    ('expense_positive') or negative amounts ('expense_negative').
+    The provenance is always 'manual' for MCP/CLI invocations.
+
+    Args:
+        account_id: The Plaid account_id to configure.
+        convention: 'expense_positive' or 'expense_negative'.
+        notes: Optional free-text note (e.g., institution name).
+
+    Returns:
+        Dict with status and message.
+    """
+    if convention not in _MCP_VALID_SIGN_CONVENTIONS:
+        return {
+            "status": "error",
+            "message": (
+                f"convention must be 'expense_positive' or 'expense_negative'; "
+                f"got {convention!r}"
+            ),
+        }
+    try:
+        db.set_sign_convention(account_id, convention, provenance="manual", notes=notes)
+        return {
+            "status": "success",
+            "message": f"Set account {account_id} -> {convention}",
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool()
+def list_sign_conventions() -> dict[str, Any]:
+    """List all configured account sign conventions.
+
+    Returns all rows from account_sign_conventions ordered by
+    (provenance, account_id).
+
+    Returns:
+        Dict with 'conventions' list (each has account_id, sign_convention,
+        provenance, updated_at, notes) and 'count'.
+    """
+    try:
+        rows = db.list_sign_conventions()
+        conventions = [
+            {
+                "account_id": row.account_id,
+                "sign_convention": row.sign_convention,
+                "provenance": row.provenance,
+                "updated_at": row.updated_at.isoformat(),
+                "notes": row.notes,
+            }
+            for row in rows
+        ]
+        return {
+            "status": "success",
+            "conventions": conventions,
+            "count": len(conventions),
+        }
+    except Exception as exc:
+        return {"status": "error", "conventions": [], "count": 0, "message": str(exc)}
+
+
+@mcp.tool()
+def re_derive(account_id: str) -> dict[str, Any]:
+    """Re-derive and re-categorize all unverified derived rows for an account.
+
+    Deletes unverified derived_transactions for the account's plaid_transactions,
+    re-runs the mutation phase, then immediately categorizes the new rows.
+    Verified rows are completely preserved.
+
+    Args:
+        account_id: Plaid account_id to re-derive.
+
+    Returns:
+        Dict with re_derived, verified_skipped, account_id, and message on
+        success; status='error' and message on failure.
+    """
+    try:
+        result: ReDeriveResult = _re_derive_account(db, account_id)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+    if result.mutate_failed:
+        return {
+            "status": "error",
+            "message": (
+                f"Re-derive incomplete: unverified rows were deleted but "
+                f"re-derivation failed ({result.failure_message}). "
+                f"Re-run re_derive for account {account_id} to retry."
+            ),
+        }
+
+    if result.categorize_failed:
+        return {
+            "status": "error",
+            "message": (
+                f"Re-derived {result.new_derived_count} rows but categorization "
+                f"failed ({result.failure_message}). "
+                f"Run categorize to assign categories."
+            ),
+        }
+
+    return {
+        "status": "success",
+        "account_id": account_id,
+        "re_derived": result.new_derived_count,
+        "verified_skipped": result.verified_skipped,
+        "message": (
+            f"Re-derived {result.new_derived_count} rows for account {account_id}. "
+            f"{result.verified_skipped} verified rows preserved."
+        ),
+    }
 
 
 if __name__ == "__main__":

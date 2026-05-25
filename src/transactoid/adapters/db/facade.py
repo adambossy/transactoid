@@ -2914,3 +2914,86 @@ class DB:
             "skipped_existing": skipped_existing,
             "default_applied": default_applied,
         }
+
+    def has_sign_convention(self, account_id: str) -> bool:
+        """Return True only if a real row exists for account_id.
+
+        Unlike ``get_sign_convention``, this never returns a default — it checks
+        whether the account_sign_conventions table has an entry for the given
+        account_id.
+
+        Args:
+            account_id: The Plaid account_id to check.
+
+        Returns:
+            True if a row exists; False otherwise.
+        """
+        with self.session() as session:  # type: Session
+            row = session.get(AccountSignConvention, account_id)
+            return row is not None
+
+    def list_sign_conventions(self) -> list[AccountSignConvention]:
+        """List all sign convention rows ordered by (provenance, account_id).
+
+        Returns:
+            List of AccountSignConvention ORM instances, detached from session.
+        """
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(AccountSignConvention)
+                .order_by(
+                    AccountSignConvention.provenance.asc(),
+                    AccountSignConvention.account_id.asc(),
+                )
+                .all()
+            )
+            for row in rows:
+                session.expunge(row)
+            return rows
+
+    def list_plaid_transaction_ids_for_account(self, account_id: str) -> list[int]:
+        """Return all plaid_transaction_id values for the given account_id.
+
+        Args:
+            account_id: The Plaid account_id to filter by.
+
+        Returns:
+            List of plaid_transaction_id integers for the account, ordered
+            ascending.
+        """
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(PlaidTransaction.plaid_transaction_id)
+                .filter(PlaidTransaction.account_id == account_id)
+                .order_by(PlaidTransaction.plaid_transaction_id.asc())
+                .all()
+            )
+            return [int(row.plaid_transaction_id) for row in rows]
+
+    def delete_unverified_derived_by_plaid_ids(
+        self, plaid_transaction_ids: list[int]
+    ) -> int:
+        """Delete only unverified derived_transactions for the given plaid IDs.
+
+        Verified rows (is_verified=True) are preserved.
+
+        Args:
+            plaid_transaction_ids: Plaid transaction IDs whose unverified
+                derived rows should be deleted.
+
+        Returns:
+            Count of rows deleted.
+        """
+        if not plaid_transaction_ids:
+            return 0
+        with self.session() as session:  # type: Session
+            deleted = (
+                session.query(DerivedTransaction)
+                .filter(
+                    DerivedTransaction.plaid_transaction_id.in_(plaid_transaction_ids),
+                    DerivedTransaction.is_verified.is_(False),
+                )
+                .delete(synchronize_session=False)
+            )
+            session.flush()
+            return int(deleted)

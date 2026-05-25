@@ -11,12 +11,14 @@ import shutil
 from typing import Any, cast
 
 from dotenv import load_dotenv
+from sqlalchemy.exc import IntegrityError
 import typer
 import yaml
 
 from transactoid.adapters.db.facade import DB
 from transactoid.adapters.db.models import AmazonLoginProfileDB
 from transactoid.errors import RefundError, SplitError
+from transactoid.services.re_derive import ReDeriveResult, re_derive_account
 from transactoid.services.refund import record_refund
 from transactoid.services.scheduled_reports import (
     NEW_YORK_TZ,
@@ -484,6 +486,148 @@ def refund_cmd(
     typer.echo(
         f"Linked refund TXN-{refund_txn_id} (${refund_amount:.2f}) "
         f"to original TXN-{of} (${original_amount:.2f})."
+    )
+
+
+_VALID_SIGN_CONVENTIONS = frozenset({"expense_positive", "expense_negative"})
+
+
+@app.command("set-sign-convention")
+def set_sign_convention(
+    account_id: str = typer.Argument(..., help="Plaid account ID."),
+    convention: str = typer.Argument(
+        ...,
+        help="Sign convention: 'expense_positive' or 'expense_negative'.",
+    ),
+    notes: str | None = typer.Option(
+        None, "--notes", help="Optional free-text note about the convention."
+    ),
+) -> None:
+    """Set the sign convention for a Plaid account.
+
+    CONVENTION must be 'expense_positive' or 'expense_negative'.
+
+    Examples:
+
+        # Mark account as expense-negative (expenses stored as negative amounts)
+        transactoid set-sign-convention acct-abc expense_negative
+
+        # With an explanatory note
+        transactoid set-sign-convention acct-abc expense_negative --notes "Chase"
+    """
+    if convention not in _VALID_SIGN_CONVENTIONS:
+        typer.echo(
+            f"convention must be 'expense_positive' or 'expense_negative'; "
+            f"got {convention!r}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    try:
+        db.set_sign_convention(account_id, convention, provenance="manual", notes=notes)
+    except (IntegrityError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Set account {account_id} -> {convention}")
+
+
+@app.command("list-sign-conventions")
+def list_sign_conventions() -> None:
+    """List all configured account sign conventions.
+
+    Displays all rows in account_sign_conventions ordered by provenance then
+    account_id. Notes are truncated to 60 characters.
+
+    Example:
+
+        transactoid list-sign-conventions
+    """
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    rows = db.list_sign_conventions()
+    if not rows:
+        typer.echo("No sign conventions configured.")
+        return
+
+    # Column widths
+    col_account = max(len("account_id"), max(len(r.account_id) for r in rows))
+    col_convention = max(
+        len("sign_convention"), max(len(r.sign_convention) for r in rows)
+    )
+    col_provenance = max(len("provenance"), max(len(r.provenance) for r in rows))
+
+    header = (
+        f"{'account_id':<{col_account}}  "
+        f"{'sign_convention':<{col_convention}}  "
+        f"{'provenance':<{col_provenance}}  "
+        f"{'updated_at':<19}  notes"
+    )
+    typer.echo(header)
+    typer.echo("-" * (len(header) + 10))
+
+    for row in rows:
+        notes_display = row.notes or ""
+        updated = row.updated_at.strftime("%Y-%m-%d %H:%M:%S")
+        typer.echo(
+            f"{row.account_id:<{col_account}}  "
+            f"{row.sign_convention:<{col_convention}}  "
+            f"{row.provenance:<{col_provenance}}  "
+            f"{updated:<19}  {notes_display}"
+        )
+
+
+@app.command("re-derive")
+def re_derive(
+    account_id: str = typer.Option(
+        ..., "--account-id", help="Plaid account ID to re-derive."
+    ),
+) -> None:
+    """Re-derive and re-categorize all unverified derived rows for an account.
+
+    Deletes unverified derived_transactions for the account's plaid_transactions,
+    re-runs the mutation phase, then immediately categorizes the new rows.
+
+    Verified rows are preserved and never touched by this command.
+
+    Examples:
+
+        transactoid re-derive --account-id acct-abc123
+    """
+    db_url = os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
+    db = DB(db_url)
+
+    try:
+        result: ReDeriveResult = re_derive_account(db, account_id)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if result.mutate_failed:
+        typer.echo(
+            f"Re-derive incomplete: unverified rows were deleted but "
+            f"re-derivation failed ({result.failure_message}). "
+            f"Re-run `transactoid re-derive --account-id {account_id}` to retry.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if result.categorize_failed:
+        typer.echo(
+            f"Re-derived {result.new_derived_count} rows but categorization failed "
+            f"({result.failure_message}). "
+            f"Run `transactoid categorize` to assign categories.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    typer.echo(
+        f"Re-derived {result.new_derived_count} rows for account {account_id}. "
+        f"{result.verified_skipped} verified rows preserved."
     )
 
 
