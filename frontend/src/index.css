@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "@adambossy/agent-ui/styles.css";
+
+/* Let Tailwind generate the utility classes the library's components use. */
+@source "../node_modules/@adambossy/agent-ui/dist";
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

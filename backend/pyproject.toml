@@ -1,0 +1,14 @@
+[project]
+name = "transactoid-backend"
+version = "0.1.0"
+description = "Transactoid agent backend — runs an agent-harness Agent and streams it over the Vercel AI SDK UI message stream protocol."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-dotenv>=1.0",
+    "agent-harness[anthropic,openai] @ git+https://github.com/adambossy/agent-harness.git",
+]
+
+[tool.uv]
+package = false

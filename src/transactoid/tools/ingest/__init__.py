@@ -1,3 +1,0 @@
-"""
-Ingest tools package.
-"""
