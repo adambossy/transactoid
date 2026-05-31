@@ -1,31 +1,21 @@
 """Construct the agent-harness ``Agent`` the backend serves.
 
 A single shared model is built once; a fresh ``Agent`` is wired per request so
-each conversation can carry its own session (history).
+each conversation carries its own session (history). The toolset, system
+prompt, and sandbox come from the rest of the ``penny`` package.
 """
 
 from __future__ import annotations
 
 import os
 
-from agent_harness import Agent, StaticToolset, tool
+from agent_harness import Agent
 from agent_harness.providers.openai import OpenAIProvider, OpenAIResponsesModel
 from agent_harness.sessions.inmemory import InMemorySession
 
-INSTRUCTIONS = (
-    "You are Transactoid, a concise and helpful assistant. "
-    "When the user asks about the weather, call the get_weather tool."
-)
-
-
-@tool
-async def get_weather(city: str) -> str:
-    """Look up the current weather for a city.
-
-    Args:
-        city: Name of the city to look up.
-    """
-    return f"It's 18C and partly cloudy in {city}."
+from .prompts import load_prompt
+from .sandbox import get_sandbox
+from .tools.registry import build_toolset
 
 
 def build_model() -> OpenAIResponsesModel:
@@ -37,9 +27,10 @@ def build_model() -> OpenAIResponsesModel:
 
 def build_agent(*, model: OpenAIResponsesModel, session: InMemorySession) -> Agent:
     return Agent(
-        name="transactoid",
+        name="penny",
         model=model,
-        instructions=INSTRUCTIONS,
+        instructions=load_prompt("system"),
         session=session,
-        toolsets=[StaticToolset(name="tools", tools=[get_weather])],
+        sandbox=get_sandbox(),
+        toolsets=[build_toolset()],
     )

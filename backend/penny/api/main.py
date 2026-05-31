@@ -12,12 +12,19 @@ from fastapi.responses import StreamingResponse
 from agent_harness.providers.openai import OpenAIResponsesModel
 from agent_harness.sessions.inmemory import InMemorySession
 
-from .agent_factory import build_agent, build_model
+from ..agent_factory import build_agent, build_model
+from ..bootstrap import bootstrap
 from .bridge import stream_agent
 
 load_dotenv(override=False)
 
-app = FastAPI(title="Transactoid backend")
+app = FastAPI(title="Penny backend")
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    """Create the schema + seed the taxonomy on first boot. Idempotent."""
+    bootstrap()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

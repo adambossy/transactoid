@@ -1,0 +1,752 @@
+- key: adult_education_professional_development
+  name: Adult Education & Professional Development
+  parent_key: null
+  description: Adult courses, certifications, conferences, learning materials, tutoring,
+    and professional training.
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees
+  name: Banking Movements (Transfers, Refunds & Fees)
+  parent_key: null
+  description: null
+  rules: null
+- key: child_and_baby_expenses
+  name: Child & Baby Expenses
+  parent_key: null
+  description: 'All child- and baby-related spending: care, supplies, gear, school
+    fees, classes, clothing, feeding, etc.'
+  rules: null
+- key: debt_and_loans
+  name: Debt & Loans
+  parent_key: null
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions
+  name: Entertainment & Subscriptions
+  parent_key: null
+  description: null
+  rules: null
+- key: food_and_dining
+  name: Food & Dining
+  parent_key: null
+  description: null
+  rules: null
+- key: gifts_and_donations
+  name: Gifts & Donations
+  parent_key: null
+  description: null
+  rules: null
+- key: health_and_wellness
+  name: Health & Wellness
+  parent_key: null
+  description: null
+  rules: null
+- key: housing_and_utilities
+  name: Housing & Utilities
+  parent_key: null
+  description: null
+  rules: null
+- key: income
+  name: Income
+  parent_key: null
+  description: null
+  rules: null
+- key: insurance
+  name: Insurance
+  parent_key: null
+  description: null
+  rules: null
+- key: other
+  name: Other
+  parent_key: null
+  description: null
+  rules: null
+- key: pets
+  name: Pets
+  parent_key: null
+  description: null
+  rules: null
+- key: savings_and_investments
+  name: Savings & Investments
+  parent_key: null
+  description: null
+  rules: null
+- key: shopping_and_personal_care
+  name: Shopping & Personal Care
+  parent_key: null
+  description: null
+  rules: null
+- key: taxes_and_government
+  name: Taxes & Government
+  parent_key: null
+  description: null
+  rules: null
+- key: transportation_and_auto
+  name: Transportation & Auto
+  parent_key: null
+  description: null
+  rules: null
+- key: travel
+  name: Travel
+  parent_key: null
+  description: null
+  rules: null
+- key: unknown
+  name: Unknown
+  parent_key: null
+  description: null
+  rules: null
+- key: wedding
+  name: Wedding
+  parent_key: null
+  description: null
+  rules: null
+- key: work_expenses
+  name: Work Expenses
+  parent_key: null
+  description: null
+  rules: null
+- key: income.bonus_and_commission
+  name: Bonus & Commission
+  parent_key: income
+  description: null
+  rules: null
+- key: income.gifts_received
+  name: Gifts Received
+  parent_key: income
+  description: null
+  rules: null
+- key: income.government_benefits
+  name: Government Benefits
+  parent_key: income
+  description: null
+  rules: null
+- key: income.interest_and_dividends
+  name: Interest & Dividends
+  parent_key: income
+  description: null
+  rules: null
+- key: income.salary_and_wages
+  name: Salary & Wages
+  parent_key: income
+  description: null
+  rules: null
+- key: income.self_employment_and_side_hustle
+  name: Self-Employment & Side Hustle
+  parent_key: income
+  description: null
+  rules: null
+- key: income.tax_refunds
+  name: Tax Refunds
+  parent_key: income
+  description: null
+  rules: null
+- key: income.tips
+  name: Tips
+  parent_key: income
+  description: null
+  rules: null
+- key: housing_and_utilities.electricity
+  name: Electricity
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.gas
+  name: Gas
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.hoa_condo_fees
+  name: HOA/Condo Fees
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.home_decor
+  name: Home Decor
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.home_renovation
+  name: Home Renovation
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.home_services_and_maintenance
+  name: Home Services & Maintenance
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.internet
+  name: Internet
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.mobile_phone
+  name: Mobile Phone
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.mortgage_payment
+  name: Mortgage Payment
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.rent
+  name: Rent
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.trash_and_recycling
+  name: Trash & Recycling
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: housing_and_utilities.water_and_sewer
+  name: Water & Sewer
+  parent_key: housing_and_utilities
+  description: null
+  rules: null
+- key: food_and_dining.bars_and_alcohol
+  name: Bars & Alcohol
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: food_and_dining.coffee_shops
+  name: Coffee Shops
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: food_and_dining.delivery_and_takeout
+  name: Delivery & Takeout
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: food_and_dining.groceries
+  name: Groceries
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: food_and_dining.meal_kits
+  name: Meal Kits
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: food_and_dining.restaurants
+  name: Restaurants
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: food_and_dining.treats
+  name: Treats
+  parent_key: food_and_dining
+  description: null
+  rules: null
+- key: transportation_and_auto.auto_service_and_parts
+  name: Auto Service & Parts
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.car_wash_and_detailing
+  name: Car Wash & Detailing
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.ev_charging
+  name: EV Charging
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.fuel
+  name: Fuel
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.parking_and_tolls
+  name: Parking & Tolls
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.public_transit
+  name: Public Transit
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.rental_car
+  name: Rental Car
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: transportation_and_auto.rides_and_taxis
+  name: Rides & Taxis
+  parent_key: transportation_and_auto
+  description: null
+  rules: null
+- key: health_and_wellness.dental
+  name: Dental
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.doctor_and_hospital
+  name: Doctor & Hospital
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.fitness_and_gym
+  name: Fitness & Gym
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.medical
+  name: Medical
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.pharmacy_and_prescriptions
+  name: Pharmacy & Prescriptions
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.supplements
+  name: Supplements
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.therapy
+  name: Therapy
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.vision
+  name: Vision
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: health_and_wellness.wellness_products
+  name: Wellness Products
+  parent_key: health_and_wellness
+  description: null
+  rules: null
+- key: insurance.auto_insurance
+  name: Auto Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: insurance.flood_insurance
+  name: Flood Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: insurance.health_insurance
+  name: Health Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: insurance.home_renters_insurance
+  name: Home/Renters Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: insurance.life_and_disability_insurance
+  name: Life & Disability Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: insurance.pet_insurance
+  name: Pet Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: insurance.travel_insurance
+  name: Travel Insurance
+  parent_key: insurance
+  description: null
+  rules: null
+- key: debt_and_loans.auto_loan_payment
+  name: Auto Loan Payment
+  parent_key: debt_and_loans
+  description: null
+  rules: null
+- key: debt_and_loans.credit_card_interest_and_fees
+  name: Credit Card Interest & Fees
+  parent_key: debt_and_loans
+  description: null
+  rules: null
+- key: debt_and_loans.loan_fees_and_adjustments
+  name: Loan Fees & Adjustments
+  parent_key: debt_and_loans
+  description: null
+  rules: null
+- key: debt_and_loans.personal_bnpl_loan_payment
+  name: Personal/BNPL Loan Payment
+  parent_key: debt_and_loans
+  description: null
+  rules: null
+- key: debt_and_loans.student_loan_payment
+  name: Student Loan Payment
+  parent_key: debt_and_loans
+  description: null
+  rules: null
+- key: savings_and_investments.529_other_long_term_savings
+  name: 529/Other Long-Term Savings
+  parent_key: savings_and_investments
+  description: null
+  rules: null
+- key: savings_and_investments.investment_buy
+  name: Investment Buy
+  parent_key: savings_and_investments
+  description: null
+  rules: null
+- key: savings_and_investments.investment_fees_and_commissions
+  name: Investment Fees & Commissions
+  parent_key: savings_and_investments
+  description: null
+  rules: null
+- key: savings_and_investments.investment_sell_withdrawal
+  name: Investment Sell/Withdrawal
+  parent_key: savings_and_investments
+  description: null
+  rules: null
+- key: savings_and_investments.retirement_contribution
+  name: Retirement Contribution
+  parent_key: savings_and_investments
+  description: null
+  rules: null
+- key: savings_and_investments.savings_contribution
+  name: Savings Contribution
+  parent_key: savings_and_investments
+  description: null
+  rules: null
+- key: shopping_and_personal_care.beauty_and_personal_care
+  name: Beauty & Personal Care
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: shopping_and_personal_care.clothing_and_accessories
+  name: Clothing & Accessories
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: shopping_and_personal_care.dry_cleaning
+  name: Dry Cleaning
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: shopping_and_personal_care.electronics_and_gadgets
+  name: Electronics & Gadgets
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: shopping_and_personal_care.furniture_and_appliances
+  name: Furniture & Appliances
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: shopping_and_personal_care.household_supplies
+  name: Household Supplies
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: shopping_and_personal_care.postage_and_shipping
+  name: Postage & Shipping
+  parent_key: shopping_and_personal_care
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.books_apps_and_media
+  name: Books, Apps & Media
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.cloud_and_software_subscriptions
+  name: Cloud & Software Subscriptions
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.gaming
+  name: Gaming
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.hobbies_and_leisure
+  name: Hobbies & Leisure
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.music_and_audio
+  name: Music & Audio
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.news_and_publications
+  name: News & Publications
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: entertainment_and_subscriptions.streaming_video
+  name: Streaming Video
+  parent_key: entertainment_and_subscriptions
+  description: null
+  rules: null
+- key: travel.activities_and_tours
+  name: Activities & Tours
+  parent_key: travel
+  description: null
+  rules: null
+- key: travel.baggage_other_travel_fees
+  name: Baggage/Other Travel Fees
+  parent_key: travel
+  description: null
+  rules: null
+- key: travel.flights
+  name: Flights
+  parent_key: travel
+  description: null
+  rules: null
+- key: travel.hotels
+  name: Hotels
+  parent_key: travel
+  description: null
+  rules: null
+- key: travel.local_transport
+  name: Local Transport
+  parent_key: travel
+  description: null
+  rules: null
+- key: travel.lodging
+  name: Lodging
+  parent_key: travel
+  description: null
+  rules: null
+- key: travel.travel_meals_and_dining
+  name: Travel Meals & Dining
+  parent_key: travel
+  description: null
+  rules: null
+- key: gifts_and_donations.charitable_donations
+  name: Charitable Donations
+  parent_key: gifts_and_donations
+  description: null
+  rules: null
+- key: gifts_and_donations.crowdfunding_support
+  name: Crowdfunding Support
+  parent_key: gifts_and_donations
+  description: null
+  rules: null
+- key: gifts_and_donations.gifts_given
+  name: Gifts Given
+  parent_key: gifts_and_donations
+  description: null
+  rules: null
+- key: gifts_and_donations.religious_giving
+  name: Religious Giving
+  parent_key: gifts_and_donations
+  description: null
+  rules: null
+- key: taxes_and_government.customs_and_duties
+  name: Customs & Duties
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: taxes_and_government.dmv_and_registration
+  name: DMV & Registration
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: taxes_and_government.federal_income_tax
+  name: Federal Income Tax
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: taxes_and_government.fines_and_tickets
+  name: Fines & Tickets
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: taxes_and_government.property_tax
+  name: Property Tax
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: taxes_and_government.sales_use_tax_standalone
+  name: Sales/Use Tax (Standalone)
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: taxes_and_government.state_local_income_tax
+  name: State/Local Income Tax
+  parent_key: taxes_and_government
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.bank_fee_service_charge
+  name: Bank Fee/Service Charge
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.cash_deposit
+  name: Cash Deposit
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.cash_withdrawal_atm
+  name: Cash Withdrawal (ATM)
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.check_payment_deposit
+  name: Check Payment/Deposit
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.credit_card_payment
+  name: Credit Card Payment
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.refund_chargeback
+  name: Refund/Chargeback
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.reversal_correction
+  name: Reversal/Correction
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.transfer_external_p2p
+  name: 'Transfer: External (P2P)'
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: banking_movements_transfers_refunds_and_fees.transfer_own_accounts
+  name: 'Transfer: Own Accounts'
+  parent_key: banking_movements_transfers_refunds_and_fees
+  description: null
+  rules: null
+- key: pets.adoption_licensing_and_microchipping
+  name: Adoption, Licensing & Microchipping
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.boarding_and_daycare
+  name: Boarding & Daycare
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.food_and_treats
+  name: Food & Treats
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.grooming
+  name: Grooming
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.litter_and_waste
+  name: Litter & Waste
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.medications_and_preventives
+  name: Medications & Preventives
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.supplies_and_accessories
+  name: Supplies & Accessories
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.training_and_behavior
+  name: Training & Behavior
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.veterinary_care
+  name: Veterinary Care
+  parent_key: pets
+  description: null
+  rules: null
+- key: pets.walking_and_sitting
+  name: Walking & Sitting
+  parent_key: pets
+  description: null
+  rules: null
+- key: child_and_baby_expenses.baby_gear
+  name: Baby Gear
+  parent_key: child_and_baby_expenses
+  description: Strollers, car seats, carriers, monitors, mats.
+  rules: null
+- key: child_and_baby_expenses.child_books_and_school_supplies
+  name: Child Books & School Supplies
+  parent_key: child_and_baby_expenses
+  description: Kid school supplies and learning materials.
+  rules: null
+- key: child_and_baby_expenses.child_classes_and_activities
+  name: Child Classes & Activities
+  parent_key: child_and_baby_expenses
+  description: Swim, music, art, sports, enrichment classes for kids.
+  rules: null
+- key: child_and_baby_expenses.child_tuition_and_school_fees
+  name: Child Tuition & School Fees
+  parent_key: child_and_baby_expenses
+  description: School tuition, enrollment, recurring child school fees.
+  rules: null
+- key: child_and_baby_expenses.clothing
+  name: Clothing
+  parent_key: child_and_baby_expenses
+  description: Baby/kid clothing.
+  rules: null
+- key: child_and_baby_expenses.daycare_and_preschool
+  name: Daycare & Preschool
+  parent_key: child_and_baby_expenses
+  description: Daycare, preschool, recurring care centers.
+  rules: null
+- key: child_and_baby_expenses.diapers_and_hygiene
+  name: Diapers & Hygiene
+  parent_key: child_and_baby_expenses
+  description: Diapers, wipes, bath, baby toiletries.
+  rules: null
+- key: child_and_baby_expenses.feeding
+  name: Feeding
+  parent_key: child_and_baby_expenses
+  description: Formula, bottles, feeding supplies, pumping accessories.
+  rules: null
+- key: child_and_baby_expenses.nanny_and_babysitting
+  name: Nanny & Babysitting
+  parent_key: child_and_baby_expenses
+  description: Nanny, babysitter, cash/Zelle care payments.
+  rules: null
+- key: child_and_baby_expenses.nursery_and_furniture
+  name: Nursery & Furniture
+  parent_key: child_and_baby_expenses
+  description: Crib, nursery furniture, child room items.
+  rules: null
+- key: child_and_baby_expenses.school_lunch_and_activities
+  name: School Lunch & Activities
+  parent_key: child_and_baby_expenses
+  description: Lunch, field trips, school events.
+  rules: null
+- key: child_and_baby_expenses.toys_and_play
+  name: Toys & Play
+  parent_key: child_and_baby_expenses
+  description: Toys, play items, non-school kid books.
+  rules: null
+- key: adult_education_professional_development.books_and_learning_materials
+  name: Books & Learning Materials
+  parent_key: adult_education_professional_development
+  description: Adult books, study materials, paid learning resources.
+  rules: null
+- key: adult_education_professional_development.conferences_and_seminars
+  name: Conferences & Seminars
+  parent_key: adult_education_professional_development
+  description: Conferences, workshops, professional events.
+  rules: null
+- key: adult_education_professional_development.courses_and_certifications
+  name: Courses & Certifications
+  parent_key: adult_education_professional_development
+  description: Adult courses, certifications, technical/professional training.
+  rules: null
+- key: adult_education_professional_development.tutoring_and_coaching
+  name: Tutoring & Coaching
+  parent_key: adult_education_professional_development
+  description: Adult tutoring, language lessons, interview/career coaching.
+  rules: null

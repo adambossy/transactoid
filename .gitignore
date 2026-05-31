@@ -15,6 +15,11 @@ dist/
 .mypy_cache/
 .pytest_cache/
 
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
 # OS / editor
 .DS_Store
 *.log

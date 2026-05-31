@@ -1,13 +1,17 @@
 [project]
-name = "transactoid-backend"
+name = "penny-backend"
 version = "0.1.0"
-description = "Transactoid agent backend — runs an agent-harness Agent and streams it over the Vercel AI SDK UI message stream protocol."
+description = "Penny — runs an agent-harness Agent and streams it over the Vercel AI SDK UI message stream protocol."
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-dotenv>=1.0",
     "agent-harness[anthropic,openai] @ git+https://github.com/adambossy/agent-harness.git",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9.11",
+    "pyyaml>=6.0",
+    "loguru>=0.7.3",
 ]
 
 [tool.uv]
