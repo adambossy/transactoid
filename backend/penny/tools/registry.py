@@ -1,23 +1,38 @@
-"""Build the phase-1 toolset.
-
-Phase 1 ships three tools — ``list_plaid_accounts`` (Plaid surface),
-``run_sql`` (analytics), and ``bash`` (sandboxed shell). Phase 2 adds the
-Plaid pipeline; phase 3 adds skills, memory tools, and the remaining
-domain tools.
-"""
+"""Build Penny's core toolset (all non-plugin domain tools)."""
 
 from __future__ import annotations
 
 from agent_harness import StaticToolset
 from agent_harness.core.toolsets import Toolset
 
-from .analytics import run_sql
+from .analytics import generate_chart, run_sql
 from .bash import bash
-from .plaid import list_plaid_accounts
+from .delivery import send_email_report, upload_artifact_to_r2
+from .plaid import connect_new_account, list_plaid_accounts
+from .recategorize import recategorize_merchant, tag_transactions
+from .sync import sync_transactions
+from .taxonomy import migrate_taxonomy
 
 
 def build_toolset() -> Toolset:
     return StaticToolset(
         name="penny",
-        tools=[list_plaid_accounts, run_sql, bash],
+        tools=[
+            # Plaid + sync
+            list_plaid_accounts,
+            connect_new_account,
+            sync_transactions,
+            # Mutations
+            recategorize_merchant,
+            tag_transactions,
+            migrate_taxonomy,
+            # Analytics
+            run_sql,
+            generate_chart,
+            # Delivery
+            upload_artifact_to_r2,
+            send_email_report,
+            # Sandbox
+            bash,
+        ],
     )

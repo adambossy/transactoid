@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 if TYPE_CHECKING:
-    from penny.tools.categorize.categorizer_tool import CategorizedTransaction
+    from penny.tools._services.categorizer import CategorizedTransaction
 
 from sqlalchemy import (
     Table,

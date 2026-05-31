@@ -1,0 +1,3 @@
+"""
+Core domain models package.
+"""

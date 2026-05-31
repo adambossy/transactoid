@@ -15,6 +15,7 @@ from typing import Any
 from agent_harness import tool
 
 from ..db import get_db
+from ..tools._services.chart import GenerateChartTool
 
 
 def _serialize_row(row: Any) -> dict[str, Any]:
@@ -53,3 +54,30 @@ async def run_sql(query: str) -> dict[str, Any]:
             return {"status": "error", "rows": [], "count": 0, "error": str(exc)}
 
     return await asyncio.to_thread(_run)
+
+
+@tool
+async def generate_chart(
+    chart_type: str,
+    title: str,
+    data: dict[str, float],
+    x_label: str = "",
+    y_label: str = "",
+) -> dict[str, Any]:
+    """Generate a chart and return base64 PNG, file path, and an ASCII plot.
+
+    Args:
+        chart_type: ``"bar"``, ``"line"``, or ``"pie"``.
+        title: Chart title.
+        data: Label-to-number mapping, e.g. ``{"Groceries": 450.0}``.
+        x_label: Optional x-axis label.
+        y_label: Optional y-axis label.
+    """
+    chart = GenerateChartTool()
+    return await chart.execute(
+        chart_type=chart_type,
+        title=title,
+        data=data,
+        x_label=x_label,
+        y_label=y_label,
+    )
