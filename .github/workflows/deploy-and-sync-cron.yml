@@ -35,5 +35,18 @@ jobs:
       - name: Alias fly to flyctl
         run: ln -s "$(which flyctl)" /usr/local/bin/fly
 
+      - name: Configure workspace deploy key
+        env:
+          WORKSPACE_DEPLOY_KEY: ${{ secrets.WORKSPACE_DEPLOY_KEY }}
+        run: |
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$WORKSPACE_DEPLOY_KEY" > "$HOME/.ssh/workspace_deploy"
+          chmod 600 "$HOME/.ssh/workspace_deploy"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/workspace_deploy -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
+
       - name: Deploy transactoid and sync cron manager
+        env:
+          WORKSPACE_REPO_URL: git@github.com:adambossy/transactoid-workspace.git
         run: make fly-deploy-and-sync-cron
