@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from functools import partial
 import json
 from pathlib import Path
 from typing import Any, Literal
 
 from google.adk.agents import LlmAgent
+from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.environment._local_environment import LocalEnvironment
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -33,6 +35,16 @@ from transactoid.core.runtime.protocol import (
 from transactoid.core.runtime.shared_tool_invoker import SharedToolInvoker
 from transactoid.core.runtime.tool_adapters.gemini import GeminiToolAdapter
 from transactoid.tools.registry import ToolRegistry
+
+
+def _static_instruction(instructions: str, _: ReadonlyContext) -> str:
+    """Return instructions verbatim.
+
+    Passing an instruction provider (rather than a plain string) makes ADK
+    skip its `{var}` session-state injection, which would otherwise raise on
+    literal braces in prompt or memory content (e.g. `{year}-{name}.pdf`).
+    """
+    return instructions
 
 
 class GeminiCoreRuntime(CoreRuntime):
@@ -70,7 +82,7 @@ class GeminiCoreRuntime(CoreRuntime):
         self._agent = LlmAgent(
             name="transactoid",
             description="Personal finance agent runtime",
-            instruction=instructions,
+            instruction=partial(_static_instruction, instructions),
             model=config.model,
             tools=list(self._tools),  # cast via list[Any]-compatible path
         )
