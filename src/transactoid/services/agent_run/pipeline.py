@@ -20,7 +20,7 @@ from transactoid.tools.storage.upload_tool import upload_artifact
 
 _DEFAULT_LOCAL_DIR = ".transactoid/artifacts"
 _HTML_RENDER_PROMPT_KEY = "report-md-to-html"
-_HTML_RENDER_MODEL = "gemini-3-pro-preview"
+_HTML_RENDER_MODEL = "gemini-3.5-flash"
 
 if TYPE_CHECKING:
     from google.genai.client import Client as GeminiClient

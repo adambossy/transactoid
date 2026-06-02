@@ -94,13 +94,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="gemini-3-pro-preview",
-        help="Gemini model for generation. Default: gemini-3-pro-preview",
+        default="gemini-3.5-flash",
+        help="Gemini model for generation. Default: gemini-3.5-flash",
     )
     parser.add_argument(
         "--judge-model",
-        default="gemini-3-pro-preview",
-        help="Gemini model for semantic judging. Default: gemini-3-pro-preview",
+        default="gemini-3.5-flash",
+        help="Gemini model for semantic judging. Default: gemini-3.5-flash",
     )
     parser.add_argument(
         "--prompt-key",

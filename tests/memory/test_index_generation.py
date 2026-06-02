@@ -74,7 +74,7 @@ def test_sync_memory_index_skips_write_when_content_is_unchanged(
     expected_output = MemoryIndexSyncResult(
         updated=False,
         path=input_index_path,
-        model="gemini-3-pro-preview",
+        model="gemini-3.5-flash",
         reason="content unchanged",
     )
 
@@ -110,7 +110,7 @@ def test_sync_memory_index_writes_when_content_changes(
     expected_output = MemoryIndexSyncResult(
         updated=True,
         path=input_index_path,
-        model="gemini-3-pro-preview",
+        model="gemini-3.5-flash",
         reason="content changed",
     )
 
