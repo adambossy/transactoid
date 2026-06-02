@@ -9,6 +9,9 @@ primary_region = "iad"  # US East - close to Supabase
 
 [env]
   PYTHONUNBUFFERED = "1"
+  TRANSACTOID_AGENT_PROVIDER = "gemini"
+  TRANSACTOID_AGENT_MODEL = "gemini-3.5-flash"
+  TRANSACTOID_CATEGORIZER_MODEL = "gemini-3.5-flash"
 
 # No HTTP service - this is a scheduled job
 # The machine pulls latest origin/main, then runs sync and run, and exits

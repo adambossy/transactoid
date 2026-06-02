@@ -23,7 +23,10 @@
       },
       "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
       "env": {
-        "TRANSACTOID_WORKSPACE": "/app/.transactoid"
+        "TRANSACTOID_WORKSPACE": "/app/.transactoid",
+        "TRANSACTOID_AGENT_PROVIDER": "gemini",
+        "TRANSACTOID_AGENT_MODEL": "gemini-3.5-flash",
+        "TRANSACTOID_CATEGORIZER_MODEL": "gemini-3.5-flash"
       },
       "mounts": [
         {
@@ -61,7 +64,10 @@
       },
       "image": "registry.fly.io/transactoid:deployment-01KHPKPY5A0Y87YP1GFRGBH2K9",
       "env": {
-        "TRANSACTOID_WORKSPACE": "/app/.transactoid"
+        "TRANSACTOID_WORKSPACE": "/app/.transactoid",
+        "TRANSACTOID_AGENT_PROVIDER": "gemini",
+        "TRANSACTOID_AGENT_MODEL": "gemini-3.5-flash",
+        "TRANSACTOID_CATEGORIZER_MODEL": "gemini-3.5-flash"
       },
       "mounts": [
         {
