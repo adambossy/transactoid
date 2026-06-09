@@ -5,6 +5,8 @@ __pycache__/
 
 # Secrets / local env (keep .env.example tracked)
 .env
+.env.*
+!.env.example
 
 # Node
 node_modules/
@@ -14,6 +16,10 @@ dist/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+
+# Runtime artifacts (LLM response cache, categorizer JSON logs)
+.cache/
+.logs/
 
 # Local databases
 *.db

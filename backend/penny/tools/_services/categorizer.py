@@ -296,7 +296,7 @@ class Categorizer:
             )
         except Exception:
             provider_default_model = {
-                "openai": "gpt-5.2",
+                "openai": "gpt-5.5",
                 "claude": "claude-sonnet-4-5",
                 "gemini": "gemini-2.5-pro",
             }

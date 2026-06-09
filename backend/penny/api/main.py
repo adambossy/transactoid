@@ -12,11 +12,14 @@ from fastapi.responses import StreamingResponse
 from agent_harness.providers.openai import OpenAIResponsesModel
 from agent_harness.sessions.inmemory import InMemorySession
 
-from ..agent_factory import build_agent, build_model
-from ..bootstrap import bootstrap
-from .bridge import stream_agent
-
 load_dotenv(override=False)
+# Import _logging first so the file sink is installed before anything
+# downstream emits its first log line.
+from .. import _logging  # noqa: E402, F401  side-effect: install file sink
+
+from ..agent_factory import build_agent, build_model  # noqa: E402
+from ..bootstrap import bootstrap  # noqa: E402
+from .bridge import stream_agent  # noqa: E402
 
 app = FastAPI(title="Penny backend")
 

@@ -1,22 +1,26 @@
-"""Load prompts from the ``backend/prompts/`` directory at runtime.
+"""Single prompt loader for the whole backend.
 
-The system prompt + all historical prompts live as plain markdown files
-on disk so they're easy to edit without touching code.
+Source of truth: ``backend/.prompts/<key>/<version>.md`` (promptorium's
+managed-by-root layout). The index lives at ``.prompts/_meta.json``.
+
+Every consumer — ``agent_factory`` (system prompt), the categorizer
+(categorize-transactions, taxonomy-rules), reports, etc. — reads through
+this single function so there's exactly one prompt directory and one
+loader semantics.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
-_PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+from promptorium import load_prompt as _promptorium_load_prompt
 
 
 @lru_cache(maxsize=None)
 def load_prompt(name: str) -> str:
-    """Return the contents of ``prompts/<name>.md``.
+    """Return the latest version of the named prompt.
 
-    Raises ``FileNotFoundError`` if the file does not exist.
+    Backed by promptorium; raises ``promptorium.domain.PromptNotFound`` (or
+    similar) if the key is missing. Cached per-process.
     """
-    path = _PROMPTS_DIR / f"{name}.md"
-    return path.read_text(encoding="utf-8")
+    return _promptorium_load_prompt(name)
