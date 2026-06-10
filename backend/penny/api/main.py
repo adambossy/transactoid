@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from agent_harness.providers.openai import OpenAIResponsesModel
+from agent_harness.providers.google import GeminiModel
 from agent_harness.sessions.inmemory import InMemorySession
 
 load_dotenv(override=False)
@@ -35,11 +35,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_model: OpenAIResponsesModel | None = None
+_model: GeminiModel | None = None
 _sessions: dict[str, InMemorySession] = {}
 
 
-def _get_model() -> OpenAIResponsesModel:
+def _get_model() -> GeminiModel:
     global _model
     if _model is None:
         _model = build_model()

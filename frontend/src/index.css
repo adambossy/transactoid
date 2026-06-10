@@ -1,8 +1,10 @@
 @import "tailwindcss";
 @import "@adambossy/agent-ui/styles.css";
 
-/* Let Tailwind generate the utility classes the library's components use. */
-@source "../node_modules/@adambossy/agent-ui/dist";
+/* Let Tailwind generate the utility classes the library's components use.
+   Source-aliased to the local agent-ui checkout (see vite.config.ts) so
+   edits there hot-reload here. */
+@source "../../../../../../agent-ui/packages/agent-ui/src";
 
 html,
 body,

@@ -19,7 +19,7 @@ from pathlib import Path
 from agent_harness import Agent
 from agent_harness.core.filesystem import FilesystemTools
 from agent_harness.core.skills import SkillRegistry, build_skill_tool
-from agent_harness.providers.openai import OpenAIProvider, OpenAIResponsesModel
+from agent_harness.providers.google import GeminiModel, GoogleProvider
 from agent_harness.sessions.inmemory import InMemorySession
 
 from .plugins.amazon import build_amazon_toolset
@@ -117,14 +117,16 @@ def _render_system_prompt() -> str:
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # .../backend/
 
 
-def build_model() -> OpenAIResponsesModel:
-    api_key = os.environ.get("OPENAI_API_KEY")
+def build_model() -> GeminiModel:
+    api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    return OpenAIResponsesModel(provider=OpenAIProvider(api_key=api_key))
+        raise RuntimeError("GOOGLE_API_KEY is not set")
+    # Pin to the model the user picked (defaults to GEMINI_3_5_FLASH inside
+    # agent-harness, but be explicit so it's visible in code review).
+    return GeminiModel(provider=GoogleProvider(api_key=api_key), name="gemini-3.5-flash")
 
 
-def build_agent(*, model: OpenAIResponsesModel, session: InMemorySession) -> Agent:
+def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
     sandbox = get_sandbox()
 
     skill_registry = SkillRegistry.load(project_root=_PROJECT_ROOT, user_root=None)

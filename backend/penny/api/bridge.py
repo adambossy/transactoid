@@ -92,6 +92,21 @@ def _translate(event: Any, open_text: set[str]) -> list[dict[str, Any]]:
             }
         ]
     if isinstance(event, ToolExecEnd):
+        # A tool that ended in error gets a distinct ``tool-output-error``
+        # frame so the UI (agent-ui's DefaultTool / AI Elements' Tool
+        # component pattern) can render it with the destructive tone +
+        # errorText. Errors can come either as ``event.error`` (the harness
+        # caught an exception) or embedded in ``event.result.error``.
+        result_error = getattr(event.result, "error", None)
+        err_msg = event.error or result_error
+        if err_msg:
+            return [
+                {
+                    "type": "tool-output-error",
+                    "toolCallId": event.tool_call_id,
+                    "errorText": str(err_msg),
+                }
+            ]
         return [
             {
                 "type": "tool-output-available",

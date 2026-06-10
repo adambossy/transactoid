@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-dotenv>=1.0",
-    "agent-harness[anthropic,openai] @ git+https://github.com/adambossy/agent-harness.git",
+    "agent-harness[anthropic,openai,google] @ git+https://github.com/adambossy/agent-harness.git",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
     "pyyaml>=6.0",
@@ -21,3 +21,9 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+# Source-replace agent-harness with the local checkout so edits in
+# ~/code/agent-harness flow into Penny without re-publishing. Set
+# AGENT_HARNESS_USE_GIT=1 to opt back into the git dep.
+[tool.uv.sources]
+agent-harness = { path = "/Users/adambossy/code/agent-harness", editable = true }
