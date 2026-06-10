@@ -13,3 +13,20 @@ class AppError(Exception):
 
 class ItemizationError(AppError):
     """Raised when itemization inputs are invalid."""
+
+
+class SplitError(AppError):
+    """Raised when a split_transaction operation cannot proceed.
+
+    Covers validation failures (verified row, Amazon gating, bad amounts)
+    and integrity errors caught during the atomic write.
+    """
+
+
+class RefundError(AppError):
+    """Raised when a record_refund operation cannot proceed.
+
+    Covers validation failures (transaction not found, verified row,
+    already linked, pre-date violation, currency mismatch) and integrity
+    errors caught during the atomic write.
+    """

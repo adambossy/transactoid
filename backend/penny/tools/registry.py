@@ -13,6 +13,7 @@ from .plaid import connect_new_account, list_plaid_accounts
 from .recategorize import recategorize_merchant, tag_transactions
 from .sync import sync_transactions
 from .taxonomy import migrate_taxonomy
+from .transactions import record_refund, split_transaction
 
 
 def build_toolset() -> Toolset:
@@ -27,6 +28,8 @@ def build_toolset() -> Toolset:
             recategorize_merchant,
             tag_transactions,
             migrate_taxonomy,
+            split_transaction,
+            record_refund,
             # Analytics
             run_sql,
             generate_chart,

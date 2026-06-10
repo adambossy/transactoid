@@ -2707,3 +2707,73 @@ class DB:
             if profile is not None:
                 session.expunge(profile)
             return profile
+
+    def get_amazon_order_for_plaid_txn(
+        self, session: Session, plaid_transaction_id: int
+    ) -> AmazonOrderDB | None:
+        """Return the matched Amazon order for a Plaid transaction, or None.
+
+        Loads the PlaidTransaction from the given session (no second session
+        opened), then uses the existing AmazonOrderIndex / match_orders_to_transactions
+        logic to find the first matching order. Returns the AmazonOrderDB row, or
+        None if no match exists.
+
+        Args:
+            session: Caller's active SQLAlchemy session.
+            plaid_transaction_id: PK of the plaid_transaction to check.
+
+        Returns:
+            The matched AmazonOrderDB instance if one exists, else None.
+        """
+        from penny.adapters.amazon.order_index import AmazonOrderIndex
+        from penny.adapters.amazon.plaid_matcher import match_orders_to_transactions
+
+        plaid_txn = session.get(PlaidTransaction, plaid_transaction_id)
+        if plaid_txn is None:
+            return None
+
+        index = AmazonOrderIndex.from_db(self)
+        if index.order_count == 0:
+            return None
+
+        orders = index.list_orders()
+        matches = match_orders_to_transactions(orders, [plaid_txn])
+
+        for order_id, matched_plaid_id in matches.items():
+            if matched_plaid_id == plaid_transaction_id:
+                order = (
+                    session.query(AmazonOrderDB)
+                    .filter(AmazonOrderDB.order_id == order_id)
+                    .first()
+                )
+                return order
+
+        return None
+
+    def create_refund_link(
+        self,
+        session: Session,
+        refund_txn_id: int,
+        original_txn_id: int,
+        matched_by: str,
+        matched_at: datetime,
+    ) -> None:
+        """Write all three refund link fields atomically on an already-loaded row.
+
+        The row must already be loaded in the caller's session; this method
+        performs only the three-column update, no validation. Caller owns the
+        session and is responsible for committing.
+
+        Args:
+            session: Caller's active SQLAlchemy session.
+            refund_txn_id: PK of the derived_transaction that is the refund.
+            original_txn_id: PK of the original derived_transaction being refunded.
+            matched_by: Who created the link ('user' or 'auto').
+            matched_at: UTC timestamp when the link was established.
+        """
+        row = session.get(DerivedTransaction, refund_txn_id)
+        if row is None:
+            return
+        row.refund_of_transaction_id = original_txn_id
+        row.refund_matched_by = matched_by
+        row.refund_matched_at = matched_at
