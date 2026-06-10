@@ -4,7 +4,7 @@
     "agent-loop": {
       "source_file": ".prompts/agent-loop/1.md",
       "version_dir": ".prompts/agent-loop",
-      "last_hash": "sha256:25e1364b58a095979caa4d95649fd0610e554dce105a4781b619519ebd11420c",
+      "last_hash": "sha256:81c5363670831211b398a1102d5bf9b442ae34143ec7ce7f5a1d02f98b9bdaf5",
       "last_version": 1
     },
     "categorize-transactions": {
