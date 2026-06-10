@@ -36,7 +36,10 @@ export default defineConfig({
         ],
   },
   server: {
-    port: 5173,
+    // Pinned: every doc/bookmark in this project says 5174 (historically vite
+    // bumped here because another dev server squatted on 5173).
+    port: 5174,
+    strictPort: true,
     host: true,
     proxy: {
       "/api": {
