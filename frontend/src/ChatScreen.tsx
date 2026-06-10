@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
-import { AlertCircle, SquarePen } from "lucide-react";
+import { AlertCircle, Brain, SquarePen } from "lucide-react";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 
@@ -62,6 +62,33 @@ function findStreamError(messages: AiUIMessage[]): string | null {
   return null;
 }
 
+/** True once the assistant message has anything the transcript can render —
+ * the pending indicator yields to the real reasoning/text/tool parts. */
+function hasVisibleParts(message: AiUIMessage): boolean {
+  const parts = (message.parts ?? []) as Array<{ type?: string }>;
+  return parts.some(
+    (part) =>
+      part?.type === "text" ||
+      part?.type === "reasoning" ||
+      part?.type === "dynamic-tool" ||
+      (part?.type ?? "").startsWith("tool-"),
+  );
+}
+
+/** Placeholder shown between message send and the first streamed part, so the
+ * agent never looks unresponsive. Styled to match agent-ui's Reasoning header
+ * (which replaces it once real reasoning deltas arrive). */
+function PendingThinking() {
+  return (
+    <div className="my-2 text-sm text-muted-foreground">
+      <div className="inline-flex items-center gap-1.5 px-2 py-1 text-[13px]">
+        <Brain size={13} />
+        <span className="streaming-caret">Thinking…</span>
+      </div>
+    </div>
+  );
+}
+
 export function ChatScreen() {
   const sessionId = useMemo(loadOrCreateSessionId, []);
   const [history, setHistory] = useState<AiUIMessage[] | null>(null);
@@ -118,6 +145,11 @@ function Chat({
 
   const isStreaming = status === "streaming" || status === "submitted";
   const showEmpty = messages.length === 0;
+  const lastMessage = messages[messages.length - 1];
+  const awaitingResponse =
+    isStreaming &&
+    lastMessage !== undefined &&
+    (lastMessage.role === "user" || !hasVisibleParts(lastMessage as AiUIMessage));
 
   const startNewChat = () => {
     localStorage.setItem(SESSION_KEY, crypto.randomUUID());
@@ -161,6 +193,7 @@ function Chat({
               />
             ))
           )}
+          {awaitingResponse && <PendingThinking />}
           {surfacedError && (
             <div
               role="alert"
