@@ -15,10 +15,13 @@ from penny.adapters.db.models import (  # noqa: F401, E402
     Base,
     Category,
     DerivedTransaction,
+    EmailReceipt,
     Merchant,
+    PendingReceiptMatch,
     PlaidItem,
     PlaidTransaction,
     Tag,
+    TransactionItem,
     TransactionTag,
 )
 

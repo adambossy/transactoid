@@ -31,13 +31,16 @@ from penny.adapters.db.models import (
     Category,
     CategoryRow,
     DerivedTransaction,
+    EmailReceipt,
     Merchant,
+    PendingReceiptMatch,
     PlaidItem,
     PlaidTransaction,
     SaveOutcome,
     SaveRowOutcome,
     Tag,
     TransactionCategoryEvent,
+    TransactionItem,
     TransactionTag,
     normalize_merchant_name,
 )
@@ -53,6 +56,9 @@ _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     TransactionCategoryEvent,
     Tag,
     TransactionTag,
+    TransactionItem,
+    EmailReceipt,
+    PendingReceiptMatch,
 )
 
 _COMPACT_SCHEMA_NOTES: dict[str, str] = {
@@ -61,8 +67,55 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
     ),
     "derived_transactions": (
         "Primary table for all spending queries and analysis. "
-        "May have multiple rows per Plaid transaction "
-        "(Amazon item splits)."
+        "May have multiple rows per Plaid transaction (Amazon item splits). "
+        "\n"
+        "Refunds: a refund row is one whose refund_of_transaction_id is NOT NULL, "
+        "linking it to the original charge it offsets. The FK is the truth for "
+        "identifying refunds — do NOT rely on the sign of amount_cents, since some "
+        "bank providers invert expense/deposit signs. "
+        "refund_matched_by records who created the link ('user' or 'auto'); "
+        "refund_matched_at records when. "
+        "\n"
+        "For spend analysis, exclude both refund rows AND the originals they "
+        "offset, treating each linked pair as net-neutral:\n"
+        "\n"
+        "  SELECT SUM(amount_cents) FROM derived_transactions d\n"
+        "  WHERE d.refund_of_transaction_id IS NULL\n"
+        "    AND NOT EXISTS (\n"
+        "      SELECT 1 FROM derived_transactions r\n"
+        "      WHERE r.refund_of_transaction_id = d.transaction_id\n"
+        "    )\n"
+        "    -- plus your own filters: merchant, date range, category, etc.\n"
+        "\n"
+        "This is sign-agnostic. Partial refunds are over-excluded (the un-refunded "
+        "portion is silently dropped) but partial refunds are rare enough that "
+        "this is the right trade-off versus a per-transaction net computation. "
+        "To LIST refunds explicitly (not for spend totals), query rows directly: "
+        "WHERE refund_of_transaction_id IS NOT NULL."
+    ),
+    "transaction_items": (
+        "Itemization table. One row per line item within a transaction. "
+        "amount_cents is synthetic and proportionally allocated so that all items "
+        "for a transaction sum exactly to the parent "
+        "derived_transactions.amount_cents. "
+        "itemization_source indicates the origin of the data "
+        "('amazon_scrape', 'email_receipt', or 'manual'); "
+        "nullable source_ref carries an opaque reference to the upstream record "
+        "(e.g. Amazon order_id or, in future, a Gmail message_id) "
+        "depending on itemization_source."
+    ),
+    "email_receipts": (
+        "Parsed Gmail receipts; message_id is the dedup key. "
+        "Sidecar table: the items it produces live in transaction_items with "
+        "itemization_source='email_receipt' and source_ref=message_id. "
+        "Do NOT query or return the subject or sender columns — they contain "
+        "PII and must not appear in LLM responses."
+    ),
+    "pending_receipt_matches": (
+        "Low-confidence email-receipt candidates queued for human review in the "
+        "web UI. transaction_items rows are NOT written until the candidate is "
+        "status='confirmed'. match_score is composite [0.0, 1.0]; lower means "
+        "more uncertain."
     ),
     "categories": (
         "Filter WHERE deprecated_at IS NULL to exclude retired categories. "
