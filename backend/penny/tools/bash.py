@@ -11,7 +11,7 @@ from typing import Any
 
 from agent_harness import tool
 
-from ..sandbox import get_sandbox
+from penny.sandbox import get_sandbox
 
 
 @tool

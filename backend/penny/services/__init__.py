@@ -8,14 +8,14 @@ multi-tenancy is the productionization plan's problem.
 
 from __future__ import annotations
 
-from ..db import get_db
-from ..rules.loader import MerchantRulesLoader
-from ..taxonomy.core import Taxonomy
-from ..taxonomy.loader import load_taxonomy_from_db
-from ..tools._services.categorizer import Categorizer
-from ..tools._services.migrator import MigrationTool
-from ..tools._services.persister import PersistTool
-from ..workspace import resolve_memory_dir
+from penny.db import get_db
+from penny.rules.loader import MerchantRulesLoader
+from penny.taxonomy.core import Taxonomy
+from penny.taxonomy.loader import load_taxonomy_from_db
+from penny.tools._services.categorizer import Categorizer
+from penny.tools._services.migrator import MigrationTool
+from penny.tools._services.persister import PersistTool
+from penny.workspace import resolve_memory_dir
 
 _taxonomy: Taxonomy | None = None
 _rules_loader: MerchantRulesLoader | None = None

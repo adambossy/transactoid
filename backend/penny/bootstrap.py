@@ -8,8 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
 from loguru import logger
+import yaml
 
 from .adapters.db.models import Category
 from .db import get_db
@@ -42,7 +42,9 @@ def _seed_taxonomy_if_empty() -> None:
 
         raw = yaml.safe_load(_TAXONOMY_YAML.read_text(encoding="utf-8"))
         if not isinstance(raw, list):
-            logger.error("taxonomy.yaml is not a list of category rows; got {}", type(raw))
+            logger.error(
+                "taxonomy.yaml is not a list of category rows; got {}", type(raw)
+            )
             return
 
         # Two passes: parents first (so children's parent_id resolves).
@@ -59,12 +61,18 @@ def _seed_taxonomy_if_empty() -> None:
                 continue
             parent = by_key.get(parent_key)
             if parent is None:
-                logger.warning("Skipping {!r} — parent {!r} not found", row.get("key"), parent_key)
+                logger.warning(
+                    "Skipping {!r} — parent {!r} not found", row.get("key"), parent_key
+                )
                 continue
             cat = _row_to_category(row, parent_id=parent.category_id)
             session.add(cat)
         session.commit()
-        logger.info("Seeded {} categories from {}", session.query(Category).count(), _TAXONOMY_YAML)
+        logger.info(
+            "Seeded {} categories from {}",
+            session.query(Category).count(),
+            _TAXONOMY_YAML,
+        )
 
 
 def _row_to_category(row: dict[str, Any], *, parent_id: int | None) -> Category:

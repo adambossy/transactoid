@@ -11,7 +11,6 @@ import urllib.request
 
 from pydantic import BaseModel, Field
 
-from penny.models.transaction import PersonalFinanceCategory, Transaction
 from penny.adapters.clients.plaid_link import (
     PublicTokenTimeoutError,
     build_success_message,
@@ -25,6 +24,7 @@ from penny.adapters.clients.plaid_link import (
     wait_for_token_from_file,
 )
 from penny.adapters.db.models import PlaidItem
+from penny.models.transaction import PersonalFinanceCategory, Transaction
 
 PlaidEnv = Literal["sandbox", "development", "production"]
 

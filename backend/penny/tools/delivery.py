@@ -8,13 +8,13 @@ These wrap ``penny.tools._services.uploader.upload_artifact`` and
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from agent_harness import tool
 
-from ..services.email import EmailService
-from ..tools._services.uploader import upload_artifact
+from penny.services.email import EmailService
+from penny.tools._services.uploader import upload_artifact
 
 
 @tool
@@ -44,7 +44,7 @@ async def upload_artifact_to_r2(
                 artifact_type=artifact_type,
                 body=body.encode("utf-8"),
                 content_type=content_type,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
             return {
                 "status": "success",

@@ -14,8 +14,8 @@ Frame sequence per turn:
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import AsyncIterator
+import json
 from typing import Any
 
 from agent_harness import Agent
@@ -73,7 +73,13 @@ def _translate(event: Any, open_text: set[str]) -> list[dict[str, Any]]:
     if isinstance(event, ThinkingStart):
         return [{"type": "reasoning-start", "id": f"r_{event.message_id}"}]
     if isinstance(event, ThinkingDelta):
-        return [{"type": "reasoning-delta", "id": f"r_{event.message_id}", "delta": event.delta}]
+        return [
+            {
+                "type": "reasoning-delta",
+                "id": f"r_{event.message_id}",
+                "delta": event.delta,
+            }
+        ]
     if isinstance(event, ThinkingEnd):
         return [{"type": "reasoning-end", "id": f"r_{event.message_id}"}]
     if isinstance(event, MessageStart):

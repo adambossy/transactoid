@@ -9,15 +9,15 @@ from typing import TYPE_CHECKING, Any, cast
 import loguru
 from loguru import logger
 
-from penny.models.transaction import Transaction
 from penny.adapters.clients.plaid import PlaidClient, PlaidClientError
 from penny.adapters.db.facade import DB
+from penny.models.transaction import Transaction
 from penny.taxonomy.core import Taxonomy
 from penny.tools._base import StandardTool
+from penny.tools._protocol import ToolInputSchema
 from penny.tools._services.categorizer import (
     Categorizer,
 )
-from penny.tools._protocol import ToolInputSchema
 from penny.tools._services.investment_classification import (
     investment_activity_reporting_mode,
 )

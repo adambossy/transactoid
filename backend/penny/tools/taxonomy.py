@@ -7,8 +7,8 @@ from typing import Any
 
 from agent_harness import tool
 
-from ..services import get_migrator
-from ..tools._services.migrator_dispatcher import run_migration
+from penny.services import get_migrator
+from penny.tools._services.migrator_dispatcher import run_migration
 
 
 @tool
@@ -52,7 +52,9 @@ async def migrate_taxonomy(
                     "summary": "Failed: malformed targets",
                 }
             tdesc = target.get("description")
-            typed_targets.append((key, target_name, tdesc if isinstance(tdesc, str) else None))
+            typed_targets.append(
+                (key, target_name, tdesc if isinstance(tdesc, str) else None)
+            )
 
     def _run() -> dict[str, Any]:
         return run_migration(

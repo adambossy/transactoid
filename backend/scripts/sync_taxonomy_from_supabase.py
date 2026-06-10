@@ -16,11 +16,11 @@ Run::
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
+import sys
 
-import yaml
 from sqlalchemy import create_engine, text
+import yaml
 
 _OUT = Path(__file__).resolve().parent.parent / "configs" / "taxonomy.yaml"
 
@@ -28,7 +28,10 @@ _OUT = Path(__file__).resolve().parent.parent / "configs" / "taxonomy.yaml"
 def main() -> int:
     url = os.environ.get("SUPABASE_DATABASE_URL", "").strip()
     if not url:
-        print("ERROR: set SUPABASE_DATABASE_URL to the prod Supabase URL.", file=sys.stderr)
+        print(
+            "ERROR: set SUPABASE_DATABASE_URL to the prod Supabase URL.",
+            file=sys.stderr,
+        )
         return 1
 
     engine = create_engine(url)
@@ -54,12 +57,14 @@ def main() -> int:
         ).fetchall()
 
     out: list[dict[str, object]] = []
-    for cid, parent_id, key, name, description, rules in result:
+    for _cid, parent_id, key, name, description, rules in result:
         out.append(
             {
                 "key": key,
                 "name": name,
-                "parent_key": id_to_key.get(parent_id) if parent_id is not None else None,
+                "parent_key": id_to_key.get(parent_id)
+                if parent_id is not None
+                else None,
                 "description": description,
                 "rules": rules,
             }

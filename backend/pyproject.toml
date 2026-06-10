@@ -27,3 +27,15 @@ package = false
 # AGENT_HARNESS_USE_GIT=1 to opt back into the git dep.
 [tool.uv.sources]
 agent-harness = { path = "/Users/adambossy/code/agent-harness", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

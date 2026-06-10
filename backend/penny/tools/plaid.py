@@ -14,8 +14,8 @@ from typing import Any
 
 from agent_harness import tool
 
-from ..adapters.clients.plaid import PlaidClient
-from ..db import get_db
+from penny.adapters.clients.plaid import PlaidClient
+from penny.db import get_db
 
 
 def _item_to_dict(item: Any) -> dict[str, Any]:
@@ -24,7 +24,9 @@ def _item_to_dict(item: Any) -> dict[str, Any]:
         "institution_id": getattr(item, "institution_id", None),
         "institution_name": getattr(item, "institution_name", None),
         "sync_cursor": getattr(item, "sync_cursor", None),
-        "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
+        "created_at": item.created_at.isoformat()
+        if getattr(item, "created_at", None)
+        else None,
     }
 
 

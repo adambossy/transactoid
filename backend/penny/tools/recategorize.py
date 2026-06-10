@@ -7,7 +7,7 @@ from typing import Any
 
 from agent_harness import tool
 
-from ..services import get_persister, get_taxonomy
+from penny.services import get_persister, get_taxonomy
 
 
 @tool
@@ -43,7 +43,9 @@ async def recategorize_merchant(merchant_id: int, category_key: str) -> dict[str
 
 
 @tool
-async def tag_transactions(transaction_ids: list[int], tags: list[str]) -> dict[str, Any]:
+async def tag_transactions(
+    transaction_ids: list[int], tags: list[str]
+) -> dict[str, Any]:
     """Apply one or more tags to a list of transactions.
 
     Args:

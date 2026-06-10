@@ -14,8 +14,8 @@ from typing import Any
 
 from agent_harness import tool
 
-from ..db import get_db
-from ..tools._services.chart import GenerateChartTool
+from penny.db import get_db
+from penny.tools._services.chart import GenerateChartTool
 
 
 def _serialize_row(row: Any) -> dict[str, Any]:

@@ -11,10 +11,10 @@ from typing import Any
 
 from agent_harness import tool
 
-from ..adapters.clients.plaid import PlaidClient
-from ..db import get_db
-from ..services import build_categorizer, get_taxonomy
-from ..tools._services.sync_service import SyncTool
+from penny.adapters.clients.plaid import PlaidClient
+from penny.db import get_db
+from penny.services import build_categorizer, get_taxonomy
+from penny.tools._services.sync_service import SyncTool
 
 
 @tool
