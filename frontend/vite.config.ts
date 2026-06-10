@@ -20,6 +20,11 @@ const useVendor = process.env.AGENT_UI_USE_VENDOR === "1";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
+    // Force a single React instance. Without this, source-aliasing
+    // agent-ui makes its sibling `node_modules/react` resolve as a
+    // SECOND React copy (separate from Penny's `frontend/node_modules/react`),
+    // and hooks fire against a null dispatcher → blank screen.
+    dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
     alias: useVendor
       ? []
       : [
