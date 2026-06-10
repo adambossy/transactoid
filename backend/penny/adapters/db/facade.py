@@ -105,7 +105,9 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
         "the sign-convention rollout. Use SUM(amount_cents) directly in spend "
         "queries on derived_transactions; do not consult account_sign_conventions "
         "for those queries (that table is only relevant when joining plaid_transactions "
-        "raw data)."
+        "raw data). "
+        "Run `scripts/backfill_sign_conventions.py` once after `alembic upgrade head` "
+        "to retroactively normalize historical rows."
     ),
     "transaction_items": (
         "Itemization table. One row per line item within a transaction. "
@@ -3037,3 +3039,50 @@ class DB:
             for row in rows:
                 session.expunge(row)
             return rows
+
+    def list_plaid_transaction_ids_for_account(self, account_id: str) -> list[int]:
+        """Return all plaid_transaction_id values for the given account_id.
+
+        Args:
+            account_id: The Plaid account_id to filter by.
+
+        Returns:
+            List of plaid_transaction_id integers for the account, ordered
+            ascending.
+        """
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(PlaidTransaction.plaid_transaction_id)
+                .filter(PlaidTransaction.account_id == account_id)
+                .order_by(PlaidTransaction.plaid_transaction_id.asc())
+                .all()
+            )
+            return [int(row.plaid_transaction_id) for row in rows]
+
+    def delete_unverified_derived_by_plaid_ids(
+        self, plaid_transaction_ids: list[int]
+    ) -> int:
+        """Delete only unverified derived_transactions for the given plaid IDs.
+
+        Verified rows (is_verified=True) are preserved.
+
+        Args:
+            plaid_transaction_ids: Plaid transaction IDs whose unverified
+                derived rows should be deleted.
+
+        Returns:
+            Count of rows deleted.
+        """
+        if not plaid_transaction_ids:
+            return 0
+        with self.session() as session:  # type: Session
+            deleted = (
+                session.query(DerivedTransaction)
+                .filter(
+                    DerivedTransaction.plaid_transaction_id.in_(plaid_transaction_ids),
+                    DerivedTransaction.is_verified.is_(False),
+                )
+                .delete(synchronize_session=False)
+            )
+            session.flush()
+            return int(deleted)
