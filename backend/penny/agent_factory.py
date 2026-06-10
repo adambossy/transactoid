@@ -18,6 +18,7 @@ from pathlib import Path
 
 from agent_harness import Agent
 from agent_harness.core.filesystem import FilesystemTools
+from agent_harness.core.models import ModelSettings
 from agent_harness.core.skills import SkillRegistry, build_skill_tool
 from agent_harness.providers.google import GeminiModel, GoogleProvider
 from agent_harness.sessions.inmemory import InMemorySession
@@ -127,6 +128,19 @@ def build_model() -> GeminiModel:
     )
 
 
+def _thinking_budget_from_env() -> int:
+    """Thinking-token budget passed to the model (``PENNY_AGENT_THINKING_BUDGET``).
+
+    Gemini semantics: ``-1`` = dynamic (model decides how much to think),
+    ``0`` would disable thinking entirely. Must be set to a non-None value or
+    the provider omits ``thinking_config`` and Gemini streams no thought
+    summaries — the UI then shows nothing between tool calls while the model
+    thinks.
+    """
+    raw = os.environ.get("PENNY_AGENT_THINKING_BUDGET", "").strip()
+    return int(raw) if raw else -1
+
+
 def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
     sandbox = get_sandbox()
 
@@ -144,6 +158,7 @@ def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
         instructions=_render_system_prompt(),
         session=session,
         sandbox=sandbox,
+        model_settings=ModelSettings(thinking_budget=_thinking_budget_from_env()),
         toolsets=[
             build_toolset(),
             build_amazon_toolset(),
