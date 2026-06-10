@@ -155,3 +155,19 @@ def test_serialize_tool_output_falls_back_to_content_envelope():
         "metadata": {},
     }
     assert output == expected_output
+
+
+def test_sse_frame_survives_decimal_values():
+    from decimal import Decimal
+
+    from penny.api.bridge import _sse
+
+    input_frame = {
+        "type": "tool-output-available",
+        "toolCallId": "c1",
+        "output": {"total": Decimal("123.45")},
+    }
+
+    output = _sse(input_frame)
+
+    assert '"total": "123.45"' in output

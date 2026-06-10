@@ -10,6 +10,7 @@ productionization item, not a port-time concern.
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from typing import Any
 
 from agent_harness import tool
@@ -19,9 +20,17 @@ from penny.tools._services.chart import GenerateChartTool
 
 
 def _serialize_row(row: Any) -> dict[str, Any]:
+    """Make a SQL result row JSON-native.
+
+    Postgres ``numeric`` columns arrive as ``Decimal`` — convert to float so
+    tool output stays a number (json.dumps would otherwise raise, and
+    ``default=str`` would silently turn amounts into strings).
+    """
     out = dict(row._mapping)
     for key, value in out.items():
-        if hasattr(value, "isoformat"):
+        if isinstance(value, Decimal):
+            out[key] = float(value)
+        elif hasattr(value, "isoformat"):
             out[key] = value.isoformat()
     return out
 

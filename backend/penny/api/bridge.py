@@ -36,7 +36,10 @@ from agent_harness.core.events import (
 
 
 def _sse(frame: dict[str, Any]) -> str:
-    return f"data: {json.dumps(frame)}\n\n"
+    # default=str: a frame must NEVER kill the stream over an exotic value
+    # (Decimal from Postgres numerics, UUID, datetime...). Lossy-but-readable
+    # beats a silently dead SSE connection and a UI hung mid-tool-call.
+    return f"data: {json.dumps(frame, default=str)}\n\n"
 
 
 def _serialize_tool_output(result: Any) -> Any:
@@ -151,7 +154,15 @@ async def stream_agent(agent: Agent, prompt: str) -> AsyncIterator[str]:
     open_text: set[str] = set()
     try:
         async for event in subscription:
-            for frame in _translate(event, open_text):
+            try:
+                frames = _translate(event, open_text)
+            except Exception as exc:
+                # A translation bug must surface as an error frame, not kill
+                # the stream silently (the UI would hang on the last frame).
+                frames = [
+                    {"type": "error", "errorText": f"stream translation failed: {exc}"}
+                ]
+            for frame in frames:
                 yield _sse(frame)
     finally:
         try:
