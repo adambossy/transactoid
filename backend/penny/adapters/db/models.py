@@ -598,6 +598,47 @@ class EmailReceipt(Base):
     )
 
 
+class AccountSignConvention(Base):
+    """Per-account sign convention lookup.
+
+    Records whether a Plaid account reports expenses as positive amounts
+    ('expense_positive') or negative amounts ('expense_negative').
+
+    account_id matches plaid_transactions.account_id. There is no FK because
+    the plaid_accounts table was dropped in an earlier migration.
+
+    Rows are normally populated automatically by the seeding pipeline;
+    manual overrides are recorded with provenance='manual'.
+
+    NOTE: The CHECK constraint values here must match the migration's
+    CREATE TABLE CHECK constraints. If the allowed values change, update
+    BOTH this model AND migration 004.
+    """
+
+    __tablename__ = "account_sign_conventions"
+    __table_args__ = (
+        CheckConstraint(
+            "sign_convention IN ('expense_positive', 'expense_negative')",
+            name="ck_account_sign_conventions_sign_convention",
+        ),
+        CheckConstraint(
+            "provenance IN ('seeded', 'manual')",
+            name="ck_account_sign_conventions_provenance",
+        ),
+    )
+
+    account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    sign_convention: Mapped[str] = mapped_column(Text, nullable=False)
+    provenance: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class PendingReceiptMatch(Base):
     """Low-confidence email-receipt candidate queued for human review.
 

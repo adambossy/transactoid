@@ -12,6 +12,7 @@ load_dotenv()
 # Import the Base and all models for autogenerate support
 # Import all models to ensure they're registered with Base
 from penny.adapters.db.models import (  # noqa: F401, E402
+    AccountSignConvention,
     Base,
     Category,
     DerivedTransaction,

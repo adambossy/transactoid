@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from penny.tools._services.categorizer import CategorizedTransaction
     from penny.tools._services.mutation_plugin import (
@@ -28,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from penny.adapters.db.models import (
+    AccountSignConvention,
     AmazonItemDB,
     AmazonLoginProfileDB,
     AmazonOrderDB,
@@ -63,6 +66,7 @@ _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     TransactionItem,
     EmailReceipt,
     PendingReceiptMatch,
+    AccountSignConvention,
 )
 
 _COMPACT_SCHEMA_NOTES: dict[str, str] = {
@@ -95,7 +99,13 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
         "portion is silently dropped) but partial refunds are rare enough that "
         "this is the right trade-off versus a per-transaction net computation. "
         "To LIST refunds explicitly (not for spend totals), query rows directly: "
-        "WHERE refund_of_transaction_id IS NOT NULL."
+        "WHERE refund_of_transaction_id IS NOT NULL. "
+        "\n"
+        "Amounts on derived_transactions are sign-normalized for rows synced after "
+        "the sign-convention rollout. Use SUM(amount_cents) directly in spend "
+        "queries on derived_transactions; do not consult account_sign_conventions "
+        "for those queries (that table is only relevant when joining plaid_transactions "
+        "raw data)."
     ),
     "transaction_items": (
         "Itemization table. One row per line item within a transaction. "
@@ -124,6 +134,20 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
     "categories": (
         "Filter WHERE deprecated_at IS NULL to exclude retired categories. "
         "Always include this filter when JOINing categories for analysis."
+    ),
+    "account_sign_conventions": (
+        "Per-account lookup for expense sign convention. "
+        "sign_convention is either 'expense_positive' (expenses are positive "
+        "amount_cents, the Plaid default) or 'expense_negative' (expenses are "
+        "negative amount_cents, used by some institutions). "
+        "account_id matches plaid_transactions.account_id. "
+        "Rows are normally populated automatically by the seeding pipeline "
+        "(provenance='seeded'); manual overrides have provenance='manual'. "
+        "Missing rows should be treated as 'expense_positive'. "
+        "To normalize plaid_transactions.amount_cents for spend analysis: "
+        "LEFT JOIN account_sign_conventions a ON a.account_id = pt.account_id, "
+        "then use CASE WHEN COALESCE(a.sign_convention, 'expense_positive') = "
+        "'expense_negative' THEN -pt.amount_cents ELSE pt.amount_cents END."
     ),
 }
 
@@ -2777,3 +2801,239 @@ class DB:
         row.refund_of_transaction_id = original_txn_id
         row.refund_matched_by = matched_by
         row.refund_matched_at = matched_at
+
+    _DEFAULT_SIGN_CONVENTION: str = "expense_positive"
+
+    def get_sign_convention(self, account_id: str) -> str:
+        """Return the sign convention for an account.
+
+        Returns 'expense_positive' as the default when no row exists.
+        Logs a WARNING when the default is used — every known account should
+        have been seeded by the time this is called.
+
+        Args:
+            account_id: The Plaid account_id to look up.
+
+        Returns:
+            'expense_positive' or 'expense_negative'.
+        """
+        with self.session() as session:  # type: Session
+            row = session.get(AccountSignConvention, account_id)
+            if row is None:
+                logger.bind(account_id=account_id).warning(
+                    "No sign convention found for account {}; falling back to '{}'",
+                    account_id,
+                    self._DEFAULT_SIGN_CONVENTION,
+                )
+                return self._DEFAULT_SIGN_CONVENTION
+            convention: str = row.sign_convention
+            return convention
+
+    def bulk_get_sign_conventions(self, account_ids: list[str]) -> dict[str, str]:
+        """Return {account_id: convention} for all given account_ids.
+
+        Missing account_ids receive the default 'expense_positive'.
+
+        Args:
+            account_ids: List of Plaid account_ids to look up.
+
+        Returns:
+            Dict mapping each account_id to its convention string.
+        """
+        if not account_ids:
+            return {}
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(AccountSignConvention)
+                .filter(AccountSignConvention.account_id.in_(account_ids))
+                .all()
+            )
+            result: dict[str, str] = {
+                row.account_id: row.sign_convention for row in rows
+            }
+        for account_id in account_ids:
+            if account_id not in result:
+                logger.bind(account_id=account_id).warning(
+                    "No sign convention found for account {}; falling back to '{}'",
+                    account_id,
+                    self._DEFAULT_SIGN_CONVENTION,
+                )
+                result[account_id] = self._DEFAULT_SIGN_CONVENTION
+        return result
+
+    def set_sign_convention(
+        self,
+        account_id: str,
+        sign_convention: str,
+        *,
+        provenance: str = "manual",
+        notes: str | None = None,
+    ) -> None:
+        """Upsert a sign convention for an account.
+
+        ON CONFLICT updates sign_convention, provenance, updated_at, and notes;
+        account_id and created_at are preserved.
+        When notes is None (omitted), the existing notes value is left unchanged
+        on the update path.
+
+        Args:
+            account_id: The Plaid account_id to set a convention for.
+            sign_convention: 'expense_positive' or 'expense_negative'.
+            provenance: 'manual' or 'seeded'. Defaults to 'manual'.
+            notes: Optional free-text note about the convention.
+                   When omitted (None), existing notes are preserved on update.
+        """
+        with self.session() as session:  # type: Session
+            row = session.get(AccountSignConvention, account_id)
+            if row is None:
+                row = AccountSignConvention(
+                    account_id=account_id,
+                    sign_convention=sign_convention,
+                    provenance=provenance,
+                    notes=notes,
+                )
+                session.add(row)
+            else:
+                row.sign_convention = sign_convention
+                row.provenance = provenance
+                row.updated_at = datetime.utcnow()
+                if notes is not None:
+                    row.notes = notes
+            session.flush()
+
+    def seed_sign_conventions_from_institutions(
+        self,
+        institution_mapping: dict[str, str],
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        """Seed account_sign_conventions for every account_id in plaid_transactions.
+
+        For each distinct account_id in plaid_transactions, looks up its
+        institution via plaid_transactions.institution (denormalized; always
+        present for PLAID rows, may be NULL for CSV-sourced rows) and maps to
+        a convention via institution_mapping. Accounts whose institution is
+        NULL or not in the map get the default 'expense_positive'.
+
+        ON CONFLICT DO NOTHING — accounts that already have a row in
+        account_sign_conventions (e.g., from a prior manual override via
+        set_sign_convention) are preserved unchanged.
+
+        All rows inserted carry provenance='seeded'.
+
+        Institution names are matched verbatim. `plaid_transactions.institution`
+        must equal the dict key exactly (case-sensitive, whitespace-significant).
+        New institutions are silently mapped to the default; verify by querying
+        `account_sign_conventions WHERE provenance='seeded' AND notes LIKE
+        'Seeded from institution=...'` after seeding.
+
+        Args:
+            institution_mapping: dict mapping institution name -> sign_convention.
+            dry_run: If True, performs all queries and classification but does
+                not commit. Returns the same counts as a real run would produce.
+
+        Returns:
+            Counts: {"inserted": N, "skipped_existing": M, "default_applied": K}
+            where 'default_applied' counts rows where institution was NULL or not
+            in the map and the default was used.
+        """
+        session: Session = self._session_factory()
+        try:
+            rows = (
+                session.query(PlaidTransaction.account_id, PlaidTransaction.institution)
+                .distinct()
+                .all()
+            )
+            pairs: list[tuple[str, str | None]] = [
+                (str(row.account_id), row.institution) for row in rows
+            ]
+
+            # Batch existence check — one query for all candidate account_ids.
+            account_ids = [account_id for account_id, _ in pairs]
+            existing_ids: set[str] = set()
+            if account_ids:
+                existing_rows = (
+                    session.query(AccountSignConvention.account_id)
+                    .filter(AccountSignConvention.account_id.in_(account_ids))
+                    .all()
+                )
+                existing_ids = {str(r.account_id) for r in existing_rows}
+
+            inserted = 0
+            skipped_existing = 0
+            default_applied = 0
+
+            for account_id, institution in pairs:
+                convention: str
+                if institution is not None and institution in institution_mapping:
+                    convention = institution_mapping[institution]
+                else:
+                    convention = self._DEFAULT_SIGN_CONVENTION
+
+                if account_id in existing_ids:
+                    skipped_existing += 1
+                    continue
+
+                if institution is None or institution not in institution_mapping:
+                    default_applied += 1
+
+                notes = f"Seeded from institution={institution!r}"
+                new_row = AccountSignConvention(
+                    account_id=account_id,
+                    sign_convention=convention,
+                    provenance="seeded",
+                    notes=notes,
+                )
+                session.add(new_row)
+                inserted += 1
+
+            if dry_run:
+                session.rollback()
+            else:
+                session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+        return {
+            "inserted": inserted,
+            "skipped_existing": skipped_existing,
+            "default_applied": default_applied,
+        }
+
+    def has_sign_convention(self, account_id: str) -> bool:
+        """Return True only if a real row exists for account_id.
+
+        Unlike ``get_sign_convention``, this never returns a default — it checks
+        whether the account_sign_conventions table has an entry for the given
+        account_id.
+
+        Args:
+            account_id: The Plaid account_id to check.
+
+        Returns:
+            True if a row exists; False otherwise.
+        """
+        with self.session() as session:  # type: Session
+            row = session.get(AccountSignConvention, account_id)
+            return row is not None
+
+    def list_sign_conventions(self) -> list[AccountSignConvention]:
+        """List all sign convention rows ordered by (provenance, account_id).
+
+        Returns:
+            List of AccountSignConvention ORM instances, detached from session.
+        """
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(AccountSignConvention)
+                .order_by(
+                    AccountSignConvention.provenance.asc(),
+                    AccountSignConvention.account_id.asc(),
+                )
+                .all()
+            )
+            for row in rows:
+                session.expunge(row)
+            return rows

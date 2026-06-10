@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from copy import copy
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any, cast
 
 import loguru
 from loguru import logger
+from sqlalchemy.orm import make_transient
 
 from penny.adapters.clients.plaid import PlaidClient, PlaidClientError
 from penny.adapters.clients.plaid_models import Transaction
@@ -25,7 +27,35 @@ from penny.tools._services.mutation_plugin import DerivedTransactionPayload
 from penny.tools._services.mutation_registry import MutationRegistry
 
 if TYPE_CHECKING:
-    from penny.adapters.db.models import DerivedTransaction, PlaidItem
+    from penny.adapters.db.models import DerivedTransaction, PlaidItem, PlaidTransaction
+
+
+def _apply_sign_convention(
+    plaid_txn: PlaidTransaction, *, sign_convention: str
+) -> PlaidTransaction:
+    """Return a detached copy with amount_cents normalized per sign_convention.
+
+    The original plaid_txn is the immutable bank truth; this copy carries the
+    canonical-sign view for plugin consumption. Plugins read .amount_cents from
+    the returned object without needing to know about conventions.
+
+    make_transient() is called immediately after copy() so that the copy's
+    SQLAlchemy instance state is fully detached from any session. This prevents
+    attribute assignment on the copy from dirtying the original's session identity.
+
+    Args:
+        plaid_txn: The original Plaid transaction (bank truth, not modified).
+        sign_convention: Either 'expense_positive' (no-op) or 'expense_negative'
+            (flip sign so expenses become positive).
+
+    Returns:
+        A detached shallow copy with amount_cents reflecting canonical sign.
+    """
+    view = copy(plaid_txn)
+    make_transient(view)
+    if sign_convention == "expense_negative":
+        view.amount_cents = -view.amount_cents
+    return view
 
 
 @dataclass
@@ -513,7 +543,17 @@ class SyncTool:
                 )
                 self._archive_investment_dupes_to_r2(item.item_id, skipped_dupes)
 
-            # Persist and create derived for unique transactions
+            # Persist and create derived for unique transactions.
+            # Look up sign conventions once for all distinct accounts in this batch.
+            inv_account_ids: list[str] = list(
+                {str(txn_dict["account_id"]) for _, txn_dict in unique_pairs}
+            )
+            inv_sign_conventions = (
+                self._db.bulk_get_sign_conventions(inv_account_ids)
+                if inv_account_ids
+                else {}
+            )
+
             added_count = 0
             excluded_count = 0
 
@@ -531,10 +571,23 @@ class SyncTool:
                     transaction_name=inv_txn.get("name", ""),
                 )
 
+                # Apply sign convention: normalize amount_cents to canonical sign
+                # (expense_positive) before storing in derived_transactions.
+                raw_amount_cents = int(txn_dict["amount_cents"])  # type: ignore[arg-type]
+                account_id_str = str(txn_dict["account_id"])
+                inv_convention = inv_sign_conventions.get(
+                    account_id_str, "expense_positive"
+                )
+                derived_amount_cents = (
+                    -raw_amount_cents
+                    if inv_convention == "expense_negative"
+                    else raw_amount_cents
+                )
+
                 derived_payload = DerivedTransactionPayload(
                     plaid_transaction_id=plaid_ids[0],
                     external_id=inv_txn["investment_transaction_id"],
-                    amount_cents=int(txn_dict["amount_cents"]),  # type: ignore[arg-type]
+                    amount_cents=derived_amount_cents,
                     posted_at=txn_dict["posted_at"],  # type: ignore[arg-type]
                     merchant_descriptor=str(txn_dict["merchant_descriptor"])
                     if txn_dict.get("merchant_descriptor")
@@ -1115,11 +1168,43 @@ class SyncTool:
         plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
         old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
 
-        # Initialize plugins with full batch for O(N+M) matching efficiency
-        plaid_txns_list = [
-            plaid_txns_map[pid] for pid in plaid_ids if pid in plaid_txns_map
+        # Look up sign conventions once per batch — one DB round-trip
+        account_ids: list[str] = list(
+            {txn.account_id for txn in plaid_txns_map.values()}
+        )
+        sign_conventions = (
+            self._db.bulk_get_sign_conventions(account_ids) if account_ids else {}
+        )
+
+        # Build normalized views upfront so both initialize_plugins and the
+        # per-transaction loop use the same canonical-sign copies.
+        # Amazon matching hashes on amount_cents, so plugins must receive the
+        # same normalized view that process() will use — otherwise expense_negative
+        # accounts (stored as negatives) would never match positive order totals.
+        normalized_views: dict[int, PlaidTransaction] = {}
+        for pid in plaid_ids:
+            plaid_txn = plaid_txns_map.get(pid)
+            if plaid_txn is None:
+                continue
+            convention = sign_conventions.get(plaid_txn.account_id)
+            if convention is None:
+                logger.bind(account_id=plaid_txn.account_id).warning(
+                    "No sign convention found for account {}; defaulting to "
+                    "expense_positive",
+                    plaid_txn.account_id,
+                )
+                convention = "expense_positive"
+            normalized_views[pid] = _apply_sign_convention(
+                plaid_txn, sign_convention=convention
+            )
+
+        # Initialize plugins with normalized views for O(N+M) matching efficiency.
+        # Plugins must see canonical-sign amounts so amount-based matching works
+        # correctly for expense_negative accounts.
+        normalized_list = [
+            normalized_views[pid] for pid in plaid_ids if pid in normalized_views
         ]
-        self._mutation_registry.initialize_plugins(plaid_txns_list)
+        self._mutation_registry.initialize_plugins(normalized_list)
 
         # Collect all derived data and plaid_ids to delete
         all_new_derived_data: list[DerivedTransactionPayload] = []
@@ -1127,14 +1212,32 @@ class SyncTool:
         unchanged_derived_ids: list[int] = []
 
         for plaid_id in plaid_ids:
-            plaid_txn = plaid_txns_map.get(plaid_id)
-            if not plaid_txn:
+            if plaid_id not in plaid_txns_map:
                 continue
 
             old_derived = old_derived_map.get(plaid_id, [])
 
+            # Guard verified rows: if any old derived row is verified, skip the
+            # cascade delete. Destroying verified rows on re-sync would silently
+            # drop data the user manually validated.
+            if old_derived and any(row.is_verified for row in old_derived):
+                verified_count = sum(1 for row in old_derived if row.is_verified)
+                logger.bind(
+                    plaid_transaction_id=plaid_id,
+                    verified_count=verified_count,
+                ).warning(
+                    "skipping re-derive for plaid_transaction_id={}; {} verified "
+                    "rows would be affected; verified rows are immutable.",
+                    plaid_id,
+                    verified_count,
+                )
+                unchanged_derived_ids.extend(row.transaction_id for row in old_derived)
+                continue
+
+            normalized_txn = normalized_views[plaid_id]
+
             # Use registry to process (returns N derived for plugins, 1 for default)
-            result = self._mutation_registry.process(plaid_txn, old_derived)
+            result = self._mutation_registry.process(normalized_txn, old_derived)
 
             # Skip delete+reinsert when derived data is unchanged (1:1 only)
             if (
