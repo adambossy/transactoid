@@ -72,11 +72,10 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
 
     memory_dir = resolve_memory_dir()
     reports_dir = resolve_reports_dir()
-    provider_value = os.environ.get("TRANSACTOID_AGENT_PROVIDER", "openai").strip()
+    provider_value = os.environ.get("PENNY_AGENT_PROVIDER", "openai").strip()
     if provider_value not in {"openai", "claude", "gemini", "langgraph"}:
         raise ValueError(
-            "TRANSACTOID_AGENT_PROVIDER must be one of: "
-            "openai, claude, gemini, langgraph"
+            "PENNY_AGENT_PROVIDER must be one of: openai, claude, gemini, langgraph"
         )
     provider: Provider = provider_value  # type: ignore[assignment]
 
@@ -87,36 +86,32 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
         "langgraph": "gemini-3-flash-preview",
     }
     default_model = model_default_map[provider]
-    model = os.environ.get("TRANSACTOID_AGENT_MODEL", default_model).strip()
+    model = os.environ.get("PENNY_AGENT_MODEL", default_model).strip()
     if not model:
-        raise ValueError("TRANSACTOID_AGENT_MODEL is required when provider is claude")
+        raise ValueError("PENNY_AGENT_MODEL is required when provider is claude")
 
-    reasoning_effort = os.environ.get(
-        "TRANSACTOID_AGENT_REASONING_EFFORT", "medium"
-    ).strip()
+    reasoning_effort = os.environ.get("PENNY_AGENT_REASONING_EFFORT", "medium").strip()
     if reasoning_effort not in {"low", "medium", "high"}:
         raise ValueError(
-            "TRANSACTOID_AGENT_REASONING_EFFORT must be one of: low, medium, high"
+            "PENNY_AGENT_REASONING_EFFORT must be one of: low, medium, high"
         )
 
-    verbosity = os.environ.get("TRANSACTOID_AGENT_VERBOSITY", "high").strip()
+    verbosity = os.environ.get("PENNY_AGENT_VERBOSITY", "high").strip()
     if verbosity not in {"low", "medium", "high"}:
-        raise ValueError(
-            "TRANSACTOID_AGENT_VERBOSITY must be one of: low, medium, high"
-        )
+        raise ValueError("PENNY_AGENT_VERBOSITY must be one of: low, medium, high")
 
     enable_web_search = os.environ.get(
-        "TRANSACTOID_ENABLE_WEB_SEARCH", "true"
+        "PENNY_ENABLE_WEB_SEARCH", "true"
     ).strip().lower() in {"1", "true", "yes", "on"}
 
     skills_project_dir = os.environ.get(
-        "TRANSACTOID_AGENT_SKILLS_PROJECT_DIR", ".claude/skills"
+        "PENNY_AGENT_SKILLS_PROJECT_DIR", ".claude/skills"
     ).strip()
     skills_user_dir = os.environ.get(
-        "TRANSACTOID_AGENT_SKILLS_USER_DIR", "~/.claude/skills"
+        "PENNY_AGENT_SKILLS_USER_DIR", "~/.claude/skills"
     ).strip()
     skills_builtin_dir = os.environ.get(
-        "TRANSACTOID_AGENT_SKILLS_BUILTIN_DIR", "src/penny/skills"
+        "PENNY_AGENT_SKILLS_BUILTIN_DIR", "src/penny/skills"
     ).strip()
 
     if provider == "langgraph":

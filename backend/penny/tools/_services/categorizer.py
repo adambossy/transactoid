@@ -18,9 +18,9 @@ from promptorium.storage import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
 from pydantic import BaseModel, Field
 
-from penny.models.transaction import Transaction
 from penny.adapters.cache.file_cache import FileCache, stable_key
 from penny.core.runtime.config import load_core_runtime_config_from_env
+from penny.models.transaction import Transaction
 from penny.rules.loader import MerchantRulesLoader
 from penny.taxonomy.core import Taxonomy
 from penny.utils.yaml import dump_yaml_basic
@@ -274,14 +274,14 @@ class Categorizer:
 
         Model resolution order (first non-empty wins):
         1. Explicit ``model`` argument
-        2. ``TRANSACTOID_CATEGORIZER_MODEL`` env var (categorizer-specific override)
-        3. ``TRANSACTOID_AGENT_MODEL`` env var (via core runtime config)
+        2. ``PENNY_CATEGORIZER_MODEL`` env var (categorizer-specific override)
+        3. ``PENNY_AGENT_MODEL`` env var (via core runtime config)
         4. Hardcoded provider default (fallback when env config is unavailable)
         """
         if provider is not None and model is not None:
             return provider, model
 
-        cat_model = os.environ.get("TRANSACTOID_CATEGORIZER_MODEL", "").strip() or None
+        cat_model = os.environ.get("PENNY_CATEGORIZER_MODEL", "").strip() or None
         inferred_provider = self._infer_provider_from_model(model or cat_model)
 
         try:
