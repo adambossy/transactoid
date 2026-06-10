@@ -49,9 +49,10 @@ async def split_transaction(txn_id: int, amounts: list[float]) -> dict[str, Any]
 
     Args:
         txn_id: ID of the derived_transaction to split.
-        amounts: Dollar amounts for each part (e.g. [12.50, 7.50]).
-            Must be positive, at most 2 decimal places, and sum exactly to
-            the original transaction amount.
+        amounts: DOLLAR amounts for each part, NOT cents (e.g. [12.50, 7.50]
+            splits a $20.00 transaction into $12.50 and $7.50). Must be
+            positive, at most 2 decimal places, and sum exactly to the
+            original transaction amount.
     """
 
     def _run() -> dict[str, Any]:
