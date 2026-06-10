@@ -20,11 +20,13 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* ./
 
 # Install dependencies (without dev dependencies)
+# The "stagehand" extra (stagehand + nest-asyncio, pulling browserbase) is
+# required by the Amazon order scraper's Browserbase backend at runtime.
 # Use --frozen if uv.lock exists, otherwise generate it
 RUN if [ -f uv.lock ]; then \
-        uv sync --frozen --no-dev; \
+        uv sync --frozen --no-dev --extra stagehand; \
     else \
-        uv sync --no-dev; \
+        uv sync --no-dev --extra stagehand; \
     fi
 
 # Copy source code
