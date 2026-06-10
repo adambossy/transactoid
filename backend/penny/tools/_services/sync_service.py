@@ -1163,7 +1163,7 @@ class SyncTool:
     @staticmethod
     def _derived_unchanged(
         old: DerivedTransaction,
-        new_data: dict[str, Any],
+        new_payload: DerivedTransactionPayload,
     ) -> bool:
         """Check if derived transaction data is unchanged.
 
@@ -1171,9 +1171,9 @@ class SyncTool:
         merchant descriptor). If all match, the mutation can be skipped.
         """
         return (
-            old.amount_cents == new_data.get("amount_cents")
-            and old.posted_at == new_data.get("posted_at")
-            and old.merchant_descriptor == new_data.get("merchant_descriptor")
+            old.amount_cents == new_payload.amount_cents
+            and old.posted_at == new_payload.posted_at
+            and old.merchant_descriptor == new_payload.merchant_descriptor
         )
 
     def _get_excluded_account_id(self, access_token: str) -> str | None:
