@@ -14,7 +14,8 @@ from typing import Any, Literal, cast
 
 from agent_harness import tool
 
-from ...db import get_db
+from penny.db import get_db
+
 from .remutate import remutate_amazon_orders as _remutate_amazon
 from .scraper import scrape_amazon_orders as _scrape_amazon
 
@@ -39,7 +40,9 @@ async def list_amazon_logins() -> dict[str, Any]:
                     "sort_order": p.sort_order,
                     "has_context": p.browserbase_context_id is not None,
                     "last_auth_status": p.last_auth_status,
-                    "last_auth_at": p.last_auth_at.isoformat() if p.last_auth_at else None,
+                    "last_auth_at": p.last_auth_at.isoformat()
+                    if p.last_auth_at
+                    else None,
                 }
                 for p in profiles
             ]
@@ -119,6 +122,57 @@ async def remove_amazon_login(profile_key: str) -> dict[str, Any]:
         try:
             get_db().delete_amazon_login_profile(profile_key=profile_key)
             return {"status": "success", "message": f"Removed profile '{profile_key}'"}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+    return await asyncio.to_thread(_run)
+
+
+@tool
+async def enable_amazon_login(profile_key: str) -> dict[str, Any]:
+    """Enable an Amazon login profile so it's included in scrapes."""
+
+    def _run() -> dict[str, Any]:
+        try:
+            get_db().update_amazon_login_profile(profile_key=profile_key, enabled=True)
+            return {"status": "success", "message": f"Enabled profile '{profile_key}'"}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+    return await asyncio.to_thread(_run)
+
+
+@tool
+async def disable_amazon_login(profile_key: str) -> dict[str, Any]:
+    """Disable an Amazon login profile so scrapes skip it."""
+
+    def _run() -> dict[str, Any]:
+        try:
+            get_db().update_amazon_login_profile(profile_key=profile_key, enabled=False)
+            return {"status": "success", "message": f"Disabled profile '{profile_key}'"}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+    return await asyncio.to_thread(_run)
+
+
+@tool
+async def clear_amazon_login_context(profile_key: str) -> dict[str, Any]:
+    """Clear the stored Browserbase context for an Amazon login profile.
+
+    Forces a fresh login on the next scrape — use when a profile's session
+    has gone stale or authentication is failing.
+    """
+
+    def _run() -> dict[str, Any]:
+        try:
+            get_db().set_amazon_login_context_id(
+                profile_key=profile_key, context_id=None
+            )
+            return {
+                "status": "success",
+                "message": f"Cleared context for profile '{profile_key}'",
+            }
         except ValueError as exc:
             return {"status": "error", "message": str(exc)}
 

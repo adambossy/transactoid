@@ -18,6 +18,9 @@ from agent_harness.core.toolsets import Toolset
 
 from .tools import (
     add_amazon_login,
+    clear_amazon_login_context,
+    disable_amazon_login,
+    enable_amazon_login,
     list_amazon_logins,
     remove_amazon_login,
     remutate_amazon_orders,
@@ -34,6 +37,9 @@ def build_amazon_toolset() -> Toolset:
             add_amazon_login,
             update_amazon_login,
             remove_amazon_login,
+            enable_amazon_login,
+            disable_amazon_login,
+            clear_amazon_login_context,
             scrape_amazon_orders,
             remutate_amazon_orders,
         ],

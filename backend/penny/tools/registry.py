@@ -8,6 +8,7 @@ from agent_harness.core.toolsets import Toolset
 from .analytics import generate_chart, run_sql
 from .bash import bash
 from .delivery import send_email_report, upload_artifact_to_r2
+from .memory import generate_memory_index
 from .plaid import connect_new_account, list_plaid_accounts
 from .recategorize import recategorize_merchant, tag_transactions
 from .sync import sync_transactions
@@ -32,6 +33,8 @@ def build_toolset() -> Toolset:
             # Delivery
             upload_artifact_to_r2,
             send_email_report,
+            # Memory
+            generate_memory_index,
             # Sandbox
             bash,
         ],
