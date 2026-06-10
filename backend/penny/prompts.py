@@ -11,12 +11,12 @@ loader semantics.
 
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cache
 
 from promptorium import load_prompt as _promptorium_load_prompt
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_prompt(name: str) -> str:
     """Return the latest version of the named prompt.
 

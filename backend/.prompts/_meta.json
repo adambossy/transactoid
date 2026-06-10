@@ -4,7 +4,7 @@
     "agent-loop": {
       "source_file": ".prompts/agent-loop/1.md",
       "version_dir": ".prompts/agent-loop",
-      "last_hash": "sha256:943bc9b6ee4c32c47c3904c2a9ec18d77c24e54fb7285b76c8627a5724ea038a",
+      "last_hash": "sha256:25e1364b58a095979caa4d95649fd0610e554dce105a4781b619519ebd11420c",
       "last_version": 1
     },
     "categorize-transactions": {
@@ -59,12 +59,6 @@
       "source_file": ".prompts/report-weekly-jenny/1.md",
       "version_dir": ".prompts/report-weekly-jenny",
       "last_hash": "sha256:8a117c46ba3590bdb2dc4ad9a3fc8d33c146f525ee2718ee247e2afc13e56c3a",
-      "last_version": 1
-    },
-    "system": {
-      "source_file": ".prompts/system/1.md",
-      "version_dir": ".prompts/system",
-      "last_hash": "sha256:126a1464310276ddcd372201eee998b54a3cde3fc21dfc6f5cd500a90cd2be69",
       "last_version": 1
     },
     "sql-directives-postgresql": {

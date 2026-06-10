@@ -12,8 +12,8 @@ conversation carries its own session. Tools come from four sources:
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 import os
-from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from agent_harness import Agent
@@ -60,14 +60,17 @@ def _assemble_agent_memory() -> str:
 
 
 def _render_system_prompt() -> str:
-    """Render system.md with full runtime context.
+    """Render the agent-loop prompt with full runtime context.
 
     Fills: today's date + ISO week, DB dialect + dialect directives, schema
-    snapshot, taxonomy snapshot, taxonomy rules, and agent memory.
+    snapshot, taxonomy snapshot, and agent memory. (taxonomy-rules is NOT
+    injected here — that 35 KB block belongs to the categorizer prompt;
+    main never put it in the agent loop either.)
     """
     import yaml  # local import — keeps top-level import cost light
-    from .services import get_taxonomy
+
     from .db import get_db
+    from .services import get_taxonomy
 
     today = date.today()
     week_start = today - timedelta(days=today.isoweekday() - 1)
@@ -89,10 +92,6 @@ def _render_system_prompt() -> str:
     except Exception:
         taxonomy_yaml = "(taxonomy unavailable)"
     try:
-        taxonomy_rules = load_prompt("taxonomy-rules")
-    except Exception:
-        taxonomy_rules = "(taxonomy rules unavailable)"
-    try:
         sql_directives = load_prompt(f"sql-directives-{dialect}")
     except Exception:
         sql_directives = ""
@@ -106,13 +105,13 @@ def _render_system_prompt() -> str:
         "{{SQL_DIALECT_DIRECTIVES}}": sql_directives,
         "{{DATABASE_SCHEMA}}": schema_yaml,
         "{{CATEGORY_TAXONOMY}}": taxonomy_yaml,
-        "{{TAXONOMY_RULES}}": taxonomy_rules,
         "{{AGENT_MEMORY}}": _assemble_agent_memory() or "(no memory files yet)",
     }
-    rendered = load_prompt("system")
+    rendered = load_prompt("agent-loop")
     for placeholder, value in replacements.items():
         rendered = rendered.replace(placeholder, value)
     return rendered
+
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # .../backend/
 
@@ -123,7 +122,9 @@ def build_model() -> GeminiModel:
         raise RuntimeError("GOOGLE_API_KEY is not set")
     # Pin to the model the user picked (defaults to GEMINI_3_5_FLASH inside
     # agent-harness, but be explicit so it's visible in code review).
-    return GeminiModel(provider=GoogleProvider(api_key=api_key), name="gemini-3.5-flash")
+    return GeminiModel(
+        provider=GoogleProvider(api_key=api_key), name="gemini-3.5-flash"
+    )
 
 
 def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
@@ -133,6 +134,7 @@ def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
     skill_tool = build_skill_tool(skill_registry)
 
     from agent_harness import StaticToolset
+
     skills_toolset = StaticToolset(name="skills", tools=[skill_tool])
     filesystem_tools = FilesystemTools(sandbox=sandbox)
 
