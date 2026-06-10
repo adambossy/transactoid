@@ -39,17 +39,27 @@ def _sse(frame: dict[str, Any]) -> str:
     return f"data: {json.dumps(frame)}\n\n"
 
 
-def _serialize_tool_output(result: Any) -> dict[str, Any]:
-    text_parts: list[str] = []
-    for block in getattr(result, "content", None) or []:
-        text = getattr(block, "text", None)
-        if text is not None:
-            text_parts.append(text)
-    out: dict[str, Any] = {"text": "".join(text_parts)}
-    error = getattr(result, "error", None)
-    if error:
-        out["error"] = error
-    return out
+def _serialize_tool_output(result: Any) -> Any:
+    """Convert a ``ToolResult`` to the value placed on the AI SDK frame.
+
+    agent-harness guarantees ``result`` is a ``ToolResult`` (a dataclass with
+    ``content: list[ContentBlock]`` of pydantic models, ``error``,
+    ``metadata``, ``structured_content``).
+
+    Following the MCP spec (rev 2025-11-25) ``structuredContent`` convention:
+    when the tool returned structured JSON (dict/list/scalar), we emit it
+    verbatim — no envelope, no string-escaped JSON inside ``content[0].text``.
+    Tools that returned a bare string (or that we have no structured form for)
+    fall back to the MCP-shaped content envelope so resource links, images,
+    and audio blocks survive intact.
+    """
+    if result.structured_content is not None:
+        return result.structured_content
+    return {
+        "content": [b.model_dump(mode="json") for b in result.content],
+        "error": result.error,
+        "metadata": result.metadata,
+    }
 
 
 def _translate(event: Any, open_text: set[str]) -> list[dict[str, Any]]:
