@@ -1,3 +1,11 @@
+"""Plaid wire-format types.
+
+TypedDicts mirroring the shape of Plaid's API responses — the boundary
+type between ``PlaidClient`` and downstream consumers (sync, categorizer).
+Once ``PersistTool`` writes to the DB, everything reads the ORM models
+instead; these types never leak past ingestion.
+"""
+
 from __future__ import annotations
 
 from typing import TypedDict

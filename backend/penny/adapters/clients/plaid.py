@@ -23,8 +23,8 @@ from penny.adapters.clients.plaid_link import (
     save_item_to_database,
     wait_for_token_from_file,
 )
+from penny.adapters.clients.plaid_models import PersonalFinanceCategory, Transaction
 from penny.adapters.db.models import PlaidItem
-from penny.models.transaction import PersonalFinanceCategory, Transaction
 
 PlaidEnv = Literal["sandbox", "development", "production"]
 

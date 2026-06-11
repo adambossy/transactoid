@@ -19,8 +19,8 @@ from promptorium.util.repo_root import find_repo_root
 from pydantic import BaseModel, Field
 
 from penny.adapters.cache.file_cache import FileCache, stable_key
+from penny.adapters.clients.plaid_models import Transaction
 from penny.core.runtime.config import load_core_runtime_config_from_env
-from penny.models.transaction import Transaction
 from penny.rules.loader import MerchantRulesLoader
 from penny.taxonomy.core import Taxonomy
 from penny.utils.yaml import dump_yaml_basic

@@ -11,7 +11,7 @@ from loguru import logger
 
 from penny.adapters.clients.plaid import PlaidClient, PlaidClientError
 from penny.adapters.db.facade import DB
-from penny.models.transaction import Transaction
+from penny.adapters.clients.plaid_models import Transaction
 from penny.taxonomy.core import Taxonomy
 from penny.tools._base import StandardTool
 from penny.tools._protocol import ToolInputSchema

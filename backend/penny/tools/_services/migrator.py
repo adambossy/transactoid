@@ -454,7 +454,7 @@ class MigrationTool:
         """
         Recategorize transactions with constrained taxonomy.
         """
-        from penny.models.transaction import Transaction as TxnDict
+        from penny.adapters.clients.plaid_models import Transaction as TxnDict
 
         txn_dicts: list[TxnDict] = []
         for txn, _ in transactions:
