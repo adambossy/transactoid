@@ -85,11 +85,23 @@ Run these before completing any unit of work. There is no mypy gate yet.
 
 ## Conventions
 
-- **Prompts**: single source of truth in `backend/.prompts/` (promptorium).
-  The active system prompt is `agent-loop` (`agent_factory._render_system_prompt`
-  fills `{{CURRENT_DATE}}`, `{{DATABASE_SCHEMA}}`, `{{CATEGORY_TAXONOMY}}`,
-  `{{AGENT_MEMORY}}`, `{{SQL_DIALECT*}}`). Editing a prompt = edit
-  `.prompts/<key>/<latest>.md`; new version = add `<n+1>.md` + bump `_meta.json`.
+- **Prompts**: promptorium-managed, single source of truth in
+  `backend/.prompts/<key>/<n>.md`; the central manifest is
+  `backend/.prompts/_meta.json` (schema 2: per-key `source_file`,
+  `version_dir`, `last_version`, `last_hash`). Everything loads through the
+  thin `penny.prompts.load_prompt` facade (`promptorium.load_prompt`) — this
+  branch deliberately uses that facade, not main's heavier `PromptService`
+  machinery. The active system prompt is `agent-loop`
+  (`agent_factory._render_system_prompt` fills `{{CURRENT_DATE}}`,
+  `{{DATABASE_SCHEMA}}`, `{{CATEGORY_TAXONOMY}}`, `{{AGENT_MEMORY}}`,
+  `{{SQL_DIALECT*}}`).
+  - Tweak the active prompt in place: edit `.prompts/<key>/<latest>.md`.
+  - Substantive change: add a new version file `<n+1>.md` AND bump that
+    key's `_meta.json` entry — `source_file`, `version_dir`, `last_version`,
+    and `last_hash = "sha256:" + sha256 hex of the new file's bytes`.
+  - Never hand-edit or renumber historical versions.
+  - The promptorium MCP tools / CLI (`sync_prompts`, `track_prompt`,
+    `update_prompt`) can manage tracking and keep `_meta.json` consistent.
 - **Tools**: agent-facing wrappers in `penny/tools/*.py` are thin `@tool`
   async functions returning JSON-serializable dicts; implementations live in
   `tools/_services/`. Wrap sync service calls in `asyncio.to_thread`.
