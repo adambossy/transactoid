@@ -2910,11 +2910,12 @@ class DB:
     ) -> dict[str, int]:
         """Seed account_sign_conventions for every account_id in plaid_transactions.
 
-        For each distinct account_id in plaid_transactions, looks up its
-        institution via plaid_transactions.institution (denormalized; always
-        present for PLAID rows, may be NULL for CSV-sourced rows) and maps to
-        a convention via institution_mapping. Accounts whose institution is
-        NULL or not in the map get the default 'expense_positive'.
+        For each account_id in plaid_transactions, resolves its institution via
+        plaid_items.institution_name (JOIN on item_id), falling back to the
+        denormalized plaid_transactions.institution column. The 2026-06-11 prod
+        rollout found the denormalized column ~94% NULL, so the JOIN is the
+        primary source. Accounts whose institution is NULL or not in the map
+        get the default 'expense_positive'.
 
         ON CONFLICT DO NOTHING — accounts that already have a row in
         account_sign_conventions (e.g., from a prior manual override via
@@ -2922,11 +2923,10 @@ class DB:
 
         All rows inserted carry provenance='seeded'.
 
-        Institution names are matched verbatim. `plaid_transactions.institution`
-        must equal the dict key exactly (case-sensitive, whitespace-significant).
-        New institutions are silently mapped to the default; verify by querying
-        `account_sign_conventions WHERE provenance='seeded' AND notes LIKE
-        'Seeded from institution=...'` after seeding.
+        Institution names are matched verbatim (case-sensitive,
+        whitespace-significant). New institutions are silently mapped to the
+        default; verify by querying `account_sign_conventions WHERE
+        provenance='seeded'` after seeding.
 
         Args:
             institution_mapping: dict mapping institution name -> sign_convention.
@@ -2940,9 +2940,22 @@ class DB:
         """
         session: Session = self._session_factory()
         try:
+            # One row per account_id (GROUP BY prevents PK collisions when the
+            # same account appears with differing institution values, e.g. NULL
+            # on some rows). plaid_items.institution_name is the reliable
+            # source; the denormalized column is the fallback.
             rows = (
-                session.query(PlaidTransaction.account_id, PlaidTransaction.institution)
-                .distinct()
+                session.query(
+                    PlaidTransaction.account_id,
+                    func.max(
+                        func.coalesce(
+                            PlaidItem.institution_name,
+                            PlaidTransaction.institution,
+                        )
+                    ).label("institution"),
+                )
+                .outerjoin(PlaidItem, PlaidItem.item_id == PlaidTransaction.item_id)
+                .group_by(PlaidTransaction.account_id)
                 .all()
             )
             pairs: list[tuple[str, str | None]] = [
