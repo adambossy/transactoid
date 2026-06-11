@@ -9,6 +9,7 @@ what the live SSE stream produces:
 - assistant tool    -> ``{type: "tool-<name>", toolCallId, state:
   "output-available", input, output}`` with the output joined from the
   matching ``ToolResultBlock`` in the subsequent tool-role message.
+- assistant thinking -> ``{type: "reasoning", text, state: "done"}``
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Any
 from agent_harness.core.models import (
     Message,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
 )
@@ -58,7 +60,11 @@ def messages_to_ui(messages: list[Message]) -> list[dict[str, Any]]:
 
         parts: list[dict[str, Any]] = []
         for block in msg.content:
-            if isinstance(block, TextBlock):
+            if isinstance(block, ThinkingBlock):
+                if not block.text:
+                    continue
+                parts.append({"type": "reasoning", "text": block.text, "state": "done"})
+            elif isinstance(block, TextBlock):
                 if not block.text:
                     continue
                 part: dict[str, Any] = {"type": "text", "text": block.text}

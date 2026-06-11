@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from agent_harness.core.models import (
     Message,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
 )
@@ -65,6 +66,39 @@ def test_messages_to_ui_round_trips_text_and_tool_calls():
             "role": "assistant",
             "parts": [
                 {"type": "text", "text": "You have 2 accounts.", "state": "done"}
+            ],
+        },
+    ]
+    assert output == expected_output
+
+
+def test_messages_to_ui_includes_thinking_as_reasoning_part():
+    input_messages = [
+        Message(role="user", content=[TextBlock(text="summarize")], timestamp=_TS),
+        Message(
+            role="assistant",
+            content=[
+                ThinkingBlock(text="Let me think step by step."),
+                TextBlock(text="Here is the summary."),
+            ],
+            timestamp=_TS,
+        ),
+    ]
+
+    output = messages_to_ui(input_messages)
+
+    expected_output = [
+        {
+            "id": "hist_0",
+            "role": "user",
+            "parts": [{"type": "text", "text": "summarize"}],
+        },
+        {
+            "id": "hist_1",
+            "role": "assistant",
+            "parts": [
+                {"type": "reasoning", "text": "Let me think step by step.", "state": "done"},
+                {"type": "text", "text": "Here is the summary.", "state": "done"},
             ],
         },
     ]
