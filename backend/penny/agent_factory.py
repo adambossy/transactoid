@@ -61,7 +61,7 @@ def _assemble_agent_memory() -> str:
 
 
 def _render_system_prompt() -> str:
-    """Render the agent-loop prompt with full runtime context.
+    """Render the penny-system-prompt prompt with full runtime context.
 
     Fills: today's date + ISO week, DB dialect + dialect directives, schema
     snapshot, taxonomy snapshot, and agent memory. (taxonomy-rules is NOT
@@ -108,7 +108,7 @@ def _render_system_prompt() -> str:
         "{{CATEGORY_TAXONOMY}}": taxonomy_yaml,
         "{{AGENT_MEMORY}}": _assemble_agent_memory() or "(no memory files yet)",
     }
-    rendered = load_prompt("agent-loop")
+    rendered = load_prompt("penny-system-prompt")
     for placeholder, value in replacements.items():
         rendered = rendered.replace(placeholder, value)
     return rendered

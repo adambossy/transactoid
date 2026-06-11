@@ -91,7 +91,7 @@ Run these before completing any unit of work. There is no mypy gate yet.
   `version_dir`, `last_version`, `last_hash`). Everything loads through the
   thin `penny.prompts.load_prompt` facade (`promptorium.load_prompt`) — this
   branch deliberately uses that facade, not main's heavier `PromptService`
-  machinery. The active system prompt is `agent-loop`
+  machinery. The active system prompt is `penny-system-prompt`
   (`agent_factory._render_system_prompt` fills `{{CURRENT_DATE}}`,
   `{{DATABASE_SCHEMA}}`, `{{CATEGORY_TAXONOMY}}`, `{{AGENT_MEMORY}}`,
   `{{SQL_DIALECT*}}`).

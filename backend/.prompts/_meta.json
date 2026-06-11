@@ -1,9 +1,9 @@
 {
   "schema": 2,
   "prompts": {
-    "agent-loop": {
-      "source_file": ".prompts/agent-loop/9.md",
-      "version_dir": ".prompts/agent-loop",
+    "penny-system-prompt": {
+      "source_file": ".prompts/penny-system-prompt/9.md",
+      "version_dir": ".prompts/penny-system-prompt",
       "last_hash": "sha256:54aee2656786b17db70f6ceeea34af1822b7d93ae2a604577b6e647f06d8ec38",
       "last_version": 9
     },
