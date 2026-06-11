@@ -2,75 +2,75 @@
   "schema": 2,
   "prompts": {
     "agent-loop": {
-      "source_file": ".prompts/agent-loop/1.md",
+      "source_file": ".prompts/agent-loop/9.md",
       "version_dir": ".prompts/agent-loop",
-      "last_hash": "sha256:81c5363670831211b398a1102d5bf9b442ae34143ec7ce7f5a1d02f98b9bdaf5",
-      "last_version": 1
+      "last_hash": "sha256:54aee2656786b17db70f6ceeea34af1822b7d93ae2a604577b6e647f06d8ec38",
+      "last_version": 9
     },
     "categorize-transactions": {
-      "source_file": ".prompts/categorize-transactions/1.md",
+      "source_file": ".prompts/categorize-transactions/4.md",
       "version_dir": ".prompts/categorize-transactions",
       "last_hash": "sha256:a036bae39edc54871f586305d1885dc4da2f93979e83bbdd8d3fb7cf2e8d4f45",
-      "last_version": 1
+      "last_version": 4
     },
     "taxonomy-rules": {
-      "source_file": ".prompts/taxonomy-rules/1.md",
+      "source_file": ".prompts/taxonomy-rules/2.md",
       "version_dir": ".prompts/taxonomy-rules",
       "last_hash": "sha256:c3d7a12893baa2727e2115f66771d1ea623fe6ea852d2a31559c07541ff79eb4",
-      "last_version": 1
+      "last_version": 2
     },
     "generate-memory-index": {
-      "source_file": ".prompts/generate-memory-index/1.md",
+      "source_file": ".prompts/generate-memory-index/2.md",
       "version_dir": ".prompts/generate-memory-index",
       "last_hash": "sha256:6a48d23044f3cfadc088c2cb408b17ffcf6ec42c619451c1f9d17c8cc44d2322",
-      "last_version": 1
+      "last_version": 2
     },
     "report-weekly": {
-      "source_file": ".prompts/report-weekly/1.md",
+      "source_file": ".prompts/report-weekly/2.md",
       "version_dir": ".prompts/report-weekly",
       "last_hash": "sha256:1de44efe6c7741a32514a688289d3b6c50a40220bd78e9e2caf80944f5adb590",
-      "last_version": 1
+      "last_version": 2
     },
     "report-monthly": {
-      "source_file": ".prompts/report-monthly/1.md",
+      "source_file": ".prompts/report-monthly/2.md",
       "version_dir": ".prompts/report-monthly",
       "last_hash": "sha256:35ce7e34d185a780e23c6ba7fb9bb396a9ac4278755a378432ffb797dcea892a",
-      "last_version": 1
+      "last_version": 2
     },
     "report-annual": {
-      "source_file": ".prompts/report-annual/1.md",
+      "source_file": ".prompts/report-annual/2.md",
       "version_dir": ".prompts/report-annual",
       "last_hash": "sha256:18be4feeef0304fe759b1e3349eac725f3eb7aafbe0e78ae3be3e0c756b53b58",
-      "last_version": 1
+      "last_version": 2
     },
     "report-daily": {
-      "source_file": ".prompts/report-daily/1.md",
+      "source_file": ".prompts/report-daily/3.md",
       "version_dir": ".prompts/report-daily",
       "last_hash": "sha256:e5cabe49add6cea33db5726130d9b07304e710f58758de1fc8eeeb88bdaf3d20",
-      "last_version": 1
+      "last_version": 3
     },
     "report-md-to-html": {
-      "source_file": ".prompts/report-md-to-html/1.md",
+      "source_file": ".prompts/report-md-to-html/2.md",
       "version_dir": ".prompts/report-md-to-html",
       "last_hash": "sha256:f3d9ed3768df107f84731fc1b59740389c0fd7a0988d9fc64f66724d469daa71",
-      "last_version": 1
+      "last_version": 2
     },
     "report-weekly-jenny": {
-      "source_file": ".prompts/report-weekly-jenny/1.md",
+      "source_file": ".prompts/report-weekly-jenny/2.md",
       "version_dir": ".prompts/report-weekly-jenny",
       "last_hash": "sha256:8a117c46ba3590bdb2dc4ad9a3fc8d33c146f525ee2718ee247e2afc13e56c3a",
-      "last_version": 1
+      "last_version": 2
     },
     "sql-directives-postgresql": {
       "source_file": ".prompts/sql-directives-postgresql/1.md",
       "version_dir": ".prompts/sql-directives-postgresql",
-      "last_hash": "sha256:5dc39dd54df68cf936fa4506e87a198766f22956b8f6ac804f152005fad19e1e",
+      "last_hash": "sha256:e654853072c9772021947072fe977da5560126ca642047a1be4bf39debc50e8f",
       "last_version": 1
     },
     "sql-directives-sqlite": {
       "source_file": ".prompts/sql-directives-sqlite/1.md",
       "version_dir": ".prompts/sql-directives-sqlite",
-      "last_hash": "sha256:45800736e8a4de4899bbd6fe9216647f91fe53adbac84c5dde07149d8eb88444",
+      "last_hash": "sha256:b278b4ef1a54309b60974983a55d2db6ba0daf2a4dc6f328b7fa4f8444842937",
       "last_version": 1
     }
   }
