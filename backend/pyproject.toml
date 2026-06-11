@@ -17,6 +17,7 @@ dependencies = [
     "boto3>=1.26",
     "stagehand>=0.5.9",
     "resend>=0.9",
+    "alembic>=1.18.4",
 ]
 
 [tool.uv]
