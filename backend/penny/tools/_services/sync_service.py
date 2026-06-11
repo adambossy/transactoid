@@ -10,8 +10,8 @@ import loguru
 from loguru import logger
 
 from penny.adapters.clients.plaid import PlaidClient, PlaidClientError
-from penny.adapters.db.facade import DB
 from penny.adapters.clients.plaid_models import Transaction
+from penny.adapters.db.facade import DB
 from penny.taxonomy.core import Taxonomy
 from penny.tools._base import StandardTool
 from penny.tools._protocol import ToolInputSchema
@@ -21,6 +21,7 @@ from penny.tools._services.categorizer import (
 from penny.tools._services.investment_classification import (
     investment_activity_reporting_mode,
 )
+from penny.tools._services.mutation_plugin import DerivedTransactionPayload
 from penny.tools._services.mutation_registry import MutationRegistry
 
 if TYPE_CHECKING:
@@ -530,14 +531,16 @@ class SyncTool:
                     transaction_name=inv_txn.get("name", ""),
                 )
 
-                derived_data = {
-                    "plaid_transaction_id": plaid_ids[0],
-                    "external_id": inv_txn["investment_transaction_id"],
-                    "amount_cents": txn_dict["amount_cents"],
-                    "posted_at": txn_dict["posted_at"],
-                    "merchant_descriptor": txn_dict["merchant_descriptor"],
-                    "reporting_mode": reporting_mode,
-                }
+                derived_payload = DerivedTransactionPayload(
+                    plaid_transaction_id=plaid_ids[0],
+                    external_id=inv_txn["investment_transaction_id"],
+                    amount_cents=int(txn_dict["amount_cents"]),  # type: ignore[arg-type]
+                    posted_at=txn_dict["posted_at"],  # type: ignore[arg-type]
+                    merchant_descriptor=str(txn_dict["merchant_descriptor"])
+                    if txn_dict.get("merchant_descriptor")
+                    else None,
+                    reporting_mode=reporting_mode,
+                )
 
                 # Check if derived already exists
                 existing_derived = self._db.get_derived_by_plaid_ids([plaid_ids[0]])
@@ -549,7 +552,7 @@ class SyncTool:
                     )
                 else:
                     # Insert new derived
-                    self._db.bulk_insert_derived_transactions([derived_data])
+                    self._db.bulk_insert_derived_transactions([derived_payload])
 
                 if reporting_mode == "DEFAULT_EXCLUDE":
                     excluded_count += 1
@@ -1119,7 +1122,7 @@ class SyncTool:
         self._mutation_registry.initialize_plugins(plaid_txns_list)
 
         # Collect all derived data and plaid_ids to delete
-        all_new_derived_data: list[dict[str, Any]] = []
+        all_new_derived_data: list[DerivedTransactionPayload] = []
         plaid_ids_to_delete: list[int] = []
         unchanged_derived_ids: list[int] = []
 

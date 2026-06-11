@@ -7,6 +7,7 @@ from datetime import date
 
 from penny.adapters.amazon.entities import AmazonItem, AmazonOrder
 from penny.adapters.db.models import PlaidTransaction
+from penny.tools._services.itemization import proportionally_allocate
 
 
 @dataclass
@@ -53,19 +54,11 @@ def split_order_to_derived(
 
     # Calculate item subtotals (price * quantity)
     item_subtotals = [item.price_cents * item.quantity for item in items]
-    total_subtotal = sum(item_subtotals)
 
-    if total_subtotal == 0:
-        # Edge case: all items are free - split evenly
-        per_item = plaid_txn.amount_cents // len(items)
-        remainder = plaid_txn.amount_cents % len(items)
-        amounts = [per_item] * len(items)
-        amounts[-1] += remainder
-    else:
-        # Proportional allocation
-        amounts = _allocate_proportionally(
-            plaid_txn.amount_cents, item_subtotals, total_subtotal
-        )
+    amounts = proportionally_allocate(
+        total_cents=plaid_txn.amount_cents,
+        item_amounts_cents=item_subtotals,
+    )
 
     # Create derived transaction data for each item
     derived_list: list[DerivedTransactionData] = []
@@ -88,45 +81,3 @@ def split_order_to_derived(
         )
 
     return derived_list
-
-
-def _allocate_proportionally(
-    total_amount: int,
-    subtotals: list[int],
-    total_subtotal: int,
-) -> list[int]:
-    """Allocate total_amount proportionally based on subtotals.
-
-    Uses largest remainder method to ensure amounts sum exactly to total_amount.
-
-    Args:
-        total_amount: Total amount to allocate (in cents)
-        subtotals: Individual item subtotals
-        total_subtotal: Sum of all subtotals
-
-    Returns:
-        List of allocated amounts that sum exactly to total_amount
-    """
-    n = len(subtotals)
-
-    # Calculate proportional shares with remainders
-    shares: list[float] = []
-    for subtotal in subtotals:
-        share = (subtotal / total_subtotal) * total_amount
-        shares.append(share)
-
-    # Floor each share
-    floored = [int(share) for share in shares]
-    remainders = [(shares[i] - floored[i], i) for i in range(n)]
-
-    # Calculate how many cents we need to distribute
-    distributed = sum(floored)
-    to_distribute = total_amount - distributed
-
-    # Distribute remaining cents to items with largest remainders
-    remainders.sort(reverse=True)
-    for i in range(to_distribute):
-        idx = remainders[i][1]
-        floored[idx] += 1
-
-    return floored

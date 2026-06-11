@@ -6,9 +6,14 @@ transaction mapping if no plugin handles a transaction.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import dataclasses
+from typing import TYPE_CHECKING
 
-from penny.tools._services.mutation_plugin import MutationPlugin, MutationResult
+from penny.tools._services.mutation_plugin import (
+    DerivedTransactionPayload,
+    MutationPlugin,
+    MutationResult,
+)
 
 if TYPE_CHECKING:
     from penny.adapters.db.models import DerivedTransaction, PlaidTransaction
@@ -93,31 +98,32 @@ class MutationRegistry:
         Returns:
             MutationResult with single derived transaction data.
         """
-        new_derived_data: dict[str, Any] = {
-            "plaid_transaction_id": plaid_txn.plaid_transaction_id,
-            "external_id": plaid_txn.external_id,
-            "amount_cents": plaid_txn.amount_cents,
-            "posted_at": plaid_txn.posted_at,
-            "merchant_descriptor": plaid_txn.merchant_descriptor,
-            "category_id": None,
-            "web_search_summary": None,
-            "is_verified": False,
-        }
+        new_payload = DerivedTransactionPayload(
+            plaid_transaction_id=plaid_txn.plaid_transaction_id,
+            external_id=plaid_txn.external_id,
+            amount_cents=plaid_txn.amount_cents,
+            posted_at=plaid_txn.posted_at,
+            merchant_descriptor=plaid_txn.merchant_descriptor,
+        )
 
         # Preserve enrichments from old derived if exists (1:1 only)
         if old_derived and len(old_derived) == 1:
             old = old_derived[0]
-            if old.is_verified and old.category_id is not None:
-                new_derived_data["category_id"] = old.category_id
-                new_derived_data["category_model"] = old.category_model
-                new_derived_data["category_method"] = old.category_method
-                new_derived_data["category_assigned_at"] = old.category_assigned_at
-            new_derived_data["is_verified"] = old.is_verified
-            if old.merchant_id is not None:
-                new_derived_data["merchant_id"] = old.merchant_id
-            new_derived_data["web_search_summary"] = old.web_search_summary
+            preserve_category = old.is_verified and old.category_id is not None
+            new_payload = dataclasses.replace(
+                new_payload,
+                merchant_id=old.merchant_id,
+                category_id=old.category_id if preserve_category else None,
+                category_model=old.category_model if preserve_category else None,
+                category_method=old.category_method if preserve_category else None,
+                category_assigned_at=(
+                    old.category_assigned_at if preserve_category else None
+                ),
+                web_search_summary=old.web_search_summary,
+                is_verified=old.is_verified,
+            )
 
         return MutationResult(
-            derived_data_list=[new_derived_data],
+            derived_data_list=[new_payload],
             handled=True,
         )

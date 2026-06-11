@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from penny.adapters.amazon.logger import AmazonMatcherLogger
 from penny.adapters.amazon.order_index import AmazonOrderIndex
@@ -12,7 +14,11 @@ from penny.adapters.amazon.plaid_matcher import (
     match_orders_to_transactions,
 )
 from penny.adapters.amazon.splitter import split_order_to_derived
-from penny.tools._services.mutation_plugin import MutationResult
+from penny.tools._services.mutation_plugin import (
+    DerivedTransactionPayload,
+    MutationResult,
+    TransactionItemPayload,
+)
 
 if TYPE_CHECKING:
     from penny.adapters.db.facade import DB
@@ -134,7 +140,6 @@ class AmazonMutationPlugin:
 
         items = self._index.get_items(order_id)
 
-        # Log match found
         self._logger.match_found(
             plaid_txn.plaid_transaction_id,
             order_id,
@@ -142,42 +147,98 @@ class AmazonMutationPlugin:
             plaid_txn.amount_cents,
         )
 
-        # Split order into item-level derived transactions
         derived_data_list = split_order_to_derived(plaid_txn, order, items)
 
-        # Convert DerivedTransactionData to dict format
-        result_list: list[dict[str, Any]] = []
-        for dtd in derived_data_list:
-            result_list.append(
-                {
-                    "plaid_transaction_id": dtd.plaid_transaction_id,
-                    "external_id": dtd.external_id,
-                    "amount_cents": dtd.amount_cents,
-                    "posted_at": dtd.posted_at,
-                    "merchant_descriptor": dtd.merchant_descriptor,
-                    "category_id": None,
-                    "is_verified": False,
-                }
-            )
+        # Build typed payloads from DerivedTransactionData.
+        # When items are present the splitter produces one row per item; zip to
+        # attach the corresponding TransactionItemPayload.  The no-items path
+        # produces a single 1:1 row with no line items.
+        #
+        # A single UUID is generated per Amazon order so that all derived rows
+        # produced by this call share the same split_group_id; split_index is
+        # the 0-based position within the group.
+        result_list: list[DerivedTransactionPayload] = []
+        if items:
+            group_id = uuid4().hex
+            for split_idx, (dtd, amazon_item) in enumerate(
+                zip(derived_data_list, items, strict=True)
+            ):
+                item_payload = TransactionItemPayload(
+                    description=amazon_item.description[:200]
+                    if amazon_item.description
+                    else "Amazon item",
+                    amount_cents=dtd.amount_cents,
+                    quantity=amazon_item.quantity,
+                    itemization_source="amazon_scrape",
+                    source_ref=order_id,
+                )
+                result_list.append(
+                    DerivedTransactionPayload(
+                        plaid_transaction_id=dtd.plaid_transaction_id,
+                        external_id=dtd.external_id,
+                        amount_cents=dtd.amount_cents,
+                        posted_at=dtd.posted_at,
+                        merchant_descriptor=dtd.merchant_descriptor,
+                        category_id=None,
+                        is_verified=False,
+                        items=[item_payload],
+                        split_source="amazon_mutation",
+                        split_group_id=group_id,
+                        split_index=split_idx,
+                    )
+                )
+        else:
+            for dtd in derived_data_list:
+                result_list.append(
+                    DerivedTransactionPayload(
+                        plaid_transaction_id=dtd.plaid_transaction_id,
+                        external_id=dtd.external_id,
+                        amount_cents=dtd.amount_cents,
+                        posted_at=dtd.posted_at,
+                        merchant_descriptor=dtd.merchant_descriptor,
+                        category_id=None,
+                        is_verified=False,
+                        split_source="amazon_mutation",
+                    )
+                )
 
-        # Log split created
         self._logger.split_created(
             plaid_txn.plaid_transaction_id,
             len(result_list),
-            [d["external_id"] for d in result_list],
+            [d.external_id for d in result_list],
         )
 
         # Preserve enrichments if old_derived has matching count
         if old_derived and len(old_derived) == len(result_list):
-            for new_data, old in zip(result_list, old_derived, strict=True):
+            preserved: list[DerivedTransactionPayload] = []
+            for new_payload, old in zip(result_list, old_derived, strict=True):
+                category_id = new_payload.category_id
+                category_model = new_payload.category_model
+                category_method = new_payload.category_method
+                category_assigned_at = new_payload.category_assigned_at
+                is_verified = old.is_verified
+                merchant_id = new_payload.merchant_id
+
                 if old.is_verified and old.category_id is not None:
-                    new_data["category_id"] = old.category_id
-                    new_data["category_model"] = old.category_model
-                    new_data["category_method"] = old.category_method
-                    new_data["category_assigned_at"] = old.category_assigned_at
-                new_data["is_verified"] = old.is_verified
+                    category_id = old.category_id
+                    category_model = old.category_model
+                    category_method = old.category_method
+                    category_assigned_at = old.category_assigned_at
                 if old.merchant_id is not None:
-                    new_data["merchant_id"] = old.merchant_id
+                    merchant_id = old.merchant_id
+
+                preserved.append(
+                    dataclasses.replace(
+                        new_payload,
+                        merchant_id=merchant_id,
+                        category_id=category_id,
+                        category_model=category_model,
+                        category_method=category_method,
+                        category_assigned_at=category_assigned_at,
+                        is_verified=is_verified,
+                    )
+                )
+            result_list = preserved
 
         return MutationResult(
             derived_data_list=result_list,
