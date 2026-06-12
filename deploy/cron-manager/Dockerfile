@@ -4,12 +4,11 @@
 # schedules.json and spawns ephemeral, auto-destroyed job machines). We only
 # layer this app's schedules.json on top of it.
 #
-# IMPORTANT: the FROM digest below is a PLACEHOLDER. The cron-manager image is
-# produced by deploying the Fly Cron Manager blueprint to the
-# `penny-cron-manager` app once; after that first deploy, pin this FROM to the
-# resulting `registry.fly.io/penny-cron-manager:deployment-<...>` digest (the
-# legacy pipeline pinned the transactoid-cron-manager digest the same way).
-# See deploy/README.md "Fly credentials / secrets".
-FROM registry.fly.io/penny-cron-manager:latest
+# Bootstrap base: reuse the legacy transactoid-cron-manager's Fly Cron Manager
+# scheduler image (the scheduler binary is app-agnostic; only schedules.json
+# differs). After penny-cron-manager's first deploy produces its own image,
+# re-pin this FROM to `registry.fly.io/penny-cron-manager:deployment-<...>` so
+# the app is self-contained and doesn't depend on the legacy app's registry.
+FROM registry.fly.io/penny-cron-manager:deployment-01KTYFYXD2CAAM9ET9RA6VHCVY
 
 COPY deploy/cron-manager/schedules.json /usr/local/share/schedules.json
