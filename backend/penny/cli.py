@@ -130,17 +130,27 @@ def run_scheduled_report(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
     ),
 ) -> None:
-    """Run today's scheduled report (New-York-time precedence)."""
-    from penny.services.scheduled_reports import NEW_YORK_TZ, select_prompt_key
+    """Run today's scheduled report (New-York-time precedence).
+
+    Drives the period-parameterized ``spending-report`` skill — there are no
+    ``report-*`` prompt keys; the period is turned into a skill-triggering
+    request via ``report_prompt``.
+    """
+    from penny.services.scheduled_reports import (
+        NEW_YORK_TZ,
+        report_prompt,
+        select_report_period,
+    )
 
     now_utc = datetime.now(UTC)
     now_ny = now_utc.astimezone(NEW_YORK_TZ)
-    prompt_key = select_prompt_key(now_utc=now_utc)
+    period = select_report_period(now_utc=now_utc)
     typer.echo(
-        f"Selected scheduled report prompt: {prompt_key} "
-        f"({now_ny:%Y-%m-%d %H:%M:%S %Z})"
+        f"Selected scheduled report period: {period} ({now_ny:%Y-%m-%d %H:%M:%S %Z})"
     )
-    prompt_text = _build_prompt(prompt=None, prompt_key=prompt_key, email=email or [])
+    prompt_text = _build_prompt(
+        prompt=report_prompt(period), prompt_key=None, email=email or []
+    )
     _run_and_exit(prompt_text=prompt_text, max_turns=max_turns)
 
 

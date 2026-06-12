@@ -1,25 +1,26 @@
 """Schedule selection logic for automated (cron) report runs.
 
-Ported verbatim from the legacy ``transactoid`` CLI
-(``services/scheduled_reports.py``). The precedence rule decides which
-report prompt key a daily cron run should drive the agent with, based on
-New-York wall-clock time:
+A daily cron run drives the agent with the ``spending-report`` skill, scoped
+to the period chosen by New-York wall-clock precedence:
 
     annual (Jan 1) > monthly (day 1) > weekly (Sunday) > daily
 
-The returned keys are promptorium prompt keys. Which of them actually exist
-in ``backend/.prompts/`` is an independent concern: the cron-manager may pin
-explicit ``--prompt-key`` values for the keys it knows are present, and any
-missing key surfaces as a normal ``PromptNotFound`` at run time rather than a
-silent no-op.
+Selection returns a *period* (``daily`` / ``weekly`` / ``monthly`` /
+``annual``), and :func:`report_prompt` turns it into a natural-language
+request that triggers the period-parameterized ``spending-report`` skill.
+There are intentionally no ``report-*`` promptorium keys: the skill is the
+single source of report logic, so the four periods cannot drift apart.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
+
+ReportPeriod = Literal["daily", "weekly", "monthly", "annual"]
 
 
 def _coerce_utc(now_utc: datetime | None) -> datetime:
@@ -33,8 +34,8 @@ def _coerce_utc(now_utc: datetime | None) -> datetime:
     return now_utc.astimezone(UTC)
 
 
-def select_prompt_key(*, now_utc: datetime | None = None) -> str:
-    """Pick prompt key with precedence: annual > monthly > weekly > daily.
+def select_report_period(*, now_utc: datetime | None = None) -> ReportPeriod:
+    """Pick the report period with precedence: annual > monthly > weekly > daily.
 
     The decision is made in New-York local time so a report scheduled for an
     early-morning UTC slot is attributed to the correct local calendar day.
@@ -43,9 +44,18 @@ def select_prompt_key(*, now_utc: datetime | None = None) -> str:
     now_ny = now.astimezone(NEW_YORK_TZ)
 
     if now_ny.month == 1 and now_ny.day == 1:
-        return "report-annual"
+        return "annual"
     if now_ny.day == 1:
-        return "report-monthly"
+        return "monthly"
     if now_ny.weekday() == 6:
-        return "report-weekly"
-    return "report-daily"
+        return "weekly"
+    return "daily"
+
+
+def report_prompt(period: ReportPeriod) -> str:
+    """Natural-language request that triggers the ``spending-report`` skill.
+
+    Names the period explicitly so the skill resolves the right window from
+    the system prompt's Runtime Context (it never reads a ``report-*`` key).
+    """
+    return f"Generate my {period} spending report for the current period."

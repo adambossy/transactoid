@@ -16,7 +16,7 @@ import pytest
 import typer
 
 from penny import cli
-from penny.services.scheduled_reports import select_prompt_key
+from penny.services.scheduled_reports import report_prompt, select_report_period
 
 
 def _at(iso: str) -> datetime:
@@ -25,44 +25,57 @@ def _at(iso: str) -> datetime:
 
 
 @pytest.mark.parametrize(
-    "now_iso,expected_key",
+    "now_iso,expected_period",
     [
         # 2026-01-01 12:00 UTC is still Jan 1 in New York -> annual.
-        ("2026-01-01T12:00:00", "report-annual"),
+        ("2026-01-01T12:00:00", "annual"),
         # 2026-03-01 12:00 UTC is the 1st in NY -> monthly.
-        ("2026-03-01T12:00:00", "report-monthly"),
+        ("2026-03-01T12:00:00", "monthly"),
         # 2026-06-14 is a Sunday -> weekly.
-        ("2026-06-14T12:00:00", "report-weekly"),
+        ("2026-06-14T12:00:00", "weekly"),
         # 2026-06-11 is a Thursday -> daily.
-        ("2026-06-11T12:00:00", "report-daily"),
+        ("2026-06-11T12:00:00", "daily"),
         # Jan 1 wins over the day-1 / weekday checks (precedence).
-        ("2026-01-01T12:00:00", "report-annual"),
+        ("2026-01-01T12:00:00", "annual"),
     ],
 )
-def test_select_prompt_key_precedence(now_iso: str, expected_key: str) -> None:
+def test_select_report_period_precedence(now_iso: str, expected_period: str) -> None:
     # input
     now_utc = _at(now_iso)
 
     # act
-    output = select_prompt_key(now_utc=now_utc)
+    output = select_report_period(now_utc=now_utc)
 
     # expected
-    expected_output = expected_key
+    expected_output = expected_period
 
     # assert
     assert output == expected_output
 
 
-def test_select_prompt_key_ny_day_boundary_uses_local_calendar() -> None:
+def test_select_report_period_ny_day_boundary_uses_local_calendar() -> None:
     # input: 2026-01-01 02:00 UTC is still 2025-12-31 21:00 in New York,
     # so the annual rule must NOT fire (it is not yet Jan 1 locally).
     now_utc = _at("2026-01-01T02:00:00")
 
     # act
-    output = select_prompt_key(now_utc=now_utc)
+    output = select_report_period(now_utc=now_utc)
 
     # expected: Dec 31 2025 is a Wednesday -> daily.
-    expected_output = "report-daily"
+    expected_output = "daily"
+
+    # assert
+    assert output == expected_output
+
+
+@pytest.mark.parametrize("period", ["daily", "weekly", "monthly", "annual"])
+def test_report_prompt_triggers_skill_for_period(period: str) -> None:
+    # act
+    output = report_prompt(period)
+
+    # expected: a natural-language request that names the period and the
+    # spending-report skill (so the agent loads the skill, no prompt key).
+    expected_output = f"Generate my {period} spending report for the current period."
 
     # assert
     assert output == expected_output
