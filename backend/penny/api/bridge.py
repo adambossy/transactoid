@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_harness import Agent
 from agent_harness.core.events import (
@@ -33,6 +33,11 @@ from agent_harness.core.events import (
     ToolCallEnd,
     ToolExecEnd,
 )
+from loguru import logger
+
+if TYPE_CHECKING:
+    from .accumulator import MessageAccumulator
+    from .persistence.store import ConversationStore
 
 
 def _sse(frame: dict[str, Any]) -> str:
@@ -170,3 +175,87 @@ async def stream_agent(agent: Agent, prompt: str) -> AsyncIterator[str]:
         except Exception as exc:  # surface a loop failure to the client
             yield _sse({"type": "error", "errorText": str(exc)})
     yield "data: [DONE]\n\n"
+
+
+async def stream_and_persist(
+    agent: Agent,
+    prompt: str,
+    *,
+    store: ConversationStore,
+    conversation_id: str,
+) -> AsyncIterator[str]:
+    """Stream the agent like :func:`stream_agent`, persisting the assistant turn.
+
+    On ``RunStart`` a ``streaming`` placeholder row is inserted (enables
+    mid-turn resume after a refresh). Every event is folded into a
+    :class:`MessageAccumulator`; on ``RunEnd`` the row is finalized to
+    ``complete``. If the stream ends without a clean finish (client disconnect,
+    loop failure), the buffered partial parts are flushed with status ``error``.
+
+    Persistence is best-effort: a store failure is logged and never raises into
+    the (possibly already-closed) response.
+    """
+    # Local import keeps the accumulator<->bridge cycle out of module init.
+    from .accumulator import MessageAccumulator
+
+    bus = InMemoryEventBus()
+    subscription = bus.subscribe()
+
+    async def _run() -> None:
+        try:
+            await agent.run(prompt=prompt, event_bus=bus)
+        finally:
+            await bus.close()
+
+    runner = asyncio.create_task(_run())
+    open_text: set[str] = set()
+    acc = MessageAccumulator()
+    finalized = False
+    try:
+        async for event in subscription:
+            acc.consume(event)
+            if isinstance(event, RunStart):
+                _safe_persist(store, conversation_id, acc, "streaming")
+            try:
+                frames = _translate(event, open_text)
+            except Exception as exc:
+                frames = [
+                    {"type": "error", "errorText": f"stream translation failed: {exc}"}
+                ]
+            for frame in frames:
+                yield _sse(frame)
+            if isinstance(event, RunEnd):
+                _safe_persist(store, conversation_id, acc, acc.status)
+                finalized = True
+    finally:
+        try:
+            await runner
+        except Exception as exc:  # surface a loop failure to the client
+            acc.consume(Error(message=str(exc)))
+            yield _sse({"type": "error", "errorText": str(exc)})
+        if not finalized:
+            # Aborted / errored before RunEnd — flush partial parts as error.
+            _safe_persist(store, conversation_id, acc, "error")
+    yield "data: [DONE]\n\n"
+
+
+def _safe_persist(
+    store: ConversationStore,
+    conversation_id: str,
+    acc: MessageAccumulator,
+    status: str,
+) -> None:
+    """Upsert the accumulated assistant message; never raise into the stream."""
+    if acc.run_id is None:
+        return
+    try:
+        store.upsert_assistant_message(
+            conversation_id,
+            ai_sdk_message_id=acc.run_id,
+            parts=acc.parts(),
+            status=status,
+        )
+    except Exception as exc:  # best-effort: log, never kill the response
+        logger.bind(conversation_id=conversation_id, run_id=acc.run_id).warning(
+            "Failed to persist assistant message: {}", exc
+        )
