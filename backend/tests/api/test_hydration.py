@@ -97,7 +97,11 @@ def test_messages_to_ui_includes_thinking_as_reasoning_part():
             "id": "hist_1",
             "role": "assistant",
             "parts": [
-                {"type": "reasoning", "text": "Let me think step by step.", "state": "done"},
+                {
+                    "type": "reasoning",
+                    "text": "Let me think step by step.",
+                    "state": "done",
+                },
                 {"type": "text", "text": "Here is the summary.", "state": "done"},
             ],
         },
