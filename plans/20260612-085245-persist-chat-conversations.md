@@ -51,7 +51,7 @@ Add two tables — `conversations` and `conversation_messages` — to the **webs
 | `created_at` | `TIMESTAMP` server_default `CURRENT_TIMESTAMP` | |
 | `updated_at` | `TIMESTAMP` server_default `CURRENT_TIMESTAMP` | Bumped on each new message; the ordering key for the conversation list (doubles as "last activity"). |
 
-(No `user_id` yet — single-user app today. Add the column nullable now if multi-user is on the near horizon; otherwise note it as the trigger for a future additive migration.)
+(No `user_id` yet — single-user app today; note it as the trigger for a future additive migration. There is no `accounts` table and no `account_id` FK in this rollout either; `account_id` is a future additive column on `conversations`, added when the product grows a notion of per-account conversations.)
 
 ### `conversation_messages`
 
@@ -63,7 +63,7 @@ Add two tables — `conversations` and `conversation_messages` — to the **webs
 | `seq` | `Integer` not null | Monotonic per conversation (mirrors the harness `ord` pattern in `sqlite.py`). Deterministic ordering without relying on PK. |
 | `role` | `String` not null | `user` / `assistant`. (We do **not** create a `tool`-role row — tool output is folded into the owning assistant message's parts, matching `useChat`/`messages_to_ui` semantics.) |
 | `parts` | `JSON` not null | Ordered array of part objects (see enumeration below). |
-| `status` | `String` not null, default `'complete'` | `streaming` / `complete` / `aborted` / `error`. Drives reconciliation (§2). CHECK constraint enumerating the four values (follow the existing `CheckConstraint` convention in `models.py`, mirrored into a future migration only if/when alembic is adopted). |
+| `status` | `String` not null, default `'complete'` | `streaming` / `complete` / `error`. Drives reconciliation (§2). A turn that aborts (client disconnect / generator close) is recorded as `error`, not a separate `aborted` value — the UI treats both identically (truncated-but-coherent message) so the extra enum value earned nothing. CHECK constraint enumerating the three values (follow the existing `CheckConstraint` convention in `models.py`, mirrored into a future migration only if/when alembic is adopted). |
 | `created_at` / `updated_at` | `TIMESTAMP` | |
 
 Indexes: `Index("ix_conv_messages_conv_seq", "conversation_id", "seq")`; unique `Index("uq_conv_messages_ai_sdk_id", "conversation_id", "ai_sdk_message_id", unique=True)` (guard `ai_sdk_message_id IS NOT NULL` via `sqlite_where`/`postgresql_where`, matching the `uq_categories_key_active` partial-index pattern already in `models.py`).
@@ -100,19 +100,17 @@ The `parts` array stores objects shaped to match the AI SDK frames the bridge al
 2. **Persist the user message up front.** In `main.py::chat`, after extracting the prompt and before streaming, `ConversationStore.ensure_conversation(chat_id)` + `append_user_message(chat_id, ai_sdk_message_id, text)`. Doing it here (not in the bridge) guarantees the user turn is durable even if the client disconnects before any assistant frame.
 
 3. **Wrap the frame stream with an accumulator.** Refactor `stream_agent` (or add `stream_and_persist`) so that as it yields each SSE frame it also feeds the frame to a `MessageAccumulator`:
-   - `start` (`RunStart`) → open a new assistant message buffer keyed by `messageId` (= `run_id`), status `streaming`. Optionally insert a `streaming`-status row immediately (enables "resume after refresh mid-turn"); simpler v1: buffer in memory and insert on first finalized content.
+   - `start` (`RunStart`) → open a new assistant message buffer keyed by `messageId` (= `run_id`), status `streaming`, **and insert the row immediately** with `parts=[]`, `status='streaming'`. This persists a placeholder before any content arrives so a page refresh mid-turn can show the in-flight assistant turn (and so an abort always has a row to finalize). The insert is an upsert keyed on `(conversation_id, ai_sdk_message_id)` so re-entry is idempotent.
    - `reasoning-*`, `text-*`, `tool-input-available`, `tool-output-available`/`-error`, `error` → update the buffer's parts (accumulate reasoning/text deltas by id; add/promote tool parts by `toolCallId`; append error parts).
-   - `finish` (`RunEnd`) → finalize: set parts to `state: "done"`/`output-available`, status `complete`, and `upsert_assistant_message(...)` (keyed on `(conversation_id, ai_sdk_message_id)` so a retry/replay is idempotent). Bump `conversations.updated_at`.
+   - `finish` (`RunEnd`) → finalize: set parts to `state: "done"`/`output-available`, status `complete`, and `upsert_assistant_message(...)` (keyed on `(conversation_id, ai_sdk_message_id)` so the `streaming` row is reconciled in place rather than duplicated). Bump `conversations.updated_at`.
 
    The accumulator logic is essentially the inverse of `_translate` and shares its id conventions (`t_`, `r_`, `toolCallId`); factor the id/state rules into small helpers so bridge and accumulator can't drift.
 
-4. **Partial / aborted turns.** The `finally` block in `stream_agent` already awaits the runner and surfaces loop failures as an `error` frame. Extend it: on generator close / exception without a `finish`, flush whatever the buffer holds with `status='aborted'` (or `'error'` if an `error` frame was seen), preserving partial reasoning/text/partial tool calls. Because parts are stored in final shape, an aborted turn simply has fewer parts and a non-`complete` status — hydration renders it as a truncated-but-coherent message. Use `BackgroundTask` on the `StreamingResponse` or a `finally` flush; ensure the flush is best-effort and never raises into the response.
+4. **Partial / aborted turns.** The `finally` block in `stream_agent` already awaits the runner and surfaces loop failures as an `error` frame. Extend it: on generator close / exception without a `finish`, flush whatever the buffer holds with `status='error'`, preserving partial reasoning/text/partial tool calls. Because parts are stored in final shape, an aborted turn simply has fewer parts and a non-`complete` status — hydration renders it as a truncated-but-coherent message. The flush is best-effort and must never raise into the (already-closed) response.
 
 5. **Ordering & seq.** Allocate `seq` inside the facade insert under the session, using `COALESCE(MAX(seq),-1)+1` for the conversation (the proven pattern from harness `sqlite.py::_append_payloads`). User message gets seq N, the assistant turn gets seq N+1.
 
-6. **Do not double-persist — disable the harness session writes.** Construct the agent with `persist_session=False` (the flag added to `agent-harness`'s `Agent`: the run loop still *reads* prior history from a supplied session but never *writes* messages or run-state to `sessions.db`). The website store becomes the **single** persistence layer — both the UI-canonical record and the source of model continuity.
-   - **Consequence (load-bearing):** with harness writes off, the model no longer remembers prior turns on its own, so on each `POST /api/chat` the website must **seed the agent with prior-turn context reconstructed from the app store** — reverse-map stored `parts` → harness `Message`s and pass them as the run's initial messages (the loop skips its own session load when `rc.messages` is already populated), or feed them via a lightweight in-memory session. This supersedes the companion recommendation's "keep two stores" stance *for model memory*: we deliberately collapse to one store.
-   - **Sequencing:** flip `persist_session=False` only in the same commit that lands the app store **and** this seeding path. Flipping it earlier erases multi-turn memory in the live app, because today `main.py::chat` relies entirely on `sessions.db` for continuity (`_extract_prompt` sends only the latest user turn).
+6. **Do not double-persist — disable the harness session writes.** Construct the agent with `persist_session=False` (the flag added to `agent-harness`'s `Agent`: the run loop still *reads* prior history from a supplied session but never *writes* messages or run-state to `sessions.db`). The website store becomes the **single** persistence layer — both the UI-canonical record and the source of model continuity. The reverse-map that makes this safe is a first-class component; see §6.
 
 ---
 
@@ -128,16 +126,16 @@ Today `GET /api/sessions/{id}` reads the harness transcript via `messages_to_ui`
 
 ### API surface (extend `backend/penny/api/main.py`)
 
-- `GET /api/conversations` → `[{conversationId, title, createdAt, updatedAt, preview}]` ordered by `updated_at DESC` (which now also serves as "last activity"). (`preview` = first ~80 chars of the first user text part.)
-- `GET /api/conversations/{id}` → `{conversationId, title, messages: conversation_to_ui(rows)}`. (Either rename `GET /api/sessions/{id}` to this or keep `/api/sessions/{id}` as an alias to avoid touching the frontend hydration call in one step.)
-- `POST /api/conversations` → create an empty conversation, return its id. Lets the frontend "New chat" create server-side rather than only minting a localStorage UUID.
-- `PATCH /api/conversations/{id}` → set `title`. **Titling:** v1 derive from the first user message (truncate) on first assistant `finish`, written by the persistence layer (no extra model call); leave an explicit `PATCH` for manual rename and a hook for an async LLM-titling job later.
-- **Conversation id propagation:** unchanged contract — the frontend keeps sending `body.id` (the UUID) to `POST /api/chat`; the backend treats it as `conversation_id`. So `chat()` already receives the id; we just `ensure_conversation` on it.
+This rollout ships exactly **one** persistence-facing endpoint and trims the rest:
 
-### Frontend (`frontend/src/ChatScreen.tsx`)
+- **Hydration (single conversation) — KEPT.** Repoint the existing `GET /api/sessions/{id}` to the faithful path: read `conversation_messages` rows and return `{sessionId, messages: conversation_to_ui(rows)}`. Response shape stays `{messages}`, so the frontend hydration `fetch` is untouched (zero frontend change). (Naming it `/api/sessions/{id}` is now a slight misnomer — it reads the conversation store, not the harness session — but keeping the path avoids a frontend edit; renaming to `/api/conversations/{id}` is a later cosmetic.)
+- **Creation is lazy — no `POST /api/conversations`.** The frontend keeps sending `body.id` (its localStorage UUID) to `POST /api/chat`; the backend treats it as `conversation_id` and calls `ensure_conversation(id)` on the first chat. No create endpoint, no frontend "New chat" round-trip — "New chat" still just rolls a new local UUID.
+- **No manual rename — no `PATCH /api/conversations/{id}`.** Titling is an internal write only: derive a title from the first user message (truncate) on the first assistant `finish`, written by the persistence layer (no extra model call, no endpoint). A future manual-rename or async LLM-titling job can add the endpoint then.
 
-- Point hydration at `GET /api/conversations/{id}` (or keep `/api/sessions/{id}`); response shape is compatible (`{messages}`).
-- Add a conversation sidebar/list fed by `GET /api/conversations`; "New chat" calls `POST /api/conversations` (or keeps the local-UUID approach and lets the backend lazily `ensure_conversation` on first send — the lazy path needs zero frontend change and is the smaller first commit).
+**Deferred (not built now):**
+
+- `GET /api/conversations` (the conversation LIST) and any `preview`/`updated_at DESC` ordering — deferred with the sidebar below.
+- **Frontend conversation sidebar.** No list UI, no server-side "New chat". The frontend is unchanged: it still hydrates one conversation via `GET /api/sessions/{id}` and mints local UUIDs. The sidebar + list endpoint land together in a later feature.
 
 ---
 
@@ -157,14 +155,15 @@ Today `GET /api/sessions/{id}` reads the harness transcript via `messages_to_ui`
 
 - `backend/penny/api/persistence/models.py` *(new)* — `Conversation`, `ConversationMessage` on the website's **own** `Base` (+ indexes, CHECK on `status`). **Not** added to `penny/adapters/db/models.py`.
 - `backend/penny/api/persistence/engine.py` *(new)* — the website store's engine + `create_all` against its separate DB/schema (§0.5).
-- `backend/penny/api/persistence/store.py` *(new)* — `ConversationStore` over the website's own engine/session: `ensure_conversation`, `append_user_message`, `upsert_assistant_message`, `list_conversations`, `get_conversation_messages`, `set_conversation_title` (`session()` + `expunge` conventions; `seq` via `COALESCE(MAX(seq),-1)+1`). Self-contained SQLAlchemy — does **not** import the finance `DB` facade.
+- `backend/penny/api/persistence/store.py` *(new)* — `ConversationStore` over the website's own engine/session: `ensure_conversation`, `append_user_message`, `upsert_assistant_message`, `get_conversation_messages`, `set_conversation_title` (`session()` + `expunge` conventions; `seq` via `COALESCE(MAX(seq),-1)+1`). Self-contained SQLAlchemy — does **not** import the finance `DB` facade. (`list_conversations` is deferred with the LIST endpoint.)
+- `backend/penny/api/persistence/rehydrate.py` *(new)* — the reverse-map (stored `parts` → harness `Message`s) that seeds model continuity once `persist_session=False`. See §6 below.
 - `backend/penny/api/bridge.py` — add the `MessageAccumulator` and `stream_and_persist` wrapper (or fold persistence into `stream_agent`); factor shared id/state rules out of `_translate` (kept website-internal).
 - `backend/penny/api/main.py` — `ensure_conversation` + `append_user_message` in `chat()`; new `GET/POST/PATCH /api/conversations[...]`; repoint hydration.
 - `backend/penny/api/hydration.py` — add `conversation_to_ui`; **delete** `messages_to_ui` and its now-dead helpers (`_parse_maybe_json`, `_collect_tool_results`, the `ThinkingBlock` special-case).
 - `backend/penny/bootstrap.py` — call the website store's `create_all` alongside (but separate from) the finance `create_schema()`.
-- `backend/penny/tools/analytics.py` (`run_sql`) — scope to the finance schema so it cannot reach the website store (defense-in-depth; §0.5).
-- `frontend/src/ChatScreen.tsx` — (later commit) conversation list + repointed hydration.
 - `backend/tests/test_domain_segregation.py` *(new)* — import-boundary guardrail (see Cross-dependencies below).
+
+(Deferred: `run_sql` finance-schema scoping in `tools/analytics.py` — defense-in-depth beyond the separate DB; and `frontend/src/ChatScreen.tsx` — the conversation sidebar. Both ship with later features.)
 
 ### Key trade-offs
 
@@ -175,7 +174,7 @@ Today `GET /api/sessions/{id}` reads the harness transcript via `messages_to_ui`
 
 ### Risks
 
-- **Large tool payloads.** `structured_content` for SQL/chart tools can be large; storing verbatim per message could bloat rows. Mitigate: cap stored `output` size (e.g., truncate/elide with a `truncated: true` marker beyond N KB), matching the bridge's `default=str` "never kill the stream" philosophy. Default ~256 KB/part.
+- **Large tool payloads.** `structured_content` for SQL/chart tools can be large; storing verbatim per message could bloat rows. **The primary lever is Postgres TOAST** (§4): large `parts` values are stored out-of-line and LZ-compressed automatically in prod. An explicit per-part byte cap / truncation marker is **deferred** — reached for only if a single part routinely exceeds the TOAST sweet spot (e.g. inline base64 chart images). Until then the bridge's `default=str` "never kill the stream" behavior is the only guard, and the accumulator stores output verbatim.
 - **PII + agent exfiltration of stored data.** Parts will contain real transaction amounts, merchants, and tool outputs. `email_receipts.subject/sender` PII rules say such fields must never surface in LLM responses — but tool *outputs* legitimately contain finance data the user is viewing. Two risks: at-rest exposure, and the agent reading its own past conversations back via `run_sql`. Mitigate by storing these rows in the website's separate schema/DB (§0.5) — reachable by the website, **outside the agent's `run_sql`**; never log `parts` payloads (the loguru file sink in `_logging` must not dump them); "delete conversation" must `CASCADE` (it does via FK) to truly remove the record.
 - **Ordering / concurrency.** `seq` allocation under a transaction prevents races; the app is effectively single-writer per conversation today, but the `COALESCE(MAX)+1` approach + per-conversation uniqueness on `ai_sdk_message_id` keeps it safe.
 - **Aborted-turn fidelity.** Client disconnect mid-stream must still flush a partial `aborted` row; ensure the flush path can't raise into the (already-closed) response and is covered by a test simulating early generator close.
@@ -195,23 +194,66 @@ Each of these is a place the agent and website domains could quietly recouple; t
 
 ### Step-by-step commit sequence (small, reviewable)
 
+This rollout is **six commits** (the LIST endpoint + sidebar and the manual-rename/`POST`/`PATCH` endpoints are trimmed; titling is folded into commit 3/5 as an internal write):
+
 1. **`feat(web): conversation persistence package (models + own engine/schema)`** — `api/persistence/{models,engine}.py` on its own `Base`; its `create_all` wired into `bootstrap` as a separate schema/DB (§0.5). Ship the guardrail `tests/test_domain_segregation.py` in this same commit, plus a unit test that the tables build and that the finance `Base.metadata` does **not** include them.
-2. **`feat(web): ConversationStore`** — `api/persistence/store.py`: `ensure_conversation`, `append_user_message`, `upsert_assistant_message`, `list/get/set_title`, with unit tests (seq monotonicity, upsert idempotency). Imports neither the finance facade nor any agent module.
-3. **`feat(api): MessageAccumulator + persist assistant turns at the bridge`** — accumulator + `stream_and_persist`; round-trip test (frames → accumulator → `conversation_to_ui` == streamed parts), including `tool-output-error` and stream `error`.
-4. **`feat(api): persist user message + finalize/abort handling in /api/chat`** — wire `ensure_conversation`/`append_user_message`; aborted-turn flush; disconnect test.
-5. **`feat(api): conversation_to_ui hydration + repoint GET /api/sessions`** — switch hydration to the faithful path and **delete** `messages_to_ui` and its now-dead helpers; `conversation_to_ui` is the sole hydration path; hydration tests covering all part types (build on `9dac604`'s reasoning test).
-6. **`feat(api): seed agent from app store + `persist_session=False`** — reverse-map stored `parts` → harness `Message`s and supply them as the run's initial messages (or via an in-memory session); construct the agent with `persist_session=False` so `sessions.db` stops accumulating. **This is the commit that flips the flag** — it must land together with the seeding so continuity moves from `sessions.db` to the app store with no gap. Test: a second turn sees the first turn's context with harness persistence off.
-7. **`feat(api): conversation list/create/title endpoints`** — `GET/POST/PATCH /api/conversations`; derive title from first user message on finish.
-8. **`feat(web): conversation sidebar + repointed hydration`** — frontend list + "New chat" via API.
-9. **(doc note, not code) record the alembic trigger** — first non-additive change adopts alembic.
+2. **`feat(web): ConversationStore`** — `api/persistence/store.py`: `ensure_conversation`, `append_user_message`, `upsert_assistant_message`, `get_conversation_messages`, `set_conversation_title`, with unit tests (seq monotonicity, upsert idempotency). Imports neither the finance facade nor any agent module.
+3. **`feat(api): MessageAccumulator + persist turns at the bridge`** — accumulator + `stream_and_persist`; insert the `streaming` row on `RunStart`, finalize on `RunEnd`, record `error` on stream error / abort. Round-trip test (frames → accumulator → `conversation_to_ui` == streamed parts), including `tool-output-error` and stream `error`.
+4. **`feat(api): persist user message + finalize/abort in /api/chat`** — lazy `ensure_conversation` + `append_user_message`; best-effort abort flush (status `error`) that can't raise into the closed response.
+5. **`feat(api): conversation_to_ui hydration; delete messages_to_ui`** — switch hydration to the faithful path and **delete** `messages_to_ui` and its now-dead helpers; `conversation_to_ui` is the sole hydration path; repoint `GET /api/sessions/{id}`; hydration tests covering all part types (build on `9dac604`'s reasoning test).
+6. **`feat(api): seed agent from app store + persist_session=False`** — the DEEPENED reverse-map (§6): `api/persistence/rehydrate.py` maps stored `parts` → harness `Message`s, `main.py` seeds them into the agent on each `/api/chat`, **then** flips `Agent(persist_session=False)`. Gated by the continuity round-trip test (§6). If the continuity test can't be made green, `persist_session` stays at its default `True` and the flip is NOT made.
+
+**Deferred (later features, not this rollout):** conversation LIST (`GET /api/conversations`) + the frontend sidebar; manual rename / `POST` / `PATCH` endpoints; per-part byte cap; the alembic adoption at the first non-additive change.
+
+---
+
+## 6. Model continuity: the stored-`parts` → harness-`Message` reverse-map (DEEPENED)
+
+This is the load-bearing component that lets us collapse to **one** store. Once `Agent(persist_session=False)` stops `sessions.db` from accumulating, the model no longer remembers prior turns on its own. On every `POST /api/chat` the website must reconstruct prior-turn context **from the app store** and seed it into the run, so the model *sees* the earlier conversation — not merely so the UI re-renders it.
+
+### Why its own module (`api/persistence/rehydrate.py`)
+
+The reverse-map is the inverse of **two** forward maps and should not be buried in either:
+
+1. It inverts `bridge.py::_translate` / the accumulator: stored UI `parts` (`{type:"text"|"reasoning"|"tool-<name>"|"error", …}`) are exactly what `_translate` produced from harness events.
+2. It inverts the harness `Message` serialization (`agent_harness.core.models`): the *target* is a `list[Message]` whose `content` blocks are `TextBlock` / `ThinkingBlock` / `ToolCallBlock` / `ToolResultBlock` — the same shapes the loop appends to `rc.messages` and feeds the model.
+
+Keeping it in the website domain (it imports `agent_harness.core.models`, which is a model-boundary type, **not** an agent tool/skill — so it does not violate segregation) and giving it a dedicated module makes the symmetry reviewable and the unit testable in isolation.
+
+### The mapping (`conversation_messages` rows → `list[Message]`)
+
+For each stored message row, in `seq` order, emit harness `Message`s:
+
+- **User row** (`role="user"`, text parts) → one `Message(role="user", content=[TextBlock(text=…)])`.
+- **Assistant row** → split its `parts` into the harness's *two-message* shape, because the harness models a tool round-trip as an assistant message carrying `ToolCallBlock`s **followed by** a separate `role="tool"` message carrying the matching `ToolResultBlock`s (see `loop.py::ToolDispatch`):
+  - `{type:"reasoning", text}` → `ThinkingBlock(text)` on the assistant message (leading, mirroring how the model emits thinking before content).
+  - `{type:"text", text}` → `TextBlock(text)` on the assistant message.
+  - `{type:"tool-<name>", toolCallId, input, output|errorText, state}` → a `ToolCallBlock(id=toolCallId, name=<name>, arguments=input)` on the assistant message, **paired** with a `ToolResultBlock(tool_call_id=toolCallId, content=…)` collected into the trailing `role="tool"` message. The tool **name** is recovered by stripping the `tool-` prefix from the part `type` (the same convention `_translate` used to build it).
+  - **`output-error` parts** map back to a model-visible tool message too: the `ToolResultBlock.content` is set to the `errorText` (a short `"Error: <errorText>"` string), so the model sees that the tool failed rather than silently losing the turn. This matches `loop.py`, where a failed tool still produces a `ToolResultBlock` (via `content_to_text`).
+  - `{type:"error"}` (stream-level error) parts are **dropped** from the model seed — they are a UI artifact (a red banner), not conversational content the model should condition on.
+  - Tool-call↔result pairing is by `toolCallId`; the assistant `ToolCallBlock`s preserve part order, and the single trailing `tool` message carries all results for that assistant turn in the same order (one assistant turn → at most one following tool message, matching the loop's batching).
+
+`structured_content` outputs are serialized back to the `ToolResultBlock.content` string with `content_to_text`-equivalent JSON dumping — fidelity to the *model* only needs the textual content the loop itself would have stored, not the rich UI payload (the UI payload lives in the stored part and is what hydration replays to the browser).
+
+### Seeding into the agent
+
+Reuse the harness's own continuity path rather than fighting it: build an `InMemorySession(session_id=conversation_id)`, `add_messages(reverse_mapped_prior_messages)`, and pass it as the agent's `session`. With `persist_session=False`, `PrepareTurn` (loop.py) does exactly the right thing on turn 0: it loads the seeded prior messages from the session (`agent.session.get_messages()` when `rc.turn == 0 and not rc.messages`), inserts the system instructions, appends the **new** user prompt, and — because `persist_session=False` — never writes any of it back to `sessions.db`. No duplicate user turn, no second store. The new user turn and assistant turn are persisted to the **app store** by the bridge/`/api/chat` paths from commits 3–4, which already own that write.
+
+### The continuity round-trip test (the gate)
+
+The test must assert continuity *into the model*, not just UI re-render:
+
+1. Turn 1: run the agent against a `FakeModel` (harness test fake) that emits a tool call + text; capture the streamed frames; persist them through the accumulator (commit 3) into a `ConversationStore` (tmp SQLite).
+2. Turn 2: build a fresh agent with `persist_session=False`, seed it from the app store via `rehydrate` + `InMemorySession`, and run a new prompt against a `FakeModel` that **records the `messages` list it is handed**. Assert that list contains turn 1's user text, the assistant `ToolCallBlock`, the `ToolResultBlock`, and the assistant text — i.e. the model can see the earlier tool-call turn — followed by turn 2's new user message.
+
+Covering a **tool-call** turn (not just plain text) is required because the assistant/tool message split is where the reverse-map is easiest to get wrong. **If this test cannot be made green, leave `persist_session=True` and do not flip the flag** — an un-seeded `persist_session=False` silently breaks multi-turn memory in the live app.
 
 ---
 
 ## Critical files for implementation
 
 - `backend/penny/api/bridge.py`
-- `backend/penny/api/persistence/` (new: `models.py` on its own `Base`, `store.py`, `engine.py`)
+- `backend/penny/api/persistence/` (new: `models.py` on its own `Base`, `engine.py`, `store.py`, `rehydrate.py`)
 - `backend/penny/api/main.py`
 - `backend/penny/api/hydration.py`
 - `backend/penny/bootstrap.py` (separate `create_all` for the website store)
-- `backend/penny/tools/analytics.py` (`run_sql` schema scoping)
