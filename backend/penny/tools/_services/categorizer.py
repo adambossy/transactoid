@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from penny.adapters.cache.file_cache import FileCache, stable_key
 from penny.adapters.clients.plaid_models import Transaction
-from penny.config import load_core_runtime_config_from_env
+from penny.config import load_runtime_config_from_env
 from penny.rules.loader import MerchantRulesLoader
 from penny.taxonomy.core import Taxonomy
 from penny.utils.yaml import dump_yaml_basic
@@ -285,7 +285,7 @@ class Categorizer:
         inferred_provider = self._infer_provider_from_model(model or cat_model)
 
         try:
-            runtime_config = load_core_runtime_config_from_env()
+            runtime_config = load_runtime_config_from_env()
             runtime_model = model or cat_model or runtime_config.model
             return (
                 provider

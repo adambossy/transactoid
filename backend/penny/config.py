@@ -11,7 +11,7 @@ Verbosity = Literal["low", "medium", "high"]
 
 
 @dataclass(frozen=True, slots=True)
-class CoreRuntimeConfig:
+class RuntimeConfig:
     """Runtime provider configuration loaded at process startup."""
 
     provider: Provider
@@ -66,7 +66,7 @@ def _require_env(name: str) -> str:
     return value
 
 
-def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
+def load_runtime_config_from_env() -> RuntimeConfig:
     """Load runtime config from env and validate startup requirements."""
     from penny.workspace import resolve_memory_dir, resolve_reports_dir
 
@@ -127,7 +127,7 @@ def load_core_runtime_config_from_env() -> CoreRuntimeConfig:
     else:
         _require_env("GOOGLE_API_KEY")
 
-    return CoreRuntimeConfig(
+    return RuntimeConfig(
         provider=provider,
         model=model,
         reasoning_effort=reasoning_effort,  # type: ignore[arg-type]
