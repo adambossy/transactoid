@@ -1,0 +1,48 @@
+# deploy/backend/fly.toml — Penny backend, a PERSISTENT HTTP service.
+#
+# Unlike the legacy transactoid app (a one-shot job image), the rebuilt
+# backend is a long-running uvicorn service, so it carries an [http_service]
+# block. Deploy from the repo root:
+#
+#   fly deploy --config deploy/backend/fly.toml \
+#              --dockerfile deploy/backend/Dockerfile
+
+app = "penny"
+primary_region = "iad"  # US East — close to the Neon/Supabase prod DB.
+
+[build]
+  dockerfile = "deploy/backend/Dockerfile"
+
+# Non-secret runtime values. Sourced from deploy/env/deploy.env.template
+# (section 1) — keep these in sync with that template. Secrets
+# (GOOGLE_API_KEY, DATABASE_URL, PLAID_*, R2_*, RESEND_API_KEY) are set with
+# `fly secrets set` and MUST NOT appear here.
+[env]
+  PYTHONUNBUFFERED = "1"
+  PENNY_AGENT_PROVIDER = "gemini"
+  PENNY_AGENT_MODEL = "gemini-3.5-flash"
+  PENNY_CATEGORIZER_MODEL = "gemini-3.5-flash"
+  PLAID_ENV = "production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Single-user app: scale to zero when idle to save cost. The first request
+  # after idle pays a cold-start; flip auto_stop_machines to "off" for an
+  # always-on service if that latency is unacceptable.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "get"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+
+# The agent loop + matplotlib are not light; 512mb was OOM-killed on the
+# legacy job, so keep a 1GB baseline.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024mb"

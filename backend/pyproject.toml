@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-dotenv>=1.0",
-    "agent-harness[anthropic,openai,google] @ git+https://github.com/adambossy/agent-harness.git",
+    "agent-harness[anthropic,openai,google] @ git+https://github.com/adambossy/agent-harness.git@461bcd1439d32b73d41584fa59802e3657a71f10",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
     "pyyaml>=6.0",
@@ -18,10 +18,22 @@ dependencies = [
     "stagehand>=0.5.9",
     "resend>=0.9",
     "alembic>=1.18.4",
+    "typer>=0.12",
 ]
 
-[tool.uv]
-package = false
+[project.scripts]
+penny = "penny.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# agent-harness / promptorium-python are git ("direct reference") deps.
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["penny"]
 
 # Source-replace agent-harness with the local checkout so edits in
 # ~/code/agent-harness flow into Penny without re-publishing. Set
