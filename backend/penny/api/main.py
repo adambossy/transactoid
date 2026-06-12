@@ -20,7 +20,7 @@ from penny.bootstrap import bootstrap  # noqa: E402
 from penny.workspace import resolve_workspace_dir  # noqa: E402
 
 from .bridge import stream_and_persist  # noqa: E402
-from .hydration import messages_to_ui  # noqa: E402
+from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.store import ConversationStore  # noqa: E402
 
 app = FastAPI(title="Penny backend")
@@ -127,10 +127,16 @@ async def health() -> dict[str, bool]:
 
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str) -> dict[str, Any]:
-    """Hydrate a conversation: persisted harness messages as UIMessages."""
-    session = _get_session(session_id)
-    messages = await session.get_messages()
-    return {"sessionId": session_id, "messages": messages_to_ui(messages)}
+    """Hydrate a conversation from the website store (the faithful path).
+
+    Reads the captured ``conversation_messages`` rows — not the lossy harness
+    transcript — so the rehydrated transcript matches what was streamed. (The
+    ``/api/sessions`` path is kept for frontend compatibility; it now reads the
+    conversation store.)
+    """
+    store = _get_conversation_store()
+    rows = store.get_conversation_messages(session_id)
+    return {"sessionId": session_id, "messages": conversation_to_ui(rows)}
 
 
 @app.post("/api/chat")

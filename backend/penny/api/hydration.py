@@ -1,91 +1,37 @@
-"""Convert persisted harness messages into AI SDK ``UIMessage`` JSON.
+"""Render stored conversation messages as AI SDK ``UIMessage`` JSON.
 
-Used by ``GET /api/sessions/{id}`` so the frontend can rehydrate a
-conversation after a page refresh or backend restart. The mapping mirrors
-what the live SSE stream produces:
-
-- user text         -> ``{type: "text", text}``
-- assistant text    -> ``{type: "text", text, state: "done"}``
-- assistant tool    -> ``{type: "tool-<name>", toolCallId, state:
-  "output-available", input, output}`` with the output joined from the
-  matching ``ToolResultBlock`` in the subsequent tool-role message.
-- assistant thinking -> ``{type: "reasoning", text, state: "done"}``
+Used by ``GET /api/sessions/{id}`` so the frontend can rehydrate a conversation
+after a refresh or backend restart. Because the bridge captured every part at
+full fidelity (``MessageAccumulator``), the stored ``parts`` array is already in
+UI shape — hydration is near-passthrough. There is no longer any need to
+reconstruct UI parts from the lossy harness transcript, so the old
+``messages_to_ui`` path (and its ``_parse_maybe_json`` / ``_collect_tool_results``
+heuristics and the ``ThinkingBlock`` special-case) are gone.
 """
 
 from __future__ import annotations
 
-import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from agent_harness.core.models import (
-    Message,
-    TextBlock,
-    ThinkingBlock,
-    ToolCallBlock,
-    ToolResultBlock,
-)
+if TYPE_CHECKING:
+    from penny.api.persistence.models import ConversationMessage
 
 
-def _parse_maybe_json(text: str) -> Any:
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, ValueError):
-        return text
+def conversation_to_ui(
+    rows: list[ConversationMessage],
+) -> list[dict[str, Any]]:
+    """Render stored conversation messages as AI SDK UIMessage dicts.
 
-
-def _collect_tool_results(messages: list[Message]) -> dict[str, Any]:
-    """Map tool_call_id -> parsed result content across all tool messages."""
-    results: dict[str, Any] = {}
-    for msg in messages:
-        if msg.role != "tool":
-            continue
-        for block in msg.content:
-            if isinstance(block, ToolResultBlock):
-                content = block.content
-                if isinstance(content, str):
-                    results[block.tool_call_id] = _parse_maybe_json(content)
-                else:
-                    results[block.tool_call_id] = content
-    return results
-
-
-def messages_to_ui(messages: list[Message]) -> list[dict[str, Any]]:
-    """Render harness session messages as AI SDK UIMessage dicts."""
-    tool_results = _collect_tool_results(messages)
+    Parts pass through verbatim (they were stored in UI shape). The message id
+    is the AI SDK message id when present, else a stable ``hist_<seq>`` fallback.
+    Messages with no parts (e.g. a bare streaming placeholder that never got
+    content) are skipped so they don't render as empty bubbles.
+    """
     ui_messages: list[dict[str, Any]] = []
-
-    for idx, msg in enumerate(messages):
-        if msg.role not in ("user", "assistant"):
+    for row in rows:
+        parts = row.parts or []
+        if not parts:
             continue
-
-        parts: list[dict[str, Any]] = []
-        for block in msg.content:
-            if isinstance(block, ThinkingBlock):
-                if not block.text:
-                    continue
-                parts.append({"type": "reasoning", "text": block.text, "state": "done"})
-            elif isinstance(block, TextBlock):
-                if not block.text:
-                    continue
-                part: dict[str, Any] = {"type": "text", "text": block.text}
-                if msg.role == "assistant":
-                    part["state"] = "done"
-                parts.append(part)
-            elif isinstance(block, ToolCallBlock):
-                output = tool_results.get(block.id)
-                parts.append(
-                    {
-                        "type": f"tool-{block.name}",
-                        "toolCallId": block.id,
-                        "state": "output-available"
-                        if output is not None
-                        else "input-available",
-                        "input": block.arguments,
-                        "output": output,
-                    }
-                )
-
-        if parts:
-            ui_messages.append({"id": f"hist_{idx}", "role": msg.role, "parts": parts})
-
+        message_id = row.ai_sdk_message_id or f"hist_{row.seq}"
+        ui_messages.append({"id": message_id, "role": row.role, "parts": parts})
     return ui_messages
