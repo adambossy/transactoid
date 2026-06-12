@@ -4,7 +4,7 @@
 /* Let Tailwind generate the utility classes the library's components use.
    Source-aliased to the local agent-ui checkout (see vite.config.ts) so
    edits there hot-reload here. */
-@source "../../../../../../agent-ui/packages/agent-ui/src";
+@source "/Users/adambossy/code/agent-ui/packages/agent-ui/src";
 
 html,
 body,
