@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Files, risks & sequencing — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="risks" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Files, risks &amp; sequencing
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 5</p>
+        <h1>Critical files, trade-offs, risks &amp; sequence</h1>
+        <p class="lede">The files to touch, the trade-offs already made, the live risks, and where to read the six-commit plan and the segregation watch-list.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>The change lands as a series of small, independently reviewable steps that each leave the app working.</li>
+          <li>Stored conversation data containing real finance details is never logged and never reachable by the agent.</li>
+          <li>If the riskiest step (single-store) can't be proven safe, it is skipped without blocking the rest.</li>
+        </ol>
+      </section>
+
+      <section id="files">
+        <header class="section-header">
+          <h2>Files to change</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="files">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><code>backend/penny/api/persistence/models.py</code> <em>(new)</em> — <code>Conversation</code>, <code>ConversationMessage</code> on the website's <strong>own</strong> <code>Base</code> (+ indexes, CHECK on <code>status</code>). <strong>Not</strong> added to <code>penny/adapters/db/models.py</code>.</li>
+          <li><code>backend/penny/api/persistence/engine.py</code> <em>(new)</em> — the website store's engine + <code>create_all</code> against its separate DB/schema.</li>
+          <li><code>backend/penny/api/persistence/store.py</code> <em>(new)</em> — <code>ConversationStore</code>: <code>ensure_conversation</code>, <code>append_user_message</code>, <code>upsert_assistant_message</code>, <code>get_conversation_messages</code>, <code>set_conversation_title</code> (<code>session()</code> + <code>expunge</code>; <code>seq</code> via <code>COALESCE(MAX(seq),-1)+1</code>). Self-contained SQLAlchemy — does <strong>not</strong> import the finance <code>DB</code> facade. (<code>list_conversations</code> is deferred with the LIST endpoint.)</li>
+          <li><code>backend/penny/api/persistence/rehydrate.py</code> <em>(new)</em> — the reverse-map (stored <code>parts</code> → harness <code>Message</code>s) that seeds model continuity once <code>persist_session=False</code>. See <a href="../continuity/index.html">Model continuity</a>.</li>
+          <li><code>backend/penny/api/bridge.py</code> — add the <code>MessageAccumulator</code> and <code>stream_and_persist</code> wrapper (or fold persistence into <code>stream_agent</code>); factor shared id/state rules out of <code>_translate</code> (kept website-internal).</li>
+          <li><code>backend/penny/api/main.py</code> — <code>ensure_conversation</code> + <code>append_user_message</code> in <code>chat()</code>; repoint hydration. (No new <code>POST</code>/<code>PATCH</code>/LIST endpoints in this rollout.)</li>
+          <li><code>backend/penny/api/hydration.py</code> — add <code>conversation_to_ui</code>; <strong>delete</strong> <code>messages_to_ui</code> and its now-dead helpers (<code>_parse_maybe_json</code>, <code>_collect_tool_results</code>, the <code>ThinkingBlock</code> special-case).</li>
+          <li><code>backend/penny/bootstrap.py</code> — call the website store's <code>create_all</code> alongside (but separate from) the finance <code>create_schema()</code>.</li>
+          <li><code>backend/tests/test_domain_segregation.py</code> <em>(new)</em> — import-boundary guardrail (see <a href="cross-dependencies.html">Cross-dependencies</a>).</li>
+        </ul>
+        <p class="muted-note"><strong>Deferred:</strong> <code>run_sql</code> finance-schema scoping in <code>tools/analytics.py</code> (defense-in-depth beyond the separate DB); and <code>frontend/src/ChatScreen.tsx</code> (the conversation sidebar). Both ship with later features.</p>
+      </section>
+
+      <section id="tradeoffs">
+        <header class="section-header">
+          <h2>Key trade-offs</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="tradeoffs">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Capture at bridge vs. from transcript:</strong> bridge wins on fidelity and live/replay parity; cost is the accumulator must mirror <code>_translate</code>'s id/state conventions (mitigated by shared helpers + a round-trip test that runs frames through <code>_translate</code> then the accumulator and asserts equality with <code>conversation_to_ui</code>).</li>
+          <li><strong>JSON parts column vs. polymorphic table:</strong> chose JSON for write-atomicity, near-passthrough hydration, and zero cross-part query needs; accept loss of in-SQL part indexing.</li>
+          <li><strong>Penny-owned tables vs. extending harness session:</strong> chose Penny-owned to decouple from harness lossiness and format churn; cost is two stores of overlapping data (model memory vs. UI record) — acceptable and intentional.</li>
+          <li><strong>Separate website store vs. co-locating in the finance DB:</strong> chose a separate DB/schema so the agent's <code>run_sql</code> cannot reach conversation data; cost is a second engine + its own <code>create_all</code>. Worth it — segregation is a hard constraint here.</li>
+        </ul>
+      </section>
+
+      <section id="risks">
+        <header class="section-header">
+          <h2>Risks</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="risks">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Large tool payloads.</strong> <code>structured_content</code> for SQL/chart tools can be large. The primary lever is Postgres TOAST (see <a href="../migration/index.html">Migration</a>); an explicit per-part byte cap is <strong>deferred</strong>, reached for only if a single part routinely exceeds the TOAST sweet spot. Until then the bridge's <code>default=str</code> "never kill the stream" behavior is the only guard, and the accumulator stores output verbatim.</li>
+          <li><strong>PII + agent exfiltration.</strong> Parts contain real amounts, merchants, and tool outputs. Two risks: at-rest exposure, and the agent reading its own past conversations via <code>run_sql</code>. Mitigate by storing rows in the website's separate schema/DB (outside <code>run_sql</code>); <strong>never log <code>parts</code> payloads</strong> (the loguru file sink must not dump them); "delete conversation" must <code>CASCADE</code> (it does via FK).</li>
+          <li><strong>Ordering / concurrency.</strong> <code>seq</code> allocation under a transaction prevents races; the app is effectively single-writer per conversation, and <code>COALESCE(MAX)+1</code> + per-conversation uniqueness on <code>ai_sdk_message_id</code> keeps it safe.</li>
+          <li><strong>Aborted-turn fidelity.</strong> Client disconnect mid-stream must still flush a partial <code>error</code>-status row; ensure the flush can't raise into the (already-closed) response and is covered by a test simulating early generator close.</li>
+          <li><strong>Idempotent replay.</strong> A client re-POST or reconnect with the same <code>messageId</code> must upsert, not duplicate — enforced by the per-conversation unique <code>ai_sdk_message_id</code>.</li>
+        </ul>
+      </section>
+
+      <section id="children-nav">
+        <header class="section-header">
+          <h2>Drill down</h2>
+        </header>
+        <ul>
+          <li><a href="commit-sequence.html">Commit sequence</a> — the six small, reviewable commits and what's deferred.</li>
+          <li><a href="cross-dependencies.html">Cross-dependencies</a> — the segregation watch-list and guardrail test.</li>
+        </ul>
+      </section>
+
+      <p class="foot">Next: <a href="commit-sequence.html">Commit sequence →</a> · <a href="../assumptions/index.html">Assumptions →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

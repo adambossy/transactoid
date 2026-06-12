@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydration & API surface — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="hydration" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Hydration &amp; API surface
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 3</p>
+        <h1>Hydration / replay and API surface</h1>
+        <p class="lede">Replace the lossy hydration path outright, and ship exactly one persistence-facing endpoint. The lossy reconstruction is deleted, not kept as a fallback.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Re-opening a conversation shows it as it streamed, with no special-cased recovery of tool output.</li>
+          <li>Starting a new chat needs no extra server round-trip — it just works.</li>
+          <li>A conversation picks up a readable title on its own, with no manual step.</li>
+        </ol>
+      </section>
+
+      <section id="hydration-path">
+        <header class="section-header">
+          <h2>Hydration: replace the lossy path outright</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="hydration-path">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Today <code>GET /api/sessions/{id}</code> reads the harness transcript via <code>messages_to_ui</code>. Switch it to read the new <code>conversation_messages</code> rows, which already hold UIMessage-shaped parts:</p>
+        <ul>
+          <li>New <code>conversation_to_ui(rows) -&gt; list[UIMessage]</code> in <code>hydration.py</code>: for each row emit <code>{id: ai_sdk_message_id or f"hist_{seq}", role, parts}</code> — parts pass through nearly verbatim (already UI shape). Because <code>structured_content</code> was stored faithfully, the <code>ThinkingBlock</code> special-case from <code>9dac604</code>, the <code>_parse_maybe_json</code> heuristic, and <code>_collect_tool_results</code> are all <strong>dead</strong> — <strong>delete them</strong> along with <code>messages_to_ui</code> itself.</li>
+          <li><strong><code>conversation_to_ui</code> is the only hydration path.</strong> There is <strong>no runtime fallback</strong> to the lossy harness transcript — the website never reads <code>sessions.db</code> to reconstruct UI messages. Pre-feature conversations simply do not appear (a clean break, acceptable because <code>persist_session=False</code> means new conversations live only in the app store going forward).</li>
+          <li>If agent-ui needs explicit step markers, re-synthesize <code>start-step</code>/<code>finish-step</code> boundaries at hydration from message/role boundaries rather than persisting them.</li>
+        </ul>
+      </section>
+
+      <section id="api-kept">
+        <header class="section-header">
+          <h2>API surface: one endpoint kept</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="api-kept">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Hydration (single conversation) — KEPT.</strong> Repoint the existing <code>GET /api/sessions/{id}</code> to the faithful path: read <code>conversation_messages</code> rows and return <code>{sessionId, messages: conversation_to_ui(rows)}</code>. Response shape stays <code>{messages}</code>, so the frontend hydration <code>fetch</code> is untouched (zero frontend change). The path name is now a slight misnomer (it reads the conversation store, not the harness session) but keeping it avoids a frontend edit; renaming to <code>/api/conversations/{id}</code> is a later cosmetic.</li>
+          <li><strong>Creation is lazy — no <code>POST /api/conversations</code>.</strong> The frontend keeps sending <code>body.id</code> (its localStorage UUID) to <code>POST /api/chat</code>; the backend treats it as <code>conversation_id</code> and calls <code>ensure_conversation(id)</code> on the first chat. No create endpoint, no "New chat" round-trip — "New chat" still just rolls a new local UUID.</li>
+          <li><strong>No manual rename — no <code>PATCH /api/conversations/{id}</code>.</strong> Titling is an internal write only: derive a title from the first user message (truncate) on the first assistant <code>finish</code>, written by the persistence layer (no extra model call, no endpoint). A future manual-rename or async LLM-titling job can add the endpoint then.</li>
+        </ul>
+      </section>
+
+      <section id="api-deferred">
+        <header class="section-header">
+          <h2>Deferred (not built now)</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="api-deferred">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong><code>GET /api/conversations</code></strong> (the conversation LIST) and any <code>preview</code>/<code>updated_at DESC</code> ordering — deferred with the sidebar.</li>
+          <li><strong>Frontend conversation sidebar.</strong> No list UI, no server-side "New chat". The frontend is unchanged: it still hydrates one conversation via <code>GET /api/sessions/{id}</code> and mints local UUIDs. The sidebar + list endpoint land together in a later feature.</li>
+        </ul>
+      </section>
+
+      <p class="foot">Next: <a href="../migration/index.html">Schema &amp; migration strategy →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

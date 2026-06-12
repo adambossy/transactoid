@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Executive summary — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="root" data-page-depth="0">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <header class="page-header">
+        <p class="eyebrow">Implementation plan</p>
+        <h1>Persisting Chat Conversations &amp; Messages</h1>
+        <p class="lede">Penny streams a rich chat transcript to the browser, but nothing durably stores the UI-faithful record. This plan persists that record where it is born — at the bridge — into a website-owned store kept strictly out of the agent's reach, then replays it back into both the browser and the model.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Anyone returning to a past chat sees it re-rendered exactly as it streamed the first time — charts, tables, reasoning, and tool errors intact.</li>
+          <li>A page refresh in the middle of a reply still shows the in-flight answer, and a dropped connection never loses the question that was asked.</li>
+          <li>The finance agent can never read or alter a person's stored conversation history as a side effect of answering a money question.</li>
+          <li>After a restart, the assistant still remembers what was said earlier in the same conversation.</li>
+        </ol>
+      </section>
+
+      <section id="the-goal">
+        <header class="section-header">
+          <h2>The goal</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="the-goal">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Today a chat's full fidelity exists only as it streams. The harness writes a transcript to <code>sessions.db</code> for the model, but that transcript is <strong>lossy for the UI</strong>: tool results are flattened to a string, so chart specs, SQL result tables, and the tool-error distinction are dropped. Hydration on refresh recovers tool output only by accidentally <code>json.loads</code>-ing that string. Commit <code>9dac604</code> patched one symptom (vanishing thinking summaries) by special-casing reasoning blocks — a sign the lossy path needs replacing, not patching.</p>
+        <p>The fix is to capture Penny's own UI-faithful record <strong>at the bridge</strong>, as frames stream, so that what we persist equals what we streamed by construction.</p>
+      </section>
+
+      <section id="strategy">
+        <header class="section-header">
+          <h2>Strategy</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="strategy">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Two new tables — <code>conversations</code> and <code>conversation_messages</code> — live in a <strong>website-owned, agent-isolated</strong> persistence package on its own SQLAlchemy <code>Base</code> and its own engine, in a separate database/schema from the finance data. A message stores its ordered <code>parts</code> as a JSON array shaped exactly like the AI SDK frames the bridge emits, so hydration is near-passthrough.</p>
+        <p>We then <strong>disable the harness's own session writes</strong> (<code>persist_session=False</code>) so the website store becomes the <em>single</em> record — both the UI-canonical history and the source we replay into the model for multi-turn continuity. A dedicated reverse-map module turns stored parts back into harness messages to seed each run.</p>
+        <div class="mermaid">
+flowchart LR
+  model[LLM] --> harness[Agent loop]
+  harness --> bridge[Bridge translate]
+  bridge -- SSE frames --> ui[Browser useChat]
+  bridge -- accumulate --> store[(Website conversation store)]
+  store -. rehydrate .-> harness
+  store -. conversation_to_ui .-> ui
+  agent[run_sql and tools] --> finance[(Finance DB)]
+  agent -. cannot reach .-x store
+        </div>
+      </section>
+
+      <section id="tradeoffs">
+        <header class="section-header">
+          <h2>Headline tradeoffs</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="tradeoffs">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Capture at the bridge, not from the transcript.</strong> Wins on fidelity and live/replay parity; cost is an accumulator that must mirror <code>_translate</code>'s id/state conventions — mitigated by shared helpers and a round-trip test.</li>
+          <li><strong>JSON parts column, not a polymorphic parts table.</strong> Atomic writes, near-passthrough hydration, no cross-part queries needed; accept losing in-SQL part indexing.</li>
+          <li><strong>Separate website store, not the finance DB.</strong> Keeps conversation data out of <code>run_sql</code>'s blast radius; cost is a second engine and its own <code>create_all</code>. Segregation here is a hard constraint, not a preference.</li>
+          <li><strong>One store, not two.</strong> <code>persist_session=False</code> collapses model memory and UI record into the app store; the reverse-map (a first-class component) is what makes that safe.</li>
+        </ul>
+      </section>
+
+      <section id="map">
+        <header class="section-header">
+          <h2>How to read this plan</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="map">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Start with <a href="context/index.html">Context discovered</a> for the verified lay of the land, then <a href="segregation/index.html">Architectural segregation</a> — the hard constraint that shapes everything else. <a href="data-model/index.html">Data model</a>, <a href="capture/index.html">Capture</a>, and <a href="hydration/index.html">Hydration &amp; API</a> are the core write/read paths; <a href="migration/index.html">Schema &amp; migration</a> covers <code>create_all</code>-only rollout. <a href="continuity/index.html">Model continuity</a> is the load-bearing reverse-map that lets us collapse to one store. <a href="risks/index.html">Files, risks &amp; sequencing</a> holds the six-commit plan and the segregation watch-list. <a href="assumptions/index.html">Assumptions</a> records what is taken for granted.</p>
+        <p class="muted-note">Scope note: this rollout deliberately <strong>trims</strong> the conversation LIST endpoint, the frontend sidebar, manual rename, <code>POST</code>/<code>PATCH</code> endpoints, the per-account model, and per-part byte caps — all deferred to later features.</p>
+      </section>
+
+      <p class="foot">Next: <a href="context/index.html">Context discovered →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="smartplan.js"></script>
+</body>
+</html>

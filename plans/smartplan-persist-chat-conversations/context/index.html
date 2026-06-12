@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context discovered — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="context" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Context discovered
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 0</p>
+        <h1>Context discovered</h1>
+        <p class="lede">The lay of the land, verified against the code. The single most important finding: the harness already persists a transcript, but it is lossy for the UI — and that loss is the whole reason to persist ourselves.</p>
+      </header>
+
+      <section id="entry-bridge">
+        <header class="section-header">
+          <h2>Entry point and bridge</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="entry-bridge">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>backend/penny/api/main.py</code> exposes <code>POST /api/chat</code>: it builds a per-request <code>Agent</code> bound to a per-<code>chat_id</code> <code>SqliteSession</code> (harness <code>sessions.db</code> in the workspace, separate from <code>penny.db</code>), then streams via <code>stream_agent(agent, prompt)</code>. <code>GET /api/sessions/{id}</code> hydrates by reading <code>session.get_messages()</code> through <code>messages_to_ui</code>.</p>
+        <p><code>backend/penny/api/bridge.py</code> subscribes to the harness <code>InMemoryEventBus</code>, runs the agent, and maps each <code>Event</code> to one or more AI SDK UI-message-stream frames. This is the <strong>only</strong> place that sees full fidelity of every part — notably <code>ToolExecEnd.result.structured_content</code> (emitted verbatim via <code>_serialize_tool_output</code>) and the <code>tool-output-error</code> distinction.</p>
+      </section>
+
+      <section id="harness-transcript">
+        <header class="section-header">
+          <h2>The harness already persists a transcript</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="harness-transcript">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Inside the loop (<code>agent_harness/core/loop.py</code>), the harness writes to <code>sessions.db</code> incrementally: the user <code>Message</code> at <code>PrepareTurn</code>, each assistant <code>final_message</code>, and each <code>tool_msg</code>. So conversation continuity <em>for the model</em> already survives restarts. The gap is not model memory — it is UI fidelity.</p>
+      </section>
+
+      <section id="lossy-gap">
+        <header class="section-header">
+          <h2>The critical gap: the transcript is lossy for the UI</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="lossy-gap">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>ToolResultBlock.content</code> is <code>content_to_text(result)</code> — a flat string. The rich <code>structured_content</code> (chart specs, SQL result tables, MCP structured output) the bridge sends to the browser is <strong>not stored</strong>. Today's <code>messages_to_ui</code> (<code>backend/penny/api/hydration.py</code>) recovers tool output only by <code>json.loads</code>-ing that string — it round-trips by accident when a tool happened to emit JSON-as-text, and silently degrades otherwise. Stream-level <code>Error</code> frames and the <code>tool-output-error</code> vs <code>tool-output-available</code> distinction are also absent from the transcript.</p>
+        <p>Commit <code>9dac604</code> patched one symptom (dropped thinking summaries) by special-casing <code>ThinkingBlock</code>. The plan's stance: stop patching the lossy path; capture the UI-faithful frame stream instead.</p>
+      </section>
+
+      <section id="schema-frontend">
+        <header class="section-header">
+          <h2>Schema reality and frontend</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="schema-frontend">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>backend/penny/bootstrap.py</code> calls <code>db.create_schema()</code> → <code>Base.metadata.create_all(engine)</code> on startup. <strong>No alembic</strong> (despite stale references in facade docstrings). New tables are purely additive, so <code>create_all</code> picks them up for free on both SQLite (<code>penny.db</code>) and Neon Postgres.</p>
+        <p><code>frontend/src/ChatScreen.tsx</code>: <code>sessionId</code> is a <code>crypto.randomUUID()</code> persisted in <code>localStorage</code> under <code>penny:sessionId</code>; "New chat" just rolls a new UUID and reloads. It already hydrates from <code>GET /api/sessions/{id}</code> before mounting <code>useChat</code>. There is <strong>no</strong> conversation list and no titling.</p>
+      </section>
+
+      <p class="foot">Next: <a href="../segregation/index.html">Architectural segregation →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

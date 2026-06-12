@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data model — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="data-model" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Data model
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 1</p>
+        <h1>Data model</h1>
+        <p class="lede">Two tables on the website's own <code>Base</code>: <code>conversations</code> and <code>conversation_messages</code>. Each message carries its ordered <code>parts</code> as a JSON array shaped to match the AI SDK frames the bridge emits, so hydration is near-passthrough.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>A stored message can be read back and rendered without re-deriving anything from the model's transcript.</li>
+          <li>Re-sending or reconnecting with the same message never creates a duplicate row.</li>
+          <li>Messages always replay in the exact order they were said.</li>
+        </ol>
+      </section>
+
+      <section id="why-json">
+        <header class="section-header">
+          <h2>Why a JSON parts column</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="why-json">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Typed columns</strong> (one per part attribute) — rejected: parts are a heterogeneous union (text/reasoning/tool-call/tool-output/error/step markers) with wildly different shapes; forces a sparse mega-row.</li>
+          <li><strong>Separate polymorphic <code>parts</code> table</strong> — defensible and textbook-normalized, but the AI SDK UIMessage is itself <code>{id, role, parts: [...]}</code>; we never query across parts; ordering is just array index (no <code>ord</code> column + join needed); one row per message keeps writes atomic and hydration a trivial <code>SELECT ... ORDER BY seq</code>.</li>
+          <li><strong>Chosen: <code>parts</code> as a JSON array on the message row.</strong> Each element is self-describing and mirrors what the bridge emits / <code>useChat</code> expects. SQLAlchemy <code>JSON</code> maps to native JSONB-equivalent on Postgres and TEXT-backed JSON on SQLite. Cost: can't index into individual parts in SQL — which we don't need.</li>
+        </ul>
+      </section>
+
+      <section id="conversations">
+        <header class="section-header">
+          <h2><code>conversations</code></h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="conversations">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>column</th><th>type</th><th>notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>conversation_id</code></td><td><code>String</code> PK</td><td>The client-generated UUID (today's <code>sessionId</code>). Reused verbatim so it stays 1:1 with the harness <code>sessions.db</code> <code>session_id</code>.</td></tr>
+            <tr><td><code>title</code></td><td><code>String</code> nullable</td><td>Null until titled (see <a href="../hydration/index.html">titling on first finish</a>).</td></tr>
+            <tr><td><code>created_at</code></td><td><code>TIMESTAMP</code></td><td>server_default <code>CURRENT_TIMESTAMP</code>.</td></tr>
+            <tr><td><code>updated_at</code></td><td><code>TIMESTAMP</code></td><td>Bumped on each new message; the ordering key for a future conversation list (doubles as "last activity").</td></tr>
+          </tbody>
+        </table>
+        <p class="muted-note"><strong>No <code>user_id</code> yet</strong> — single-user app; noted as the trigger for a future additive migration. <strong>No <code>accounts</code> table and no <code>account_id</code> FK in this rollout</strong> — <code>account_id</code> is a future additive column on <code>conversations</code>, added when the product grows per-account conversations.</p>
+      </section>
+
+      <section id="messages">
+        <header class="section-header">
+          <h2><code>conversation_messages</code></h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="messages">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>column</th><th>type</th><th>notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>message_id</code></td><td><code>Integer</code> PK autoincrement</td><td>Surrogate.</td></tr>
+            <tr><td><code>conversation_id</code></td><td><code>String</code> FK</td><td>→<code>conversations.conversation_id</code> <code>ondelete=CASCADE</code>, indexed.</td></tr>
+            <tr><td><code>ai_sdk_message_id</code></td><td><code>String</code> nullable</td><td>The Vercel AI SDK (<code>useChat</code>) <code>messageId</code> — <code>run_id</code> for assistant turns, the client-minted UUID for user turns. Named for its source so it's unambiguous which "client" it refers to. Used for idempotent upsert and to dedupe streaming-vs-final.</td></tr>
+            <tr><td><code>seq</code></td><td><code>Integer</code> not null</td><td>Monotonic per conversation (mirrors the harness <code>ord</code> pattern in <code>sqlite.py</code>). Deterministic ordering without relying on PK.</td></tr>
+            <tr><td><code>role</code></td><td><code>String</code> not null</td><td><code>user</code> / <code>assistant</code>. No <code>tool</code>-role row — tool output is folded into the owning assistant message's parts.</td></tr>
+            <tr><td><code>parts</code></td><td><code>JSON</code> not null</td><td>Ordered array of part objects (see below).</td></tr>
+            <tr><td><code>status</code></td><td><code>String</code> not null, default <code>'complete'</code></td><td><code>streaming</code> / <code>complete</code> / <code>error</code>. Drives reconciliation. A turn that aborts (client disconnect / generator close) is recorded as <code>error</code>, not a separate <code>aborted</code> value — the UI treats both identically (truncated-but-coherent message). CHECK constraint enumerates the three values, following the existing <code>CheckConstraint</code> convention in <code>models.py</code>.</td></tr>
+            <tr><td><code>created_at</code> / <code>updated_at</code></td><td><code>TIMESTAMP</code></td><td></td></tr>
+          </tbody>
+        </table>
+        <p><strong>Indexes:</strong> <code>Index("ix_conv_messages_conv_seq", "conversation_id", "seq")</code>; unique <code>Index("uq_conv_messages_ai_sdk_id", "conversation_id", "ai_sdk_message_id", unique=True)</code> (guard <code>ai_sdk_message_id IS NOT NULL</code> via <code>sqlite_where</code>/<code>postgresql_where</code>, matching the <code>uq_categories_key_active</code> partial-index pattern already in <code>models.py</code>).</p>
+        <p class="muted-note">The <code>status</code> enum is collapsed to <strong>three</strong> values; there is no <code>aborted</code>. There is no <code>last_message_at</code> column — <code>updated_at</code> serves as last-activity.</p>
+      </section>
+
+      <section id="part-types">
+        <header class="section-header">
+          <h2>Every part type that must round-trip</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="part-types">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Each part object is shaped to match the AI SDK frame the bridge emits (<code>bridge.py::_translate</code>), mapped to its originating frame:</p>
+        <ol>
+          <li><strong>User text</strong> — <code>{type: "text", text}</code>. From the inbound POST body, not a frame.</li>
+          <li><strong>Assistant text</strong> — <code>{type: "text", text, state: "done"}</code>. Reconciled from <code>text-start</code>/<code>text-delta</code>/<code>text-end</code> (keyed <code>t_&lt;message_id&gt;</code>).</li>
+          <li><strong>Reasoning / thinking summary</strong> — <code>{type: "reasoning", text, state: "done"}</code>. From <code>reasoning-*</code> (keyed <code>r_&lt;message_id&gt;</code>). What <code>9dac604</code> needed; here it round-trips natively.</li>
+          <li><strong>Tool-call invocation</strong> — <code>{type: "tool-&lt;name&gt;", toolCallId, state: "input-available", input}</code>. From <code>tool-input-available</code> (<code>ToolCallEnd</code>).</li>
+          <li><strong>Tool result (structured_content)</strong> — promote the matching tool-call part to <code>state: "output-available"</code> with <code>output</code>. From <code>tool-output-available</code> (<code>ToolExecEnd</code> → <code>_serialize_tool_output</code>, verbatim). <strong>The high-fidelity payload the harness transcript loses.</strong></li>
+          <li><strong>Tool-output error</strong> — promote to <code>state: "output-error"</code> with <code>errorText</code>. From <code>tool-output-error</code>.</li>
+          <li><strong>Stream-level error</strong> — <code>{type: "error", errorText}</code> (standalone part; <code>findStreamError</code> in <code>ChatScreen.tsx</code> reads <code>parts[].type === "error"</code>). From the <code>error</code> frame.</li>
+          <li><strong>Step / finish markers</strong> — <code>start</code>, <code>start-step</code>, <code>finish-step</code>, <code>finish</code> are stream-control, <strong>not</strong> stored as parts. Their semantics live in the <code>status</code> column and message boundaries; agent-ui step markers can be re-synthesized at hydration.</li>
+        </ol>
+      </section>
+
+      <section id="reconciliation">
+        <header class="section-header">
+          <h2>Streaming-vs-final reconciliation</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="reconciliation">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Parts are stored in their <em>final</em> form (<code>state: "done"</code> / <code>output-available</code>). Deltas are accumulated in memory during the turn (see <a href="../capture/index.html">Capture</a>), not persisted per-delta. Ordering within <code>parts</code> follows first-appearance order of each part id across the frame stream — exactly the order the bridge yields them — preserving the visual transcript order.</p>
+      </section>
+
+      <p class="foot">Next: <a href="../capture/index.html">Capture →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

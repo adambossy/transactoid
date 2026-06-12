@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model continuity — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="continuity" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Model continuity
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 6 · deepened</p>
+        <h1>Model continuity: the stored-parts → harness-Message reverse-map</h1>
+        <p class="lede">The load-bearing component that lets us collapse to one store. Once <code>persist_session=False</code> stops <code>sessions.db</code> from accumulating, the model no longer remembers prior turns on its own — so on every <code>POST /api/chat</code> the website must reconstruct prior-turn context <em>from the app store</em> and seed it into the run.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>When someone continues a conversation, the assistant can see what was already discussed — including earlier tool results — not just re-show it on screen.</li>
+          <li>Reconstructing past turns never duplicates the user's question or creates a second copy of history.</li>
+          <li>If the reconstruction can't be proven correct, the system keeps remembering the old way rather than silently forgetting.</li>
+        </ol>
+      </section>
+
+      <section id="why">
+        <header class="section-header">
+          <h2>Why its own module (<code>api/persistence/rehydrate.py</code>)</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="why">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The reverse-map is the inverse of <strong>two</strong> forward maps and should not be buried in either:</p>
+        <ol>
+          <li>It inverts <code>bridge.py::_translate</code> / the accumulator: stored UI <code>parts</code> (<code>{type:"text"|"reasoning"|"tool-&lt;name&gt;"|"error", …}</code>) are exactly what <code>_translate</code> produced from harness events.</li>
+          <li>It inverts the harness <code>Message</code> serialization (<code>agent_harness.core.models</code>): the <em>target</em> is a <code>list[Message]</code> whose content blocks are <code>TextBlock</code> / <code>ThinkingBlock</code> / <code>ToolCallBlock</code> / <code>ToolResultBlock</code> — the same shapes the loop appends to <code>rc.messages</code> and feeds the model.</li>
+        </ol>
+        <p>Keeping it in the website domain (it imports <code>agent_harness.core.models</code>, a model-boundary type, <strong>not</strong> an agent tool/skill — so no segregation violation) and giving it a dedicated module makes the symmetry reviewable and unit-testable in isolation.</p>
+      </section>
+
+      <section id="mapping">
+        <header class="section-header">
+          <h2>The mapping (rows → list[Message])</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="mapping">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>For each stored message row, in <code>seq</code> order, emit harness <code>Message</code>s:</p>
+        <ul>
+          <li><strong>User row</strong> (<code>role="user"</code>, text parts) → one <code>Message(role="user", content=[TextBlock(text=…)])</code>.</li>
+          <li><strong>Assistant row</strong> → split its parts into the harness's <em>two-message</em> shape, because the harness models a tool round-trip as an assistant message carrying <code>ToolCallBlock</code>s <strong>followed by</strong> a separate <code>role="tool"</code> message carrying the matching <code>ToolResultBlock</code>s (see <code>loop.py::ToolDispatch</code>):
+            <ul>
+              <li><code>{type:"reasoning", text}</code> → <code>ThinkingBlock(text)</code> on the assistant message (leading, mirroring how the model emits thinking before content).</li>
+              <li><code>{type:"text", text}</code> → <code>TextBlock(text)</code> on the assistant message.</li>
+              <li><code>{type:"tool-&lt;name&gt;", toolCallId, input, output|errorText, state}</code> → a <code>ToolCallBlock(id=toolCallId, name=&lt;name&gt;, arguments=input)</code> on the assistant message, <strong>paired</strong> with a <code>ToolResultBlock(tool_call_id=toolCallId, content=…)</code> collected into the trailing <code>role="tool"</code> message. The tool <strong>name</strong> is recovered by stripping the <code>tool-</code> prefix from the part <code>type</code> (the same convention <code>_translate</code> used to build it).</li>
+              <li><strong><code>output-error</code> parts</strong> map back to a model-visible tool message too: the <code>ToolResultBlock.content</code> is set to the <code>errorText</code> (a short <code>"Error: &lt;errorText&gt;"</code> string), so the model sees the tool failed rather than silently losing the turn. This matches <code>loop.py</code>, where a failed tool still produces a <code>ToolResultBlock</code>.</li>
+              <li><code>{type:"error"}</code> (stream-level error) parts are <strong>dropped</strong> from the model seed — they are a UI artifact (a red banner), not conversational content the model should condition on.</li>
+              <li>Tool-call↔result pairing is by <code>toolCallId</code>; the assistant <code>ToolCallBlock</code>s preserve part order, and the single trailing <code>tool</code> message carries all results for that turn in the same order (one assistant turn → at most one following tool message, matching the loop's batching).</li>
+            </ul>
+          </li>
+        </ul>
+        <p><code>structured_content</code> outputs are serialized back to the <code>ToolResultBlock.content</code> string with a <code>content_to_text</code>-equivalent JSON dump — fidelity to the <em>model</em> only needs the textual content the loop itself would have stored, not the rich UI payload (which lives in the stored part and is what hydration replays to the browser).</p>
+      </section>
+
+      <section id="seeding">
+        <header class="section-header">
+          <h2>Seeding into the agent</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="seeding">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Reuse the harness's own continuity path rather than fighting it: build an <code>InMemorySession(session_id=conversation_id)</code>, <code>add_messages(reverse_mapped_prior_messages)</code>, and pass it as the agent's <code>session</code>. With <code>persist_session=False</code>, <code>PrepareTurn</code> (loop.py) does the right thing on turn 0: it loads seeded prior messages from the session (<code>agent.session.get_messages()</code> when <code>rc.turn == 0 and not rc.messages</code>), inserts the system instructions, appends the <strong>new</strong> user prompt, and — because <code>persist_session=False</code> — never writes any of it back to <code>sessions.db</code>. No duplicate user turn, no second store. The new user turn and assistant turn are persisted to the <strong>app store</strong> by the bridge / <code>/api/chat</code> paths (commits 3–4).</p>
+        <div class="mermaid">
+sequenceDiagram
+  participant Chat as POST /api/chat
+  participant Store as ConversationStore
+  participant Re as rehydrate
+  participant Sess as InMemorySession
+  participant Loop as Agent loop
+  Chat->>Store: read prior rows (seq order)
+  Store-->>Re: stored parts
+  Re-->>Sess: add_messages(list[Message])
+  Chat->>Loop: run(session=Sess, persist_session=False)
+  Loop->>Sess: get_messages() on turn 0
+  Loop->>Loop: + system + new user prompt
+        </div>
+      </section>
+
+      <section id="gate-test">
+        <header class="section-header">
+          <h2>The continuity round-trip test (the gate)</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="gate-test">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The test must assert continuity <em>into the model</em>, not just UI re-render:</p>
+        <ol>
+          <li><strong>Turn 1:</strong> run the agent against a <code>FakeModel</code> that emits a tool call + text; capture the streamed frames; persist them through the accumulator (commit 3) into a <code>ConversationStore</code> (tmp SQLite).</li>
+          <li><strong>Turn 2:</strong> build a fresh agent with <code>persist_session=False</code>, seed it from the app store via <code>rehydrate</code> + <code>InMemorySession</code>, and run a new prompt against a <code>FakeModel</code> that <strong>records the <code>messages</code> list it is handed</strong>. Assert that list contains turn 1's user text, the assistant <code>ToolCallBlock</code>, the <code>ToolResultBlock</code>, and the assistant text — i.e. the model can see the earlier tool-call turn — followed by turn 2's new user message.</li>
+        </ol>
+        <p>Covering a <strong>tool-call</strong> turn (not just plain text) is required because the assistant/tool message split is where the reverse-map is easiest to get wrong. <strong>If this test cannot be made green, leave <code>persist_session=True</code> and do not flip the flag</strong> — an un-seeded <code>persist_session=False</code> silently breaks multi-turn memory in the live app.</p>
+      </section>
+
+      <p class="foot">Next: <a href="../risks/index.html">Files, risks &amp; sequencing →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

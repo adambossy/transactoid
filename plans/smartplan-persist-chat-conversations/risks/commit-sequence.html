@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commit sequence — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="commit-sequence" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; <a href="index.html">Files, risks &amp; sequencing</a>
+        &nbsp;/&nbsp; Commit sequence
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 5 · sequencing</p>
+        <h1>Step-by-step commit sequence</h1>
+        <p class="lede">Six small, reviewable commits. The LIST endpoint + sidebar and the manual-rename / <code>POST</code> / <code>PATCH</code> endpoints are trimmed; titling is folded into commits 3/5 as an internal write.</p>
+      </header>
+
+      <section id="commits">
+        <header class="section-header">
+          <h2>The six commits</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="commits">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ol>
+          <li><strong><code>feat(web): conversation persistence package (models + own engine/schema)</code></strong> — <code>api/persistence/{models,engine}.py</code> on its own <code>Base</code>; its <code>create_all</code> wired into <code>bootstrap</code> as a separate schema/DB. Ship the guardrail <code>tests/test_domain_segregation.py</code> in this same commit, plus a unit test that the tables build and that the finance <code>Base.metadata</code> does <strong>not</strong> include them.</li>
+          <li><strong><code>feat(web): ConversationStore</code></strong> — <code>api/persistence/store.py</code>: <code>ensure_conversation</code>, <code>append_user_message</code>, <code>upsert_assistant_message</code>, <code>get_conversation_messages</code>, <code>set_conversation_title</code>, with unit tests (seq monotonicity, upsert idempotency). Imports neither the finance facade nor any agent module.</li>
+          <li><strong><code>feat(api): MessageAccumulator + persist turns at the bridge</code></strong> — accumulator + <code>stream_and_persist</code>; insert the <code>streaming</code> row on <code>RunStart</code>, finalize on <code>RunEnd</code>, record <code>error</code> on stream error / abort. Round-trip test (frames → accumulator → <code>conversation_to_ui</code> == streamed parts), including <code>tool-output-error</code> and stream <code>error</code>.</li>
+          <li><strong><code>feat(api): persist user message + finalize/abort in /api/chat</code></strong> — lazy <code>ensure_conversation</code> + <code>append_user_message</code>; best-effort abort flush (status <code>error</code>) that can't raise into the closed response.</li>
+          <li><strong><code>feat(api): conversation_to_ui hydration; delete messages_to_ui</code></strong> — switch hydration to the faithful path and <strong>delete</strong> <code>messages_to_ui</code> and its now-dead helpers; <code>conversation_to_ui</code> is the sole hydration path; repoint <code>GET /api/sessions/{id}</code>; hydration tests covering all part types (build on <code>9dac604</code>'s reasoning test).</li>
+          <li><strong><code>feat(api): seed agent from app store + persist_session=False</code></strong> — the DEEPENED reverse-map: <code>api/persistence/rehydrate.py</code> maps stored <code>parts</code> → harness <code>Message</code>s, <code>main.py</code> seeds them into the agent on each <code>/api/chat</code>, <strong>then</strong> flips <code>Agent(persist_session=False)</code>. Gated by the continuity round-trip test (see <a href="../continuity/index.html">Model continuity</a>). If the continuity test can't be made green, <code>persist_session</code> stays at its default <code>True</code> and the flip is NOT made.</li>
+        </ol>
+      </section>
+
+      <section id="deferred">
+        <header class="section-header">
+          <h2>Deferred (later features, not this rollout)</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="deferred">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li>Conversation LIST (<code>GET /api/conversations</code>) + the frontend sidebar.</li>
+          <li>Manual rename / <code>POST</code> / <code>PATCH</code> endpoints.</li>
+          <li>Per-part byte cap.</li>
+          <li>The alembic adoption at the first non-additive change.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="index.html">← Files, risks &amp; sequencing</a> · <a href="cross-dependencies.html">Cross-dependencies →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

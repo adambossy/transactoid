@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architectural segregation — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="segregation" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Architectural segregation
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 0.5 · hard constraint</p>
+        <h1>Architectural segregation</h1>
+        <p class="lede">Penny is two domains that must never commingle. This feature sits squarely in the website domain, and that placement dictates three concrete departures from the naive plan.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>The finance agent has no way to read or modify stored chat history while doing its job.</li>
+          <li>Adding conversation storage never makes the agent's code depend on the website's storage code.</li>
+          <li>A future accidental coupling between the two domains is caught automatically before it ships.</li>
+        </ol>
+      </section>
+
+      <section id="two-domains">
+        <header class="section-header">
+          <h2>Two domains</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="two-domains">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Agent domain</strong> — what the LLM uses to do finance work: <code>backend/penny/tools/</code> (the <code>@tool</code> wrappers + <code>tools/_services/</code>), <code>backend/.agent/skills/</code>, <code>agent_factory.py</code>, <code>prompts.py</code>, and the prompts. It operates on <em>finance</em> data (<code>derived_transactions</code>, <code>categories</code>, …), notably via the unrestricted <code>run_sql</code> tool.</li>
+          <li><strong>Website domain</strong> — the application hosting the agent and owning user-facing CRUD: the FastAPI app (<code>backend/penny/api/</code>), account management, settings, and <strong>conversation/message persistence (this feature)</strong>.</li>
+        </ul>
+      </section>
+
+      <section id="dependency-rule">
+        <header class="section-header">
+          <h2>The dependency rule: Website → Agent only</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="dependency-rule">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The website constructs and invokes the agent; the bridge is the seam — it <em>runs</em> the agent and translates its event stream. The agent domain must have <strong>zero</strong> imports of conversation-persistence code, and the persistence code must not import agent tools/skills internals. Conversation persistence is website-owned, not agent infrastructure.</p>
+        <div class="mermaid">
+flowchart TD
+  web[Website domain: api/, persistence] --> agent[Agent domain: tools/, skills, agent_factory]
+  agent -. forbidden .-x web
+  bridge[bridge.py: the seam] --- web
+        </div>
+      </section>
+
+      <section id="three-departures">
+        <header class="section-header">
+          <h2>Three concrete departures</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="three-departures">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ol>
+          <li><strong>Do not put conversation models/CRUD in the shared <code>penny/adapters/db</code> facade.</strong> That facade and <code>models.py</code> are imported throughout the agent domain (<code>tools/transactions.py</code>, <code>tools/analytics.py</code>'s <code>run_sql</code>, <code>tools/_services/{persister,sync_service,split,refund,migrator,…}</code>, the Amazon plugin). Give the website its <strong>own</strong> persistence package with its own <code>Base</code>, models, and store/engine (<code>backend/penny/api/persistence/{models,store,engine}.py</code>). The shared <code>adapters/db</code> stays finance-only.</li>
+          <li><strong>Keep conversation data out of <code>run_sql</code>'s blast radius.</strong> <code>run_sql</code> (<code>tools/analytics.py</code> → <code>get_db().execute_raw_sql</code>) is intentionally unrestricted read+write over the finance DB. Store conversations in a <strong>separate database/schema</strong> owned by the website's own engine: a dedicated Neon schema (e.g. <code>web.conversations</code>) with <code>run_sql</code>'s role/<code>search_path</code> scoped to the finance schema, or a separate SQLite file in dev (<code>penny_web.db</code>) — mirroring the harness's existing "<code>sessions.db</code> is separate" precedent. Defense-in-depth: even with separation, scope <code>run_sql</code> to the finance schema explicitly.</li>
+          <li><strong>The bridge is the only shared touchpoint — and that's allowed</strong>, because it is website code (website → agent). What must <em>not</em> happen: a tool/skill importing the persistence store to "log itself", or the persistence layer reaching into <code>tools/_services</code> for serialization helpers. Those part-shaping helpers stay in the website domain alongside <code>_translate</code>.</li>
+        </ol>
+      </section>
+
+      <section id="guardrail">
+        <header class="section-header">
+          <h2>The guardrail test</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="guardrail">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>A lint/test guardrail (<code>backend/tests/test_domain_segregation.py</code>) enforces this: assert nothing under <code>penny/tools</code> or the skills tree imports <code>penny.api.persistence</code>, and that the persistence package imports neither <code>penny.tools</code> nor <code>penny.agent_factory</code>. It fails the suite so an accidental import is caught at CI, not in review. See the full watch-list on <a href="../risks/cross-dependencies.html">Cross-dependencies</a>.</p>
+      </section>
+
+      <p class="foot">Next: <a href="../data-model/index.html">Data model →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

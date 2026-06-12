@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema & migration strategy — Persisting Chat Conversations & Messages</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="persist-chat-conversations" data-page-id="migration" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Persisting Chat Conversations &amp; Messages</a>
+        &nbsp;/&nbsp; Schema &amp; migration strategy
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Section 4</p>
+        <h1>Schema creation / migration strategy</h1>
+        <p class="lede"><code>create_all</code>-only, no alembic. Additive tables on the website's own metadata, created from the website's own engine — kept separate from the finance schema.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>The new storage works identically in local development and in production with no manual database steps.</li>
+          <li>Large saved replies do not bloat the production database out of proportion to what they contain.</li>
+          <li>The team knows in advance the exact moment a heavier migration tool becomes unavoidable.</li>
+        </ol>
+      </section>
+
+      <section id="additive">
+        <header class="section-header">
+          <h2>Additive tables only, on the website's own metadata</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="additive">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>conversations</code> and <code>conversation_messages</code> are brand new and live on the website persistence package's <strong>own</strong> <code>Base</code>. Create them via that package's own <code>create_all</code> (its own engine/schema), invoked from <code>bootstrap.py</code> alongside — but separate from — the finance <code>create_schema()</code>. On Neon use a dedicated <code>web</code> schema; in dev a separate SQLite file (<code>penny_web.db</code>). <strong>No migration tooling required</strong> for the initial rollout — additive only. Do <strong>not</strong> register them on the finance <code>Base.metadata</code>, or the agent's <code>run_sql</code> engine would see them.</p>
+      </section>
+
+      <section id="json-portability">
+        <header class="section-header">
+          <h2>JSON portability</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="json-portability">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Use SQLAlchemy <code>JSON</code> (TEXT-backed on SQLite, native JSON on Postgres). Avoid Postgres-only types in the model so <code>create_all</code> works identically in dev SQLite and prod Neon. CHECK constraints declared in <code>__table_args__</code> are enforced by SQLite via the ORM and created by <code>create_all</code> on Postgres — no migration mirror needed because there is no migration. The facade comments about "must also be listed in the migration" pertain to the legacy alembic-on-main path and don't apply here.</p>
+      </section>
+
+      <section id="toast">
+        <header class="section-header">
+          <h2>Lean on Postgres TOAST compression in prod</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="toast">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>On Neon, large <code>parts</code> values are stored out-of-line and LZ-compressed automatically (TOAST) — SQL-result tables compress roughly 3–5×, base64 ~20–25% — so on-disk footprint sits well below the logical JSON size with zero app-side work. This is the <strong>primary storage lever</strong> for the per-message JSON design; treat explicit per-part byte caps / artifact externalization as a later refinement, reached for only if a single part routinely exceeds the TOAST sweet spot (e.g. inline base64 chart images from <code>generate_chart</code>).</p>
+        <p class="muted-note"><strong>Dev caveat:</strong> SQLite (<code>penny_web.db</code>) does <strong>not</strong> auto-compress, so local DB files look larger than prod — don't size prod from dev observations.</p>
+      </section>
+
+      <section id="clean-break">
+        <header class="section-header">
+          <h2>Pre-feature conversations do not carry over</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="clean-break">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Conversations that only live in <code>sessions.db</code> are not imported — there is no backfill. Acceptable: the lossy <code>messages_to_ui</code> reconstruction is removed entirely, and going forward <code>persist_session=False</code> means new conversations live only in the app store. Pre-feature <code>sessions.db</code> data is left untouched and simply unread.</p>
+      </section>
+
+      <section id="alembic">
+        <header class="section-header">
+          <h2>When alembic becomes necessary</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="alembic">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>create_all</code> only <em>creates missing</em> tables/columns — it never alters existing ones. The first time we need to <strong>change</strong> a shipped column (add <code>user_id</code> to <code>conversations</code> after data exists, change a type, add a NOT NULL with backfill, add a CHECK to a populated table, rename), <code>create_all</code> cannot do it and we must introduce alembic (or a hand-rolled idempotent DDL step in <code>bootstrap</code>). Recommendation: ship these additive tables now without alembic; adopt alembic at the first non-additive change and migrate the whole schema under it then.</p>
+      </section>
+
+      <p class="foot">Next: <a href="../continuity/index.html">Model continuity →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Persisting Chat Conversations & Messages",
+  "root": {
+    "id": "root", "label": "Executive summary", "href": "index.html",
+    "sections": ["the-goal", "strategy", "tradeoffs", "map"],
+    "children": [
+      { "id": "context", "label": "Context discovered", "href": "context/index.html", "sections": ["entry-bridge", "harness-transcript", "lossy-gap", "schema-frontend"] },
+      { "id": "segregation", "label": "Architectural segregation", "href": "segregation/index.html", "sections": ["two-domains", "dependency-rule", "three-departures", "guardrail"] },
+      { "id": "data-model", "label": "Data model", "href": "data-model/index.html", "sections": ["why-json", "conversations", "messages", "part-types", "reconciliation"] },
+      { "id": "capture", "label": "Capture", "href": "capture/index.html", "sections": ["where", "mechanism", "abort", "single-store"] },
+      { "id": "hydration", "label": "Hydration & API surface", "href": "hydration/index.html", "sections": ["hydration-path", "api-kept", "api-deferred"] },
+      { "id": "migration", "label": "Schema & migration strategy", "href": "migration/index.html", "sections": ["additive", "json-portability", "toast", "clean-break", "alembic"] },
+      { "id": "continuity", "label": "Model continuity", "href": "continuity/index.html", "sections": ["why", "mapping", "seeding", "gate-test"] },
+      {
+        "id": "risks", "label": "Files, risks & sequencing", "href": "risks/index.html", "sections": ["files", "tradeoffs", "risks"],
+        "children": [
+          { "id": "commit-sequence", "label": "Commit sequence", "href": "risks/commit-sequence.html", "sections": ["commits", "deferred"] },
+          { "id": "cross-dependencies", "label": "Cross-dependencies", "href": "risks/cross-dependencies.html", "sections": ["watch-list"] }
+        ]
+      },
+      { "id": "assumptions", "label": "Assumptions & open questions", "href": "assumptions/index.html", "sections": ["asked", "assumed", "open"] }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>
