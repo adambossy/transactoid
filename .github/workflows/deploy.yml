@@ -52,6 +52,7 @@ jobs:
       - name: Deploy frontend
         run: bash deploy/scripts/deploy_frontend.sh
 
-      # Cron-manager sync is wired in at convergence (C2):
-      #   - name: Sync cron manager
-      #     run: bash deploy/scripts/sync_cron_manager.sh
+      # Sync after the backend deploy so the cron resolves the FRESH app image
+      # from `fly releases` and renders config.env from the env template.
+      - name: Sync cron manager
+        run: bash deploy/scripts/sync_cron_manager.sh
