@@ -7,8 +7,6 @@
 app = "penny-frontend"
 primary_region = "iad"
 
-[build]
-  dockerfile = "deploy/frontend/Dockerfile"
 
 # The single build/runtime input is the backend origin /api/* is proxied to.
 # Point this at the backend Fly app's public origin. (No secrets here.)

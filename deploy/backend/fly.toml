@@ -10,8 +10,6 @@
 app = "penny"
 primary_region = "iad"  # US East — close to the Neon/Supabase prod DB.
 
-[build]
-  dockerfile = "deploy/backend/Dockerfile"
 
 # Non-secret runtime values. Sourced from deploy/env/deploy.env.template
 # (section 1) — keep these in sync with that template. Secrets

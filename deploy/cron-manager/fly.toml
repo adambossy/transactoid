@@ -15,8 +15,6 @@
 app = "penny-cron-manager"
 primary_region = "iad"
 
-[build]
-  dockerfile = "deploy/cron-manager/Dockerfile"
 
 # The cron manager keeps its schedule/run state on a small persistent volume.
 [[mounts]]
