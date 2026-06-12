@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_harness.providers.google import GeminiModel
-from agent_harness.sessions.sqlite import SqliteSession
+from agent_harness.sessions.inmemory import InMemorySession
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,10 +17,10 @@ load_dotenv(override=False)
 from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
-from penny.workspace import resolve_workspace_dir  # noqa: E402
 
 from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
+from .persistence.rehydrate import parts_to_messages  # noqa: E402
 from .persistence.store import ConversationStore  # noqa: E402
 
 app = FastAPI(title="Penny backend")
@@ -40,7 +40,6 @@ app.add_middleware(
 )
 
 _model: GeminiModel | None = None
-_sessions: dict[str, SqliteSession] = {}
 _conversation_store: ConversationStore | None = None
 
 
@@ -58,18 +57,23 @@ def _get_conversation_store() -> ConversationStore:
     return _conversation_store
 
 
-def _get_session(chat_id: str) -> SqliteSession:
-    """One durable SQLite-backed session per chat id.
+async def _seed_session(
+    store: ConversationStore, conversation_id: str
+) -> InMemorySession:
+    """Build an in-memory session seeded with prior-turn context.
 
-    All sessions share one DB file in the workspace; the in-process dict
-    only caches open connections (history survives restarts regardless).
+    Reverse-maps the conversation's stored ``parts`` into harness ``Message``s
+    (``parts_to_messages``) and loads them into a fresh ``InMemorySession``.
+    Called BEFORE the current user turn is appended, so the seed holds only
+    prior turns; the loop appends the new prompt itself. With
+    ``persist_session=False`` the agent reads this seed but writes nothing back
+    — the app store is the single source of continuity.
     """
-    session = _sessions.get(chat_id)
-    if session is None:
-        workspace = resolve_workspace_dir()
-        workspace.mkdir(parents=True, exist_ok=True)
-        session = SqliteSession(session_id=chat_id, path=workspace / "sessions.db")
-        _sessions[chat_id] = session
+    rows = store.get_conversation_messages(conversation_id)
+    prior_messages = parts_to_messages(rows)
+    session = InMemorySession(session_id=conversation_id)
+    if prior_messages:
+        await session.add_messages(prior_messages)
     return session
 
 
@@ -146,16 +150,25 @@ async def chat(request: Request) -> StreamingResponse:
     prompt = _extract_prompt(body)
     user_message_id = _extract_user_message_id(body)
 
-    # Persist the user turn up front (before any assistant frame) so it is
-    # durable even if the client disconnects mid-stream. Creation is lazy.
     store = _get_conversation_store()
     store.ensure_conversation(chat_id)
+
+    # Seed the agent with PRIOR-turn context from the app store BEFORE the
+    # current user turn is appended, so the seed excludes this turn (the loop
+    # appends the new prompt itself). This is what makes persist_session=False
+    # safe: the model still sees earlier turns.
+    session = await _seed_session(store, chat_id)
+
+    # Persist the user turn up front (before any assistant frame) so it is
+    # durable even if the client disconnects mid-stream. Creation is lazy.
     store.append_user_message(chat_id, ai_sdk_message_id=user_message_id, text=prompt)
     # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
 
-    session = _get_session(chat_id)
-    agent = build_agent(model=_get_model(), session=session)
+    # persist_session=False: the harness never writes to sessions.db; the app
+    # store (above + the bridge) is the single persistence layer. The seeded
+    # session provides read-only continuity.
+    agent = build_agent(model=_get_model(), session=session, persist_session=False)
 
     return StreamingResponse(
         stream_and_persist(agent, prompt, store=store, conversation_id=chat_id),

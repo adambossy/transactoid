@@ -141,7 +141,12 @@ def _thinking_budget_from_env() -> int:
     return int(raw) if raw else -1
 
 
-def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
+def build_agent(
+    *,
+    model: GeminiModel,
+    session: InMemorySession,
+    persist_session: bool = True,
+) -> Agent:
     sandbox = get_sandbox()
 
     skill_registry = SkillRegistry.load(project_root=_PROJECT_ROOT, user_root=None)
@@ -157,6 +162,7 @@ def build_agent(*, model: GeminiModel, session: InMemorySession) -> Agent:
         model=model,
         instructions=_render_system_prompt(),
         session=session,
+        persist_session=persist_session,
         sandbox=sandbox,
         model_settings=ModelSettings(thinking_budget=_thinking_budget_from_env()),
         toolsets=[
