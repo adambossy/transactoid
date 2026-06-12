@@ -116,6 +116,10 @@ Run these before completing any unit of work. There is no mypy gate yet.
   the old product so user state carries over.
 - **Single-user**: no auth, no multi-tenancy. That work is tracked in
   `plans/20260524-224025-productionize-transactoid.md`.
+- **Branching**: `main` is the single long-lived branch. Cut feature
+  branches off `main` (`<type>/<description>`, in a `.worktrees/<branch>`
+  worktree) and merge them back into `main` — there is **no** `develop` /
+  integration branch.
 
 ## Gotchas
 
