@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+import penny.api.main
+from penny.api.persistence.engine import reset_web_engine
 import penny.db
 import penny.services
 
@@ -15,8 +17,7 @@ def _reset_singletons() -> None:
     penny.services._rules_loader = None
     penny.services._persister = None
     penny.services._migrator = None
-    from penny.api.persistence.engine import reset_web_engine
-
+    penny.api.main._conversation_store = None
     reset_web_engine()
 
 
