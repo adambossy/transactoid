@@ -9,7 +9,7 @@
 - **Schema reality** `backend/penny/bootstrap.py` calls `db.create_schema()` → `Base.metadata.create_all(engine)` on startup. **No alembic** (despite stale references in facade docstrings). New tables are purely additive, so `create_all` picks them up for free on both SQLite (`penny.db`) and Neon Postgres.
 - **Frontend** `frontend/src/ChatScreen.tsx`: `sessionId` is a `crypto.randomUUID()` persisted in `localStorage` under `penny:sessionId`; "New chat" just rolls a new UUID and reloads. It already hydrates from `GET /api/sessions/{id}` before mounting `useChat`. There is **no conversation list** and no titling.
 
-**Design stance:** Persist Penny's own UI-faithful record captured **at the bridge** as frames stream, in a **website-owned, agent-isolated** store (see §0.5) — *not* the shared finance DB/facade. Treat the harness `sessions.db` as the model's working memory (leave it as-is for model continuity); treat the new tables as the website's canonical record for the UI. This decouples us from harness transcript lossiness and from any future harness session-format change, and keeps conversation data outside the agent's `run_sql` reach.
+**Design stance:** Persist Penny's own UI-faithful record captured **at the bridge** as frames stream, in a **website-owned, agent-isolated** store (see §0.5) — *not* the shared finance DB/facade. **Disable the harness's own `sessions.db` writes** (`Agent(persist_session=False)`) so we don't double-persist; the website store becomes the *single* record — both the UI-canonical history and the source we replay into the model for multi-turn continuity (see §2). This decouples us from harness transcript lossiness and from any future harness session-format change, and keeps conversation data outside the agent's `run_sql` reach.
 
 ---
 
@@ -49,8 +49,7 @@ Add two tables — `conversations` and `conversation_messages` — to the **webs
 | `conversation_id` | `String` PK | The client-generated UUID (today's `sessionId`). Reuse it verbatim so it stays 1:1 with the harness `sessions.db` `session_id`. |
 | `title` | `String` nullable | Null until titled (see §3 titling). |
 | `created_at` | `TIMESTAMP` server_default `CURRENT_TIMESTAMP` | |
-| `updated_at` | `TIMESTAMP` server_default `CURRENT_TIMESTAMP` | Bumped on each new message; ordering key for the conversation list. |
-| `last_message_at` | `TIMESTAMP` nullable | Convenience for list sorting/preview. |
+| `updated_at` | `TIMESTAMP` server_default `CURRENT_TIMESTAMP` | Bumped on each new message; the ordering key for the conversation list (doubles as "last activity"). |
 
 (No `user_id` yet — single-user app today. Add the column nullable now if multi-user is on the near horizon; otherwise note it as the trigger for a future additive migration.)
 
@@ -60,14 +59,14 @@ Add two tables — `conversations` and `conversation_messages` — to the **webs
 |---|---|---|
 | `message_id` | `Integer` PK autoincrement | Surrogate. |
 | `conversation_id` | `String` FK→`conversations.conversation_id` `ondelete=CASCADE`, indexed | |
-| `client_message_id` | `String` nullable, unique-per-conversation | The AI SDK `messageId` (`run_id` for assistant turns, the client UUID for user turns). Used for idempotent upsert and to dedupe streaming-vs-final. |
+| `ai_sdk_message_id` | `String` nullable, unique-per-conversation | The Vercel AI SDK (`useChat`) `messageId` — `run_id` for assistant turns, the client-minted UUID for user turns. Named for its source so it's unambiguous which "client" it refers to. Used for idempotent upsert and to dedupe streaming-vs-final. |
 | `seq` | `Integer` not null | Monotonic per conversation (mirrors the harness `ord` pattern in `sqlite.py`). Deterministic ordering without relying on PK. |
 | `role` | `String` not null | `user` / `assistant`. (We do **not** create a `tool`-role row — tool output is folded into the owning assistant message's parts, matching `useChat`/`messages_to_ui` semantics.) |
 | `parts` | `JSON` not null | Ordered array of part objects (see enumeration below). |
 | `status` | `String` not null, default `'complete'` | `streaming` / `complete` / `aborted` / `error`. Drives reconciliation (§2). CHECK constraint enumerating the four values (follow the existing `CheckConstraint` convention in `models.py`, mirrored into a future migration only if/when alembic is adopted). |
 | `created_at` / `updated_at` | `TIMESTAMP` | |
 
-Indexes: `Index("ix_conv_messages_conv_seq", "conversation_id", "seq")`; unique `Index("uq_conv_messages_client_id", "conversation_id", "client_message_id", unique=True)` (guard `client_message_id IS NOT NULL` via `sqlite_where`/`postgresql_where`, matching the `uq_categories_key_active` partial-index pattern already in `models.py`).
+Indexes: `Index("ix_conv_messages_conv_seq", "conversation_id", "seq")`; unique `Index("uq_conv_messages_ai_sdk_id", "conversation_id", "ai_sdk_message_id", unique=True)` (guard `ai_sdk_message_id IS NOT NULL` via `sqlite_where`/`postgresql_where`, matching the `uq_categories_key_active` partial-index pattern already in `models.py`).
 
 ### Every part type that must round-trip
 
@@ -98,12 +97,12 @@ The `parts` array stores objects shaped to match the AI SDK frames the bridge al
 
 1. **New website-owned package** `backend/penny/api/persistence/` (per §0.5) with `models.py` (its own `Base`), `engine.py` (its own engine + `create_all`), and `store.py` exposing a `ConversationStore` over that **own** engine/session — *not* the shared finance `DB` facade. Mirror the repo's façade conventions (`session()` context manager, `expunge`) inside this store, but keep its SQLAlchemy self-contained so the agent domain never links to it.
 
-2. **Persist the user message up front.** In `main.py::chat`, after extracting the prompt and before streaming, `ConversationStore.ensure_conversation(chat_id)` + `append_user_message(chat_id, client_message_id, text)`. Doing it here (not in the bridge) guarantees the user turn is durable even if the client disconnects before any assistant frame.
+2. **Persist the user message up front.** In `main.py::chat`, after extracting the prompt and before streaming, `ConversationStore.ensure_conversation(chat_id)` + `append_user_message(chat_id, ai_sdk_message_id, text)`. Doing it here (not in the bridge) guarantees the user turn is durable even if the client disconnects before any assistant frame.
 
 3. **Wrap the frame stream with an accumulator.** Refactor `stream_agent` (or add `stream_and_persist`) so that as it yields each SSE frame it also feeds the frame to a `MessageAccumulator`:
    - `start` (`RunStart`) → open a new assistant message buffer keyed by `messageId` (= `run_id`), status `streaming`. Optionally insert a `streaming`-status row immediately (enables "resume after refresh mid-turn"); simpler v1: buffer in memory and insert on first finalized content.
    - `reasoning-*`, `text-*`, `tool-input-available`, `tool-output-available`/`-error`, `error` → update the buffer's parts (accumulate reasoning/text deltas by id; add/promote tool parts by `toolCallId`; append error parts).
-   - `finish` (`RunEnd`) → finalize: set parts to `state: "done"`/`output-available`, status `complete`, and `upsert_assistant_message(...)` (keyed on `(conversation_id, client_message_id)` so a retry/replay is idempotent). Bump `conversations.updated_at`/`last_message_at`.
+   - `finish` (`RunEnd`) → finalize: set parts to `state: "done"`/`output-available`, status `complete`, and `upsert_assistant_message(...)` (keyed on `(conversation_id, ai_sdk_message_id)` so a retry/replay is idempotent). Bump `conversations.updated_at`.
 
    The accumulator logic is essentially the inverse of `_translate` and shares its id conventions (`t_`, `r_`, `toolCallId`); factor the id/state rules into small helpers so bridge and accumulator can't drift.
 
@@ -111,7 +110,9 @@ The `parts` array stores objects shaped to match the AI SDK frames the bridge al
 
 5. **Ordering & seq.** Allocate `seq` inside the facade insert under the session, using `COALESCE(MAX(seq),-1)+1` for the conversation (the proven pattern from harness `sqlite.py::_append_payloads`). User message gets seq N, the assistant turn gets seq N+1.
 
-6. **Do not double-persist.** We leave the harness session writes (`sessions.db`) untouched — they remain the model's context for multi-turn continuity. Our tables are UI-canonical only.
+6. **Do not double-persist — disable the harness session writes.** Construct the agent with `persist_session=False` (the flag added to `agent-harness`'s `Agent`: the run loop still *reads* prior history from a supplied session but never *writes* messages or run-state to `sessions.db`). The website store becomes the **single** persistence layer — both the UI-canonical record and the source of model continuity.
+   - **Consequence (load-bearing):** with harness writes off, the model no longer remembers prior turns on its own, so on each `POST /api/chat` the website must **seed the agent with prior-turn context reconstructed from the app store** — reverse-map stored `parts` → harness `Message`s and pass them as the run's initial messages (the loop skips its own session load when `rc.messages` is already populated), or feed them via a lightweight in-memory session. This supersedes the companion recommendation's "keep two stores" stance *for model memory*: we deliberately collapse to one store.
+   - **Sequencing:** flip `persist_session=False` only in the same commit that lands the app store **and** this seeding path. Flipping it earlier erases multi-turn memory in the live app, because today `main.py::chat` relies entirely on `sessions.db` for continuity (`_extract_prompt` sends only the latest user turn).
 
 ---
 
@@ -121,13 +122,13 @@ The `parts` array stores objects shaped to match the AI SDK frames the bridge al
 
 Today `GET /api/sessions/{id}` reads the harness transcript via `messages_to_ui`. Switch it to read the new `conversation_messages` rows, which already hold UIMessage-shaped parts:
 
-- New function `conversation_to_ui(rows) -> list[UIMessage]` in `hydration.py`: for each message row emit `{id: client_message_id or f"hist_{seq}", role, parts}` — parts pass through nearly verbatim (they're already in UI shape). This makes the `ThinkingBlock` special-case from `9dac604`, the `_parse_maybe_json` heuristic, and `_collect_tool_results` all unnecessary for the new path, because `structured_content` was stored faithfully at capture time.
+- New function `conversation_to_ui(rows) -> list[UIMessage]` in `hydration.py`: for each message row emit `{id: ai_sdk_message_id or f"hist_{seq}", role, parts}` — parts pass through nearly verbatim (they're already in UI shape). This makes the `ThinkingBlock` special-case from `9dac604`, the `_parse_maybe_json` heuristic, and `_collect_tool_results` all unnecessary for the new path, because `structured_content` was stored faithfully at capture time.
 - Keep `messages_to_ui` as a **fallback** for conversations that predate the feature (rows absent in `conversation_messages` but present in `sessions.db`) — and as a one-time backfill source (§4). This is the build-on-`9dac604` move: that commit fixed thinking replay in the lossy path; we keep that path working for legacy sessions while routing new sessions through the faithful path.
 - If agent-ui requires explicit step markers for rendering, re-synthesize `start-step`/`finish-step` boundaries at hydration from message/role boundaries rather than persisting them (keeps the store clean).
 
 ### API surface (extend `backend/penny/api/main.py`)
 
-- `GET /api/conversations` → `[{conversationId, title, createdAt, updatedAt, lastMessageAt, preview}]` ordered by `updated_at DESC`. (`preview` = first ~80 chars of the first user text part.)
+- `GET /api/conversations` → `[{conversationId, title, createdAt, updatedAt, preview}]` ordered by `updated_at DESC` (which now also serves as "last activity"). (`preview` = first ~80 chars of the first user text part.)
 - `GET /api/conversations/{id}` → `{conversationId, title, messages: conversation_to_ui(rows)}`. (Either rename `GET /api/sessions/{id}` to this or keep `/api/sessions/{id}` as an alias to avoid touching the frontend hydration call in one step.)
 - `POST /api/conversations` → create an empty conversation, return its id. Lets the frontend "New chat" create server-side rather than only minting a localStorage UUID.
 - `PATCH /api/conversations/{id}` → set `title`. **Titling:** v1 derive from the first user message (truncate) on first assistant `finish`, written by the persistence layer (no extra model call); leave an explicit `PATCH` for manual rename and a hook for an async LLM-titling job later.
@@ -144,6 +145,7 @@ Today `GET /api/sessions/{id}` reads the harness transcript via `messages_to_ui`
 
 - **Additive tables only, on the website's own metadata.** `conversations` and `conversation_messages` are brand new and live on the website persistence package's **own** `Base` (§0.5). Create them via that package's own `create_all` (its own engine/schema), invoked from `bootstrap.py` alongside — but separate from — the finance `create_schema()`. On Neon use a dedicated `web` schema; in dev a separate SQLite file (`penny_web.db`). **No migration tooling required for the initial rollout** — additive only. Do **not** register them on the finance `Base.metadata`, or the agent's `run_sql` engine would see them.
 - **JSON portability.** Use SQLAlchemy `JSON` (TEXT-backed on SQLite, native JSON on Postgres). Avoid Postgres-only types in the model so `create_all` works identically in dev SQLite and prod Neon. CHECK constraints declared in `__table_args__` are enforced by SQLite via the ORM and created by `create_all` on Postgres (no migration mirror needed *because there is no migration*; the facade comments about "must also be listed in the migration" pertain to the legacy alembic-on-main path and don't apply here).
+- **Lean on Postgres TOAST compression (prod) for the JSON parts.** On Neon, large `parts` values are stored out-of-line and LZ-compressed automatically (TOAST) — SQL-result tables compress roughly 3–5×, base64 ~20–25% — so the on-disk footprint sits well below the logical JSON size with zero app-side work. This is the **primary storage lever** for the per-message JSON design; treat explicit per-part byte caps / artifact externalization as a later refinement, reached for only if a single part routinely exceeds the TOAST sweet spot (e.g. inline base64 chart images from `generate_chart`). **Dev caveat:** SQLite (`penny_web.db`) does **not** auto-compress, so local DB files look larger than prod — don't size prod from dev observations.
 - **Backfill (optional, idempotent).** For pre-existing conversations that only live in `sessions.db`: a one-shot script `backend/scripts/backfill_conversations.py` that, per `session_id`, reads `session.get_messages()`, runs the *legacy* `messages_to_ui`, and inserts `conversation_messages` rows if none exist. Lossy for old tool outputs (that data is already gone), but recovers text/reasoning/tool-call structure. Gate with "skip if conversation already has rows."
 - **When alembic becomes necessary** (called out explicitly): `create_all` only *creates missing* tables/columns — it never alters existing ones. The first time we need to **change** a shipped column (add `user_id` to `conversations` after data exists, change a type, add a NOT NULL with backfill, add a CHECK to a populated table, rename), `create_all` cannot do it and we must introduce alembic (or a hand-rolled idempotent DDL step in `bootstrap`). Recommendation: ship these additive tables now without alembic; adopt alembic at the first non-additive change, and migrate the whole schema under it then.
 
@@ -176,9 +178,9 @@ Today `GET /api/sessions/{id}` reads the harness transcript via `messages_to_ui`
 
 - **Large tool payloads.** `structured_content` for SQL/chart tools can be large; storing verbatim per message could bloat rows. Mitigate: cap stored `output` size (e.g., truncate/elide with a `truncated: true` marker beyond N KB), matching the bridge's `default=str` "never kill the stream" philosophy. Default ~256 KB/part.
 - **PII + agent exfiltration of stored data.** Parts will contain real transaction amounts, merchants, and tool outputs. `email_receipts.subject/sender` PII rules say such fields must never surface in LLM responses — but tool *outputs* legitimately contain finance data the user is viewing. Two risks: at-rest exposure, and the agent reading its own past conversations back via `run_sql`. Mitigate by storing these rows in the website's separate schema/DB (§0.5) — reachable by the website, **outside the agent's `run_sql`**; never log `parts` payloads (the loguru file sink in `_logging` must not dump them); "delete conversation" must `CASCADE` (it does via FK) to truly remove the record.
-- **Ordering / concurrency.** `seq` allocation under a transaction prevents races; the app is effectively single-writer per conversation today, but the `COALESCE(MAX)+1` approach + per-conversation uniqueness on `client_message_id` keeps it safe.
+- **Ordering / concurrency.** `seq` allocation under a transaction prevents races; the app is effectively single-writer per conversation today, but the `COALESCE(MAX)+1` approach + per-conversation uniqueness on `ai_sdk_message_id` keeps it safe.
 - **Aborted-turn fidelity.** Client disconnect mid-stream must still flush a partial `aborted` row; ensure the flush path can't raise into the (already-closed) response and is covered by a test simulating early generator close.
-- **Idempotent replay.** A client re-POST or reconnect with the same `messageId` must upsert, not duplicate — enforced by the per-conversation unique `client_message_id`.
+- **Idempotent replay.** A client re-POST or reconnect with the same `messageId` must upsert, not duplicate — enforced by the per-conversation unique `ai_sdk_message_id`.
 
 ### Cross-dependencies (segregation watch-list)
 
@@ -199,10 +201,11 @@ Each of these is a place the agent and website domains could quietly recouple; t
 3. **`feat(api): MessageAccumulator + persist assistant turns at the bridge`** — accumulator + `stream_and_persist`; round-trip test (frames → accumulator → `conversation_to_ui` == streamed parts), including `tool-output-error` and stream `error`.
 4. **`feat(api): persist user message + finalize/abort handling in /api/chat`** — wire `ensure_conversation`/`append_user_message`; aborted-turn flush; disconnect test.
 5. **`feat(api): conversation_to_ui hydration + repoint GET /api/sessions`** — switch hydration to the faithful path; keep `messages_to_ui` as legacy fallback; hydration tests covering all part types (build on `9dac604`'s reasoning test).
-6. **`feat(api): conversation list/create/title endpoints`** — `GET/POST/PATCH /api/conversations`; derive title from first user message on finish.
-7. **`feat(web): conversation sidebar + repointed hydration`** — frontend list + "New chat" via API.
-8. **`chore(scripts): optional backfill from harness sessions.db`** — idempotent legacy import.
-9. **(doc note, not code) record the alembic trigger** — first non-additive change adopts alembic.
+6. **`feat(api): seed agent from app store + `persist_session=False`** — reverse-map stored `parts` → harness `Message`s and supply them as the run's initial messages (or via an in-memory session); construct the agent with `persist_session=False` so `sessions.db` stops accumulating. **This is the commit that flips the flag** — it must land together with the seeding so continuity moves from `sessions.db` to the app store with no gap. Test: a second turn sees the first turn's context with harness persistence off.
+7. **`feat(api): conversation list/create/title endpoints`** — `GET/POST/PATCH /api/conversations`; derive title from first user message on finish.
+8. **`feat(web): conversation sidebar + repointed hydration`** — frontend list + "New chat" via API.
+9. **`chore(scripts): optional backfill from harness sessions.db`** — idempotent legacy import.
+10. **(doc note, not code) record the alembic trigger** — first non-additive change adopts alembic.
 
 ---
 
