@@ -22,6 +22,12 @@ def bootstrap() -> None:
     db = get_db()
     db.create_schema()
     _seed_taxonomy_if_empty()
+    # Website-owned conversation store: a SEPARATE engine + schema/DB from the
+    # finance tables above (see api/persistence/engine.py). Kept a distinct
+    # call on a distinct metadata so neither schema leaks into the other.
+    from .api.persistence.engine import create_web_schema
+
+    create_web_schema()
 
 
 def _seed_taxonomy_if_empty() -> None:

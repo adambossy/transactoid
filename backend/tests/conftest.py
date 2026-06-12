@@ -15,12 +15,16 @@ def _reset_singletons() -> None:
     penny.services._rules_loader = None
     penny.services._persister = None
     penny.services._migrator = None
+    from penny.api.persistence.engine import reset_web_engine
+
+    reset_web_engine()
 
 
 @pytest.fixture
 def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Point the process-wide DB singleton at a fresh tmp SQLite file."""
+    """Point the process-wide finance + website DBs at fresh tmp SQLite files."""
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    monkeypatch.setenv("PENNY_WEB_DATABASE_URL", f"sqlite:///{tmp_path / 'web.db'}")
     _reset_singletons()
     yield
     _reset_singletons()
