@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
+import os from "node:os";
 
 // Frontend dev server proxies /api/* to the Python backend so the browser
 // talks to a single origin (no CORS) and cookies/streaming pass through.
@@ -12,7 +13,7 @@ const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 // uses internally. Set AGENT_UI_USE_VENDOR=1 to fall back to the vendored
 // tarball under node_modules (useful for CI / production builds).
 const AGENT_UI_SRC = path.resolve(
-  process.env.AGENT_UI_PATH ?? path.resolve(import.meta.dirname, "../../../../../agent-ui/packages/agent-ui"),
+  process.env.AGENT_UI_PATH ?? path.join(os.homedir(), "code/agent-ui/packages/agent-ui"),
   "src",
 );
 const useVendor = process.env.AGENT_UI_USE_VENDOR === "1";
