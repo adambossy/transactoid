@@ -25,30 +25,6 @@
       "last_hash": "sha256:6a48d23044f3cfadc088c2cb408b17ffcf6ec42c619451c1f9d17c8cc44d2322",
       "last_version": 2
     },
-    "report-weekly": {
-      "source_file": ".prompts/report-weekly/2.md",
-      "version_dir": ".prompts/report-weekly",
-      "last_hash": "sha256:1de44efe6c7741a32514a688289d3b6c50a40220bd78e9e2caf80944f5adb590",
-      "last_version": 2
-    },
-    "report-monthly": {
-      "source_file": ".prompts/report-monthly/2.md",
-      "version_dir": ".prompts/report-monthly",
-      "last_hash": "sha256:35ce7e34d185a780e23c6ba7fb9bb396a9ac4278755a378432ffb797dcea892a",
-      "last_version": 2
-    },
-    "report-annual": {
-      "source_file": ".prompts/report-annual/2.md",
-      "version_dir": ".prompts/report-annual",
-      "last_hash": "sha256:18be4feeef0304fe759b1e3349eac725f3eb7aafbe0e78ae3be3e0c756b53b58",
-      "last_version": 2
-    },
-    "report-daily": {
-      "source_file": ".prompts/report-daily/3.md",
-      "version_dir": ".prompts/report-daily",
-      "last_hash": "sha256:e5cabe49add6cea33db5726130d9b07304e710f58758de1fc8eeeb88bdaf3d20",
-      "last_version": 3
-    },
     "report-md-to-html": {
       "source_file": ".prompts/report-md-to-html/2.md",
       "version_dir": ".prompts/report-md-to-html",
