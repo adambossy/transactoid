@@ -263,16 +263,164 @@ Port `main`'s structure directly:
   correctly avoids the stale-ephemeral-image trap). The **`config.env`
   block is no longer hand-maintained**; it is generated (see next section).
 - **Command**: must invoke a real headless entry point. Today the branch
-  has none. Options (pick during implementation): add a Typer CLI to the
-  backend (`penny sync`, `penny run-scheduled-report`) that reuses the same
-  `tools/_services` the FastAPI tools call; **or** have the cron command
-  `curl` an authenticated backend endpoint that triggers the
-  sync+report flow. The first keeps cron self-contained (no running web
-  service dependency) and matches `main`; flag as the recommended path.
+  has none. The design — a Typer CLI (`penny run-scheduled-report`,
+  `penny run`, `penny sync`) — is specified in its own section below
+  ("Headless entry point"). The cron-manager (a deploy-domain artifact)
+  invokes that CLI as the container command, exactly as `main`'s
+  `schedules.json` invoked `/app/.venv/bin/transactoid run-scheduled-report`.
 
 **Build context** = repo root; **env contract** = the generated
 `config.env`, which is the cron deployable's slice of the same
 `PENNY_*` template.
+
+## Headless entry point
+
+The cron-manager's command must call something that runs the scheduled
+operations **without** a browser, a chat UI, or a live HTTP request. On
+`main` that something was the `transactoid` CLI; the rebuild has none. This
+section designs its replacement and pins down where it sits relative to the
+segregation rules — because a CLI that constructs and drives the agent is
+exactly the kind of thing those rules govern.
+
+### What the old cron actually invoked
+
+`main`'s `schedules.json` runs two commands (verified against
+`main:ops/cron-manager/schedules.json` and `main:src/transactoid/ui/cli.py`):
+
+- `transactoid run-scheduled-report` — daily 10:00 UTC. Picks the prompt key
+  by New-York-time precedence (`annual > monthly > weekly > daily`, via
+  `services/scheduled_reports.select_prompt_key`), then runs the agent on
+  that report prompt with `--email`/R2 output and `max_turns`.
+- `transactoid run --prompt-key report-weekly-jenny --email …` — weekly
+  Saturday. A plain "run the agent on this prompt key, email the result"
+  invocation.
+
+Both ultimately call one async core (`_agent_run_impl` on `main`):
+construct the agent + taxonomy, `await` a single agent run on a report
+prompt, then route the output (R2 upload + email). On this branch the same
+shape already exists, just split differently: the **agent** drives the
+report by invoking the `spending-report` skill and the delivery tools
+(`penny/tools/delivery.py` → R2 + `penny/services/email.py`). So a headless
+run does not need to re-implement report logic — it only needs to
+**construct the agent and drive it with the right prompt**, exactly as the
+web bridge does, minus the SSE translation.
+
+### Design: a Typer CLI (`backend/penny/cli.py`)
+
+Per the project convention in `AGENTS.local.md` ("new CLI entry points and
+any CLI refactors must use Typer"), the entry point is a Typer app at
+`backend/penny/cli.py`, exposed via `[project.scripts]` in
+`backend/pyproject.toml` (there is **none today**):
+
+```toml
+[project.scripts]
+penny = "penny.cli:main"
+```
+
+Commands (mirroring the two `main` cron invocations, plus sync):
+
+- `penny run-scheduled-report [--email <addr> ...] [--max-turns N]`
+  Picks the prompt key with the same NY-time precedence rule (port
+  `select_prompt_key`), then drives the agent on that prompt headlessly.
+  This is the daily-cron command.
+- `penny run --prompt-key <key> [--email <addr> ...] [--max-turns N]`
+  (and/or `--prompt "<text>"` for an ad-hoc run). Drives the agent on an
+  explicit report prompt key. This is the weekly-cron command
+  (`--prompt-key report-weekly-jenny --email …`).
+- `penny sync [--count N]` — runs the Plaid sync + categorize flow headless,
+  for any schedule that wants a fresh pull before reporting (wraps the same
+  `penny/tools/_services/sync_service.py` the `sync` tool calls). Include it
+  so a future "sync then report" schedule has a command; the old cron only
+  ran reports, so this is the one net-new operation.
+
+**How it drives the agent (no HTTP).** Each command:
+
+1. `load_dotenv(override=False)` once at the Typer entrypoint (project
+   convention), so `PENNY_*` + provider/DB secrets supplied by deploy are in
+   `os.environ`.
+2. `bootstrap()` (idempotent schema create + taxonomy seed) — the same call
+   `api/main.py` makes on FastAPI startup, since cron runs against the same
+   DB and must not assume the web service booted first.
+3. Build the agent via `agent_factory.build_agent(model=build_model(),
+   session=InMemorySession(...), persist_session=False)` — the **identical**
+   construction path the web bridge uses, so cron and chat run the same
+   tools, skills, system prompt, and model.
+4. `asyncio.run(agent.run(prompt=<report-or-sync prompt>))` — drive it
+   directly. No `event_bus`/SSE bridge is needed; the report's side effects
+   (R2 upload, email send) happen inside the agent's tool calls, exactly as
+   in an interactive run. The CLI's only post-run job is exit-code mapping
+   (non-zero on failure, like `main`'s `_agent_run_impl`).
+
+The CLI reuses `services/scheduled_reports.select_prompt_key` (port it onto
+the branch) and the existing report prompt keys (`report-weekly-jenny` is
+already present in `.prompts/`; add `report-daily`/`report-weekly`/
+`report-monthly`/`report-annual` as the precedence rule references them, or
+trim the precedence rule to the keys that exist — an implementation
+decision, not a deploy concern).
+
+### Where this sits in the segregation model
+
+The CLI is a **third front door** into the application, alongside
+`backend/penny/api/main.py` (the web/HTTP entrypoint). It is *app code*, not
+*deploy code*, and not *agent-internal*:
+
+- **It is an app entrypoint, not deploy infra.** It lives under `backend/`
+  (`penny/cli.py`), is pure Python, has no `fly.toml`/Dockerfile awareness,
+  and is independently runnable on a dev laptop (`uv run penny
+  run-scheduled-report`). It must **not** move into `deploy/` — deploy only
+  *invokes* it (via the cron container command), the same way it *invokes*
+  `uvicorn penny.api.main:app` for the backend service.
+- **It is allowed to construct and drive the agent** — that is precisely
+  what a front door does. `api/main.py`'s bridge already constructs the
+  agent via `agent_factory` and calls `agent.run(...)`; the CLI does the
+  same. So the CLI may import `agent_factory`, `bootstrap`, the services,
+  and the sandbox — the app-internal surface — without violating anything.
+- **It is NOT agent-internal.** It does **not** live under `penny/tools` or
+  `.agent/skills`, and the agent never calls it. Tools/skills are things the
+  agent invokes; the CLI is a thing that invokes the agent. Keeping it out
+  of `tools/`/`skills/` preserves the existing inbound boundary (front doors
+  drive the agent; the agent never drives a front door).
+- **Deploy → CLI is one-directional, like Deploy → App.** The cron-manager
+  (deploy domain) names the CLI in its container command
+  (`penny run-scheduled-report`); the CLI never names a deployable, reads a
+  `fly.toml`, or branches on "am I in cron?". The only runtime seam is still
+  the `PENNY_*` env contract — deploy supplies `PENNY_AGENT_*`,
+  `PENNY_WORKSPACE`, `DATABASE_URL`, provider/R2/Resend secrets via the
+  generated `config.env`; the CLI reads them through `config.py`/`os.environ`
+  exactly as the web service does. This adds **no new seam**: it is the same
+  env contract the backend deployable already depends on.
+
+So the dependency picture stays clean: `deploy/cron-manager` → (container
+command) → `penny.cli` → (constructs) → agent. One direction, no new
+coupling, and `penny.cli` sits beside `penny.api.main` as a peer entrypoint.
+
+### CLI vs. an authenticated trigger endpoint — recommendation
+
+**Recommend the Typer CLI.** The alternative is to expose an authenticated
+HTTP endpoint (e.g. `POST /api/internal/run-scheduled-report`) and have the
+cron command `curl` it. Weighing them:
+
+- **CLI (recommended).** Matches the `main` cron pattern verbatim (cron runs
+  a binary in its own ephemeral machine, no live service needed). Keeps the
+  cron-manager a **thin scheduler**: it boots a container, runs one command,
+  exits — `auto_destroy: true`, `restart.policy: "no"`, exactly as
+  `schedules.json` already specifies. No dependency on the backend web app
+  being up, scaled-from-zero, or reachable; no auth surface to build or
+  protect; failures surface as a non-zero exit the cron-manager already
+  understands. The cost is that the cron image must carry the full app +
+  deps (it already did on `main`).
+- **Trigger endpoint (not recommended now).** Would let cron be a pure
+  `curl` with a tiny image, but it (a) couples report runs to the web
+  service's availability and scaling policy, (b) needs a new authenticated
+  internal route + secret, contradicting the single-user "no auth" stance in
+  `AGENTS.md`, and (c) makes a long (up to 7200s) report run a long-lived
+  HTTP request behind Fly's proxy — fragile. It earns its keep only once the
+  app is multi-tenant and the web service is always-on; that is a
+  productionization concern, not this port.
+
+Net: the CLI is the lower-risk, history-faithful choice and keeps the
+cron-manager exactly as thin as it is on `main`. Revisit the endpoint when
+the productionization plan turns the backend always-on and authenticated.
 
 ## CI workflow rework (thin shim)
 
@@ -359,12 +507,14 @@ loop* but not a *production release*, it is dev-tooling and stays put.
 
 ## Risks / open questions
 
-1. **No headless entry point on the branch.** The cron-manager's whole
-   purpose is running `transactoid sync` / `run-scheduled-report`, which
-   don't exist in the rebuild. Resolving this (add a Typer CLI vs. an
-   authenticated trigger endpoint) is a **prerequisite** for the
-   cron-manager deployable, not an afterthought. The backend/frontend
-   deployables do not depend on it and can land first.
+1. **No headless entry point on the branch (now designed).** The
+   cron-manager's whole purpose is running `transactoid sync` /
+   `run-scheduled-report`, which don't exist in the rebuild. This is now
+   resolved by the **Headless entry point** section: a Typer CLI
+   (`backend/penny/cli.py`, recommended over a trigger endpoint) is its own
+   independent track (Track B) and a **prerequisite** for the cron-manager
+   deployable (Convergence). The backend/frontend deployables (Track A) do
+   not depend on it and can land first/in parallel.
 2. **Backend is now a persistent service, not a job.** `fly.toml` needs an
    `[http_service]`, health checks, and an autostop policy decision (always
    on vs. scale-to-zero). Cost/latency trade-off to confirm.
@@ -387,37 +537,133 @@ loop* but not a *production release*, it is dev-tooling and stays put.
    `matplotlib`, stagehand/Browserbase) — confirm all resolve on
    `python:3.13-slim`; may need extra apt build deps in the builder.
 
-## Commit sequence (small, reviewable)
+## Transition strategy (owner decisions)
 
-Each commit leaves the repo working; deploy artifacts are inert until the
-CI shim references them, so they can land incrementally.
+This port lands while the rebuild is still being polished, so the deploy
+story spans two lineages for a while. The owner has decided:
 
-1. **`docs: add deploy → app segregation clause`** — extend
-   `AGENTS.local.md` with the Deploy→App one-directional rule. (This plan
-   doc commit is separate and lands first.)
-2. **`chore(deploy): scaffold deploy/ domain + env template`** — create
-   `deploy/{backend,frontend,cron-manager,scripts,env}/`, add
-   `deploy/env/deploy.env.template` (single source of truth) and
-   `deploy/README.md` (the seam doc). No behavior yet.
-3. **`build(deploy): backend Dockerfile + fly.toml`** — port + adapt the
-   multistage build for the FastAPI service (3.13 base, uvicorn entrypoint,
-   HTTP service), plus `deploy/backend/.dockerignore`. Include the
-   `agent-harness` git-source resolution for the container build.
-4. **`build(deploy): frontend Dockerfile + fly.toml`** — Vite build
-   (`AGENT_UI_USE_VENDOR=1`) → static serve; `.dockerignore`.
-5. **`build(deploy): cron-manager Dockerfile + fly.toml + schedules.json`**
-   — port the cron-manager app; `schedules.json` carries only
-   schedule-specific fields (no model env). Depends on the headless
-   entry-point decision (open question 1) — may be split behind it.
-6. **`chore(deploy): port + adapt deploy scripts`** — `deploy_backend.sh`,
-   `deploy_frontend.sh`, `sync_cron_manager.sh` (image/volume render
-   retained), `render_cron_env.sh` (NEW, generates `config.env` from the
-   template), `seed_workspace_volume.sh`.
-7. **`ci: thin deploy workflow shim`** — `.github/workflows/deploy.yml`
-   that only sets up the environment and calls `deploy/scripts/*.sh`.
-8. **(follow-up) `test: guardrail for deploy↔app boundary`** — assert no
-   module under `backend/` or `frontend/` imports `deploy/` or reads a
-   `fly.toml`, mirroring the existing website↔agent guardrail test.
+- **Deploys for the new version may be down during the supersede.** It is
+  acceptable that the *rebuilt* backend/frontend/cron are not continuously
+  deployable while this plan's tracks land and stabilize. We are not racing
+  a zero-downtime cutover here.
+- **The old `main` cron keeps running, untouched.** The existing
+  `transactoid-cron-manager` Fly app continues to run off the legacy/archived
+  branch (the pinned `registry.fly.io/transactoid:deployment-…` image its
+  `schedules.json` already references) — **no teardown** — so scheduled
+  reports keep landing in the user's inbox while the new cron-manager
+  (Convergence, below) is finished. We stand up the *new* cron-manager
+  beside it and only retire the old app once the new one is verified.
+- **Preserve `main`'s history via a history-preserving supersede.** When the
+  rebuild is ready to become `main`, archive the current `main` to a
+  `legacy/<date>-transactoid` branch **and** an annotated tag, then merge the
+  rebuild into `main` with a **no-force `-s ours`** merge so both lineages
+  stay reachable. Do **not** force-reset `main`. (Full runbook is out of
+  scope for this plan — this note only frames why the tracks below can land
+  independently and why the cron-manager convergence is not on the critical
+  path for keeping reports flowing.)
+
+## Commit sequence — parallel tracks
+
+The work fans out into **two independent tracks plus a convergence point**,
+so a multi-agent execution can run Tracks A and B concurrently. Each commit
+leaves the repo working; deploy artifacts are inert until the CI shim
+references them, so they land incrementally within a track.
+
+**Track A and Track B share no files and have no ordering dependency** —
+Track A is `deploy/` + CI scaffolding only; Track B is pure app code under
+`backend/`. The cron-manager deployable is the single **Convergence** point:
+it needs Track A's `deploy/` scaffolding *and* Track B's CLI (the command it
+invokes), so it lands only after both.
+
+### Prelude (lands first, blocks nothing)
+
+- **P1 — `docs: add deploy → app segregation clause`** — extend
+  `AGENTS.local.md` with the Deploy→App one-directional rule (and the
+  CLI-is-a-front-door clarification: the Typer CLI is an app entrypoint that
+  may drive the agent, never agent-internal). *Track: shared prelude.
+  Depends on: nothing.* (This plan doc commit is separate and already
+  landed.)
+
+### Track A — `deploy/` scaffolding + backend & frontend deployables
+
+*Pure `deploy/` + repo-root CI. Touches no `backend/`/`frontend/` app code
+except the `agent-harness` source-resolution fix in `pyproject.toml`/lock.
+Runs fully in parallel with Track B.*
+
+- **A1 — `chore(deploy): scaffold deploy/ domain + env template`** — create
+  `deploy/{backend,frontend,cron-manager,scripts,env}/`, add
+  `deploy/env/deploy.env.template` (single source of truth) and
+  `deploy/README.md` (the seam doc). No behavior yet.
+  *Depends on: P1 (clause), else nothing.*
+- **A2 — `build(deploy): backend Dockerfile + fly.toml`** — port + adapt the
+  multistage build for the FastAPI service (3.13 base, uvicorn entrypoint,
+  HTTP service), plus `deploy/backend/.dockerignore`. Include the
+  `agent-harness` git-source resolution for the container build (the only
+  app-tree touch: `pyproject.toml`/lock).
+  *Depends on: A1.*
+- **A3 — `build(deploy): frontend Dockerfile + fly.toml`** — Vite build
+  (`AGENT_UI_USE_VENDOR=1`) → static serve; `.dockerignore`.
+  *Depends on: A1 (parallel with A2).*
+- **A4 — `chore(deploy): port + adapt deploy scripts`** — `deploy_backend.sh`,
+  `deploy_frontend.sh`, `render_cron_env.sh` (NEW, generates `config.env`
+  from the template), `seed_workspace_volume.sh`. (`sync_cron_manager.sh`
+  lands at Convergence with the cron deployable.)
+  *Depends on: A1; A2/A3 for the scripts they invoke.*
+- **A5 — `ci: thin deploy workflow shim`** — `.github/workflows/deploy.yml`
+  that only sets up the environment and calls `deploy/scripts/*.sh` (backend
+  + frontend; the cron-manager step is wired at Convergence).
+  *Depends on: A4.*
+
+### Track B — headless Typer CLI entry point
+
+*Pure app code under `backend/`. Touches no `deploy/` file. Runs fully in
+parallel with Track A and is independently testable (`uv run penny
+run-scheduled-report` against the test DB).*
+
+- **B1 — `feat(cli): port scheduled-report selection`** — port
+  `services/scheduled_reports.select_prompt_key` (NY-time precedence) onto
+  the branch and reconcile the report prompt keys it references with what
+  exists in `.prompts/`.
+  *Depends on: nothing.*
+- **B2 — `feat(cli): headless Typer entrypoint`** — add
+  `backend/penny/cli.py` (`run-scheduled-report`, `run`, `sync`) wired via
+  `[project.scripts] penny = "penny.cli:main"`. Each command
+  `load_dotenv` → `bootstrap()` → `build_agent(persist_session=False)` →
+  `asyncio.run(agent.run(...))`, with exit-code mapping. Reuses
+  `agent_factory`, the services, and `sync_service`.
+  *Depends on: B1.*
+- **B3 — `test(cli): scheduled-report selection + entrypoint smoke`** — unit
+  test `select_prompt_key` precedence and a smoke test that the CLI
+  constructs the agent and drives a stubbed run (no live model/email).
+  *Depends on: B2.*
+
+### Convergence — cron-manager deployable
+
+*Depends on BOTH Track A (the `deploy/` scaffolding + scripts) AND Track B
+(the `penny` CLI its container command invokes).*
+
+- **C1 — `build(deploy): cron-manager Dockerfile + fly.toml + schedules.json`**
+  — port the cron-manager app; `schedules.json` carries only
+  schedule-specific fields (no model env) and a command of
+  `penny run-scheduled-report` / `penny run --prompt-key … --email …`.
+  *Depends on: A2 (the app image the cron pins), B2 (the CLI command).*
+- **C2 — `chore(deploy): sync_cron_manager.sh + CI cron step`** — add
+  `sync_cron_manager.sh` (image/volume render retained from `main`) and wire
+  the cron step into `deploy.yml`.
+  *Depends on: C1, A4, A5.*
+
+### Follow-up (after either track)
+
+- **F1 — `test: guardrail for deploy↔app boundary`** — assert no module
+  under `backend/` or `frontend/` imports `deploy/` or reads a `fly.toml`,
+  and that `penny/cli.py` is not imported by anything under `penny/tools` or
+  `.agent/skills` (the CLI-is-a-front-door, not agent-internal, invariant),
+  mirroring the existing website↔agent guardrail test.
+  *Depends on: A1 + B2 existing.*
+
+Critical path to "new cron-manager deployable exists": P1 → (A1→A2) ‖
+(B1→B2) → C1 → C2. Backend and frontend deployables (A2/A3) can ship the
+moment Track A reaches them, independent of Track B.
 
 ### Why same-repo, not a separate package
 
