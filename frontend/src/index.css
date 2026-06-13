@@ -1,10 +1,16 @@
 @import "tailwindcss";
 @import "@adambossy/agent-ui/styles.css";
 
-/* Let Tailwind generate the utility classes the library's components use.
-   Source-aliased to the local agent-ui checkout (see vite.config.ts) so
-   edits there hot-reload here. */
-@source "/Users/adambossy/code/agent-ui/packages/agent-ui/src";
+/* Tailwind must scan agent-ui's class names to generate the utilities its
+   components use (rounded-2xl, border, bg-card, shadow-sm, ...). Scan the
+   INSTALLED package: it's present both in the prod container (vendored tarball
+   via `npm ci`) and locally (the `file:` dep), so the build is portable —
+   unlike a path into the ~/code/agent-ui checkout, which does not exist in CI. */
+@source "../node_modules/@adambossy/agent-ui";
+/* Also scan the local source checkout when present, so edits to agent-ui
+   components hot-reload NEW classes during dev. Resolves only in the sibling
+   checkout layout; Tailwind harmlessly ignores it when absent (e.g. in CI). */
+@source "../../../agent-ui/packages/agent-ui/src";
 
 html,
 body,
