@@ -3312,6 +3312,35 @@ class DB:
                 entry["verified_count"] += count
         return sorted(dist.values(), key=lambda e: e["count"], reverse=True)
 
+    @contextmanager
+    def try_advisory_lock(self, key: int) -> Iterator[bool]:
+        """Best-effort run-level lock. Yields True if acquired, False if already held.
+
+        Uses a Postgres session-level advisory lock (held on a dedicated connection
+        for the duration of the ``with`` block). On SQLite (single-user dev) this is
+        a no-op that always yields True.
+        """
+        if self._engine.dialect.name != "postgresql":
+            yield True
+            return
+        conn = self._engine.connect()
+        try:
+            acquired = bool(
+                conn.execute(
+                    text("SELECT pg_try_advisory_lock(:k)"), {"k": key}
+                ).scalar()
+            )
+            if not acquired:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": key})
+                conn.commit()
+        finally:
+            conn.close()
+
     def tags_for_transactions(self, transaction_ids: list[int]) -> dict[int, list[str]]:
         """Map each transaction id to its tag names (empty list if untagged)."""
         result: dict[int, list[str]] = {tid: [] for tid in transaction_ids}

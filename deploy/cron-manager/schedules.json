@@ -1,8 +1,8 @@
 [
   {
-    "name": "penny-sync-nightly-0700-utc",
+    "name": "penny-sync-hourly",
     "app_name": "penny",
-    "schedule": "0 7 * * *",
+    "schedule": "0 * * * *",
     "region": "iad",
     "command": "-lc '/app/.venv/bin/penny sync'",
     "command_timeout": 7200,
