@@ -48,6 +48,12 @@
       "version_dir": ".prompts/sql-directives-sqlite",
       "last_hash": "sha256:b278b4ef1a54309b60974983a55d2db6ba0daf2a4dc6f328b7fa4f8444842937",
       "last_version": 1
+    },
+    "categorize-transaction-agent": {
+      "source_file": ".prompts/categorize-transaction-agent/1.md",
+      "version_dir": ".prompts/categorize-transaction-agent",
+      "last_hash": "sha256:81da08961fed4054bc2d07974b3d4a02abc0303f2d2a272c87e1f1a83fd6cc0a",
+      "last_version": 1
     }
   }
 }

@@ -2143,6 +2143,7 @@ class DB:
                     "amount_cents",
                     "merchant_descriptor",
                     "web_search_summary",
+                    "is_verified",
                 ):
                     setattr(derived_txn, key, value)
 
