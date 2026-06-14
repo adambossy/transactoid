@@ -1,38 +1,50 @@
 # Penny Migration Chain
 
-The penny schema baseline predates this migration chain (bootstrapped via
-`create_schema()` / `Base.metadata.create_all`). These migrations assume the
-baseline tables (`merchants`, `categories`, `plaid_transactions`,
-`derived_transactions`, etc.) already exist.
-
-## Existing database (e.g., Neon)
-
-```bash
-# Tell Alembic the baseline exists without running any migrations
-alembic stamp base
-
-# Apply all migrations in this chain
-alembic upgrade head
-```
+The chain is now self-contained: `000_baseline_schema` is the root revision and
+creates the baseline tables (`merchants`, `categories`, `plaid_transactions`,
+`derived_transactions`, etc.). Migrations `001`–`005` build on top of it.
+`alembic upgrade head` from an empty database reproduces exactly what
+`Base.metadata.create_all` (`DB.create_schema`) produces.
 
 ## Fresh database
 
+Either path works and yields the same schema:
+
+```bash
+# Option A — build the whole schema through Alembic
+alembic upgrade head
+```
+
 ```python
-# create_schema() now includes these tables — run it first
+# Option B — create_all + stamp (this is what bootstrap() does on startup)
 from penny.db import get_db
 get_db().create_schema()
 ```
+```bash
+alembic stamp head
+```
 
-Then stamp so Alembic knows the state:
+Note: `bootstrap()` still calls `create_schema()` (idempotent) on every backend
+startup, so a server-managed DB is already at the full schema. Run
+`alembic stamp head` once to record that for future migrations.
+
+## Existing database already on the full schema (e.g., prod Neon)
+
+A DB created via `create_all` already has every baseline table, so do **not**
+run the baseline against it. Just record that it is current:
 
 ```bash
 alembic stamp head
 ```
 
+Do **not** `alembic stamp base` then `alembic upgrade head` — the baseline would
+try to recreate existing tables and fail.
+
 ## Migration chain
 
 | Revision | Description |
 |----------|-------------|
+| 000 | Baseline schema — create the 11 pre-001 tables (root revision) |
 | 001 | Add transaction_items table and split provenance columns to derived_transactions |
 | 002 | Add email_receipts and pending_receipt_matches tables |
 | 003 | Add refund linkage columns to derived_transactions |

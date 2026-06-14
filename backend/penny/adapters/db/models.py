@@ -188,6 +188,14 @@ class DerivedTransaction(Base):
             "AND refund_matched_at IS NOT NULL)",
             name="ck_derived_transactions_refund_consistency",
         ),
+        # Partial index: efficient lookup of all refunds for a given original.
+        # Mirrors migration 003 (idx_derived_transactions_refund_of_transaction_id).
+        Index(
+            "idx_derived_transactions_refund_of_transaction_id",
+            "refund_of_transaction_id",
+            postgresql_where=text("refund_of_transaction_id IS NOT NULL"),
+            sqlite_where=text("refund_of_transaction_id IS NOT NULL"),
+        ),
     )
 
     transaction_id: Mapped[int] = mapped_column(
@@ -533,6 +541,8 @@ class TransactionItem(Base):
             "itemization_source IN ('amazon_scrape', 'email_receipt', 'manual')",
             name="ck_transaction_items_itemization_source",
         ),
+        # Mirrors migration 001 (idx_transaction_items_transaction_id).
+        Index("idx_transaction_items_transaction_id", "transaction_id"),
     )
 
     item_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -571,11 +581,17 @@ class EmailReceipt(Base):
     """
 
     __tablename__ = "email_receipts"
+    # Mirrors migration 002 (uq_email_receipts_message_id +
+    # idx_email_receipts_received_at).
+    __table_args__ = (
+        UniqueConstraint("message_id", name="uq_email_receipts_message_id"),
+        Index("idx_email_receipts_received_at", "received_at"),
+    )
 
     receipt_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
-    message_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    message_id: Mapped[str] = mapped_column(Text, nullable=False)
     subject: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     sender: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     received_at: Mapped[datetime | None] = mapped_column(
@@ -671,6 +687,9 @@ class PendingReceiptMatch(Base):
             "candidate_txn_id",
             name="uq_pending_receipt_matches_message_candidate",
         ),
+        # Mirror migration 002 indexes.
+        Index("idx_pending_receipt_matches_status_created_at", "status", "created_at"),
+        Index("idx_pending_receipt_matches_candidate_txn_id", "candidate_txn_id"),
     )
 
     pending_id: Mapped[int] = mapped_column(
