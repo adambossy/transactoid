@@ -9,6 +9,7 @@ import smtplib
 import time
 from typing import Any, cast
 
+from loguru import logger
 import resend
 
 
@@ -105,25 +106,46 @@ class EmailService:
         for attempt in range(max_retries):
             try:
                 if self._provider == "smtp":
-                    return self._send_report_smtp(
+                    result = self._send_report_smtp(
                         to=to,
                         subject=subject,
                         html_content=html_content,
                         text_content=text_content,
                     )
-
-                return self._send_report_resend(
+                else:
+                    result = self._send_report_resend(
+                        to=to,
+                        subject=subject,
+                        html_content=html_content,
+                        text_content=text_content,
+                    )
+                logger.bind(
+                    provider=self._provider,
                     to=to,
-                    subject=subject,
-                    html_content=html_content,
-                    text_content=text_content,
+                    message_id=result.message_id,
+                    error=result.error,
+                ).info(
+                    "Report email {} via {} to {} (id={}, err={})",
+                    "sent" if result.success else "FAILED",
+                    self._provider,
+                    ", ".join(to),
+                    result.message_id,
+                    result.error,
                 )
+                return result
             except Exception as e:
                 if attempt < max_retries - 1:
                     # Exponential backoff: 1s, 2s, 4s
                     time.sleep(2**attempt)
                     continue
 
+                logger.bind(provider=self._provider, to=to).error(
+                    "Report email failed after {} attempts via {} to {}: {}",
+                    max_retries,
+                    self._provider,
+                    ", ".join(to),
+                    e,
+                )
                 return EmailResult(
                     success=False,
                     message_id=None,
