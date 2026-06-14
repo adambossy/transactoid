@@ -120,6 +120,17 @@ Run these before completing any unit of work. There is no mypy gate yet.
   branches off `main` (`<type>/<description>`, in a `.worktrees/<branch>`
   worktree) and merge them back into `main` — there is **no** `develop` /
   integration branch.
+- **Observability (Langfuse)**: Penny uses **Langfuse** for all agent/LLM
+  tracing. `penny.observability` is OpenTelemetry tracing exported
+  to Langfuse over OTLP. The agent loop (chat + cron) is traced entirely by
+  agent-harness's `OTELSubscriber` (an `EventBus` subscriber emitting GenAI
+  semantic-convention spans) — Penny only wires the OTLP exporter and attaches
+  the subscriber (`start_run_trace_task`). The categorizer (which bypasses the
+  bus, calling the OpenAI/Gemini SDKs directly) is traced with the
+  `categorizer_span` / `llm_generation` OTEL helpers. It's vendor-neutral:
+  repoint the exporter at any OTLP backend. Turns on automatically when
+  `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` are set (toggle via
+  `PENNY_LANGFUSE_ENABLED`); strict no-op otherwise. See `.env.example`.
 
 ## Gotchas
 

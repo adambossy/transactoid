@@ -18,6 +18,7 @@ from promptorium.storage import FileSystemPromptStorage
 from promptorium.util.repo_root import find_repo_root
 from pydantic import BaseModel, Field
 
+from penny import observability
 from penny.adapters.cache.file_cache import FileCache, stable_key
 from penny.adapters.clients.plaid_models import Transaction
 from penny.config import load_runtime_config_from_env
@@ -28,6 +29,30 @@ from penny.utils.yaml import dump_yaml_basic
 if TYPE_CHECKING:
     from google.genai.client import Client as GeminiClient
     from google.genai.types import GenerateContentConfig
+
+
+def _openai_usage(resp: object) -> dict[str, int] | None:
+    """Map an OpenAI Responses ``usage`` object to Langfuse ``usage_details``."""
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return None
+    in_tokens = getattr(usage, "input_tokens", None)
+    out_tokens = getattr(usage, "output_tokens", None)
+    if in_tokens is None and out_tokens is None:
+        return None
+    return {"input": in_tokens or 0, "output": out_tokens or 0}
+
+
+def _gemini_usage(response: object) -> dict[str, int] | None:
+    """Map a Gemini ``usage_metadata`` to Langfuse ``usage_details``."""
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return None
+    in_tokens = getattr(meta, "prompt_token_count", None)
+    out_tokens = getattr(meta, "candidates_token_count", None)
+    if in_tokens is None and out_tokens is None:
+        return None
+    return {"input": in_tokens or 0, "output": out_tokens or 0}
 
 
 def _import_gemini_client_class() -> type[GeminiClient]:
@@ -364,30 +389,40 @@ class Categorizer:
         # Create logging session
         session_id = self._api_logger.create_session()
 
-        # If no batch size specified, process all transactions in one batch
-        if batch_size is None or batch_size >= len(txn_list):
-            return await self._categorize_batch(
-                txn_list, session_id=session_id, batch_idx=0
-            )
+        # Group every per-batch LLM generation under one Langfuse trace
+        # (no-op when tracing is disabled). The current-context span propagates
+        # into the concurrent gather() batches so each generation nests here.
+        with observability.categorizer_span(
+            "categorize-transactions",
+            input={"transaction_count": len(txn_list)},
+            session_id=session_id,
+            metadata={"provider": self._provider, "model": self._model},
+        ):
+            # If no batch size specified, process all transactions in one batch
+            if batch_size is None or batch_size >= len(txn_list):
+                return await self._categorize_batch(
+                    txn_list, session_id=session_id, batch_idx=0
+                )
 
-        # Split into batches and process concurrently with semaphore limiting
-        batches = [
-            txn_list[i : i + batch_size] for i in range(0, len(txn_list), batch_size)
-        ]
-        self._logger.batch_start(len(txn_list), len(batches), self._max_concurrency)
+            # Split into batches and process concurrently with semaphore limiting
+            batches = [
+                txn_list[i : i + batch_size]
+                for i in range(0, len(txn_list), batch_size)
+            ]
+            self._logger.batch_start(len(txn_list), len(batches), self._max_concurrency)
 
-        tasks = [
-            self._categorize_batch(batch, session_id=session_id, batch_idx=idx)
-            for idx, batch in enumerate(batches)
-        ]
-        batch_results = await asyncio.gather(*tasks)
+            tasks = [
+                self._categorize_batch(batch, session_id=session_id, batch_idx=idx)
+                for idx, batch in enumerate(batches)
+            ]
+            batch_results = await asyncio.gather(*tasks)
 
-        # Flatten results
-        all_categorized: list[CategorizedTransaction] = []
-        for result in batch_results:
-            all_categorized.extend(result)
+            # Flatten results
+            all_categorized: list[CategorizedTransaction] = []
+            for result in batch_results:
+                all_categorized.extend(result)
 
-        return all_categorized
+            return all_categorized
 
     async def categorize_constrained(
         self,
@@ -428,38 +463,50 @@ class Categorizer:
         # Create logging session
         session_id = self._api_logger.create_session()
 
-        # If no batch size specified, process all transactions in one batch
-        if batch_size is None or batch_size >= len(txn_list):
-            return await self._categorize_batch_constrained(
-                txn_list,
-                allowed_category_keys,
-                session_id=session_id,
-                batch_idx=0,
-            )
+        # Group every per-batch LLM generation under one Langfuse trace
+        # (no-op when tracing is disabled).
+        with observability.categorizer_span(
+            "categorize-transactions-constrained",
+            input={
+                "transaction_count": len(txn_list),
+                "allowed_category_keys": allowed_category_keys,
+            },
+            session_id=session_id,
+            metadata={"provider": self._provider, "model": self._model},
+        ):
+            # If no batch size specified, process all transactions in one batch
+            if batch_size is None or batch_size >= len(txn_list):
+                return await self._categorize_batch_constrained(
+                    txn_list,
+                    allowed_category_keys,
+                    session_id=session_id,
+                    batch_idx=0,
+                )
 
-        # Split into batches and process concurrently with semaphore limiting
-        batches = [
-            txn_list[i : i + batch_size] for i in range(0, len(txn_list), batch_size)
-        ]
-        self._logger.batch_start(len(txn_list), len(batches), self._max_concurrency)
+            # Split into batches and process concurrently with semaphore limiting
+            batches = [
+                txn_list[i : i + batch_size]
+                for i in range(0, len(txn_list), batch_size)
+            ]
+            self._logger.batch_start(len(txn_list), len(batches), self._max_concurrency)
 
-        tasks = [
-            self._categorize_batch_constrained(
-                batch,
-                allowed_category_keys,
-                session_id=session_id,
-                batch_idx=idx,
-            )
-            for idx, batch in enumerate(batches)
-        ]
-        batch_results = await asyncio.gather(*tasks)
+            tasks = [
+                self._categorize_batch_constrained(
+                    batch,
+                    allowed_category_keys,
+                    session_id=session_id,
+                    batch_idx=idx,
+                )
+                for idx, batch in enumerate(batches)
+            ]
+            batch_results = await asyncio.gather(*tasks)
 
-        # Flatten results
-        all_categorized: list[CategorizedTransaction] = []
-        for result in batch_results:
-            all_categorized.extend(result)
+            # Flatten results
+            all_categorized: list[CategorizedTransaction] = []
+            for result in batch_results:
+                all_categorized.extend(result)
 
-        return all_categorized
+            return all_categorized
 
     async def _categorize_batch_constrained(
         self,
@@ -673,13 +720,18 @@ class Categorizer:
                 # Responses API uses text.format instead of response_format
                 response_schema = self._build_response_schema(valid_keys)
                 extra_body = {"text": {"format": response_schema}}
-            resp = await self._openai_client.responses.create(
-                model=self._model,
-                input=prompt,
-                tools=[{"type": "web_search"}],
-                extra_body=extra_body,
-            )
-            return self._extract_response_text(resp)
+            with observability.llm_generation(
+                f"categorize:{self._model}", model=self._model, input=prompt
+            ) as gen:
+                resp = await self._openai_client.responses.create(
+                    model=self._model,
+                    input=prompt,
+                    tools=[{"type": "web_search"}],
+                    extra_body=extra_body,
+                )
+                text = self._extract_response_text(resp)
+                gen.update(output=text, usage_details=_openai_usage(resp))
+                return text
 
     async def _call_gemini_api(
         self, prompt: str, *, valid_keys: list[str] | None = None
@@ -704,12 +756,17 @@ class Categorizer:
                 response_json_schema=schema,
             )
 
-            response = await self._gemini_client.aio.models.generate_content(
-                model=self._model,
-                contents=prompt,
-                config=config,
-            )
-            return self._extract_gemini_response_text(response)
+            with observability.llm_generation(
+                f"categorize:{self._model}", model=self._model, input=prompt
+            ) as gen:
+                response = await self._gemini_client.aio.models.generate_content(
+                    model=self._model,
+                    contents=prompt,
+                    config=config,
+                )
+                text = self._extract_gemini_response_text(response)
+                gen.update(output=text, usage_details=_gemini_usage(response))
+                return text
 
     def _extract_response_text(self, resp: object) -> str:
         """Extract text from OpenAI response object."""

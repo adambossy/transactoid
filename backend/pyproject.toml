@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-dotenv>=1.0",
-    "agent-harness[anthropic,openai,google] @ git+https://github.com/adambossy/agent-harness.git@461bcd1439d32b73d41584fa59802e3657a71f10",
+    "agent-harness[anthropic,openai,google,otel] @ git+https://github.com/adambossy/agent-harness.git@47228dd085202424157f0ffb65c2114c250b7d48",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
     "pyyaml>=6.0",
@@ -19,6 +19,11 @@ dependencies = [
     "resend>=0.9",
     "alembic>=1.18.4",
     "typer>=0.12",
+    # Vendor-neutral OTEL tracing exported to Langfuse over OTLP (see
+    # penny.observability). agent-harness[otel] provides the API+SDK used by
+    # its OTELSubscriber; the exporter ships spans to Langfuse's OTLP endpoint.
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
 ]
 
 [project.scripts]

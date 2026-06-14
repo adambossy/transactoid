@@ -93,8 +93,12 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
     system prompt, and model. No event bus / SSE bridge is needed; the run's
     side effects happen inside the agent's tool calls.
     """
+    import contextlib
+
+    from agent_harness.core.events import InMemoryEventBus
     from agent_harness.sessions.inmemory import InMemorySession
 
+    from penny import observability
     from penny.agent_factory import build_agent, build_model
 
     session = InMemorySession(session_id=f"cli-{datetime.now(UTC):%Y%m%d%H%M%S}")
@@ -103,7 +107,23 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
     # cron command line; the harness loop is currently bounded by the model
     # producing a final output. Logged so the value is visible in cron logs.
     logger.bind(max_turns=max_turns).info("Driving headless agent run")
-    result = await agent.run(prompt_text)
+
+    # Only stand up an EventBus when Langfuse is on — chat uses one for the SSE
+    # bridge, but cron has no other consumer, so keep the no-trace path bus-free.
+    bus = InMemoryEventBus() if observability.is_enabled() else None
+    trace_task = observability.start_run_trace_task(
+        bus, source="cron", session_id=session.session_id, prompt=prompt_text
+    )
+    try:
+        result = await agent.run(prompt_text, event_bus=bus)
+    finally:
+        if bus is not None:
+            await bus.close()
+        if trace_task is not None:
+            with contextlib.suppress(Exception):
+                await trace_task
+        # Short-lived process: flush buffered spans before the loop tears down.
+        observability.flush()
     return result.output is not None
 
 
