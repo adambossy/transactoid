@@ -6,11 +6,20 @@ from agent_harness import StaticToolset
 from agent_harness.core.toolsets import Toolset
 
 from .analytics import generate_chart, run_sql
+from .audit import (
+    category_history,
+    find_similar_tagged_transactions,
+    transaction_tags,
+)
 from .bash import bash
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
 from .plaid import connect_new_account, list_plaid_accounts
-from .recategorize import recategorize_merchant, tag_transactions
+from .recategorize import (
+    recategorize_merchant,
+    recategorize_transaction,
+    tag_transactions,
+)
 from .sign_conventions import (
     list_sign_conventions,
     re_derive_account,
@@ -31,6 +40,7 @@ def build_toolset() -> Toolset:
             sync_transactions,
             # Mutations
             recategorize_merchant,
+            recategorize_transaction,
             tag_transactions,
             migrate_taxonomy,
             split_transaction,
@@ -42,6 +52,10 @@ def build_toolset() -> Toolset:
             # Analytics
             run_sql,
             generate_chart,
+            # Audit / history (read-only)
+            category_history,
+            transaction_tags,
+            find_similar_tagged_transactions,
             # Delivery
             upload_artifact_to_r2,
             send_email_report,

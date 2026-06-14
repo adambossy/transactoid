@@ -3117,3 +3117,249 @@ class DB:
             )
             session.flush()
             return int(deleted)
+
+    # ------------------------------------------------------------------
+    # Categorization read API (events, history, tags)
+    #
+    # All methods return plain JSON-serializable dicts/lists (never detached
+    # ORM rows) so the categorizer agent's tools and the system-prompt
+    # injection can use them after the session closes without risking
+    # DetachedInstanceError.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _category_event_to_dict(
+        event: TransactionCategoryEvent,
+        merchant_descriptor: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "event_id": event.event_id,
+            "transaction_id": event.transaction_id,
+            "merchant_descriptor": merchant_descriptor,
+            "from_category_key": event.from_category_key,
+            "to_category_key": event.to_category_key,
+            "method": event.method,
+            "model": event.model,
+            "recategorization_reason": event.recategorization_reason,
+            "categorization_reasoning": event.categorization_reasoning,
+            "created_at": (event.created_at.isoformat() if event.created_at else None),
+        }
+
+    def recent_category_events(
+        self, limit: int = 20, *, method: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the most recent category-change events (newest first)."""
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(
+                    TransactionCategoryEvent,
+                    DerivedTransaction.merchant_descriptor,
+                )
+                .join(
+                    DerivedTransaction,
+                    TransactionCategoryEvent.transaction_id
+                    == DerivedTransaction.transaction_id,
+                )
+                .order_by(
+                    TransactionCategoryEvent.created_at.desc(),
+                    TransactionCategoryEvent.event_id.desc(),
+                )
+            )
+            if method is not None:
+                query = query.filter(TransactionCategoryEvent.method == method)
+            rows = query.limit(limit).all()
+            return [
+                self._category_event_to_dict(event, descriptor)
+                for event, descriptor in rows
+            ]
+
+    def events_for_merchant(
+        self, merchant_id: int, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Return category-change events for a merchant's transactions (newest first)."""
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(
+                    TransactionCategoryEvent,
+                    DerivedTransaction.merchant_descriptor,
+                )
+                .join(
+                    DerivedTransaction,
+                    TransactionCategoryEvent.transaction_id
+                    == DerivedTransaction.transaction_id,
+                )
+                .filter(DerivedTransaction.merchant_id == merchant_id)
+                .order_by(
+                    TransactionCategoryEvent.created_at.desc(),
+                    TransactionCategoryEvent.event_id.desc(),
+                )
+                .limit(limit)
+                .all()
+            )
+            return [
+                self._category_event_to_dict(event, descriptor)
+                for event, descriptor in rows
+            ]
+
+    def events_for_transaction(self, transaction_id: int) -> list[dict[str, Any]]:
+        """Return the full category-change history of one transaction (oldest first)."""
+        with self.session() as session:  # type: Session
+            events = (
+                session.query(TransactionCategoryEvent)
+                .filter(TransactionCategoryEvent.transaction_id == transaction_id)
+                .order_by(
+                    TransactionCategoryEvent.created_at.asc(),
+                    TransactionCategoryEvent.event_id.asc(),
+                )
+                .all()
+            )
+            return [self._category_event_to_dict(event) for event in events]
+
+    def verified_category_for_descriptor(self, descriptor: str) -> str | None:
+        """Most recent VERIFIED category key for an exact merchant descriptor.
+
+        Powers the categorization fast path: an exact descriptor that already has
+        a verified categorization is reused with confidence 1.0 and no LLM call.
+        """
+        if not descriptor:
+            return None
+        with self.session() as session:  # type: Session
+            row = (
+                session.query(Category.key)
+                .join(
+                    DerivedTransaction,
+                    DerivedTransaction.category_id == Category.category_id,
+                )
+                .filter(
+                    DerivedTransaction.merchant_descriptor == descriptor,
+                    DerivedTransaction.is_verified.is_(True),
+                )
+                .order_by(
+                    DerivedTransaction.category_assigned_at.desc(),
+                    DerivedTransaction.transaction_id.desc(),
+                )
+                .first()
+            )
+            return row[0] if row else None
+
+    def get_transactions_by_merchant_descriptor(
+        self, descriptor: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Recent transactions for an exact merchant descriptor (newest first)."""
+        if not descriptor:
+            return []
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(
+                    DerivedTransaction.transaction_id,
+                    DerivedTransaction.posted_at,
+                    DerivedTransaction.amount_cents,
+                    DerivedTransaction.is_verified,
+                    Category.key,
+                )
+                .outerjoin(
+                    Category, Category.category_id == DerivedTransaction.category_id
+                )
+                .filter(DerivedTransaction.merchant_descriptor == descriptor)
+                .order_by(DerivedTransaction.posted_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "transaction_id": tid,
+                    "date": posted_at.isoformat() if posted_at else None,
+                    "amount": amount_cents / 100.0,
+                    "is_verified": bool(is_verified),
+                    "category_key": category_key,
+                }
+                for tid, posted_at, amount_cents, is_verified, category_key in rows
+            ]
+
+    def get_merchant_category_distribution(
+        self, descriptor: str
+    ) -> list[dict[str, Any]]:
+        """How an exact merchant descriptor has been categorized historically.
+
+        Returns ``[{category_key, count, verified_count}]`` sorted by count desc.
+        """
+        if not descriptor:
+            return []
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(
+                    Category.key,
+                    DerivedTransaction.is_verified,
+                    func.count().label("n"),
+                )
+                .join(
+                    DerivedTransaction,
+                    DerivedTransaction.category_id == Category.category_id,
+                )
+                .filter(DerivedTransaction.merchant_descriptor == descriptor)
+                .group_by(Category.key, DerivedTransaction.is_verified)
+                .all()
+            )
+        dist: dict[str, dict[str, Any]] = {}
+        for category_key, is_verified, count in rows:
+            entry = dist.setdefault(
+                category_key,
+                {"category_key": category_key, "count": 0, "verified_count": 0},
+            )
+            entry["count"] += count
+            if is_verified:
+                entry["verified_count"] += count
+        return sorted(dist.values(), key=lambda e: e["count"], reverse=True)
+
+    def tags_for_transactions(self, transaction_ids: list[int]) -> dict[int, list[str]]:
+        """Map each transaction id to its tag names (empty list if untagged)."""
+        result: dict[int, list[str]] = {tid: [] for tid in transaction_ids}
+        if not transaction_ids:
+            return result
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(TransactionTag.transaction_id, Tag.name)
+                .join(Tag, Tag.tag_id == TransactionTag.tag_id)
+                .filter(TransactionTag.transaction_id.in_(transaction_ids))
+                .all()
+            )
+        for transaction_id, name in rows:
+            result.setdefault(transaction_id, []).append(name)
+        return result
+
+    def get_transactions_by_tag(
+        self, tag_name: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Recent transactions carrying a given tag (newest first)."""
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(
+                    DerivedTransaction.transaction_id,
+                    DerivedTransaction.merchant_descriptor,
+                    DerivedTransaction.posted_at,
+                    DerivedTransaction.amount_cents,
+                    Category.key,
+                )
+                .join(
+                    TransactionTag,
+                    TransactionTag.transaction_id == DerivedTransaction.transaction_id,
+                )
+                .join(Tag, Tag.tag_id == TransactionTag.tag_id)
+                .outerjoin(
+                    Category, Category.category_id == DerivedTransaction.category_id
+                )
+                .filter(Tag.name == tag_name)
+                .order_by(DerivedTransaction.posted_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "transaction_id": tid,
+                    "merchant_descriptor": descriptor,
+                    "date": posted_at.isoformat() if posted_at else None,
+                    "amount": amount_cents / 100.0,
+                    "category_key": category_key,
+                }
+                for tid, descriptor, posted_at, amount_cents, category_key in rows
+            ]
