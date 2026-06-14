@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import contextlib
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +35,8 @@ from agent_harness.core.events import (
     ToolExecEnd,
 )
 from loguru import logger
+
+from penny import observability
 
 if TYPE_CHECKING:
     from .accumulator import MessageAccumulator
@@ -148,6 +151,9 @@ def _translate(event: Any, open_text: set[str]) -> list[dict[str, Any]]:
 async def stream_agent(agent: Agent, prompt: str) -> AsyncIterator[str]:
     bus = InMemoryEventBus()
     subscription = bus.subscribe()
+    # Attach the Langfuse trace builder as a second bus subscriber (no-op when
+    # tracing is disabled). Subscribe before the run task starts publishing.
+    trace_task = observability.start_run_trace_task(bus, source="chat", prompt=prompt)
 
     async def _run() -> None:
         try:
@@ -174,6 +180,9 @@ async def stream_agent(agent: Agent, prompt: str) -> AsyncIterator[str]:
             await runner
         except Exception as exc:  # surface a loop failure to the client
             yield _sse({"type": "error", "errorText": str(exc)})
+        if trace_task is not None:
+            with contextlib.suppress(Exception):
+                await trace_task
     yield "data: [DONE]\n\n"
 
 
@@ -200,6 +209,11 @@ async def stream_and_persist(
 
     bus = InMemoryEventBus()
     subscription = bus.subscribe()
+    # Langfuse trace builder as a second subscriber; conversation_id groups the
+    # trace under a Langfuse session. No-op when tracing is disabled.
+    trace_task = observability.start_run_trace_task(
+        bus, source="chat", session_id=conversation_id, prompt=prompt
+    )
 
     async def _run() -> None:
         try:
@@ -236,6 +250,9 @@ async def stream_and_persist(
         if not finalized:
             # Aborted / errored before RunEnd — flush partial parts as error.
             _safe_persist(store, conversation_id, acc, "error")
+        if trace_task is not None:
+            with contextlib.suppress(Exception):
+                await trace_task
     yield "data: [DONE]\n\n"
 
 

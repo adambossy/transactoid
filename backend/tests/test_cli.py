@@ -123,7 +123,9 @@ def _patch_run_and_exit_seams(
     captured: dict[str, Any] = {}
 
     class _StubAgent:
-        async def run(self, prompt_text: str) -> SimpleNamespace:
+        async def run(
+            self, prompt_text: str, *, event_bus: Any = None
+        ) -> SimpleNamespace:
             captured["prompt"] = prompt_text
             return SimpleNamespace(output=output)
 
