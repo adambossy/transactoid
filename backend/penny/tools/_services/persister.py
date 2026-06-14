@@ -25,6 +25,7 @@ class PersistTool:
         self,
         merchant_id: int,
         category_key: str,
+        reason: str | None = None,
     ) -> int:
         """
         Recategorize all unverified transactions for a given merchant.
@@ -34,6 +35,8 @@ class PersistTool:
         Args:
             merchant_id: ID of the merchant whose transactions will be updated.
             category_key: Taxonomy key for the new category.
+            reason: Natural-language reason for the change, recorded on each
+                event's ``recategorization_reason``.
 
         Returns:
             Number of transactions updated.
@@ -50,7 +53,44 @@ class PersistTool:
             # keeps behavior explicit.
             raise ValueError(f"Category ID not found for key: {category_key!r}")
 
-        return self._db.recategorize_merchant(merchant_id, category_id)
+        return self._db.recategorize_merchant(merchant_id, category_id, reason=reason)
+
+    def recategorize_transaction(
+        self,
+        transaction_id: int,
+        category_key: str,
+        reason: str | None = None,
+    ) -> None:
+        """
+        Recategorize a single (unverified) transaction.
+
+        Routes through ``DB.update_derived_mutable``; the manual ``category_method``
+        sends ``reason`` to the event's ``recategorization_reason`` column.
+
+        Args:
+            transaction_id: The transaction to recategorize.
+            category_key: Taxonomy key for the new category.
+            reason: Natural-language reason for the change.
+
+        Raises:
+            ValueError: If the category_key is invalid or the transaction is
+                verified / not found (propagated from the facade).
+        """
+        if not self._taxonomy.is_valid_key(category_key):
+            raise ValueError(f"Invalid category_key: {category_key!r}")
+
+        category_id = get_category_id(self._db, self._taxonomy, category_key)
+        if category_id is None:
+            raise ValueError(f"Category ID not found for key: {category_key!r}")
+
+        self._db.update_derived_mutable(
+            transaction_id,
+            {
+                "category_id": category_id,
+                "category_method": "manual",
+                "category_reason": reason,
+            },
+        )
 
     def apply_tags(
         self, transaction_ids: list[int], tag_names: list[str]

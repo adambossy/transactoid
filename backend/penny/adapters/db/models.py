@@ -317,7 +317,12 @@ class TransactionCategoryEvent(Base):
     to_category_key: Mapped[str] = mapped_column(String, nullable=False)
     method: Mapped[str] = mapped_column(String, nullable=False)
     model: Mapped[str | None] = mapped_column(String, nullable=True)
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why a category CHANGED — set for manual recats (NL reason from the
+    # conversation) and taxonomy migrations.
+    recategorization_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why the agent originally CHOSE this category — the LLM's rationale on an
+    # llm-method categorization decision.
+    categorization_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )

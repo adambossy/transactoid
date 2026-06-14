@@ -11,13 +11,21 @@ from penny.services import get_persister, get_taxonomy
 
 
 @tool
-async def recategorize_merchant(merchant_id: int, category_key: str) -> dict[str, Any]:
-    """Move every transaction for a merchant to a new category.
+async def recategorize_merchant(
+    merchant_id: int, category_key: str, reason: str
+) -> dict[str, Any]:
+    """Move every unverified transaction for a merchant to a new category.
 
     Args:
         merchant_id: The merchant to recategorize.
         category_key: The target category key (e.g. ``food_and_dining.groceries``).
             Must be a key in the live taxonomy.
+        reason: A concise, one-sentence natural-language explanation of WHY the
+            user wants this change, derived from the conversation (e.g. "User says
+            Jubilee Market is their neighborhood grocer, not a restaurant"). This is
+            written to the audit log so future categorization decisions can be
+            debugged. Summarize the user's intent even if they did not state it
+            explicitly.
     """
 
     def _run() -> dict[str, Any]:
@@ -29,7 +37,7 @@ async def recategorize_merchant(merchant_id: int, category_key: str) -> dict[str
             }
         try:
             updated = get_persister().recategorize_merchant(
-                merchant_id=merchant_id, category_key=category_key
+                merchant_id=merchant_id, category_key=category_key, reason=reason
             )
             return {
                 "status": "success",
@@ -38,6 +46,44 @@ async def recategorize_merchant(merchant_id: int, category_key: str) -> dict[str
             }
         except Exception as exc:
             return {"status": "error", "message": str(exc), "updated": 0}
+
+    return await asyncio.to_thread(_run)
+
+
+@tool
+async def recategorize_transaction(
+    transaction_id: int, category_key: str, reason: str
+) -> dict[str, Any]:
+    """Recategorize a single (unverified) transaction.
+
+    Use this when the user wants to correct one specific transaction rather than
+    every transaction for a merchant. Verified transactions cannot be changed.
+
+    Args:
+        transaction_id: The transaction to recategorize.
+        category_key: The target category key (e.g. ``food_and_dining.groceries``).
+            Must be a key in the live taxonomy.
+        reason: A concise, one-sentence natural-language explanation of WHY the
+            user wants this change, derived from the conversation. Written to the
+            audit log so the original categorization can be debugged.
+    """
+
+    def _run() -> dict[str, Any]:
+        if not get_taxonomy().is_valid_key(category_key):
+            return {
+                "status": "error",
+                "message": f"Invalid category key: {category_key}",
+            }
+        try:
+            get_persister().recategorize_transaction(
+                transaction_id=transaction_id, category_key=category_key, reason=reason
+            )
+            return {
+                "status": "success",
+                "message": f"Recategorized transaction {transaction_id} to {category_key}",
+            }
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
 
     return await asyncio.to_thread(_run)
 

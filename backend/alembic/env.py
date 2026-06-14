@@ -22,6 +22,7 @@ from penny.adapters.db.models import (  # noqa: F401, E402
     PlaidItem,
     PlaidTransaction,
     Tag,
+    TransactionCategoryEvent,
     TransactionItem,
     TransactionTag,
 )

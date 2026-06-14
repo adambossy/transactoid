@@ -372,7 +372,20 @@ class DB:
         reason: str | None,
         created_at: datetime,
     ) -> None:
-        """Insert a category change event row."""
+        """Insert a category change event row.
+
+        ``reason`` is routed to the column that matches ``method``:
+        - ``llm`` (an agent/LLM categorization decision) -> ``categorization_reasoning``
+          (why this category was chosen).
+        - ``manual`` / ``taxonomy_migration`` (a change to an existing category) ->
+          ``recategorization_reason`` (why it changed).
+        """
+        if method == "llm":
+            categorization_reasoning = reason
+            recategorization_reason = None
+        else:
+            recategorization_reason = reason
+            categorization_reasoning = None
         session.add(
             TransactionCategoryEvent(
                 transaction_id=transaction_id,
@@ -382,7 +395,8 @@ class DB:
                 to_category_key=to_category_key,
                 method=method,
                 model=model,
-                reason=reason,
+                recategorization_reason=recategorization_reason,
+                categorization_reasoning=categorization_reasoning,
                 created_at=created_at,
             )
         )
@@ -600,12 +614,16 @@ class DB:
         self,
         merchant_id: int,
         category_id: int,
+        reason: str | None = None,
     ) -> int:
         """Recategorize all unverified derived transactions for a merchant.
 
         Args:
             merchant_id: Merchant ID
             category_id: New category ID
+            reason: Natural-language reason for the change (recorded on each
+                event's ``recategorization_reason``). Falls back to a marker
+                string when not supplied.
 
         Returns:
             Number of transactions updated
@@ -624,7 +642,7 @@ class DB:
                 session,
                 updates=updates,
                 method="manual",
-                reason="recategorize_merchant",
+                reason=reason or "recategorize_merchant",
                 preserve_model=True,
             )
 
