@@ -25,12 +25,13 @@ primary_region = "iad"  # US East — close to the Neon/Supabase prod DB.
 [http_service]
   internal_port = 8080
   force_https = true
-  # Single-user app: scale to zero when idle to save cost. The first request
-  # after idle pays a cold-start; flip auto_stop_machines to "off" for an
-  # always-on service if that latency is unacceptable.
+  # Single-user app: keep one machine always running so the first request
+  # after idle doesn't pay a 10-15s cold-start (VM boot + heavy agent/
+  # matplotlib imports + Neon connect). Flip min_machines_running back to 0
+  # to trade that latency for scale-to-zero cost savings.
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     method = "get"
