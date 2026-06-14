@@ -1,7 +1,7 @@
 """Add transaction_items table and split provenance columns to derived_transactions
 
 Revision ID: 001_add_transaction_items_and_split_columns
-Revises: None (start of penny migration chain — baseline schema pre-exists)
+Revises: 000_baseline_schema
 Create Date: 2026-05-01
 
 Creates the transaction_items table for generalised itemization (Amazon and
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "001_add_transaction_items_and_split_columns"
-down_revision: str | Sequence[str] | None = None
+down_revision: str | Sequence[str] | None = "000_baseline_schema"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
