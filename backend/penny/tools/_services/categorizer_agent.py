@@ -33,15 +33,12 @@ from penny.taxonomy.loader import get_category_id
 from penny.tools._services.categorizer_tools import build_categorizer_toolset
 from penny.workspace import resolve_workspace_dir
 
-# Provider-native web_search. Adding this to the model's wire ``tools`` list lets
-# the agent search the web for unknown merchants. NOTE: agent-harness providers
-# currently OVERWRITE ``config["tools"]`` from ``ModelSettings.extra``
-# (providers/google.py:312-321, providers/openai.py:256-264), which would drop the
-# function tools (incl. submit_categorization). Enabling web_search therefore needs
-# the provider to APPEND builtin tools rather than overwrite. Flip ``_ENABLE_WEB_SEARCH``
-# on once that hook lands; the tool spec itself is the single dict below.
+# Provider-native web_search for the agent. Passed via ``ModelSettings.builtin_tools``,
+# which the harness appends to the wire tools list alongside the function tools (so the
+# agent keeps submit_categorization etc.). gemini-3.5-flash is the default model, so we
+# use Google's grounding tool. This coexists with function calling (the JSON-output vs
+# grounding exclusivity only applies to response_mime_type, which we don't use).
 _GEMINI_WEB_SEARCH_TOOL: dict[str, Any] = {"google_search": {}}
-_ENABLE_WEB_SEARCH = False
 
 
 def _format_recent_events(events: list[dict[str, Any]]) -> str:
@@ -96,10 +93,6 @@ def build_categorizer_agent() -> Agent:
     scratch_root = resolve_workspace_dir() / "agent-runs" / run_id
     sandbox = InProcessSandbox(root=str(scratch_root))
 
-    extra: dict[str, Any] = {}
-    if _ENABLE_WEB_SEARCH:
-        extra["tools"] = [_GEMINI_WEB_SEARCH_TOOL]
-
     return Agent(
         name="categorizer",
         model=build_model(),  # gemini-3.5-flash
@@ -107,7 +100,10 @@ def build_categorizer_agent() -> Agent:
         session=None,
         persist_session=False,
         sandbox=sandbox,
-        model_settings=ModelSettings(thinking_budget=-1, extra=extra),
+        model_settings=ModelSettings(
+            thinking_budget=-1,
+            builtin_tools=[_GEMINI_WEB_SEARCH_TOOL],
+        ),
         toolsets=[build_categorizer_toolset()],
     )
 
