@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -26,6 +27,42 @@ from typing import Any
 
 from penny.adapters.db.models import DerivedTransaction
 from penny.db import get_db
+
+
+async def _run_agent_traced(
+    agent: Any, prompt: str, *, trace_name: str, session_id: str, blind: bool | None
+) -> Any:
+    """Run the agent with full agent-harness tracing (model turns + tool calls).
+
+    Mirrors production (penny.api.bridge): attach agent-harness's OTEL subscriber
+    to an event bus via start_run_trace_task and pass the bus to ``agent.run`` so
+    every turn and tool call is exported to Langfuse — not just a single wrapper
+    span. No-op tracing when Langfuse is disabled.
+    """
+    from agent_harness import InMemoryEventBus
+
+    import penny.observability as observability
+
+    tags = ["categorizer-review"]
+    if blind is not None:
+        tags.append("blind" if blind else "history-on")
+
+    bus = InMemoryEventBus()
+    trace_task = observability.start_run_trace_task(
+        bus,
+        source="categorizer-review",
+        trace_name=trace_name,
+        session_id=session_id,
+        prompt=prompt,
+        tags=tags,
+    )
+    try:
+        return await agent.run(prompt=prompt, event_bus=bus)
+    finally:
+        await bus.close()
+        if trace_task is not None:
+            with contextlib.suppress(Exception):
+                await trace_task
 
 
 def _normalize_descriptor(descriptor: str) -> str:
@@ -168,15 +205,22 @@ async def _review_one(txn: dict[str, Any]) -> dict[str, Any]:
         import penny.observability as observability
 
         agent = build_categorizer_agent()
+        tid = txn["transaction_id"]
         trace_link: str | None = None
         with observability.categorizer_span(
             "categorizer-review",
-            input={"transaction_id": txn["transaction_id"], "descriptor": descriptor},
-            session_id=f"review-{txn['transaction_id']}",
+            input={"transaction_id": tid, "descriptor": descriptor},
+            session_id=f"review-{tid}",
             metadata={"harness": "categorizer_review"},
         ):
             trace_link = _current_trace_link()
-            result = await agent.run(categorizer_agent._build_txn_prompt(txn))
+            result = await _run_agent_traced(
+                agent,
+                categorizer_agent._build_txn_prompt(txn),
+                trace_name="categorizer-review",
+                session_id=f"review-{tid}",
+                blind=None,
+            )
         tools_called, submit_args = _extract_from_result(result)
         record.update(
             method="agent",
@@ -288,19 +332,30 @@ async def _review_one_recategorized(
         _blind_descriptor_set(item.get("merchant_descriptor") or "") if blind else set()
     )
 
+    tid = item["transaction_id"]
+    prompt = categorizer_agent._build_txn_prompt(item)
     trace_link: str | None = None
     with review_blind_exclusions(descriptors=descriptors):
         # Build inside the exclusion context so the prompt's recent-events block
         # is blinded too.
         agent = build_categorizer_agent()
+        # Thin outer span owns the trace id (for the report link); the harness
+        # subscriber attached in _run_agent_traced nests its model-turn / tool-call
+        # spans under it, so the trace shows the full agent loop, not one span.
         with observability.categorizer_span(
             "categorizer-review-recat",
-            input={"transaction_id": item["transaction_id"]},
-            session_id=f"review-recat-{item['transaction_id']}",
+            input={"transaction_id": tid},
+            session_id=f"review-recat-{tid}",
             metadata={"harness": "categorizer_review", "blind": blind},
         ):
             trace_link = _current_trace_link()
-            result = await agent.run(categorizer_agent._build_txn_prompt(item))
+            result = await _run_agent_traced(
+                agent,
+                prompt,
+                trace_name="categorizer-review-recat",
+                session_id=f"review-recat-{tid}",
+                blind=blind,
+            )
     tools_called, submit_args = _extract_from_result(result)
     agent_category = submit_args.get("category_key")
     return {
@@ -481,6 +536,11 @@ async def _main_async(mode: str, limit: int, out: str, *, blind: bool = False) -
     with open(out, "w", encoding="utf-8") as handle:
         handle.write(html_doc)
     print(f"\nWrote report: {out}")
+
+    # Force-flush spans so the full per-turn traces export before the script exits.
+    import penny.observability as observability
+
+    observability.flush()
 
 
 def main() -> None:
