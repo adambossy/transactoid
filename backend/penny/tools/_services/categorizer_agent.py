@@ -63,7 +63,12 @@ def _format_recent_events(events: list[dict[str, Any]]) -> str:
 
 
 def _render_categorizer_prompt() -> str:
-    """Render the categorizer agent's system prompt with live context."""
+    """Render the categorizer agent's system prompt with live context.
+
+    The injected recent-events block honors any active ``review_blind_exclusions``
+    (the read API hides the excluded merchant), so no special handling is needed
+    here for blind evaluation.
+    """
     taxonomy = get_taxonomy()
     template = load_prompt("categorize-transaction-agent")
     taxonomy_text = yaml.dump(
@@ -77,13 +82,15 @@ def _render_categorizer_prompt() -> str:
     merchant_rules = (
         rules_loader.load() if rules_loader else ""
     ) or "(no merchant rules)"
-    recent_events = _format_recent_events(get_db().recent_category_events(limit=15))
+    recent_block = (
+        _format_recent_events(get_db().recent_category_events(limit=15)) or "(none yet)"
+    )
 
     rendered = template.replace("{{CURRENT_DATE}}", date.today().isoformat())
     rendered = rendered.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text)
     rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
     rendered = rendered.replace("{{MERCHANT_RULES}}", merchant_rules)
-    rendered = rendered.replace("{{RECENT_EVENTS}}", recent_events or "(none yet)")
+    rendered = rendered.replace("{{RECENT_EVENTS}}", recent_block)
     return rendered
 
 

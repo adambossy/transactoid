@@ -13,6 +13,7 @@ The categorizer agent gets a small, read-only-plus-one-writer toolset:
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from agent_harness import StaticToolset, tool
@@ -95,6 +96,16 @@ async def submit_categorization(
             audit = (
                 reasoning + "\n\nEvidence:\n" + "\n".join(f"- {e}" for e in evidence)
             )
+        # Dry-run (review harness): record the decision but DON'T persist, so
+        # already-categorized / verified rows can be reviewed without mutation.
+        if os.environ.get("PENNY_CATEGORIZER_DRY_RUN"):
+            return {
+                "status": "success",
+                "transaction_id": transaction_id,
+                "category_key": category_key,
+                "confidence": confidence,
+                "dry_run": True,
+            }
         try:
             # method='llm' routes ``category_reason`` to categorization_reasoning.
             db.update_derived_mutable(
