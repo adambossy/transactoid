@@ -52,6 +52,46 @@ class PersistTool:
 
         return self._db.recategorize_merchant(merchant_id, category_id)
 
+    def recategorize_transaction(
+        self,
+        transaction_id: int,
+        category_key: str,
+        reason: str | None = None,
+        verify: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Recategorize a single transaction to a new category.
+
+        Sets the category as a manual override. When ``verify`` is True the row
+        is marked verified, protecting it from future bulk recategorization.
+
+        Args:
+            transaction_id: ID of the transaction to update.
+            category_key: Taxonomy key for the new category.
+            reason: Optional human-readable reason recorded on the audit event.
+            verify: If True, mark the transaction verified.
+
+        Returns:
+            Dict with ``updated`` (bool) and ``event_id`` (int | None).
+
+        Raises:
+            ValueError: If the category_key is invalid or the transaction
+                does not exist.
+        """
+        if not self._taxonomy.is_valid_key(category_key):
+            raise ValueError(f"Invalid category_key: {category_key!r}")
+
+        category_id = get_category_id(self._db, self._taxonomy, category_key)
+        if category_id is None:
+            raise ValueError(f"Category ID not found for key: {category_key!r}")
+
+        return self._db.recategorize_transaction(
+            transaction_id=transaction_id,
+            category_id=category_id,
+            reason=reason,
+            verify=verify,
+        )
+
     def apply_tags(
         self, transaction_ids: list[int], tag_names: list[str]
     ) -> ApplyTagsOutcome:

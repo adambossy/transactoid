@@ -396,9 +396,14 @@ class DB:
         reason: str | None,
         model: str | None = None,
         preserve_model: bool = False,
-        reset_verified: bool = False,
+        is_verified: bool | None = None,
     ) -> int:
-        """Atomically update current category fields and append history events."""
+        """Atomically update current category fields and append history events.
+
+        ``is_verified`` controls the verified flag: ``True``/``False`` sets the
+        column to that value; ``None`` (default) leaves the existing value
+        untouched.
+        """
         if not updates:
             return 0
 
@@ -439,8 +444,8 @@ class DB:
             txn.category_assigned_at = now
             if not preserve_model:
                 txn.category_model = model
-            if reset_verified:
-                txn.is_verified = False
+            if is_verified is not None:
+                txn.is_verified = is_verified
             txn.updated_at = now
 
             self._insert_category_event(
@@ -627,6 +632,52 @@ class DB:
                 reason="recategorize_merchant",
                 preserve_model=True,
             )
+
+    def recategorize_transaction(
+        self,
+        transaction_id: int,
+        category_id: int,
+        *,
+        reason: str | None = None,
+        verify: bool = True,
+    ) -> dict[str, Any]:
+        """Recategorize a single derived transaction.
+
+        Sets ``category_method='manual'`` and ``category_model=NULL``. When
+        ``verify`` is True the row is marked ``is_verified=True`` (protecting it
+        from future bulk ``recategorize_merchant`` runs); otherwise the existing
+        verified flag is left untouched. A ``transaction_category_events`` row is
+        appended in the same transaction.
+
+        Returns a dict with ``updated`` (bool) and ``event_id`` (int | None).
+
+        Raises:
+            ValueError: If the transaction does not exist.
+        """
+        with self.session() as session:  # type: Session
+            txn = session.get(DerivedTransaction, transaction_id)
+            if txn is None:
+                raise ValueError(f"Transaction {transaction_id} does not exist")
+
+            updated = self._apply_category_updates(
+                session,
+                updates={transaction_id: category_id},
+                method="manual",
+                reason=reason,
+                is_verified=True if verify else None,
+            )
+            session.flush()
+
+            event = (
+                session.query(TransactionCategoryEvent)
+                .filter(TransactionCategoryEvent.transaction_id == transaction_id)
+                .order_by(TransactionCategoryEvent.event_id.desc())
+                .first()
+            )
+            return {
+                "updated": updated > 0,
+                "event_id": event.event_id if event is not None else None,
+            }
 
     def upsert_tag(self, name: str, description: str | None = None) -> Tag:
         """Insert or update a tag.
@@ -2297,7 +2348,7 @@ class DB:
                 method="taxonomy_migration",
                 reason=reason,
                 preserve_model=True,
-                reset_verified=reset_verified,
+                is_verified=False if reset_verified else None,
             )
 
     def replace_categories_from_taxonomy(self, taxonomy: Any) -> None:
