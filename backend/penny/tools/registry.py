@@ -10,7 +10,11 @@ from .bash import bash
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
 from .plaid import connect_new_account, list_plaid_accounts
-from .recategorize import recategorize_merchant, tag_transactions
+from .recategorize import (
+    recategorize_merchant,
+    recategorize_transaction,
+    tag_transactions,
+)
 from .sign_conventions import (
     list_sign_conventions,
     re_derive_account,
@@ -36,6 +40,7 @@ def build_toolset() -> Toolset:
             sync_transactions,
             # Mutations
             recategorize_merchant,
+            recategorize_transaction,
             tag_transactions,
             migrate_taxonomy,
             split_transaction,
