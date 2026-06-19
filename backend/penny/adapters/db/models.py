@@ -44,6 +44,12 @@ class Merchant(Base):
     )
     normalized_name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Tier 2 wrapper-descriptor metadata (kept in sync with migration 006).
+    # source_channel: 'direct' for ordinary merchants, or a wrapper channel
+    # ('zelle' | 'venmo' | 'atm' | 'paypal' | ...). counterparty: the human
+    # behind a wrapper (e.g. 'Tania (XXX-4352)'); NULL for direct merchants.
+    source_channel: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
