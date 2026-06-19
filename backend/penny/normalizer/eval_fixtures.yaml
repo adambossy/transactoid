@@ -1,0 +1,63 @@
+# Held-out eval fixtures for the merchant normalizer.
+#
+# These descriptors are REAL (from the corpus sample) and deliberately DISTINCT
+# from the few-shot examples in rules.yaml, so a passing eval reflects
+# generalization rather than prompt memorization. Expected normalized_name for
+# `direct` cases must equal naive_normalize() output (lowercase/strip-digits).
+#
+# Edit expectations as the rule repository evolves; the eval score is the signal
+# for whether a rules.yaml change helped or regressed.
+
+cases:
+  # --- zelle ---
+  - descriptor: 'Zelle Payment TO DAMARIS'
+    channel: zelle
+    normalized_name: 'zelle:damaris'
+    counterparty: 'DAMARIS'
+  - descriptor: 'Zelle Payment FROM CARLOS M BOSSY'
+    channel: zelle
+    normalized_name: 'zelle:carlos-m-bossy'
+    counterparty: 'CARLOS M BOSSY'
+
+  # --- atm (location identity; date is noise; never split by amount) ---
+  - descriptor: 'ATM Withdrawal 896 MANHATTAN AV BROOKLYN NY Transaction Date : 02/04/2026'
+    channel: atm
+    normalized_name: 'atm:896-manhattan-av-brooklyn-ny'
+    counterparty: null
+
+  # --- billpay ---
+  - descriptor: 'Automated Payment MORGAN STANLEY CHK ACCT ENDING IN 1729'
+    channel: billpay
+    normalized_name: 'billpay:morgan-stanley'
+    counterparty: 'MORGAN STANLEY'
+  - descriptor: 'Automated Payment NGRID38 NGRID38 CHK ACCT ENDING IN 4864'
+    channel: billpay
+    normalized_name: 'billpay:ngrid38'
+    counterparty: 'NGRID38'
+
+  # --- ach (payroll keyed to employer) ---
+  - descriptor: 'Direct Deposit DIRECT DEP FUNDS RECVD AIRBNB 4977 AIRBNB'
+    channel: ach
+    normalized_name: 'ach:airbnb'
+    counterparty: 'AIRBNB'
+
+  # --- transfer (internal movement, no external counterparty) ---
+  - descriptor: 'Online Transfer FUNDS PAID'
+    channel: transfer
+    normalized_name: 'transfer:internal'
+    counterparty: null
+
+  # NOTE: venmo is intentionally not an eval fixture — the corpus contains
+  # exactly one venmo descriptor ("Venmo"), which is a rules.yaml few-shot, so
+  # it cannot be "held out". Its (trivial, constant) behaviour is covered by the
+  # unit tests instead.
+
+  # --- direct merchants (naive normalization) ---
+  - descriptor: 'Amazon'
+    channel: direct
+    normalized_name: 'amazon'
+    counterparty: null
+  - descriptor: 'C-Town Supermarkets'
+    channel: direct
+    normalized_name: 'c-town supermarkets'
+    counterparty: null
