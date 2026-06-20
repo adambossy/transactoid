@@ -563,6 +563,7 @@ class DB:
             currency=data["currency"],
             merchant_descriptor=data.get("merchant_descriptor"),
             institution=data.get("institution"),
+            original_descriptor=data.get("original_descriptor"),
         )
 
         # Then create DerivedTransaction
@@ -933,6 +934,7 @@ class DB:
                     "amount_cents": amount_cents,
                     "currency": currency,
                     "merchant_descriptor": merchant_descriptor,
+                    "original_descriptor": txn.get("original_descriptor"),
                     "category_id": category_id,
                     "category_method": "llm" if category_id is not None else None,
                     "category_model": (
@@ -1371,6 +1373,7 @@ class DB:
         currency: str,
         merchant_descriptor: str | None,
         institution: str | None,
+        original_descriptor: str | None = None,
     ) -> PlaidTransaction:
         """Insert or update a Plaid transaction.
 
@@ -1406,6 +1409,7 @@ class DB:
                     amount_cents=amount_cents,
                     currency=currency,
                     merchant_descriptor=merchant_descriptor,
+                    original_descriptor=original_descriptor,
                     institution=institution,
                 )
                 session.add(plaid_txn)
@@ -1415,6 +1419,7 @@ class DB:
                 plaid_txn.amount_cents = amount_cents
                 plaid_txn.currency = currency
                 plaid_txn.merchant_descriptor = merchant_descriptor
+                plaid_txn.original_descriptor = original_descriptor
                 plaid_txn.institution = institution
                 plaid_txn.updated_at = datetime.now()
 
@@ -1453,6 +1458,7 @@ class DB:
                     "amount_cents": insert_stmt.excluded.amount_cents,
                     "currency": insert_stmt.excluded.currency,
                     "merchant_descriptor": insert_stmt.excluded.merchant_descriptor,
+                    "original_descriptor": insert_stmt.excluded.original_descriptor,
                     "institution": insert_stmt.excluded.institution,
                     "updated_at": datetime.now(),
                 },

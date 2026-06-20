@@ -132,6 +132,7 @@ class PlaidTransactionModel(PlaidBaseModel):
     date: str
     name: str
     merchant_name: str | None = None
+    original_description: str | None = None
     pending: bool = False
     payment_channel: str | None = None
     unofficial_currency_code: str | None = None
@@ -148,6 +149,9 @@ class PlaidTransactionModel(PlaidBaseModel):
             "date": self.date,
             "name": self.name,
             "merchant_name": self.merchant_name,
+            # Plaid's field is `original_description`; internally we use the
+            # `_descriptor` suffix to match `merchant_descriptor`.
+            "original_descriptor": self.original_description,
             "pending": self.pending,
             "payment_channel": self.payment_channel,
             "unofficial_currency_code": self.unofficial_currency_code,

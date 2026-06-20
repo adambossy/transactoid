@@ -130,6 +130,11 @@ class PlaidTransaction(Base):
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False)
     merchant_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Raw issuer description from Plaid (their `original_description`; named with
+    # the `_descriptor` suffix here to match merchant_descriptor). Retains
+    # counterparty detail dropped by merchant_descriptor for wrapper merchants
+    # (e.g. the person behind a Venmo payment). Kept in sync with migration 007.
+    original_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
     institution: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")

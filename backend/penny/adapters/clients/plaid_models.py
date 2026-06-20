@@ -32,6 +32,11 @@ class Transaction(TypedDict):
     date: str
     name: str
     merchant_name: str | None
+    # Raw issuer description from Plaid (their field is ``original_description``;
+    # we use the ``_descriptor`` suffix internally to match ``merchant_descriptor``).
+    # Carries counterparty detail that ``name``/``merchant_name`` drop for wrapper
+    # merchants — e.g. for a directly-linked Venmo item, "Jenny O'Leary :venmo_dollar:".
+    original_descriptor: str | None
     pending: bool
     payment_channel: str | None
     unofficial_currency_code: str | None

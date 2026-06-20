@@ -1138,6 +1138,7 @@ class SyncTool:
                     "amount_cents": amount_cents,
                     "currency": txn.get("iso_currency_code") or "USD",
                     "merchant_descriptor": txn.get("merchant_name") or txn.get("name"),
+                    "original_descriptor": txn.get("original_descriptor"),
                     "institution": None,
                 }
             )
