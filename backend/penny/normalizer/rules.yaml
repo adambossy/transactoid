@@ -16,7 +16,9 @@
 # Channel formats here were derived from a real descriptor sample
 # (scripts/sample_descriptors.py). Re-sample and update when bank formats drift.
 
-version: 1
+# v2: Venmo rule extracts the person from directly-linked Venmo descriptors
+# (original_descriptor), keeping bare/bank-routed Venmo collapsed.
+version: 2
 
 # Default when no wrapper channel matches.
 default_channel: direct
@@ -166,16 +168,35 @@ channels:
         counterparty: null
 
   - channel: venmo
-    detect: 'Descriptor is exactly "Venmo" (Plaid provides no counterparty).'
+    detect: >
+      Any Venmo activity: the bare label "Venmo"; a directly-linked Venmo
+      payment, which looks like "<Person Name> "<note / :venmo_dollar: / emoji>"";
+      or a bank-side Venmo ACH line like "Withdrawal/Deposit Ach Venmo ... Co:
+      Venmo [Name: <account holder>]".
     extract: >
-      Venmo descriptors carry no counterparty or note — there is nothing to
-      extract. All Venmo activity collapses to a single identity. Do not invent
-      a counterparty.
-    normalized_name: 'venmo'
-    display_name: 'Venmo'
-    counterparty: null
+      Only the directly-linked Venmo form carries a real counterparty: the
+      person's name is the leading text BEFORE the quoted note / emoji — extract
+      it and drop the note. The bare "Venmo" label and the bank ACH form carry
+      NO external counterparty (the "Name:" in the ACH line is the account
+      holder, not the payee) — collapse those to a single counterparty-less
+      "venmo" identity. Never invent a counterparty.
+    normalized_name: 'venmo:<slug of person> when a person is present, else "venmo"'
+    display_name: 'Venmo: <Person> when present, else "Venmo"'
+    counterparty: '<Person if present, else null>'
     examples:
+      - descriptor: 'Jenny O''Leary ":venmo_dollar:"'
+        normalized_name: 'venmo:jenny-o-leary'
+        display_name: 'Venmo: Jenny O''Leary'
+        counterparty: "Jenny O'Leary"
+      - descriptor: 'Keela Williams ":venmo_dollar: :venmo_dollar:"'
+        normalized_name: 'venmo:keela-williams'
+        display_name: 'Venmo: Keela Williams'
+        counterparty: 'Keela Williams'
       - descriptor: 'Venmo'
+        normalized_name: 'venmo'
+        display_name: 'Venmo'
+        counterparty: null
+      - descriptor: 'Withdrawal Ach Venmo Type: Payment Id: 3264681992 Co: Venmo Name: Adam Bossy'
         normalized_name: 'venmo'
         display_name: 'Venmo'
         counterparty: null
