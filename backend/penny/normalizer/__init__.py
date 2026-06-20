@@ -13,15 +13,18 @@ from penny.normalizer.core import (
     naive_normalize,
     slug,
 )
+from penny.normalizer.input import WRAPPER_LABELS, choose_normalizer_input
 from penny.normalizer.llm import MerchantNormalizer
 from penny.normalizer.rules import RuleSet, build_system_prompt, load_rules
 
 __all__ = [
     "KNOWN_CHANNELS",
+    "WRAPPER_LABELS",
     "MerchantNormalizer",
     "NormalizedMerchant",
     "RuleSet",
     "build_system_prompt",
+    "choose_normalizer_input",
     "load_rules",
     "naive_normalize",
     "slug",
