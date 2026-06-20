@@ -508,6 +508,39 @@ class DB:
             session.expunge(merchant)
             return merchant
 
+    def get_or_create_merchant_id(
+        self,
+        *,
+        normalized_name: str,
+        display_name: str | None,
+        source_channel: str | None = None,
+        counterparty: str | None = None,
+    ) -> int:
+        """Resolve a normalized merchant identity to a merchant_id.
+
+        Looks up the merchant by ``normalized_name`` (the stable identity key);
+        creates it with the supplied metadata if absent. Takes primitives rather
+        than a NormalizedMerchant so the DB layer stays decoupled from the
+        normalizer package. Metadata is set at creation; existing rows are left
+        as-is (the identity is the normalized_name).
+        """
+        with self.session() as session:  # type: Session
+            merchant = (
+                session.query(Merchant)
+                .filter(Merchant.normalized_name == normalized_name)
+                .first()
+            )
+            if merchant is None:
+                merchant = Merchant(
+                    normalized_name=normalized_name,
+                    display_name=display_name,
+                    source_channel=source_channel,
+                    counterparty=counterparty,
+                )
+                session.add(merchant)
+                session.flush()
+            return merchant.merchant_id
+
     def get_transaction_by_external(
         self,
         *,

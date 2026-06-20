@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import TYPE_CHECKING, Any, cast
 
@@ -14,6 +14,7 @@ from sqlalchemy.orm import make_transient
 from penny.adapters.clients.plaid import PlaidClient, PlaidClientError
 from penny.adapters.clients.plaid_models import Transaction
 from penny.adapters.db.facade import DB
+from penny.normalizer import MerchantNormalizer, choose_normalizer_input
 from penny.taxonomy.core import Taxonomy
 from penny.tools._base import StandardTool
 from penny.tools._protocol import ToolInputSchema
@@ -279,6 +280,9 @@ class SyncTool:
         self._db = db
         self._taxonomy = taxonomy
         self._logger = SyncToolLogger()
+        # Lazily-built merchant normalizer (defers LLM client init until a sync
+        # actually resolves merchants).
+        self._normalizer: MerchantNormalizer | None = None
 
         # Register Amazon mutation plugin; it reads scraped orders from DB tables.
         self._mutation_registry = MutationRegistry()
@@ -1055,7 +1059,10 @@ class SyncTool:
                     batch_num += 1
                     self._logger.pipeline_mutate_start(len(plaid_ids), batch_num)
                     start_time = time.monotonic()
-                    derived_ids = self._mutate_batch_to_derived(plaid_ids)
+                    merchant_id_by_input = await self._resolve_merchant_ids(plaid_ids)
+                    derived_ids = self._mutate_batch_to_derived(
+                        plaid_ids, merchant_id_by_input
+                    )
                     elapsed_ms = int((time.monotonic() - start_time) * 1000)
                     self._logger.pipeline_mutate_complete(
                         len(plaid_ids),
@@ -1151,6 +1158,7 @@ class SyncTool:
     def _mutate_batch_to_derived(
         self,
         plaid_ids: list[int],
+        merchant_id_by_input: dict[str, int] | None = None,
     ) -> list[int]:
         """
         Create derived transactions for a batch of plaid_transaction_ids.
@@ -1161,6 +1169,12 @@ class SyncTool:
 
         Args:
             plaid_ids: List of plaid_transaction_ids to process
+            merchant_id_by_input: Optional pre-resolved map of normalizer-input
+                string -> merchant_id (produced by :meth:`_resolve_merchant_ids`
+                in the async pipeline). When provided, each 1:1 payload's
+                merchant_id is stamped from it so the facade skips its naive
+                merchant resolution. When omitted (re-derive / remutate / tests),
+                the facade resolves merchants the legacy way.
 
         Returns:
             List of derived transaction_ids that were created
@@ -1256,6 +1270,29 @@ class SyncTool:
             if old_derived:
                 plaid_ids_to_delete.append(plaid_id)
 
+        # Stamp pre-resolved merchant_ids onto 1:1 payloads (when the async
+        # pipeline supplied a resolution map). Each payload's normalizer input
+        # is recomputed from its descriptor + the plaid row's original_descriptor
+        # so it matches the keys produced by _resolve_merchant_ids. Split payloads
+        # (e.g. Amazon items) carry their own descriptors and fall through to the
+        # facade's naive resolution, which is correct for them.
+        if merchant_id_by_input:
+            stamped: list[DerivedTransactionPayload] = []
+            for p in all_new_derived_data:
+                if p.merchant_id is not None or not p.merchant_descriptor:
+                    stamped.append(p)
+                    continue
+                plaid_txn = plaid_txns_map.get(p.plaid_transaction_id)
+                original_descriptor = (
+                    plaid_txn.original_descriptor if plaid_txn is not None else None
+                )
+                chosen = choose_normalizer_input(
+                    p.merchant_descriptor, original_descriptor
+                )
+                mid = merchant_id_by_input.get(chosen)
+                stamped.append(replace(p, merchant_id=mid) if mid is not None else p)
+            all_new_derived_data = stamped
+
         # Bulk delete old derived in single query
         if plaid_ids_to_delete:
             self._db.delete_derived_by_plaid_ids(plaid_ids_to_delete)
@@ -1263,6 +1300,41 @@ class SyncTool:
         # Bulk insert all new derived in single call
         new_ids = self._db.bulk_insert_derived_transactions(all_new_derived_data)
         return unchanged_derived_ids + new_ids
+
+    def _get_normalizer(self) -> MerchantNormalizer:
+        if self._normalizer is None:
+            self._normalizer = MerchantNormalizer()
+        return self._normalizer
+
+    async def _resolve_merchant_ids(self, plaid_ids: list[int]) -> dict[str, int]:
+        """Pre-resolve merchants for a batch via the LLM normalizer (async).
+
+        For each plaid row, the normalizer input is chosen from its
+        merchant_descriptor and original_descriptor (the latter carries the
+        counterparty for wrapper merchants like Venmo). Distinct inputs are
+        normalized in one batched, cached call and each resolved identity is
+        upserted to a merchant_id. Returns a map of input string -> merchant_id
+        that _mutate_batch_to_derived stamps onto matching 1:1 payloads.
+        """
+        plaid_txns = self._db.get_plaid_transactions_by_ids(plaid_ids)
+        inputs = {
+            choose_normalizer_input(txn.merchant_descriptor, txn.original_descriptor)
+            for txn in plaid_txns.values()
+        }
+        distinct_inputs = [s for s in inputs if s]
+        if not distinct_inputs:
+            return {}
+
+        resolved = await self._get_normalizer().normalize_many(distinct_inputs)
+        merchant_id_by_input: dict[str, int] = {}
+        for descriptor, merchant in resolved.items():
+            merchant_id_by_input[descriptor] = self._db.get_or_create_merchant_id(
+                normalized_name=merchant.normalized_name,
+                display_name=merchant.display_name,
+                source_channel=merchant.source_channel,
+                counterparty=merchant.counterparty,
+            )
+        return merchant_id_by_input
 
     @staticmethod
     def _derived_unchanged(
