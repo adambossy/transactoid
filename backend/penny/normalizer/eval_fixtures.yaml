@@ -47,10 +47,15 @@ cases:
     normalized_name: 'transfer:internal'
     counterparty: null
 
-  # NOTE: venmo is intentionally not an eval fixture — the corpus contains
-  # exactly one venmo descriptor ("Venmo"), which is a rules.yaml few-shot, so
-  # it cannot be "held out". Its (trivial, constant) behaviour is covered by the
-  # unit tests instead.
+  # --- venmo (person from the directly-linked item; bank/bare forms collapse) ---
+  - descriptor: 'Jonah Spear "🏠 :venmo_dollar: 🎁"'
+    channel: venmo
+    normalized_name: 'venmo:jonah-spear'
+    counterparty: 'Jonah Spear'
+  - descriptor: 'Deposit Ach Venmo Type: Cashout Id: 5264681992 Co: Venmo'
+    channel: venmo
+    normalized_name: 'venmo'
+    counterparty: null
 
   # --- direct merchants (naive normalization) ---
   - descriptor: 'Amazon'
