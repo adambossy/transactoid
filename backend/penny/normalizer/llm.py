@@ -2,8 +2,7 @@
 
 Mirrors the categorizer's provider/model resolution and direct-SDK call pattern,
 but for descriptor → :class:`NormalizedMerchant` extraction driven by the
-natural-language rule repository (``rules.yaml``). Results are cached by raw
-descriptor so each distinct descriptor is resolved by the LLM at most once.
+natural-language rule repository (``rules.yaml``).
 
 Model resolution order (first non-empty wins):
 1. explicit ``model`` argument
@@ -24,13 +23,11 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from penny import observability
-from penny.adapters.cache.file_cache import FileCache, stable_key
 from penny.config import load_runtime_config_from_env
 from penny.normalizer.core import KNOWN_CHANNELS, NormalizedMerchant, naive_normalize
-from penny.normalizer.rules import RuleSet, build_system_prompt, load_rules
+from penny.normalizer.rules import build_system_prompt, load_rules
 
 _Provider = Literal["openai", "gemini"]
-_CACHE_NAMESPACE = "normalizer"
 
 
 class _ExtractionResult(BaseModel):
@@ -73,16 +70,13 @@ class MerchantNormalizer:
         *,
         provider: _Provider | None = None,
         model: str | None = None,
-        file_cache: FileCache | None = None,
         batch_size: int = 40,
         max_concurrency: int = 6,
     ) -> None:
         self._provider, self._model = self._resolve(provider, model)
-        self._file_cache = file_cache or FileCache()
         self._batch_size = batch_size
         self._semaphore = asyncio.Semaphore(max_concurrency)
-        self._rules: RuleSet = load_rules()
-        self._system_prompt = build_system_prompt(self._rules)
+        self._system_prompt = build_system_prompt(load_rules())
         self._openai_client: object | None = None
         self._gemini_client: object | None = None
 
@@ -118,31 +112,21 @@ class MerchantNormalizer:
     async def normalize_many(
         self, descriptors: list[str]
     ) -> dict[str, NormalizedMerchant]:
-        """Resolve a list of descriptors, using the cache and batching misses."""
+        """Resolve a list of descriptors (deduped, batched)."""
         unique = list(dict.fromkeys(d for d in descriptors if d is not None))
+        if not unique:
+            return {}
+
+        batches = [
+            unique[i : i + self._batch_size]
+            for i in range(0, len(unique), self._batch_size)
+        ]
+        extracted = await asyncio.gather(
+            *(self._extract_batch(batch) for batch in batches)
+        )
         resolved: dict[str, NormalizedMerchant] = {}
-        misses: list[str] = []
-
-        for descriptor in unique:
-            cached = self._cache_get(descriptor)
-            if cached is not None:
-                resolved[descriptor] = cached
-            else:
-                misses.append(descriptor)
-
-        if misses:
-            batches = [
-                misses[i : i + self._batch_size]
-                for i in range(0, len(misses), self._batch_size)
-            ]
-            extracted = await asyncio.gather(
-                *(self._extract_batch(batch) for batch in batches)
-            )
-            for batch_result in extracted:
-                for descriptor, merchant in batch_result.items():
-                    self._cache_set(descriptor, merchant)
-                    resolved[descriptor] = merchant
-
+        for batch_result in extracted:
+            resolved.update(batch_result)
         return resolved
 
     # -- extraction ---------------------------------------------------------
@@ -255,44 +239,3 @@ class MerchantNormalizer:
                 text = getattr(resp, "text", None) or str(resp)
                 gen.update(output=text)
                 return text
-
-    # -- cache --------------------------------------------------------------
-
-    def _cache_key(self, descriptor: str) -> str:
-        return stable_key(
-            {
-                "descriptor": descriptor,
-                "model": self._model,
-                "rules_version": self._rules.version,
-            }
-        )
-
-    def _cache_get(self, descriptor: str) -> NormalizedMerchant | None:
-        raw = self._file_cache.get(_CACHE_NAMESPACE, self._cache_key(descriptor))
-        if not isinstance(raw, dict):
-            return None
-        try:
-            return NormalizedMerchant(
-                normalized_name=str(raw["normalized_name"]),
-                display_name=str(raw["display_name"]),
-                source_channel=str(raw["source_channel"]),
-                counterparty=(
-                    None
-                    if raw.get("counterparty") is None
-                    else str(raw["counterparty"])
-                ),
-            )
-        except (KeyError, TypeError):
-            return None
-
-    def _cache_set(self, descriptor: str, merchant: NormalizedMerchant) -> None:
-        self._file_cache.set(
-            _CACHE_NAMESPACE,
-            self._cache_key(descriptor),
-            {
-                "normalized_name": merchant.normalized_name,
-                "display_name": merchant.display_name,
-                "source_channel": merchant.source_channel,
-                "counterparty": merchant.counterparty,
-            },
-        )

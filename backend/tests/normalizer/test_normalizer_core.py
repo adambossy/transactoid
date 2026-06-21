@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from penny.adapters.cache.file_cache import FileCache
 from penny.normalizer import (
     KNOWN_CHANNELS,
     MerchantNormalizer,
-    NormalizedMerchant,
     build_system_prompt,
     load_rules,
     naive_normalize,
@@ -58,10 +54,8 @@ def test_sanitize_name_constrains_shape() -> None:
     assert _sanitize_name("   ") == "unknown"
 
 
-def test_to_merchant_direct_falls_back_to_naive(tmp_path: Path) -> None:
-    norm = MerchantNormalizer(
-        provider="openai", model="gpt-test", file_cache=FileCache(str(tmp_path))
-    )
+def test_to_merchant_direct_falls_back_to_naive() -> None:
+    norm = MerchantNormalizer(provider="openai", model="gpt-test")
     # An LLM result classifying as 'direct' must be replaced by the naive key.
     result = _ExtractionResult(
         idx=0,
@@ -74,10 +68,8 @@ def test_to_merchant_direct_falls_back_to_naive(tmp_path: Path) -> None:
     assert merchant == naive_normalize("Amazon")
 
 
-def test_to_merchant_wrapper_uses_llm_fields(tmp_path: Path) -> None:
-    norm = MerchantNormalizer(
-        provider="openai", model="gpt-test", file_cache=FileCache(str(tmp_path))
-    )
+def test_to_merchant_wrapper_uses_llm_fields() -> None:
+    norm = MerchantNormalizer(provider="openai", model="gpt-test")
     result = _ExtractionResult(
         idx=0,
         channel="zelle",
@@ -89,34 +81,3 @@ def test_to_merchant_wrapper_uses_llm_fields(tmp_path: Path) -> None:
     assert merchant.source_channel == "zelle"
     assert merchant.normalized_name == "zelle:margarita-house-cle"
     assert merchant.counterparty == "MARGARITA HOUSE CLE"
-
-
-def test_cache_round_trip(tmp_path: Path) -> None:
-    norm = MerchantNormalizer(
-        provider="openai", model="gpt-test", file_cache=FileCache(str(tmp_path))
-    )
-    merchant = NormalizedMerchant(
-        normalized_name="zelle:jenny-oleary",
-        display_name="Zelle: JENNY OLEARY",
-        source_channel="zelle",
-        counterparty="JENNY OLEARY",
-    )
-    assert norm._cache_get("Zelle Payment FROM JENNY OLEARY") is None
-    norm._cache_set("Zelle Payment FROM JENNY OLEARY", merchant)
-    assert norm._cache_get("Zelle Payment FROM JENNY OLEARY") == merchant
-
-
-async def test_normalize_many_uses_cache_without_llm(tmp_path: Path) -> None:
-    # Pre-seed the cache so normalize_many resolves with zero LLM calls.
-    norm = MerchantNormalizer(
-        provider="openai", model="gpt-test", file_cache=FileCache(str(tmp_path))
-    )
-    seeded = NormalizedMerchant(
-        normalized_name="venmo",
-        display_name="Venmo",
-        source_channel="venmo",
-        counterparty=None,
-    )
-    norm._cache_set("Venmo", seeded)
-    out = await norm.normalize_many(["Venmo", "Venmo"])
-    assert out["Venmo"] == seeded
