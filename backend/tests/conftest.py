@@ -8,7 +8,24 @@ import pytest
 import penny.api.main
 from penny.api.persistence.engine import reset_web_engine
 import penny.db
+import penny.observability.otel as _otel
 import penny.services
+
+
+@pytest.fixture(autouse=True)
+def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hard-disable Langfuse/OTEL tracing for every test.
+
+    Tracing turns on automatically whenever ``LANGFUSE_PUBLIC_KEY`` +
+    ``LANGFUSE_SECRET_KEY`` are present (e.g. exported into the shell, or
+    sourced from ``.env.test``), so a bare ``pytest`` run would otherwise ship
+    synthetic spans to the real Langfuse project. Force the explicit-off flag
+    and pin the cached enablement decision so no test — fixture or scripted
+    fake agent — can emit a trace.
+    """
+    monkeypatch.setenv("PENNY_LANGFUSE_ENABLED", "false")
+    monkeypatch.setattr(_otel, "_enabled", False)
+    monkeypatch.setattr(_otel, "_provider", None)
 
 
 def _reset_singletons() -> None:
