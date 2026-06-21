@@ -47,6 +47,14 @@ cases:
     normalized_name: 'transfer:internal'
     counterparty: null
 
+  # --- check (bare numbered check -> no payee). Synthetic check number: the
+  #     corpus's only real check descriptors ("Check 1021", "Check CHARLES
+  #     STEWART") are both rules.yaml few-shots, so they can't be held out. ---
+  - descriptor: 'Check 2087'
+    channel: check
+    normalized_name: 'check:check'
+    counterparty: null
+
   # --- venmo (person from the directly-linked item; bank/bare forms collapse) ---
   - descriptor: 'Jonah Spear "🏠 :venmo_dollar: 🎁"'
     channel: venmo
