@@ -177,12 +177,6 @@ class MerchantNormalizer:
 
     # -- public API ---------------------------------------------------------
 
-    async def normalize(self, descriptor: str) -> NormalizedMerchant:
-        result = await self.normalize_many([descriptor])
-        # Missing => the batch failed; fall back to the naive key so this
-        # convenience method stays total.
-        return result.get(descriptor) or naive_normalize(descriptor)
-
     async def normalize_many(
         self, descriptors: list[str]
     ) -> dict[str, NormalizedMerchant]:

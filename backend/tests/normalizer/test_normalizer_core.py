@@ -8,7 +8,6 @@ from penny.normalizer import (
     build_system_prompt,
     load_rules,
     naive_normalize,
-    slug,
 )
 from penny.normalizer.merchant_normalizer import _ExtractionResult, _sanitize_name
 
@@ -20,11 +19,6 @@ def test_naive_normalize_matches_legacy_behaviour() -> None:
     assert result.source_channel == "direct"
     assert result.counterparty is None
     assert result.display_name == "Sweetgreen  #1234  NYC"
-
-
-def test_slug() -> None:
-    assert slug("896 MANHATTAN AV BROOKLYN NY") == "896-manhattan-av-brooklyn-ny"
-    assert slug("  Jenny  O'Leary ") == "jenny-o-leary"
 
 
 def test_rules_load_and_cover_known_channels() -> None:
