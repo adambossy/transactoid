@@ -10,7 +10,7 @@ from penny.normalizer import (
     naive_normalize,
     slug,
 )
-from penny.normalizer.llm import _ExtractionResult, _sanitize_name
+from penny.normalizer.merchant_normalizer import _ExtractionResult, _sanitize_name
 
 
 def test_naive_normalize_matches_legacy_behaviour() -> None:
