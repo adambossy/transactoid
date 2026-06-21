@@ -128,7 +128,7 @@ async def hide_transactions(transaction_ids: list[int]) -> dict[str, Any]:
     Args:
         transaction_ids: derived_transactions.transaction_id values to hide.
     """
-    return await _set_hidden(transaction_ids, hidden=True)
+    return await _set_visible(transaction_ids, visible=False)
 
 
 @tool
@@ -140,18 +140,18 @@ async def unhide_transactions(transaction_ids: list[int]) -> dict[str, Any]:
     Args:
         transaction_ids: derived_transactions.transaction_id values to unhide.
     """
-    return await _set_hidden(transaction_ids, hidden=False)
+    return await _set_visible(transaction_ids, visible=True)
 
 
-async def _set_hidden(transaction_ids: list[int], *, hidden: bool) -> dict[str, Any]:
+async def _set_visible(transaction_ids: list[int], *, visible: bool) -> dict[str, Any]:
     """Shared implementation for hide_transactions / unhide_transactions."""
 
     def _run() -> dict[str, Any]:
         try:
             updated = get_persister().set_transactions_visibility(
-                transaction_ids, hidden
+                transaction_ids, visible
             )
-            verb = "Hid" if hidden else "Unhid"
+            verb = "Unhid" if visible else "Hid"
             return {
                 "status": "success",
                 "updated": updated,

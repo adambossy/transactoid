@@ -694,13 +694,13 @@ class DB:
             return new_count
 
     def set_transactions_visibility(
-        self, transaction_ids: list[int], hidden: bool
+        self, transaction_ids: list[int], visible: bool
     ) -> int:
         """Set is_hidden on the given derived transactions.
 
         Args:
             transaction_ids: derived_transactions.transaction_id values.
-            hidden: True to hide, False to unhide.
+            visible: True to show (unhide), False to hide.
 
         Returns:
             Number of transactions whose flag was updated (matched rows).
@@ -715,7 +715,7 @@ class DB:
                 .all()
             )
             for row in rows:
-                row.is_hidden = hidden
+                row.is_hidden = not visible
             return len(rows)
 
     def delete_transactions_by_external_ids(

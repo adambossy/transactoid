@@ -151,7 +151,7 @@ async def test_hide_transactions_success_shape() -> None:
     with patch("penny.tools.transactions.get_persister", return_value=persister):
         result = await hide_transactions.fn(transaction_ids=[1, 2])
 
-    persister.set_transactions_visibility.assert_called_once_with([1, 2], True)
+    persister.set_transactions_visibility.assert_called_once_with([1, 2], False)
     assert result["status"] == "success"
     assert result["updated"] == 2
     assert "Hid 2" in result["message"]
@@ -159,13 +159,13 @@ async def test_hide_transactions_success_shape() -> None:
 
 @pytest.mark.asyncio
 async def test_unhide_transactions_success_shape() -> None:
-    """unhide_transactions calls the service with hidden=False."""
+    """unhide_transactions calls the service with visible=True."""
     persister = MagicMock()
     persister.set_transactions_visibility.return_value = 1
     with patch("penny.tools.transactions.get_persister", return_value=persister):
         result = await unhide_transactions.fn(transaction_ids=[1])
 
-    persister.set_transactions_visibility.assert_called_once_with([1], False)
+    persister.set_transactions_visibility.assert_called_once_with([1], True)
     assert result["status"] == "success"
     assert result["updated"] == 1
     assert "Unhid 1" in result["message"]

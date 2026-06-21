@@ -61,11 +61,13 @@ def test_set_transactions_visibility_hides_and_unhides(tmp_path: Path) -> None:
     a = _insert_derived_txn(db, external_id="d-1")
     b = _insert_derived_txn(db, external_id="d-2")
 
-    assert db.set_transactions_visibility([a, b], True) == 2
+    # visible=False hides both rows.
+    assert db.set_transactions_visibility([a, b], False) == 2
     assert _is_hidden(db, a) is True
     assert _is_hidden(db, b) is True
 
-    assert db.set_transactions_visibility([a], False) == 1
+    # visible=True shows (unhides) just a.
+    assert db.set_transactions_visibility([a], True) == 1
     assert _is_hidden(db, a) is False
     assert _is_hidden(db, b) is True
 
@@ -73,10 +75,10 @@ def test_set_transactions_visibility_hides_and_unhides(tmp_path: Path) -> None:
 def test_set_transactions_visibility_empty_list(tmp_path: Path) -> None:
     """An empty id list updates nothing."""
     db = _create_db(tmp_path)
-    assert db.set_transactions_visibility([], True) == 0
+    assert db.set_transactions_visibility([], False) == 0
 
 
 def test_set_transactions_visibility_unknown_id(tmp_path: Path) -> None:
     """Unknown ids match no rows and report zero updates."""
     db = _create_db(tmp_path)
-    assert db.set_transactions_visibility([999_999], True) == 0
+    assert db.set_transactions_visibility([999_999], False) == 0
