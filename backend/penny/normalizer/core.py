@@ -50,13 +50,6 @@ class NormalizedMerchant:
     counterparty: str | None = None
 
 
-def slug(value: str) -> str:
-    """Lowercase, ASCII-ish slug: keep alphanumerics, collapse runs to ``-``."""
-    lowered = value.strip().lower()
-    slugged = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
-    return slugged
-
-
 def naive_normalize(descriptor: str) -> NormalizedMerchant:
     """Direct-merchant normalization — the historical behaviour.
 
