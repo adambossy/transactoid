@@ -56,12 +56,14 @@ class LLMClient:
         """
         if self._provider == "gemini":
             return await self._complete_gemini(prompt, trace_name, json_mode)
-        return await self._complete_openai(prompt, trace_name)
+        return await self._complete_openai(prompt, trace_name, json_mode)
 
     def _trace_label(self, trace_name: str | None) -> str:
         return f"{trace_name}:{self._model}" if trace_name else self._model
 
-    async def _complete_openai(self, prompt: str, trace_name: str | None) -> str:
+    async def _complete_openai(
+        self, prompt: str, trace_name: str | None, json_mode: bool
+    ) -> str:
         if self._openai_client is None:
             from openai import AsyncOpenAI
 
@@ -70,12 +72,18 @@ class LLMClient:
                 raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
             self._openai_client = AsyncOpenAI(api_key=api_key)
 
+        # Enforce JSON output via the Responses API's text.format (mirrors the
+        # categorizer); without it the model may return prose and parsing fails.
+        extra_body = (
+            {"text": {"format": {"type": "json_object"}}} if json_mode else None
+        )
         with observability.llm_generation(
             self._trace_label(trace_name), model=self._model, input=prompt
         ) as gen:
             resp = await self._openai_client.responses.create(  # type: ignore[attr-defined]
                 model=self._model,
                 input=prompt,
+                extra_body=extra_body,
             )
             text = getattr(resp, "output_text", None) or str(resp)
             gen.update(output=text)

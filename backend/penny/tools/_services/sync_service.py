@@ -1059,9 +1059,12 @@ class SyncTool:
                     batch_num += 1
                     self._logger.pipeline_mutate_start(len(plaid_ids), batch_num)
                     start_time = time.monotonic()
-                    merchant_id_by_input = await self._resolve_merchant_ids(plaid_ids)
+                    plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
+                    merchant_id_by_input = await self._resolve_merchant_ids(
+                        list(plaid_txns_map.values())
+                    )
                     derived_ids = self._mutate_batch_to_derived(
-                        plaid_ids, merchant_id_by_input
+                        plaid_ids, merchant_id_by_input, plaid_txns_map
                     )
                     elapsed_ms = int((time.monotonic() - start_time) * 1000)
                     self._logger.pipeline_mutate_complete(
@@ -1159,6 +1162,7 @@ class SyncTool:
         self,
         plaid_ids: list[int],
         merchant_id_by_input: dict[str, int] | None = None,
+        plaid_txns_map: dict[int, PlaidTransaction] | None = None,
     ) -> list[int]:
         """
         Create derived transactions for a batch of plaid_transaction_ids.
@@ -1175,12 +1179,16 @@ class SyncTool:
                 merchant_id is stamped from it so the facade skips its naive
                 merchant resolution. When omitted (re-derive / remutate / tests),
                 the facade resolves merchants the legacy way.
+            plaid_txns_map: Optional pre-fetched plaid rows for ``plaid_ids``
+                (the async pipeline already fetched them to resolve merchants).
+                Fetched here when omitted.
 
         Returns:
             List of derived transaction_ids that were created
         """
         # Batch fetch all plaid transactions and old derived in 2 queries
-        plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
+        if plaid_txns_map is None:
+            plaid_txns_map = self._db.get_plaid_transactions_by_ids(plaid_ids)
         old_derived_map = self._db.get_derived_by_plaid_ids(plaid_ids)
 
         # Look up sign conventions once per batch — one DB round-trip
@@ -1306,20 +1314,23 @@ class SyncTool:
             self._normalizer = MerchantNormalizer()
         return self._normalizer
 
-    async def _resolve_merchant_ids(self, plaid_ids: list[int]) -> dict[str, int]:
+    async def _resolve_merchant_ids(
+        self, plaid_txns: list[PlaidTransaction]
+    ) -> dict[str, int]:
         """Pre-resolve merchants for a batch via the LLM normalizer (async).
 
         For each plaid row, the normalizer input is chosen from its
         merchant_descriptor and original_descriptor (the latter carries the
         counterparty for wrapper merchants like Venmo). Distinct inputs are
-        normalized in one batched, cached call and each resolved identity is
-        upserted to a merchant_id. Returns a map of input string -> merchant_id
-        that _mutate_batch_to_derived stamps onto matching 1:1 payloads.
+        normalized in one batched call and each resolved identity is upserted to
+        a merchant_id. Returns a map of input string -> merchant_id that
+        _mutate_batch_to_derived stamps onto matching 1:1 payloads. Inputs the
+        LLM failed to resolve are simply absent, so those payloads fall back to
+        the facade's merchant_descriptor-based naive resolution.
         """
-        plaid_txns = self._db.get_plaid_transactions_by_ids(plaid_ids)
         inputs = {
             choose_normalizer_input(txn.merchant_descriptor, txn.original_descriptor)
-            for txn in plaid_txns.values()
+            for txn in plaid_txns
         }
         distinct_inputs = [s for s in inputs if s]
         if not distinct_inputs:

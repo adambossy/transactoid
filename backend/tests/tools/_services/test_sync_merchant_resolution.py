@@ -104,7 +104,8 @@ async def test_venmo_resolves_to_counterparty_via_original_descriptor(
     )
     tool = _sync_tool(db, normalizer)
 
-    merchant_ids = await tool._resolve_merchant_ids([plaid_id])
+    plaid_txns = list(db.get_plaid_transactions_by_ids([plaid_id]).values())
+    merchant_ids = await tool._resolve_merchant_ids(plaid_txns)
     tool._mutate_batch_to_derived([plaid_id], merchant_ids)
 
     merchant = _derived_merchant(db, plaid_id)
@@ -135,13 +136,40 @@ async def test_direct_merchant_keeps_cleaned_name(tmp_path: Path) -> None:
     )
     tool = _sync_tool(db, normalizer)
 
-    merchant_ids = await tool._resolve_merchant_ids([plaid_id])
+    plaid_txns = list(db.get_plaid_transactions_by_ids([plaid_id]).values())
+    merchant_ids = await tool._resolve_merchant_ids(plaid_txns)
     tool._mutate_batch_to_derived([plaid_id], merchant_ids)
 
     merchant = _derived_merchant(db, plaid_id)
     assert merchant.normalized_name == "amazon"
     assert merchant.source_channel == "direct"
     assert merchant.counterparty is None
+
+
+async def test_llm_failure_falls_back_to_clean_descriptor_not_junk(
+    tmp_path: Path,
+) -> None:
+    # When the normalizer resolves nothing (LLM failure -> empty map), the row
+    # must fall back to the facade's merchant_descriptor-based naive identity
+    # ("venmo"), NOT a junk identity derived from the raw original_descriptor.
+    db = _db(tmp_path)
+    db.set_sign_convention("acct-1", "expense_positive")
+    plaid_id = _insert_plaid(
+        db,
+        external_id="venmo-fail",
+        merchant_descriptor="Venmo",
+        original_descriptor='Jonah Spear ":venmo_dollar:"',
+    )
+    tool = _sync_tool(db, _FakeNormalizer({}))  # resolves nothing
+
+    plaid_txns = list(db.get_plaid_transactions_by_ids([plaid_id]).values())
+    merchant_ids = await tool._resolve_merchant_ids(plaid_txns)
+    assert merchant_ids == {}
+    tool._mutate_batch_to_derived([plaid_id], merchant_ids)
+
+    merchant = _derived_merchant(db, plaid_id)
+    assert merchant.normalized_name == "venmo"  # clean, from merchant_descriptor
+    assert merchant.source_channel is None
 
 
 def test_legacy_path_without_map_still_resolves_merchant(tmp_path: Path) -> None:
