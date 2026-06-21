@@ -47,7 +47,7 @@ def test_eval_fixtures_load_and_are_held_out() -> None:
     cases = load_eval_cases()
     assert len(cases) >= 8
     # Fixtures must not duplicate the rules.yaml few-shot descriptors.
-    from penny.normalizer.rules import load_rules
+    from penny.normalizer import load_rules
 
     fewshot = {ex["descriptor"] for c in load_rules().channels for ex in c.examples}
     fixture_descriptors = {c.descriptor for c in cases}

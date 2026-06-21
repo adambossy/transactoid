@@ -14,8 +14,12 @@ from penny.normalizer.core import (
     slug,
 )
 from penny.normalizer.input import WRAPPER_LABELS, choose_normalizer_input
-from penny.normalizer.merchant_normalizer import MerchantNormalizer
-from penny.normalizer.rules import RuleSet, build_system_prompt, load_rules
+from penny.normalizer.merchant_normalizer import (
+    MerchantNormalizer,
+    RuleSet,
+    build_system_prompt,
+    load_rules,
+)
 
 __all__ = [
     "KNOWN_CHANNELS",
