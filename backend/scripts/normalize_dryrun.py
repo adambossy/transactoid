@@ -30,16 +30,18 @@ import os
 from pathlib import Path
 import sys
 
-# Ensure `penny` is importable when run as a script.
+# Ensure `penny` (backend/) and sibling scripts (this dir) are importable.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from penny.normalizer import MerchantNormalizer  # noqa: E402
-from penny.normalizer.review import (  # noqa: E402
+from review import (  # noqa: E402
     ProposalMember,
     ReviewProposal,
     build_review_html,
     proposals_to_json,
 )
+
+from penny.normalizer import MerchantNormalizer  # noqa: E402
 
 
 async def _run(args: argparse.Namespace) -> int:
