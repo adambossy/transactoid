@@ -71,11 +71,9 @@ class MerchantNormalizer:
         provider: _Provider | None = None,
         model: str | None = None,
         batch_size: int = 40,
-        max_concurrency: int = 6,
     ) -> None:
         self._provider, self._model = self._resolve(provider, model)
         self._batch_size = batch_size
-        self._semaphore = asyncio.Semaphore(max_concurrency)
         self._system_prompt = build_system_prompt(load_rules())
         self._openai_client: object | None = None
         self._gemini_client: object | None = None
@@ -205,17 +203,16 @@ class MerchantNormalizer:
                 raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
             self._openai_client = AsyncOpenAI(api_key=api_key)
 
-        async with self._semaphore:
-            with observability.llm_generation(
-                f"normalize:{self._model}", model=self._model, input=prompt
-            ) as gen:
-                resp = await self._openai_client.responses.create(  # type: ignore[attr-defined]
-                    model=self._model,
-                    input=prompt,
-                )
-                text = getattr(resp, "output_text", None) or str(resp)
-                gen.update(output=text)
-                return text
+        with observability.llm_generation(
+            f"normalize:{self._model}", model=self._model, input=prompt
+        ) as gen:
+            resp = await self._openai_client.responses.create(  # type: ignore[attr-defined]
+                model=self._model,
+                input=prompt,
+            )
+            text = getattr(resp, "output_text", None) or str(resp)
+            gen.update(output=text)
+            return text
 
     async def _call_gemini(self, prompt: str) -> str:
         if self._gemini_client is None:
@@ -229,13 +226,12 @@ class MerchantNormalizer:
         from google.genai.types import GenerateContentConfig
 
         config = GenerateContentConfig(response_mime_type="application/json")
-        async with self._semaphore:
-            with observability.llm_generation(
-                f"normalize:{self._model}", model=self._model, input=prompt
-            ) as gen:
-                resp = await self._gemini_client.aio.models.generate_content(  # type: ignore[attr-defined]
-                    model=self._model, contents=prompt, config=config
-                )
-                text = getattr(resp, "text", None) or str(resp)
-                gen.update(output=text)
-                return text
+        with observability.llm_generation(
+            f"normalize:{self._model}", model=self._model, input=prompt
+        ) as gen:
+            resp = await self._gemini_client.aio.models.generate_content(  # type: ignore[attr-defined]
+                model=self._model, contents=prompt, config=config
+            )
+            text = getattr(resp, "text", None) or str(resp)
+            gen.update(output=text)
+            return text
