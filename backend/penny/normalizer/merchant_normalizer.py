@@ -184,7 +184,9 @@ class MerchantNormalizer:
 
     async def normalize(self, descriptor: str) -> NormalizedMerchant:
         result = await self.normalize_many([descriptor])
-        return result[descriptor]
+        # Missing => the batch failed; fall back to the naive key so this
+        # convenience method stays total.
+        return result.get(descriptor) or naive_normalize(descriptor)
 
     async def normalize_many(
         self, descriptors: list[str]
@@ -217,9 +219,14 @@ class MerchantNormalizer:
                 prompt, trace_name="normalize", json_mode=True
             )
             parsed = _ExtractionResponse.model_validate_json(self._extract_json(raw))
-        except Exception as exc:  # noqa: BLE001 — degrade gracefully to naive
-            logger.warning("normalizer LLM batch failed ({}); using naive", exc)
-            return {d: naive_normalize(d) for d in descriptors}
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            # Omit the batch rather than fabricate identities. Callers treat a
+            # missing descriptor as unresolved: the sync path falls back to the
+            # facade's merchant_descriptor-based naive resolution, which is a
+            # clean collapsed identity (e.g. "venmo") — never junk derived from
+            # the raw wrapper text (which would strand the row on a bad merchant).
+            logger.warning("normalizer LLM batch failed ({}); leaving unresolved", exc)
+            return {}
 
         by_idx = {r.idx: r for r in parsed.results}
         out: dict[str, NormalizedMerchant] = {}
