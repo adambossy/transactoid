@@ -135,10 +135,9 @@ class _ExtractionResponse(BaseModel):
 
 def _sanitize_name(value: str) -> str:
     """Constrain an LLM-returned identity to a lowercase ``channel:slug`` shape."""
-    lowered = value.strip().lower()
-    # Keep alphanumerics, colons and hyphens; collapse everything else to '-'.
-    cleaned = re.sub(r"[^a-z0-9:-]+", "-", lowered)
-    cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-:")
+    # Collapse any run of non-(alphanumeric/colon) chars — including stray
+    # hyphens — to a single '-', then trim leading/trailing separators.
+    cleaned = re.sub(r"[^a-z0-9:]+", "-", value.strip().lower()).strip("-:")
     return cleaned or "unknown"
 
 
@@ -167,15 +166,11 @@ class MerchantNormalizer:
         norm_model = os.environ.get("PENNY_NORMALIZER_MODEL", "").strip() or None
         cat_model = os.environ.get("PENNY_CATEGORIZER_MODEL", "").strip() or None
         chosen = model or norm_model or cat_model
-        inferred = infer_provider(chosen)
         try:
-            runtime = load_runtime_config_from_env()
-            resolved_model = chosen or runtime.model
+            resolved_model = chosen or load_runtime_config_from_env().model
         except Exception:
             resolved_model = chosen or "gpt-5.5"
-        resolved_provider = (
-            provider or inferred or infer_provider(resolved_model) or "openai"
-        )
+        resolved_provider = provider or infer_provider(resolved_model) or "openai"
         if resolved_provider not in ("openai", "gemini"):
             resolved_provider = "openai"
         return resolved_provider, resolved_model
