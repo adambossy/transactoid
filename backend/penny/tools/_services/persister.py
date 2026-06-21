@@ -98,6 +98,22 @@ class PersistTool:
 
         return ApplyTagsOutcome(applied=applied_count, created_tags=created_tags)
 
+    def set_transactions_hidden(self, transaction_ids: list[int], hidden: bool) -> int:
+        """
+        Hide or unhide derived transactions.
+
+        Hidden transactions are excluded by default from the agent's spending
+        analysis. This is fully reversible.
+
+        Args:
+            transaction_ids: List of derived_transactions.transaction_id values.
+            hidden: True to hide, False to unhide.
+
+        Returns:
+            Number of transactions updated (matched rows).
+        """
+        return self._db.set_transactions_hidden(transaction_ids, hidden)
+
 
 class RecategorizeTool(StandardTool):
     """

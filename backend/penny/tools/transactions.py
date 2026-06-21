@@ -10,6 +10,7 @@ from agent_harness import tool
 
 from penny.db import get_db
 from penny.errors import RefundError, SplitError
+from penny.services import get_persister
 from penny.tools._services.refund import record_refund as _record_refund
 from penny.tools._services.split import split_transaction as _split_transaction
 
@@ -111,5 +112,50 @@ async def record_refund(refund_txn_id: int, original_txn_id: int) -> dict[str, A
             return response
         except RefundError as exc:
             return {"status": "error", "message": str(exc)}
+
+    return await asyncio.to_thread(_run)
+
+
+@tool
+async def hide_transactions(transaction_ids: list[int]) -> dict[str, Any]:
+    """Hide transactions so they're excluded from spending analysis.
+
+    Hidden rows are dropped from the default query filters (the same way
+    income, transfers, and investment activity are). Use for one-off rows the
+    user wants ignored — a reimbursed expense, a duplicate, a personal-vs-
+    business charge, etc. Reversible with unhide_transactions.
+
+    Args:
+        transaction_ids: derived_transactions.transaction_id values to hide.
+    """
+    return await _set_hidden(transaction_ids, hidden=True)
+
+
+@tool
+async def unhide_transactions(transaction_ids: list[int]) -> dict[str, Any]:
+    """Unhide transactions so they count toward spending analysis again.
+
+    Reverses hide_transactions.
+
+    Args:
+        transaction_ids: derived_transactions.transaction_id values to unhide.
+    """
+    return await _set_hidden(transaction_ids, hidden=False)
+
+
+async def _set_hidden(transaction_ids: list[int], *, hidden: bool) -> dict[str, Any]:
+    """Shared implementation for hide_transactions / unhide_transactions."""
+
+    def _run() -> dict[str, Any]:
+        try:
+            updated = get_persister().set_transactions_hidden(transaction_ids, hidden)
+            verb = "Hid" if hidden else "Unhid"
+            return {
+                "status": "success",
+                "updated": updated,
+                "message": f"{verb} {updated} transaction(s)",
+            }
+        except Exception as exc:
+            return {"status": "error", "message": str(exc), "updated": 0}
 
     return await asyncio.to_thread(_run)

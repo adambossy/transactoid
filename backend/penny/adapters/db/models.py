@@ -225,6 +225,13 @@ class DerivedTransaction(Base):
     is_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )
+    # User-controlled flag: rows the user has chosen to exclude from spending
+    # analysis. Excluded by default in the agent's query filters (see
+    # hide_transactions / unhide_transactions tools). NOT NULL DEFAULT FALSE
+    # mirrors is_verified — existing rows read as FALSE, no backfill needed.
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
     reporting_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
