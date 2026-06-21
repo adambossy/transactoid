@@ -6,11 +6,16 @@ The @tool decorator wraps functions in a Tool dataclass; call .fn() directly.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from penny.tools.transactions import record_refund, split_transaction
+from penny.tools.transactions import (
+    hide_transactions,
+    record_refund,
+    split_transaction,
+    unhide_transactions,
+)
 
 # ---------------------------------------------------------------------------
 # split_transaction
@@ -131,3 +136,49 @@ async def test_record_refund_service_error_shape() -> None:
 
     assert result["status"] == "error"
     assert "transaction 99 not found" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# hide_transactions / unhide_transactions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hide_transactions_success_shape() -> None:
+    """hide_transactions reports the updated count and a 'Hid' message."""
+    persister = MagicMock()
+    persister.set_transactions_visibility.return_value = 2
+    with patch("penny.tools.transactions.get_persister", return_value=persister):
+        result = await hide_transactions.fn(transaction_ids=[1, 2])
+
+    persister.set_transactions_visibility.assert_called_once_with([1, 2], True)
+    assert result["status"] == "success"
+    assert result["updated"] == 2
+    assert "Hid 2" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_unhide_transactions_success_shape() -> None:
+    """unhide_transactions calls the service with hidden=False."""
+    persister = MagicMock()
+    persister.set_transactions_visibility.return_value = 1
+    with patch("penny.tools.transactions.get_persister", return_value=persister):
+        result = await unhide_transactions.fn(transaction_ids=[1])
+
+    persister.set_transactions_visibility.assert_called_once_with([1], False)
+    assert result["status"] == "success"
+    assert result["updated"] == 1
+    assert "Unhid 1" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_hide_transactions_service_error_shape() -> None:
+    """A service exception surfaces as status=error with updated=0."""
+    persister = MagicMock()
+    persister.set_transactions_visibility.side_effect = RuntimeError("db down")
+    with patch("penny.tools.transactions.get_persister", return_value=persister):
+        result = await hide_transactions.fn(transaction_ids=[1])
+
+    assert result["status"] == "error"
+    assert result["updated"] == 0
+    assert "db down" in result["message"]

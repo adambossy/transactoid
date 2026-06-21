@@ -107,7 +107,11 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
         "for those queries (that table is only relevant when joining plaid_transactions "
         "raw data). "
         "Run `scripts/backfill_sign_conventions.py` once after `alembic upgrade head` "
-        "to retroactively normalize historical rows."
+        "to retroactively normalize historical rows. "
+        "\n"
+        "is_hidden flags rows the user has chosen to exclude from analysis. For "
+        "all spend queries add `AND is_hidden = FALSE`; only drop that filter "
+        "when the user explicitly asks to see hidden transactions."
     ),
     "transaction_items": (
         "Itemization table. One row per line item within a transaction. "
@@ -688,6 +692,31 @@ class DB:
                         new_count += 1
 
             return new_count
+
+    def set_transactions_visibility(
+        self, transaction_ids: list[int], hidden: bool
+    ) -> int:
+        """Set is_hidden on the given derived transactions.
+
+        Args:
+            transaction_ids: derived_transactions.transaction_id values.
+            hidden: True to hide, False to unhide.
+
+        Returns:
+            Number of transactions whose flag was updated (matched rows).
+        """
+        if not transaction_ids:
+            return 0
+
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
+                .all()
+            )
+            for row in rows:
+                row.is_hidden = hidden
+            return len(rows)
 
     def delete_transactions_by_external_ids(
         self,

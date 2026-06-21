@@ -2,10 +2,10 @@
   "schema": 2,
   "prompts": {
     "penny-system-prompt": {
-      "source_file": ".prompts/penny-system-prompt/10.md",
+      "source_file": ".prompts/penny-system-prompt/11.md",
       "version_dir": ".prompts/penny-system-prompt",
-      "last_hash": "sha256:272a6c63bbe7e99b6d9630446fa3f1fffaf8c6293e89b2cbddb2c2fc384e01d8",
-      "last_version": 10
+      "last_hash": "sha256:9789d42e7e1e06076c06573ef00cf38cf071c7194170f401914980b53cd2223f",
+      "last_version": 11
     },
     "categorize-transactions": {
       "source_file": ".prompts/categorize-transactions/4.md",
