@@ -693,7 +693,9 @@ class DB:
 
             return new_count
 
-    def set_transactions_hidden(self, transaction_ids: list[int], hidden: bool) -> int:
+    def set_transactions_visibility(
+        self, transaction_ids: list[int], hidden: bool
+    ) -> int:
         """Set is_hidden on the given derived transactions.
 
         Args:

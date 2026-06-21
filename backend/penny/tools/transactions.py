@@ -148,7 +148,9 @@ async def _set_hidden(transaction_ids: list[int], *, hidden: bool) -> dict[str, 
 
     def _run() -> dict[str, Any]:
         try:
-            updated = get_persister().set_transactions_hidden(transaction_ids, hidden)
+            updated = get_persister().set_transactions_visibility(
+                transaction_ids, hidden
+            )
             verb = "Hid" if hidden else "Unhid"
             return {
                 "status": "success",

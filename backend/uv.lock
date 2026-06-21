@@ -5,7 +5,7 @@ requires-python = ">=3.13"
 [[package]]
 name = "agent-harness"
 version = "0.0.1"
-source = { editable = "../../../../../agent-harness" }
+source = { editable = "../../../../agent-harness" }
 dependencies = [
     { name = "griffe" },
     { name = "pydantic" },
@@ -1170,7 +1170,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-harness", extras = ["anthropic", "openai", "google", "otel"], editable = "../../../../../agent-harness" },
+    { name = "agent-harness", extras = ["anthropic", "openai", "google", "otel"], editable = "../../../../agent-harness" },
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "boto3", specifier = ">=1.26" },
     { name = "fastapi", specifier = ">=0.115" },

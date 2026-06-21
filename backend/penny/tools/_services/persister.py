@@ -98,7 +98,9 @@ class PersistTool:
 
         return ApplyTagsOutcome(applied=applied_count, created_tags=created_tags)
 
-    def set_transactions_hidden(self, transaction_ids: list[int], hidden: bool) -> int:
+    def set_transactions_visibility(
+        self, transaction_ids: list[int], hidden: bool
+    ) -> int:
         """
         Hide or unhide derived transactions.
 
@@ -112,7 +114,7 @@ class PersistTool:
         Returns:
             Number of transactions updated (matched rows).
         """
-        return self._db.set_transactions_hidden(transaction_ids, hidden)
+        return self._db.set_transactions_visibility(transaction_ids, hidden)
 
 
 class RecategorizeTool(StandardTool):

@@ -1,4 +1,4 @@
-"""Tests for DB.set_transactions_hidden and the is_hidden default."""
+"""Tests for DB.set_transactions_visibility and the is_hidden default."""
 
 from __future__ import annotations
 
@@ -55,28 +55,28 @@ def test_is_hidden_defaults_to_false(tmp_path: Path) -> None:
     assert _is_hidden(db, txn_id) is False
 
 
-def test_set_transactions_hidden_hides_and_unhides(tmp_path: Path) -> None:
-    """set_transactions_hidden flips the flag both directions and counts rows."""
+def test_set_transactions_visibility_hides_and_unhides(tmp_path: Path) -> None:
+    """set_transactions_visibility flips the flag both directions and counts rows."""
     db = _create_db(tmp_path)
     a = _insert_derived_txn(db, external_id="d-1")
     b = _insert_derived_txn(db, external_id="d-2")
 
-    assert db.set_transactions_hidden([a, b], True) == 2
+    assert db.set_transactions_visibility([a, b], True) == 2
     assert _is_hidden(db, a) is True
     assert _is_hidden(db, b) is True
 
-    assert db.set_transactions_hidden([a], False) == 1
+    assert db.set_transactions_visibility([a], False) == 1
     assert _is_hidden(db, a) is False
     assert _is_hidden(db, b) is True
 
 
-def test_set_transactions_hidden_empty_list(tmp_path: Path) -> None:
+def test_set_transactions_visibility_empty_list(tmp_path: Path) -> None:
     """An empty id list updates nothing."""
     db = _create_db(tmp_path)
-    assert db.set_transactions_hidden([], True) == 0
+    assert db.set_transactions_visibility([], True) == 0
 
 
-def test_set_transactions_hidden_unknown_id(tmp_path: Path) -> None:
+def test_set_transactions_visibility_unknown_id(tmp_path: Path) -> None:
     """Unknown ids match no rows and report zero updates."""
     db = _create_db(tmp_path)
-    assert db.set_transactions_hidden([999_999], True) == 0
+    assert db.set_transactions_visibility([999_999], True) == 0
