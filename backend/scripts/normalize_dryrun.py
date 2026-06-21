@@ -74,31 +74,21 @@ async def _run(args: argparse.Namespace) -> int:
     resolved = await normalizer.normalize_many(descriptors)
 
     # Group descriptors by their proposed normalized identity.
-    groups: dict[str, ReviewProposal] = {}
-    members: dict[str, list[ProposalMember]] = {}
+    proposals_by_key: dict[str, ReviewProposal] = {}
     for descriptor, merchant in resolved.items():
         key = merchant.normalized_name
-        members.setdefault(key, []).append(
-            ProposalMember(descriptor=descriptor, count=counts.get(descriptor, 1))
-        )
-        if key not in groups:
-            groups[key] = ReviewProposal(
+        if key not in proposals_by_key:
+            proposals_by_key[key] = ReviewProposal(
                 normalized_name=merchant.normalized_name,
                 display_name=merchant.display_name,
                 source_channel=merchant.source_channel,
                 counterparty=merchant.counterparty,
                 members=[],
             )
-    proposals = [
-        ReviewProposal(
-            normalized_name=g.normalized_name,
-            display_name=g.display_name,
-            source_channel=g.source_channel,
-            counterparty=g.counterparty,
-            members=members[key],
+        proposals_by_key[key].members.append(
+            ProposalMember(descriptor=descriptor, count=counts.get(descriptor, 1))
         )
-        for key, g in groups.items()
-    ]
+    proposals = list(proposals_by_key.values())
 
     html_path = corpus_dir / "review.html"
     json_path = corpus_dir / "proposals.json"
