@@ -17,17 +17,14 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from typing import Literal
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from penny import observability
 from penny.config import load_runtime_config_from_env
+from penny.llm import LLMClient, Provider, infer_provider
 from penny.normalizer.core import KNOWN_CHANNELS, NormalizedMerchant, naive_normalize
 from penny.normalizer.rules import build_system_prompt, load_rules
-
-_Provider = Literal["openai", "gemini"]
 
 
 class _ExtractionResult(BaseModel):
@@ -51,51 +48,39 @@ def _sanitize_name(value: str) -> str:
     return cleaned or "unknown"
 
 
-def _infer_provider(model: str | None) -> _Provider | None:
-    if not model:
-        return None
-    m = model.strip().lower()
-    if m.startswith(("gemini", "google/")):
-        return "gemini"
-    if m.startswith(("gpt", "o", "openai/")):
-        return "openai"
-    return None
-
-
 class MerchantNormalizer:
     """Normalize descriptors into :class:`NormalizedMerchant` via an LLM."""
 
     def __init__(
         self,
         *,
-        provider: _Provider | None = None,
+        provider: Provider | None = None,
         model: str | None = None,
         batch_size: int = 40,
     ) -> None:
-        self._provider, self._model = self._resolve(provider, model)
+        resolved_provider, self._model = self._resolve(provider, model)
         self._batch_size = batch_size
         self._system_prompt = build_system_prompt(load_rules())
-        self._openai_client: object | None = None
-        self._gemini_client: object | None = None
+        self._client = LLMClient(provider=resolved_provider, model=self._model)
 
     @property
     def model(self) -> str:
         return self._model
 
     def _resolve(
-        self, provider: _Provider | None, model: str | None
-    ) -> tuple[_Provider, str]:
+        self, provider: Provider | None, model: str | None
+    ) -> tuple[Provider, str]:
         norm_model = os.environ.get("PENNY_NORMALIZER_MODEL", "").strip() or None
         cat_model = os.environ.get("PENNY_CATEGORIZER_MODEL", "").strip() or None
         chosen = model or norm_model or cat_model
-        inferred = _infer_provider(chosen)
+        inferred = infer_provider(chosen)
         try:
             runtime = load_runtime_config_from_env()
             resolved_model = chosen or runtime.model
         except Exception:
             resolved_model = chosen or "gpt-5.5"
         resolved_provider = (
-            provider or inferred or _infer_provider(resolved_model) or "openai"
+            provider or inferred or infer_provider(resolved_model) or "openai"
         )
         if resolved_provider not in ("openai", "gemini"):
             resolved_provider = "openai"
@@ -134,7 +119,9 @@ class MerchantNormalizer:
     ) -> dict[str, NormalizedMerchant]:
         prompt = self._build_prompt(descriptors)
         try:
-            raw = await self._call_llm(prompt)
+            raw = await self._client.complete(
+                prompt, trace_name="normalize", json_mode=True
+            )
             parsed = _ExtractionResponse.model_validate_json(self._extract_json(raw))
         except Exception as exc:  # noqa: BLE001 — degrade gracefully to naive
             logger.warning("normalizer LLM batch failed ({}); using naive", exc)
@@ -186,52 +173,3 @@ class MerchantNormalizer:
         if start != -1 and end != -1 and end > start:
             return text[start : end + 1]
         return text
-
-    # -- provider plumbing --------------------------------------------------
-
-    async def _call_llm(self, prompt: str) -> str:
-        if self._provider == "gemini":
-            return await self._call_gemini(prompt)
-        return await self._call_openai(prompt)
-
-    async def _call_openai(self, prompt: str) -> str:
-        if self._openai_client is None:
-            from openai import AsyncOpenAI
-
-            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY is required to call OpenAI.")
-            self._openai_client = AsyncOpenAI(api_key=api_key)
-
-        with observability.llm_generation(
-            f"normalize:{self._model}", model=self._model, input=prompt
-        ) as gen:
-            resp = await self._openai_client.responses.create(  # type: ignore[attr-defined]
-                model=self._model,
-                input=prompt,
-            )
-            text = getattr(resp, "output_text", None) or str(resp)
-            gen.update(output=text)
-            return text
-
-    async def _call_gemini(self, prompt: str) -> str:
-        if self._gemini_client is None:
-            from google.genai.client import Client
-
-            api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
-            if not api_key:
-                raise RuntimeError("GOOGLE_API_KEY is required to call Gemini.")
-            self._gemini_client = Client(api_key=api_key)
-
-        from google.genai.types import GenerateContentConfig
-
-        config = GenerateContentConfig(response_mime_type="application/json")
-        with observability.llm_generation(
-            f"normalize:{self._model}", model=self._model, input=prompt
-        ) as gen:
-            resp = await self._gemini_client.aio.models.generate_content(  # type: ignore[attr-defined]
-                model=self._model, contents=prompt, config=config
-            )
-            text = getattr(resp, "text", None) or str(resp)
-            gen.update(output=text)
-            return text
