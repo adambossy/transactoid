@@ -157,12 +157,15 @@ async def run_eval(
 
         # Upload the run's artifacts to R2 under one prefix: the report HTML, the
         # SQLite fixture (for backtests), and the machine-readable items JSON.
-        # Best-effort: the eval rows are the measurement of record; a failed upload
-        # must not lose the run. r2_fixture_url stores the fixture KEY (backtests
-        # download by key); report_url is a shareable link for the email.
+        # The fixture + items hold real transaction data, so they go in the
+        # private default bucket; only the report is uploaded to the (optional)
+        # PUBLIC report bucket so its emailed link can be permanent. Best-effort:
+        # a failed upload must not lose the run. r2_fixture_url stores the fixture
+        # KEY (backtests download by key); report_url is a shareable link.
         prefix = f"eval-runs/{branch_name}"
         fixture_key = f"{prefix}/fixture.tar.gz"
         report_key = f"{prefix}/report.html"
+        report_bucket = os.environ.get("R2_REPORT_BUCKET", "").strip() or None
         meta = {"eval_run_id": str(run_id), "branch": branch_name}
         report_url: str | None = None
         try:
@@ -174,18 +177,19 @@ async def run_eval(
             )
             prod.set_eval_run_fixture(run_id, fixture_key)
             store_object_in_r2(
-                key=report_key,
-                body=html_doc.encode("utf-8"),
-                content_type="text/html; charset=utf-8",
-                metadata=meta,
-            )
-            store_object_in_r2(
                 key=f"{prefix}/items.json",
                 body=json.dumps(items, default=str, indent=2).encode("utf-8"),
                 content_type="application/json",
                 metadata=meta,
             )
-            report_url = public_url_for_key(report_key)
+            store_object_in_r2(
+                key=report_key,
+                body=html_doc.encode("utf-8"),
+                content_type="text/html; charset=utf-8",
+                metadata=meta,
+                bucket=report_bucket,
+            )
+            report_url = public_url_for_key(report_key, bucket=report_bucket)
         except Exception as exc:  # noqa: BLE001 - artifacts are non-critical
             logger.warning("eval: R2 artifact upload failed (run kept): {}", exc)
 
