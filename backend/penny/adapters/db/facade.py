@@ -2022,6 +2022,79 @@ class DB:
             if run is not None:
                 run.r2_fixture_url = r2_fixture_url
 
+    def eval_items_with_verdicts(
+        self, *, settled_before: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        """All eval items enriched with a verdict derived from your corrections.
+
+        There is no stored verdict (no staging step). For each item:
+        - ``corrected`` if the transaction has a ``manual`` category event created
+          after the run's ``run_at`` (you recategorized it post-eval); ``human_key``
+          is that latest post-run event's ``to_category_key``.
+        - ``confirmed`` if no such correction exists AND the run is settled
+          (``run_at <= settled_before``); ``human_key`` is the agent's key.
+        - ``provisional`` otherwise (too new to have been reviewed).
+
+        ``settled_before`` is "now minus the settling window"; pass None to treat
+        every uncorrected item as still provisional.
+        """
+        from collections import defaultdict
+
+        with self.session() as session:  # type: Session
+            runs = {r.eval_run_id: r for r in session.query(EvalRun).all()}
+            items = session.query(EvalItem).all()
+            manual = (
+                session.query(
+                    TransactionCategoryEvent.transaction_id,
+                    TransactionCategoryEvent.created_at,
+                    TransactionCategoryEvent.to_category_key,
+                )
+                .filter(TransactionCategoryEvent.method == "manual")
+                .order_by(TransactionCategoryEvent.created_at.desc())
+                .all()
+            )
+            by_txn: dict[int, list[tuple[datetime, str]]] = defaultdict(list)
+            for tid, created, to_key in manual:
+                if created is not None:
+                    by_txn[tid].append((created, to_key))
+
+            out: list[dict[str, Any]] = []
+            for item in items:
+                run = runs.get(item.eval_run_id)
+                if run is None:
+                    continue
+                post = [
+                    c for c in by_txn.get(item.transaction_id, []) if c[0] > run.run_at
+                ]
+                if post:
+                    verdict = "corrected"
+                    human_key = post[0][1]  # newest (events are desc-ordered)
+                elif settled_before is not None and run.run_at <= settled_before:
+                    verdict = "confirmed"
+                    human_key = item.agent_key
+                else:
+                    verdict = "provisional"
+                    human_key = None
+                out.append(
+                    {
+                        "eval_run_id": item.eval_run_id,
+                        "run_at": run.run_at,
+                        "transaction_id": item.transaction_id,
+                        "legacy_key": item.legacy_key,
+                        "agent_key": item.agent_key,
+                        "method_at_eval_time": item.method_at_eval_time,
+                        "agent_confidence": item.agent_confidence,
+                        "verdict": verdict,
+                        "human_key": human_key,
+                        "model": run.model,
+                        "prompt_version": run.prompt_version,
+                        "harness_sha": run.harness_sha,
+                        "taxonomy_version": run.taxonomy_version,
+                        "rules_version": run.rules_version,
+                    }
+                )
+            return out
+
     def get_derived_transactions_by_ids(
         self,
         transaction_ids: list[int],
