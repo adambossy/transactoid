@@ -57,6 +57,22 @@ from penny.adapters.db.models import (
 M = TypeVar("M")
 CategoryMethod = Literal["llm", "manual", "taxonomy_migration"]
 
+# Investment trades/income (buys, sells, dividends, fees) are recorded but NOT
+# categorized — categorizing them spends tokens for no reporting value. They carry
+# ``reporting_mode='DEFAULT_EXCLUDE'`` (set during investment sync). Regular txns
+# have NULL reporting_mode; investment-account money movement is DEFAULT_INCLUDE
+# and IS still categorized. This predicate selects "should be categorized".
+_SKIP_CATEGORIZATION_REPORTING_MODE = "DEFAULT_EXCLUDE"
+
+
+def _needs_categorization_clause() -> Any:
+    """SQL clause: the row is not an investment trade to skip (NULL-safe)."""
+    return (
+        func.coalesce(DerivedTransaction.reporting_mode, "")
+        != _SKIP_CATEGORIZATION_REPORTING_MODE
+    )
+
+
 _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     Merchant,
     Category,
@@ -1903,11 +1919,13 @@ class DB:
                 Joins to plaid_transactions to filter by source.
 
         Returns:
-            List of transaction_ids where category_id IS NULL.
+            List of transaction_ids where category_id IS NULL (excluding
+            investment trades, which are recorded but never categorized).
         """
         with self.session() as session:  # type: Session
             query = session.query(DerivedTransaction.transaction_id).filter(
-                DerivedTransaction.category_id.is_(None)
+                DerivedTransaction.category_id.is_(None),
+                _needs_categorization_clause(),
             )
             if source is not None:
                 query = query.join(
@@ -1925,10 +1943,14 @@ class DB:
         eval run's high-water mark. Keyed on ``created_at`` (the ingest timestamp),
         NOT ``posted_at`` — Plaid back-dates pending->posted transitions and late
         arrivals, so a posted_at window would both miss and mis-bucket rows. When
-        ``since`` is None, returns the full table (first run).
+        ``since`` is None, returns the full table (first run). Investment trades
+        (``reporting_mode='DEFAULT_EXCLUDE'``) are excluded — they are never
+        categorized, so they don't belong in the eval cohort either.
         """
         with self.session() as session:  # type: Session
-            query = session.query(DerivedTransaction.transaction_id)
+            query = session.query(DerivedTransaction.transaction_id).filter(
+                _needs_categorization_clause()
+            )
             if since is not None:
                 query = query.filter(DerivedTransaction.created_at > since)
             rows = query.order_by(

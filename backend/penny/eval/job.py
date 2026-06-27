@@ -47,9 +47,18 @@ def _send_report_email(
 
 
 async def run_eval(
-    *, limit: int | None = None, email_to: list[str] | None = None
+    *,
+    limit: int | None = None,
+    email_to: list[str] | None = None,
+    cohort_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    """Run one eval. ``limit`` caps the cohort to the most recent N (for testing)."""
+    """Run one eval.
+
+    ``limit`` caps the daily cohort to the most recent N (for testing).
+    ``cohort_ids`` overrides cohort selection with an explicit set (a targeted
+    rerun / backtest); in that mode the ingest watermark is left untouched so a
+    one-off run can't skip future daily cohorts.
+    """
     import penny.db as pdb
 
     prod_url = os.environ.get("DATABASE_URL", "").strip()
@@ -59,16 +68,21 @@ async def run_eval(
     prod.create_schema()  # idempotent: ensure the eval_* tables exist
     run_at = datetime.now()
 
-    since = prod.last_eval_watermark()
-    cohort_ids = prod.derived_ids_created_since(since)
-    if limit is not None:
-        cohort_ids = cohort_ids[-limit:]
+    explicit_cohort = cohort_ids is not None
+    if explicit_cohort:
+        cohort_ids = list(cohort_ids or [])
+    else:
+        since = prod.last_eval_watermark()
+        cohort_ids = prod.derived_ids_created_since(since)
+        if limit is not None:
+            cohort_ids = cohort_ids[-limit:]
     if not cohort_ids:
         prod.record_eval_run(run_at=run_at, status="skipped_empty", cohort_size=0)
-        logger.info("eval: empty cohort (since {}); skipped", since)
+        logger.info("eval: empty cohort; skipped")
         return {"status": "skipped_empty", "cohort_size": 0}
 
-    watermark = prod.max_created_at_for_ids(cohort_ids)
+    # A targeted rerun must not advance the daily watermark.
+    watermark = None if explicit_cohort else prod.max_created_at_for_ids(cohort_ids)
     branch_name = f"eval-{run_at:%Y%m%dT%H%M%S}"
     logger.info("eval: cohort={} -> branch {}", len(cohort_ids), branch_name)
     branch_id, branch_url = create_eval_branch(branch_name)

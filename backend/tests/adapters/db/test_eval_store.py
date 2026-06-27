@@ -20,7 +20,13 @@ def _create_db(tmp_path: Path) -> DB:
     return db
 
 
-def _seed_txn(db: DB, *, external_id: str, created_at: datetime) -> int:
+def _seed_txn(
+    db: DB,
+    *,
+    external_id: str,
+    created_at: datetime,
+    reporting_mode: str | None = None,
+) -> int:
     with db.session() as session:
         plaid = PlaidTransaction(
             external_id=f"plaid-{external_id}",
@@ -42,10 +48,37 @@ def _seed_txn(db: DB, *, external_id: str, created_at: datetime) -> int:
             posted_at=date(2026, 1, 10),
             merchant_descriptor=f"MERCHANT {external_id}",
             created_at=created_at,
+            reporting_mode=reporting_mode,
         )
         session.add(txn)
         session.flush()
         return int(txn.transaction_id)
+
+
+def test_cohort_and_sweep_skip_investment_trades(tmp_path: Path) -> None:
+    db = _create_db(tmp_path)
+    normal = _seed_txn(db, external_id="n", created_at=datetime(2026, 6, 1, 8, 0))
+    incl = _seed_txn(
+        db,
+        external_id="i",
+        created_at=datetime(2026, 6, 1, 9, 0),
+        reporting_mode="DEFAULT_INCLUDE",
+    )
+    trade = _seed_txn(
+        db,
+        external_id="t",
+        created_at=datetime(2026, 6, 1, 10, 0),
+        reporting_mode="DEFAULT_EXCLUDE",
+    )
+
+    # Investment trades (DEFAULT_EXCLUDE) are skipped; regular + DEFAULT_INCLUDE stay.
+    cohort = db.derived_ids_created_since(None)
+    assert normal in cohort and incl in cohort
+    assert trade not in cohort
+
+    sweep = db.get_uncategorized_derived_ids()
+    assert normal in sweep and incl in sweep
+    assert trade not in sweep
 
 
 def test_cohort_created_since_watermark(tmp_path: Path) -> None:
