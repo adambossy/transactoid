@@ -261,12 +261,17 @@ def eval_categorizer(
     Right/wrong is read later from your corrections — there is no staging step.
     """
     from penny.eval.job import run_eval
+    import penny.observability as observability
 
     try:
         result = asyncio.run(run_eval(limit=limit, email_to=email or None))
     except Exception as exc:
         typer.echo(f"Eval failed: {exc}", err=True)
         raise typer.Exit(1) from exc
+    finally:
+        # Force-flush spans so per-turn traces export before this short-lived
+        # process exits (no-op when Langfuse is disabled).
+        observability.flush()
     typer.echo(f"Eval {result.get('status')}: {result}")
 
 
