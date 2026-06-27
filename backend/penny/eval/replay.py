@@ -4,32 +4,16 @@ Runs against whatever ``get_db()`` currently points at (the eval job points it a
 the disposable branch). Captures what the DB never stores — confidence, the tools
 consulted, and the Langfuse trace link — by reading the agent's
 ``submit_categorization`` call, mirroring the review-harness capture.
+
+The trace link is the *canonical* Langfuse trace URL — the id Langfuse stores
+the trace under, sourced from the Langfuse SDK via
+``observability.current_trace_url()`` (see :mod:`penny.observability.otel`).
 """
 
 from __future__ import annotations
 
 import contextlib
-import os
 from typing import Any
-
-
-def _current_trace_link() -> str | None:
-    """Best-effort Langfuse trace URL for the active OTEL span."""
-    try:
-        from opentelemetry import trace as otel_trace
-
-        ctx = otel_trace.get_current_span().get_span_context()
-        if not ctx or not ctx.trace_id:
-            return None
-        trace_id = format(ctx.trace_id, "032x")
-    except Exception:
-        return None
-    host = (
-        os.environ.get("LANGFUSE_HOST")
-        or os.environ.get("LANGFUSE_BASE_URL")
-        or "https://us.cloud.langfuse.com"
-    ).rstrip("/")
-    return f"{host}/trace/{trace_id}"
 
 
 def _extract_from_result(result: Any) -> tuple[list[str], dict[str, Any]]:
@@ -105,7 +89,7 @@ async def replay_one(txn: dict[str, Any]) -> dict[str, Any]:
         session_id=f"eval-{tid}",
         metadata={"harness": "categorizer_eval"},
     ):
-        trace_link = _current_trace_link()
+        trace_link = observability.current_trace_url()
         result = await _run_agent_traced(
             agent, categorizer_agent._build_txn_prompt(txn), session_id=f"eval-{tid}"
         )

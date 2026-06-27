@@ -156,6 +156,76 @@ def _environment() -> str:
     return os.environ.get("PENNY_LANGFUSE_ENVIRONMENT", "").strip() or "default"
 
 
+# --- Canonical trace id / deep link ------------------------------------------
+#
+# Langfuse is OTel-native: an ingested trace is stored under the *W3C trace id*
+# of its root span (a 32-char lowercase hex string — the SDK formats it with
+# the very same ``format(trace_id, "032x")`` we used to hand-roll). So the OTEL
+# trace id of the active span already equals the id Langfuse stores the trace
+# under. We nonetheless source the id from the Langfuse SDK's own
+# ``get_current_trace_id()`` so the deep link tracks the canonical derivation
+# for the installed SDK version rather than relying on a local re-implementation
+# that could drift. The SDK reads the *global* current OTEL span, so it sees the
+# same span our ``categorizer_span`` / agent-harness ``OTELSubscriber`` make
+# current — the link points at exactly the trace those spans belong to. It needs
+# no network (only the public/secret keys, already required for tracing) and
+# returns ``None`` when there is no active span.
+
+
+def _trace_host() -> str:
+    return (
+        os.environ.get("LANGFUSE_HOST")
+        or os.environ.get("LANGFUSE_BASE_URL")
+        or "https://us.cloud.langfuse.com"
+    ).rstrip("/")
+
+
+def current_trace_id() -> str | None:
+    """Canonical Langfuse trace id for the active OTEL span, or ``None``.
+
+    Returns ``None`` when tracing is disabled or there is no active span. Sourced
+    from the Langfuse SDK (``get_client().get_current_trace_id()``) so it is the
+    exact id Langfuse stores the trace under, falling back to the raw OTEL span
+    context if the SDK is unavailable for any reason.
+    """
+    if not is_enabled():
+        return None
+    try:
+        from langfuse import get_client
+
+        trace_id = get_client().get_current_trace_id()
+        if trace_id:
+            return trace_id
+    except Exception:  # pragma: no cover - SDK import/runtime guard
+        logger.debug("Langfuse get_current_trace_id failed; falling back to OTEL span")
+    # Fallback: read the active span context directly. Equals the SDK id because
+    # Langfuse formats the same W3C trace id; kept so a missing/broken SDK still
+    # yields a usable link rather than silently dropping it.
+    try:
+        from opentelemetry import trace as otel_trace
+
+        ctx = otel_trace.get_current_span().get_span_context()
+        if ctx and ctx.trace_id:
+            return format(ctx.trace_id, "032x")
+    except Exception:  # pragma: no cover - defensive
+        return None
+    return None
+
+
+def current_trace_url() -> str | None:
+    """Deep link to the active trace in the Langfuse UI, or ``None``.
+
+    Built from :func:`current_trace_id` and the configured Langfuse host. We
+    compose the ``/trace/{id}`` URL ourselves rather than using the SDK's
+    ``get_trace_url`` because the latter resolves the numeric project id over the
+    network — undesirable in the eval path and unavailable offline.
+    """
+    trace_id = current_trace_id()
+    if not trace_id:
+        return None
+    return f"{_trace_host()}/trace/{trace_id}"
+
+
 def flush() -> None:
     """Flush buffered spans. No-op when disabled. Call before process exit."""
     if _provider is not None:

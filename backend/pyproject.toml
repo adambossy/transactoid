@@ -24,6 +24,10 @@ dependencies = [
     # its OTELSubscriber; the exporter ships spans to Langfuse's OTLP endpoint.
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-http>=1.27",
+    # Langfuse SDK: used only to read the canonical trace id of the active OTEL
+    # span (observability.current_trace_id) so eval deep links match the id
+    # Langfuse stores the trace under. Spans still ship over OTLP, not the SDK.
+    "langfuse>=4.12.0",
 ]
 
 [project.scripts]
