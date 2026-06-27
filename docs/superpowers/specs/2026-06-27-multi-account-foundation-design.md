@@ -1,0 +1,223 @@
+# Multi-Account Support — Design
+
+**Status:** Approved design (sub-project 1 detailed; phases 2–6 roadmap)
+**Date:** 2026-06-27
+**Branch:** `feat/account-creation`
+
+## Goal
+
+Turn Penny from a single-user app into a multi-tenant one that you and your
+wife can both use, with bank-grade isolation of personal financial data. The
+work is sequenced as six sub-projects; **this spec details sub-project 1 (the
+multi-tenant data model)** and sketches the rest as a roadmap. Each later
+sub-project will get its own spec → plan → build cycle.
+
+## Sub-project sequence
+
+1. **Multi-tenant data model + code** (this spec) — tenancy, RLS, query scoping.
+2. **Auth / social login** — Clerk or Auth0, Google sign-in, you + wife only.
+3. **Provision the two accounts + test** end to end.
+4. **Signup / account-creation UI.**
+5. **Onboarding** — Plaid linking, taxonomy setup, merchant rules.
+6. **Security audit** — adversarial review focused on cross-tenant leakage.
+
+Security is a first-class concern at every step, not a final phase; sub-project
+6 is a dedicated audit, but each phase carries its own security work (e.g.
+Plaid-token encryption lands in phase 1).
+
+---
+
+# Sub-project 1: Multi-tenant data model
+
+## Decisions (locked)
+
+- **Tenant unit:** a **household**. A household groups one or more users and is
+  the grouping for shared finances.
+- **Hard isolation boundary:** **user-centric RLS**. The database enforces, on
+  every query, both cross-household isolation *and* within-household privacy.
+- **Sharing granularity:** **per Plaid account**. Each account is owned by a
+  user and is `private` or `shared`. This revives a `plaid_accounts` table
+  (dropped in an earlier migration).
+- **Enforcement:** **Postgres RLS (hard backstop) + app-level filtering
+  (belt-and-suspenders).** App filtering keeps SQLite local dev correct and
+  intent legible; RLS is the guarantee, including over the agent's `run_sql`.
+- **Reversibility:** we start **strict** (user-centric). Loosening later
+  (→ household-only) is a one-line policy change; tightening later would be a
+  risky backfill+window, so strict-first is the safe direction.
+- **Taxonomy:** **per-household**, seeded from `configs/taxonomy.yaml` at
+  household creation; customizable thereafter. Per-household, *not* per-user.
+- **Merchant normalization:** **global** (coordinate with WIP on
+  `feat/individual-recategorization`).
+- **Merchant rules:** **per-household**; a rule targeting a private account
+  inherits that account's privacy.
+- **Joint agent sessions:** the agent can run in *individual* or *joint* mode;
+  joint mode sees **shared-only** data — no private data of either spouse leaks
+  into a shared run.
+
+## Domain model
+
+**New identity tables:**
+
+- `households` — `(household_id PK, name, created_at)`. The tenant.
+- `users` — `(user_id PK, household_id FK, email, external_auth_id, created_at)`.
+  `external_auth_id` is the Clerk/Auth0 subject, null until phase 2. A user
+  belongs to **exactly one** household for now (multi-household membership is
+  YAGNI; the FK can become a join table later without re-migrating financial
+  tables).
+
+**Revived table:**
+
+- `plaid_accounts` — `(account_id PK, item_id FK→plaid_items, owner_user_id
+  FK→users, household_id, visibility ENUM('private','shared'), …)`. The source
+  of truth for per-account ownership and sharing. `account_sign_conventions`
+  already keys on `account_id` and slots in here.
+
+**Ownership chain:**
+
+- `plaid_items.owner_user_id` — a link is owned by whoever connected it.
+- `plaid_accounts.owner_user_id` + `visibility` — per-account sharing control.
+- A transaction has **no flag of its own**; its visibility is *derived* from its
+  account (and denormalized for policy speed — see below).
+
+**`visibility` semantics:**
+
+- `private` — only the owning user sees the account and its transactions; hidden
+  from everyone else, *including the spouse in the same household*.
+- `shared` — visible to the whole household.
+- The owner sets it. It makes "share my Chase checking, hide my Chase savings"
+  work.
+
+## Enforcement mechanics
+
+**Request principal.** Every request resolves to
+`RequestContext { user_id, household_id, session_mode }` where `session_mode ∈
+{individual, joint}`. In phase 1 (pre-auth) this comes from a **dev stub** (a
+configured header like `X-Penny-User`, or an env-pinned user) so multi-tenancy
+is runnable and testable before Clerk exists. Phase 2 swaps the stub for real
+auth; nothing downstream changes because everything reads `RequestContext`.
+
+**Setting the boundary on the connection.** At the start of each request/agent
+run, the façade's session context manager issues (transaction-scoped, so it
+cannot leak across pooled connections):
+
+```sql
+SET LOCAL app.current_household = :household_id;
+SET LOCAL app.current_user      = :user_id;   -- nil-UUID sentinel in joint mode
+```
+
+**RLS policy** on every per-household table that carries ownership:
+
+```sql
+USING (
+  household_id = current_setting('app.current_household')::uuid
+  AND (owner_user_id = current_setting('app.current_user')::uuid
+       OR visibility = 'shared')
+)
+```
+
+- **Individual session:** `current_user` is the real user → own-private + shared.
+- **Joint session:** `current_user` is a nil sentinel → the owner arm never
+  matches → **shared-only**. One policy covers both modes.
+- Tables without ownership (e.g. `categories`, `tags`) carry only the
+  `household_id` term.
+
+**Denormalized columns.** To keep the policy join-free and fast, every
+transaction-scoped table carries `household_id`, `owner_user_id`, and (where
+relevant) `visibility`, written from `plaid_accounts` at insert time. A
+`visibility` change updates `plaid_accounts` and the denormalized copies in one
+transaction.
+
+**App-level filtering (suspenders).** The façade still adds
+`WHERE household_id = ctx.household` (and visibility terms) on its ~50 methods.
+This keeps SQLite dev correct (no RLS there) and makes intent legible; RLS is the
+backstop when a query forgets.
+
+**`run_sql`.** Because RLS binds to the connection, the agent's unrestricted
+`run_sql` is automatically scoped and physically cannot read another household's
+or a member's private rows. No change to the tool itself — only that it runs on
+an RLS-governed connection with the settings applied.
+
+## Reference-data scoping
+
+| Scope | Tables |
+|---|---|
+| **Global** (no household_id, no RLS) | `merchants` (normalization) |
+| **Per-household, household-term only** | `categories`, `tags`, `transaction_category_events`, conversations (web schema) |
+| **Per-household + owner/visibility** | `plaid_items`, `plaid_accounts`, `plaid_transactions`, `derived_transactions`, `transaction_items`, `transaction_tags`, `email_receipts`, `pending_receipt_matches`, `account_sign_conventions`, `amazon_login_profiles` / `amazon_orders` / `amazon_items` |
+
+## Workspace / memory partitioning
+
+Today `~/.transactoid/{memory,reports,logs}` is single-user. It becomes
+per-household: `~/.transactoid/households/{household_id}/{memory,reports}`.
+
+- Agent memory and merchant-rules markdown move under the household dir.
+- Memory/reports entries carry an owner/visibility analogous to accounts.
+- **Individual session:** loader injects own-private + shared memories/reports
+  into `{{AGENT_MEMORY}}`.
+- **Joint session:** loader injects **shared-only** — private-account-tied
+  memories, reports, and any log-derived context are excluded from the shared
+  agent run.
+- A merchant rule targeting a private account is private to that user and never
+  enters the spouse's (or a joint) agent context.
+
+## Plaid-token encryption (security fold-in)
+
+`plaid_items.access_token` is plaintext today. Since we are already migrating
+that table, encrypt it at rest now (app-level envelope encryption via a key from
+env, `PENNY_PLAID_TOKEN_KEY`) rather than leaving a plaintext-secrets table for
+the later audit. Decryption happens only when calling Plaid.
+
+## Migration of existing single-user data
+
+Existing real data lives in Neon Postgres with no tenant columns. Standard
+**expand → backfill → contract**, appended to the Alembic `000→005` chain:
+
+1. Create one `households` row (yours) and two `users` rows (you + wife); you own
+   the existing links. Revive/populate `plaid_accounts` from current Plaid data.
+2. Add new columns **nullable**; backfill every row to your household, you as
+   owner, `visibility='private'` by default. Then flip specific accounts to
+   `shared`.
+3. Make columns `NOT NULL`, add FKs + indexes, enable RLS policies. Encrypt
+   existing `access_token`s in the same pass.
+
+SQLite local dev gets the columns but no RLS.
+
+## Testing strategy
+
+Multi-tenancy lives or dies here.
+
+- **Two-household leakage suite:** seed households A and B; assert every façade
+  method *and* a battery of `run_sql` queries from A's context return **zero** B
+  rows.
+- **Within-household privacy suite:** wife's private account is invisible to you;
+  a shared account is visible to both.
+- **Joint-session suite:** a joint run sees shared-only; neither spouse's private
+  transactions, memories, or reports appear.
+- RLS tests run against **Postgres (Neon test branch)**, not SQLite, since SQLite
+  won't enforce policies.
+
+## Out of scope (sub-project 1)
+
+- Real authentication (phase 2; phase 1 uses a dev-stub principal).
+- Signup / onboarding UI (phases 4–5).
+- Multi-household membership (one household per user for now).
+- Per-account *override* of merchant normalization (global for now).
+
+---
+
+# Roadmap: phases 2–6 (to be specced individually)
+
+- **Phase 2 — Auth / social login.** Clerk or Auth0 with Google sign-in,
+  all-list limited to you + wife. Replace the dev-stub principal with verified
+  JWT → `RequestContext`. Add auth middleware in FastAPI; frontend gets a login
+  screen and attaches tokens. Map `external_auth_id` → `users`.
+- **Phase 3 — Provision + test.** Create the two real users in one household,
+  link real banks, set per-account visibility, validate individual + joint
+  sessions against real data.
+- **Phase 4 — Signup / account-creation UI.** Self-serve account creation
+  (still gated to invited emails), household bootstrap, taxonomy seed on create.
+- **Phase 5 — Onboarding.** Guided Plaid linking, taxonomy customization,
+  merchant-rule setup, first-sync experience.
+- **Phase 6 — Security audit.** Adversarial cross-tenant leakage review, RLS
+  policy audit, secret-handling review, prompt-injection testing of `run_sql`
+  under RLS, dependency + transport review.
