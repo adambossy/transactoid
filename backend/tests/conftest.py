@@ -11,6 +11,23 @@ import penny.db
 import penny.services
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _disable_observability() -> None:
+    """Hard-disable Langfuse/OTEL tracing for the whole test session.
+
+    Tests run with a developer's real Langfuse keys in scope (``load_dotenv``
+    walks up and finds the parent worktree's ``.env``), so without this the
+    fixture agent runs in tests/api/ export ``penny-agent-run`` traces to the
+    live cloud project. Null the cached globals before anything can resolve
+    ``is_enabled()`` to True. ``test_otel.py`` re-enables tracing per-test via
+    its own ``monkeypatch``-based fixtures, which restore these afterward.
+    """
+    from penny.observability import otel as ot
+
+    ot._enabled = False
+    ot._provider = None
+
+
 def _reset_singletons() -> None:
     penny.db._db = None
     penny.services._taxonomy = None
