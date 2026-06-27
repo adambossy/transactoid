@@ -18,20 +18,23 @@
 
 | # | Plan | Depends on | Design status |
 |---|------|-----------|---------------|
-| 1 | [Multi-tenant data model](2026-06-27-phase-1-multi-tenant-data-model.md) | — | **Designed** (spec complete); plan in progress |
-| 2 | [Auth / social login](2026-06-27-phase-2-auth-social-login.md) | 1 | Roadmap — needs brainstorming |
-| 3 | [Provision + test the two accounts](2026-06-27-phase-3-provision-and-test.md) | 1, 2 | Roadmap — needs brainstorming |
+| 1a | [Multi-tenant data model (tenancy + RLS + encryption)](2026-06-27-phase-1a-multi-tenant-data-model.md) | — | **Designed**; plan complete |
+| 1b | [Workspace hybrid (R2 + Postgres manifests)](2026-06-27-phase-1b-workspace-hybrid.md) | 1a | Designed (in spec); needs plan |
+| 2 | [Auth / social login](2026-06-27-phase-2-auth-social-login.md) | 1a | Roadmap — needs brainstorming |
+| 3 | [Provision + test the two accounts](2026-06-27-phase-3-provision-and-test.md) | 1a, 1b, 2 | Roadmap — needs brainstorming |
 | 4 | [Signup / account-creation UI](2026-06-27-phase-4-signup-ui.md) | 2 | Roadmap — needs brainstorming |
 | 5 | [Onboarding](2026-06-27-phase-5-onboarding.md) | 2, 4 | Roadmap — needs brainstorming |
-| 6 | [Security audit](2026-06-27-phase-6-security-audit.md) | 1–5 | Roadmap — needs brainstorming |
+| 6 | [Security audit](2026-06-27-phase-6-security-audit.md) | 1a–5 | Roadmap — needs brainstorming |
 
 ## Dependency graph
 
 ```
-1 ──┬─► 2 ──┬─► 3
-    │       ├─► 4 ──► 5
-    │       │
-    └───────┴──────────► 6 (audits everything built in 1–5)
+1a ──► 1b ──┐
+ │          │
+ └─► 2 ──┬─► 3
+         ├─► 4 ──► 5
+         │
+1a─1b────┴──────────► 6 (audits everything built in 1a–5)
 ```
 
 ## Status legend
