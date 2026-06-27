@@ -53,6 +53,10 @@ Plaid-token encryption lands in phase 1).
 - **Joint agent sessions:** the agent can run in *individual* or *joint* mode;
   joint mode sees **shared-only** data — no private data of either spouse leaks
   into a shared run.
+- **Workspace storage:** **hybrid — Postgres+RLS as capability broker, R2 as blob
+  store.** Versioned via Postgres manifests over immutable R2 object versions;
+  writes committed at the run boundary with **atomic optimistic concurrency**
+  (compare-and-set on the workspace head).
 
 ## Domain model
 
@@ -147,16 +151,78 @@ an RLS-governed connection with the settings applied.
 
 ## Workspace / memory partitioning
 
-Today `~/.transactoid/{memory,reports,logs}` is single-user. It becomes
-per-household: `~/.transactoid/households/{household_id}/{memory,reports}`.
+Today the workspace is `~/.transactoid` (itself a standalone git repo for
+versioning). In a multi-tenant, remote-deployable world (Fly's filesystem is
+ephemeral) this becomes a **hybrid: Postgres+RLS as the capability broker, R2 as
+the blob store.** The durable source of truth is split — Postgres holds the
+authorization + version graph, R2 holds the bytes.
 
-- Agent memory and merchant-rules markdown move under the household dir.
-- Memory/reports entries carry an owner/visibility analogous to accounts.
-- **Individual session:** loader injects own-private + shared memories/reports
-  into `{{AGENT_MEMORY}}`.
-- **Joint session:** loader injects **shared-only** — private-account-tied
-  memories, reports, and any log-derived context are excluded from the shared
-  agent run.
+**Mental model:** *temp dir = working tree, R2 = object store, Postgres manifest
+= the commit.*
+
+### Layout & lookup
+
+- R2 directories are addressed by **opaque high-entropy tokens**, never by
+  `household_id` and never sequential — you cannot guess another tenant's prefix.
+- Layout partitions **by visibility**: one **shared prefix per household** and
+  one **private prefix per user**.
+- Postgres holds pointer rows (R2 token, `visibility`, `owner_user_id`,
+  `household_id`) under the **same RLS policy** as the financial tables. The
+  app derives an R2 key **only** from an RLS-gated lookup — never from user/agent
+  input.
+- The lookup returns **only the prefixes the current principal + `session_mode`
+  may read**, so filtering happens *before* any R2 fetch:
+  - **Individual session:** the user's private prefix + the household shared
+    prefix.
+  - **Joint session:** the shared prefix **only** — private prefixes are never
+    resolved, so those bytes never reach the temp dir.
+- R2 credentials are scoped so the app cannot `LIST` the bucket arbitrarily, and
+  **the agent has no direct R2 capability** — only the workspace shim does.
+
+### Read flow
+
+RLS-gated Postgres read → returns allowed prefix(es) + current manifest → sync
+those R2 object versions to a **per-run temp dir** (torn down after the run,
+never shared across sessions/households, excluded from logs) → agent runs.
+
+### Write flow, versioning & atomicity
+
+The agent mutates the temp dir freely and repeatedly during a run (local-FS
+speed, **zero R2/Postgres traffic per edit**). Versioning happens at a
+**boundary, not per file-write**:
+
+- **Default boundary: one manifest per run** (≈ one commit per agent turn). At
+  run completion the flush diffs the temp dir against the baseline manifest,
+  uploads only changed/new blobs as new **immutable R2 object versions**, and
+  inserts **one** manifest row recording the set of object versions for that
+  snapshot. Nothing changed → no empty commit.
+- **Crash semantics:** an aborted run commits nothing — no partial/incoherent
+  memory edits pollute the workspace. (Optional later enhancement: mid-run
+  checkpoint manifests for long runs; not in v1.)
+- **Atomic optimistic concurrency** (chosen strategy): each manifest records its
+  **parent**. The commit is a single conditional transaction — *insert the new
+  manifest row and advance the household's workspace head iff the head still
+  equals the parent we materialized from* (a compare-and-set on the head
+  pointer; e.g. `UPDATE … WHERE head = :parent` or an append-only manifest table
+  with a unique `(workspace_id, parent)` constraint). Blobs are uploaded to R2
+  **first** (immutable, side-effect-free; orphans from a losing race are
+  harmless and GC-able), so the only mutating step is the single CAS on the head
+  — making the commit atomic and leaving no half-applied state. If the CAS
+  fails, the head moved: re-materialize the new head, re-apply the diff
+  (memory/rules are append-ish markdown that 3-way-merges cleanly), retry the
+  CAS. With two users, contention is rare.
+- **Visibility routing on write-back:** each changed file flushes back to the
+  prefix it was materialized from (shared → shared prefix; private → owner's
+  private prefix). A **joint session only ever materialized shared files, so it
+  can only write shared** — private data can't leak outward even on write. New
+  files default to **private** in an individual session (promotable to shared
+  explicitly) and to **shared** in a joint session (the only scope available).
+
+### Agent-context injection (unchanged intent)
+
+- Memory/rules/reports carry owner/visibility; the loader injects them into
+  `{{AGENT_MEMORY}}` per the read flow above.
+- **Individual session:** own-private + shared. **Joint session:** shared-only.
 - A merchant rule targeting a private account is private to that user and never
   enters the spouse's (or a joint) agent context.
 
@@ -193,6 +259,10 @@ Multi-tenancy lives or dies here.
   a shared account is visible to both.
 - **Joint-session suite:** a joint run sees shared-only; neither spouse's private
   transactions, memories, or reports appear.
+- **Workspace suite:** (a) joint session never resolves a private prefix —
+  private bytes never reach the temp dir; (b) concurrent flushes — two runs off
+  the same parent: one CAS wins, the loser re-materializes and retries, and no
+  half-applied state or lost update results; (c) an aborted run commits nothing.
 - RLS tests run against **Postgres (Neon test branch)**, not SQLite, since SQLite
   won't enforce policies.
 
@@ -220,4 +290,8 @@ Multi-tenancy lives or dies here.
   merchant-rule setup, first-sync experience.
 - **Phase 6 — Security audit.** Adversarial cross-tenant leakage review, RLS
   policy audit, secret-handling review, prompt-injection testing of `run_sql`
-  under RLS, dependency + transport review.
+  under RLS, dependency + transport review. **Explicit focus items:** the **R2
+  access path** (RLS protects the pointer, not the bytes — verify opaque tokens,
+  no-`LIST` scoped credentials, app-derives-keys-only-from-RLS-lookups, no direct
+  agent R2 capability) and the **workspace concurrency model** (CAS atomicity, no
+  lost updates, temp-dir teardown/hygiene).
