@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
@@ -18,14 +17,11 @@ if TYPE_CHECKING:
 from sqlalchemy import (
     Table,
     UniqueConstraint,
-    and_,
     case,
     create_engine,
     event,
     func,
     inspect,
-    not_,
-    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -58,39 +54,6 @@ from penny.adapters.db.models import (
 
 M = TypeVar("M")
 CategoryMethod = Literal["llm", "manual", "taxonomy_migration"]
-
-# Review/eval blinding: when set (via review_blind_exclusions), the categorization
-# read API hides rows belonging to the named merchant(s)/descriptor(s), so an
-# evaluation agent can't reference the very merchant it's categorizing. Empty by
-# default -> zero effect in production.
-_excluded_merchant_ids: ContextVar[frozenset[int]] = ContextVar(
-    "penny_excluded_merchant_ids", default=frozenset()
-)
-_excluded_descriptors: ContextVar[frozenset[str]] = ContextVar(
-    "penny_excluded_descriptors", default=frozenset()
-)
-
-
-@contextmanager
-def review_blind_exclusions(
-    *,
-    merchant_ids: Iterable[int] = (),
-    descriptors: Iterable[str] = (),
-) -> Iterator[None]:
-    """Hide the given merchant(s)/descriptor(s) from the categorization read API.
-
-    Used by the review harness to evaluate the agent's *independent* skill: it can
-    still look up other merchants' history and the events log, but not the rows of
-    the merchant it is currently categorizing.
-    """
-    token_ids = _excluded_merchant_ids.set(frozenset(merchant_ids))
-    token_desc = _excluded_descriptors.set(frozenset(descriptors))
-    try:
-        yield
-    finally:
-        _excluded_merchant_ids.reset(token_ids)
-        _excluded_descriptors.reset(token_desc)
-
 
 _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     Merchant,
@@ -1953,6 +1916,36 @@ class DB:
             rows = query.order_by(DerivedTransaction.transaction_id).all()
             return [row[0] for row in rows]
 
+    def derived_ids_created_since(self, since: datetime | None) -> list[int]:
+        """Transaction ids for derived rows ingested after ``since`` (oldest first).
+
+        Powers the eval cohort: the transactions that arrived since the previous
+        eval run's high-water mark. Keyed on ``created_at`` (the ingest timestamp),
+        NOT ``posted_at`` — Plaid back-dates pending->posted transitions and late
+        arrivals, so a posted_at window would both miss and mis-bucket rows. When
+        ``since`` is None, returns the full table (first run).
+        """
+        with self.session() as session:  # type: Session
+            query = session.query(DerivedTransaction.transaction_id)
+            if since is not None:
+                query = query.filter(DerivedTransaction.created_at > since)
+            rows = query.order_by(
+                DerivedTransaction.created_at.asc(),
+                DerivedTransaction.transaction_id.asc(),
+            ).all()
+            return [row[0] for row in rows]
+
+    def max_created_at_for_ids(self, transaction_ids: list[int]) -> datetime | None:
+        """Max ``created_at`` over the given derived rows (the next run's watermark)."""
+        if not transaction_ids:
+            return None
+        with self.session() as session:  # type: Session
+            return (
+                session.query(func.max(DerivedTransaction.created_at))
+                .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
+                .scalar()
+            )
+
     def get_derived_transactions_by_ids(
         self,
         transaction_ids: list[int],
@@ -3205,7 +3198,6 @@ class DB:
             )
             if method is not None:
                 query = query.filter(TransactionCategoryEvent.method == method)
-            query = self._apply_merchant_blind(query)
             rows = query.limit(limit).all()
             return [
                 self._category_event_to_dict(event, descriptor)
@@ -3233,7 +3225,6 @@ class DB:
                     TransactionCategoryEvent.event_id.desc(),
                 )
             )
-            query = self._apply_merchant_blind(query)
             rows = query.limit(limit).all()
             return [
                 self._category_event_to_dict(event, descriptor)
@@ -3256,7 +3247,6 @@ class DB:
                     TransactionCategoryEvent.event_id.asc(),
                 )
             )
-            query = self._apply_merchant_blind(query)
             events = query.all()
             return [self._category_event_to_dict(event) for event in events]
 
@@ -3284,7 +3274,7 @@ class DB:
                     DerivedTransaction.transaction_id.desc(),
                 )
             )
-            row = self._apply_merchant_blind(query).first()
+            row = query.first()
             return row[0] if row else None
 
     def get_transactions_by_merchant_descriptor(
@@ -3308,7 +3298,7 @@ class DB:
                 .filter(DerivedTransaction.merchant_descriptor == descriptor)
                 .order_by(DerivedTransaction.posted_at.desc())
             )
-            rows = self._apply_merchant_blind(query).limit(limit).all()
+            rows = query.limit(limit).all()
             return [
                 {
                     "transaction_id": tid,
@@ -3343,7 +3333,7 @@ class DB:
                 .filter(DerivedTransaction.merchant_descriptor == descriptor)
                 .group_by(Category.key, DerivedTransaction.is_verified)
             )
-            rows = self._apply_merchant_blind(query).all()
+            rows = query.all()
         dist: dict[str, dict[str, Any]] = {}
         for category_key, is_verified, count in rows:
             entry = dist.setdefault(
@@ -3383,34 +3373,6 @@ class DB:
                 conn.commit()
         finally:
             conn.close()
-
-    @staticmethod
-    def _apply_merchant_blind(query: Any) -> Any:
-        """Filter out review-excluded merchants from a query over DerivedTransaction.
-
-        No-op unless ``review_blind_exclusions`` is active. NULL-safe: rows with no
-        merchant_id / descriptor are never dropped by an unrelated exclusion.
-        """
-        ids = _excluded_merchant_ids.get()
-        descriptors = _excluded_descriptors.get()
-        conds = []
-        if ids:
-            conds.append(
-                and_(
-                    DerivedTransaction.merchant_id.isnot(None),
-                    DerivedTransaction.merchant_id.in_(ids),
-                )
-            )
-        if descriptors:
-            conds.append(
-                and_(
-                    DerivedTransaction.merchant_descriptor.isnot(None),
-                    DerivedTransaction.merchant_descriptor.in_(descriptors),
-                )
-            )
-        if conds:
-            query = query.filter(not_(or_(*conds)))
-        return query
 
     def tags_for_transactions(self, transaction_ids: list[int]) -> dict[int, list[str]]:
         """Map each transaction id to its tag names (empty list if untagged)."""
@@ -3452,7 +3414,7 @@ class DB:
                 .filter(Tag.name == tag_name)
                 .order_by(DerivedTransaction.posted_at.desc())
             )
-            rows = self._apply_merchant_blind(query).limit(limit).all()
+            rows = query.limit(limit).all()
             return [
                 {
                     "transaction_id": tid,

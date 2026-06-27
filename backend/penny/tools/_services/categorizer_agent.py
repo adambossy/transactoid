@@ -63,12 +63,7 @@ def _format_recent_events(events: list[dict[str, Any]]) -> str:
 
 
 def _render_categorizer_prompt() -> str:
-    """Render the categorizer agent's system prompt with live context.
-
-    The injected recent-events block honors any active ``review_blind_exclusions``
-    (the read API hides the excluded merchant), so no special handling is needed
-    here for blind evaluation.
-    """
+    """Render the categorizer agent's system prompt with live context."""
     taxonomy = get_taxonomy()
     template = load_prompt("categorize-transaction-agent")
     taxonomy_text = yaml.dump(

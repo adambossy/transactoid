@@ -30,7 +30,7 @@ from penny.db import get_db
 
 
 async def _run_agent_traced(
-    agent: Any, prompt: str, *, trace_name: str, session_id: str, blind: bool | None
+    agent: Any, prompt: str, *, trace_name: str, session_id: str
 ) -> Any:
     """Run the agent with full agent-harness tracing (model turns + tool calls).
 
@@ -44,8 +44,6 @@ async def _run_agent_traced(
     import penny.observability as observability
 
     tags = ["categorizer-review"]
-    if blind is not None:
-        tags.append("blind" if blind else "history-on")
 
     bus = InMemoryEventBus()
     trace_task = observability.start_run_trace_task(
@@ -82,27 +80,6 @@ def _normalize_descriptor(descriptor: str) -> str:
     # Keep letters/spaces only (drops leftover punctuation like "(xxx)").
     text = re.sub(r"[^a-z ]", " ", text)
     return " ".join(text.split())
-
-
-def _blind_descriptor_set(reviewed_descriptor: str) -> set[str]:
-    """All distinct DB descriptors that normalize to the same merchant.
-
-    Used so descriptor-blinding excludes every sibling row of the merchant under
-    review (not just the one row with an identical descriptor).
-    """
-    from sqlalchemy import text
-
-    if not reviewed_descriptor:
-        return set()
-    target = _normalize_descriptor(reviewed_descriptor)
-    with get_db().session() as session:
-        rows = session.execute(
-            text(
-                "SELECT DISTINCT merchant_descriptor FROM derived_transactions "
-                "WHERE merchant_descriptor IS NOT NULL"
-            )
-        ).fetchall()
-    return {r[0] for r in rows if _normalize_descriptor(r[0]) == target}
 
 
 def _mask_db_url(url: str) -> str:
@@ -219,7 +196,6 @@ async def _review_one(txn: dict[str, Any]) -> dict[str, Any]:
                 categorizer_agent._build_txn_prompt(txn),
                 trace_name="categorizer-review",
                 session_id=f"review-{tid}",
-                blind=None,
             )
         tools_called, submit_args = _extract_from_result(result)
         record.update(
@@ -311,58 +287,38 @@ def _select_recategorized_txns(limit: int) -> list[dict[str, Any]]:
     return out
 
 
-async def _review_one_recategorized(
-    item: dict[str, Any], *, blind: bool = False
-) -> dict[str, Any]:
-    """Dry-run the agent on a previously-recategorized txn (no persistence).
-
-    ``blind=True`` hides this merchant's own rows/events from the read API (the
-    agent keeps all its tools, but lookups for *this* merchant return nothing), so
-    it can't read back the prior (corrected) categorization of the row under test.
-    """
-    from penny.adapters.db.facade import review_blind_exclusions
+async def _review_one_recategorized(item: dict[str, Any]) -> dict[str, Any]:
+    """Dry-run the agent on a previously-recategorized txn (no persistence)."""
     import penny.observability as observability
     from penny.tools._services import categorizer_agent
     from penny.tools._services.categorizer_agent import build_categorizer_agent
 
-    # Blind by normalized merchant_descriptor: hide ALL of this merchant's rows
-    # (every descriptor that normalizes the same), not just the one identical row,
-    # so confirmation-code/date variants (Zelle, ATM, …) can't leak the answer.
-    descriptors = (
-        _blind_descriptor_set(item.get("merchant_descriptor") or "") if blind else set()
-    )
-
     tid = item["transaction_id"]
     prompt = categorizer_agent._build_txn_prompt(item)
     trace_link: str | None = None
-    with review_blind_exclusions(descriptors=descriptors):
-        # Build inside the exclusion context so the prompt's recent-events block
-        # is blinded too.
-        agent = build_categorizer_agent()
-        # Thin outer span owns the trace id (for the report link); the harness
-        # subscriber attached in _run_agent_traced nests its model-turn / tool-call
-        # spans under it, so the trace shows the full agent loop, not one span.
-        with observability.categorizer_span(
-            "categorizer-review-recat",
-            input={"transaction_id": tid},
+    agent = build_categorizer_agent()
+    # Thin outer span owns the trace id (for the report link); the harness
+    # subscriber attached in _run_agent_traced nests its model-turn / tool-call
+    # spans under it, so the trace shows the full agent loop, not one span.
+    with observability.categorizer_span(
+        "categorizer-review-recat",
+        input={"transaction_id": tid},
+        session_id=f"review-recat-{tid}",
+        metadata={"harness": "categorizer_review"},
+    ):
+        trace_link = _current_trace_link()
+        result = await _run_agent_traced(
+            agent,
+            prompt,
+            trace_name="categorizer-review-recat",
             session_id=f"review-recat-{tid}",
-            metadata={"harness": "categorizer_review", "blind": blind},
-        ):
-            trace_link = _current_trace_link()
-            result = await _run_agent_traced(
-                agent,
-                prompt,
-                trace_name="categorizer-review-recat",
-                session_id=f"review-recat-{tid}",
-                blind=blind,
-            )
+        )
     tools_called, submit_args = _extract_from_result(result)
     agent_category = submit_args.get("category_key")
     return {
         **item,
         # Plaid's own category is not persisted in this schema (dropped at ingest).
         "plaid_category": None,
-        "blind": blind,
         "agent_category": agent_category,
         "confidence": submit_args.get("confidence"),
         "reasoning": submit_args.get("reasoning"),
@@ -502,14 +458,14 @@ render();
 """
 
 
-async def _main_async(mode: str, limit: int, out: str, *, blind: bool = False) -> None:
+async def _main_async(mode: str, limit: int, out: str) -> None:
     db_url = os.environ.get("DATABASE_URL", "sqlite:///./penny.db")
     print(f"Categorizer review ({mode}) against: {_mask_db_url(db_url)}")
 
     if mode == "recategorized":
         # Dry run: review the agent's decision without persisting anything.
         os.environ["PENNY_CATEGORIZER_DRY_RUN"] = "1"
-        print(f"(dry run — no writes; blind={blind})\n")
+        print("(dry run — no writes)\n")
         items = _select_recategorized_txns(limit)
         if not items:
             print("No recategorized transactions found.")
@@ -518,7 +474,7 @@ async def _main_async(mode: str, limit: int, out: str, *, blind: bool = False) -
         records: list[dict[str, Any]] = []
         for idx, item in enumerate(items, start=1):
             print(f"  [{idx}/{len(items)}] {item.get('merchant_descriptor')!r} ...")
-            records.append(await _review_one_recategorized(item, blind=blind))
+            records.append(await _review_one_recategorized(item))
         html_doc = _render_recat_html(records)
     else:
         print("(the agent WRITES categorizations here — use the penny-test branch)\n")
@@ -553,18 +509,12 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=10, help="transactions to review")
     parser.add_argument(
-        "--blind",
-        action="store_true",
-        help="recategorized mode only: withhold history/tags tools + recent events "
-        "so the agent can't reference the merchant's prior categorization",
-    )
-    parser.add_argument(
         "--out",
         default="/tmp/categorizer_review.html",  # noqa: S108 - one-off local report
         help="output HTML path",
     )
     args = parser.parse_args()
-    asyncio.run(_main_async(args.mode, args.limit, args.out, blind=args.blind))
+    asyncio.run(_main_async(args.mode, args.limit, args.out))
 
 
 if __name__ == "__main__":
