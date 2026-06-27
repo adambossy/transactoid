@@ -39,6 +39,8 @@ from penny.adapters.db.models import (
     CategoryRow,
     DerivedTransaction,
     EmailReceipt,
+    EvalItem,
+    EvalRun,
     Merchant,
     PendingReceiptMatch,
     PlaidItem,
@@ -1945,6 +1947,80 @@ class DB:
                 .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
                 .scalar()
             )
+
+    # ------------------------------------------------------------------ eval store
+
+    def last_eval_watermark(self) -> datetime | None:
+        """High-water mark (max ``cohort_max_created_at``) over completed eval runs.
+
+        The next eval cohort is everything ingested strictly after this.
+        """
+        with self.session() as session:  # type: Session
+            return (
+                session.query(func.max(EvalRun.cohort_max_created_at))
+                .filter(EvalRun.status == "completed")
+                .scalar()
+            )
+
+    def record_eval_run(
+        self,
+        *,
+        run_at: datetime,
+        status: str,
+        cohort_size: int,
+        cohort_max_created_at: datetime | None = None,
+        branch_name: str | None = None,
+        r2_fixture_url: str | None = None,
+        version: dict[str, Any] | None = None,
+    ) -> int:
+        """Insert an ``eval_runs`` row and return its id."""
+        version = version or {}
+        with self.session() as session:  # type: Session
+            run = EvalRun(
+                run_at=run_at,
+                status=status,
+                cohort_size=cohort_size,
+                cohort_max_created_at=cohort_max_created_at,
+                branch_name=branch_name,
+                r2_fixture_url=r2_fixture_url,
+                model=version.get("model"),
+                prompt_version=version.get("prompt_version"),
+                harness_sha=version.get("harness_sha"),
+                taxonomy_version=version.get("taxonomy_version"),
+                rules_version=version.get("rules_version"),
+            )
+            session.add(run)
+            session.flush()
+            return run.eval_run_id
+
+    def record_eval_items(self, eval_run_id: int, items: list[dict[str, Any]]) -> None:
+        """Bulk-insert ``eval_items`` rows for a run."""
+        if not items:
+            return
+        with self.session() as session:  # type: Session
+            session.add_all(
+                [
+                    EvalItem(
+                        eval_run_id=eval_run_id,
+                        transaction_id=item["transaction_id"],
+                        merchant_descriptor=item.get("merchant_descriptor"),
+                        legacy_key=item.get("legacy_key"),
+                        agent_key=item.get("agent_key"),
+                        agent_reasoning=item.get("agent_reasoning"),
+                        agent_confidence=item.get("agent_confidence"),
+                        method_at_eval_time=item["method_at_eval_time"],
+                        trace_link=item.get("trace_link"),
+                    )
+                    for item in items
+                ]
+            )
+
+    def set_eval_run_fixture(self, eval_run_id: int, r2_fixture_url: str) -> None:
+        """Record the R2 fixture URL once the branch has been dumped and uploaded."""
+        with self.session() as session:  # type: Session
+            run = session.get(EvalRun, eval_run_id)
+            if run is not None:
+                run.r2_fixture_url = r2_fixture_url
 
     def get_derived_transactions_by_ids(
         self,
