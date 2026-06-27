@@ -1,16 +1,17 @@
 """The eval job: one unattended run (every 12h).
 
 Cohort (ingested since the last watermark) -> branch off prod -> replay the agent
-on the branch -> record durable eval rows to prod -> dump the branch to a SQLite
-fixture in R2 -> delete the branch -> email the report iff there are
-legacy!=agent disagreements. Nothing waits on a human; right/wrong is read later
-from your corrections.
+on the branch -> record durable eval rows to prod -> upload the run's artifacts
+(report HTML, SQLite fixture, items JSON) to R2 -> delete the branch -> email a
+link to the hosted report iff there are legacy!=agent disagreements. Nothing
+waits on a human; right/wrong is read later from your corrections.
 """
 
 from __future__ import annotations
 
 import contextlib
 from datetime import datetime
+import json
 import os
 from typing import Any
 
@@ -19,7 +20,7 @@ from sqlalchemy import select
 
 from penny.adapters.db.facade import DB
 from penny.adapters.db.models import Category, DerivedTransaction
-from penny.adapters.storage.r2 import store_object_in_r2
+from penny.adapters.storage.r2 import public_url_for_key, store_object_in_r2
 from penny.eval.branch import EvalBranchError, create_eval_branch, delete_eval_branch
 from penny.eval.fixture import build_fixture_bytes
 from penny.eval.replay import replay_one
@@ -27,23 +28,26 @@ from penny.eval.report import disagreements, render_eval_report
 from penny.eval.version import version_stamp
 
 
-def _send_report_email(
-    to: list[str], run_at: datetime, n_items: int, n_disagree: int, html_doc: str
+def _send_report_link_email(
+    to: list[str], run_at: datetime, n_items: int, n_disagree: int, url: str
 ) -> bool:
-    """Send the report; return whether it actually went out (send_report doesn't raise)."""
+    """Email a link to the R2-hosted report; return whether it went out."""
     from penny.tools.delivery import _build_email_service
 
     service = _build_email_service()
-    subject = (
-        f"Categorizer eval {run_at:%Y-%m-%d %H:%M} — "
-        f"{n_disagree}/{n_items} disagreements"
-    )
+    when = f"{run_at:%Y-%m-%d %H:%M}"
+    subject = f"Categorizer eval {when} — {n_disagree}/{n_items} disagreements"
     text = (
-        f"Categorizer eval for {run_at:%Y-%m-%d %H:%M}: {n_items} transactions, "
-        f"{n_disagree} legacy-vs-agent disagreements. Open the HTML report."
+        f"Categorizer eval for {when}: {n_items} transactions, {n_disagree} "
+        f"legacy-vs-agent disagreements.\n\nReport: {url}\n"
+    )
+    html = (
+        f"<p>Categorizer eval for {when}: {n_items} transactions, "
+        f"{n_disagree} legacy-vs-agent disagreements.</p>"
+        f'<p><a href="{url}">Open the report</a></p>'
     )
     result = service.send_report(
-        to=to, subject=subject, html_content=html_doc, text_content=text
+        to=to, subject=subject, html_content=html, text_content=text
     )
     return bool(getattr(result, "success", False))
 
@@ -144,34 +148,53 @@ async def run_eval(
         )
         prod.record_eval_items(run_id, items)
 
-        # Dump the branch to R2 for backtests. Best-effort: the eval rows are the
-        # measurement of record; a failed upload must not lose the run.
-        r2_key: str | None = f"eval-fixtures/{branch_name}.tar.gz"
-        try:
-            blob = build_fixture_bytes(branch)
-            store_object_in_r2(
-                key=r2_key,
-                body=blob,
-                content_type="application/gzip",
-                metadata={"eval_run_id": str(run_id), "branch": branch_name},
-            )
-            prod.set_eval_run_fixture(run_id, r2_key)
-        except Exception as exc:  # noqa: BLE001 - fixture is non-critical
-            logger.warning("eval: R2 fixture upload failed (run kept): {}", exc)
-            r2_key = None
-
         disagree = disagreements(items)
-        emailed = False
-        if disagree and email_to:
-            html_doc = render_eval_report(
-                items,
-                run_at=run_at.isoformat(timespec="seconds"),
-                version=version_stamp(),
+        html_doc = render_eval_report(
+            items,
+            run_at=run_at.isoformat(timespec="seconds"),
+            version=version_stamp(),
+        )
+
+        # Upload the run's artifacts to R2 under one prefix: the report HTML, the
+        # SQLite fixture (for backtests), and the machine-readable items JSON.
+        # Best-effort: the eval rows are the measurement of record; a failed upload
+        # must not lose the run. r2_fixture_url stores the fixture KEY (backtests
+        # download by key); report_url is a shareable link for the email.
+        prefix = f"eval-runs/{branch_name}"
+        fixture_key = f"{prefix}/fixture.tar.gz"
+        report_key = f"{prefix}/report.html"
+        meta = {"eval_run_id": str(run_id), "branch": branch_name}
+        report_url: str | None = None
+        try:
+            store_object_in_r2(
+                key=fixture_key,
+                body=build_fixture_bytes(branch),
+                content_type="application/gzip",
+                metadata=meta,
             )
-            # Best-effort: a bounced report must not fail the eval (rows are kept).
+            prod.set_eval_run_fixture(run_id, fixture_key)
+            store_object_in_r2(
+                key=report_key,
+                body=html_doc.encode("utf-8"),
+                content_type="text/html; charset=utf-8",
+                metadata=meta,
+            )
+            store_object_in_r2(
+                key=f"{prefix}/items.json",
+                body=json.dumps(items, default=str, indent=2).encode("utf-8"),
+                content_type="application/json",
+                metadata=meta,
+            )
+            report_url = public_url_for_key(report_key)
+        except Exception as exc:  # noqa: BLE001 - artifacts are non-critical
+            logger.warning("eval: R2 artifact upload failed (run kept): {}", exc)
+
+        emailed = False
+        if disagree and email_to and report_url:
+            # Best-effort: a bounced email must not fail the eval (rows are kept).
             try:
-                emailed = _send_report_email(
-                    email_to, run_at, len(items), len(disagree), html_doc
+                emailed = _send_report_link_email(
+                    email_to, run_at, len(items), len(disagree), report_url
                 )
             except Exception as exc:  # noqa: BLE001 - email is non-critical
                 logger.warning("eval: report email failed (run kept): {}", exc)
@@ -188,7 +211,8 @@ async def run_eval(
             "cohort_size": len(cohort_ids),
             "disagreements": len(disagree),
             "branch": branch_name,
-            "r2_key": r2_key,
+            "fixture_key": fixture_key,
+            "report_url": report_url,
             "emailed": emailed,
         }
     finally:

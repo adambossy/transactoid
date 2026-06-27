@@ -171,6 +171,39 @@ def download_object_from_r2(
         raise R2DownloadError(msg) from exc
 
 
+# Max presigned-URL lifetime for SigV4 (S3/R2): 7 days.
+_MAX_PRESIGN_SECONDS = 7 * 24 * 3600
+
+
+def public_url_for_key(
+    key: str,
+    *,
+    expires_seconds: int = _MAX_PRESIGN_SECONDS,
+    config: R2Config | None = None,
+) -> str:
+    """A shareable URL for an R2 object.
+
+    Prefers a permanent public link when ``R2_PUBLIC_BASE_URL`` is set (an R2
+    public-bucket ``r2.dev`` URL or a custom domain): ``<base>/<key>``. Otherwise
+    falls back to a presigned GET URL (capped at the 7-day SigV4 maximum), which
+    works without making the bucket public.
+
+    Raises:
+        R2ConfigError: If config cannot be loaded and no public base is set.
+    """
+    base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return f"{base}/{key}"
+    if config is None:
+        config = load_r2_config_from_env()
+    client = _build_client(config)
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": config.bucket, "Key": key},
+        ExpiresIn=min(expires_seconds, _MAX_PRESIGN_SECONDS),
+    )
+
+
 def make_artifact_key(*, artifact_type: str, timestamp: datetime | None = None) -> str:
     """Build an R2 object key for the given artifact type.
 
