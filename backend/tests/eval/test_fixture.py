@@ -12,7 +12,7 @@ from penny.adapters.db.models import (
     PlaidTransaction,
     TransactionCategoryEvent,
 )
-from penny.eval.fixture import build_sqlite_fixture_bytes, hydrate_fixture
+from penny.eval.fixture import build_fixture_bytes, hydrate_fixture
 
 
 def _seed_source(tmp_path: Path) -> DB:
@@ -61,12 +61,21 @@ def _seed_source(tmp_path: Path) -> DB:
     return db
 
 
-def test_fixture_roundtrip(tmp_path: Path) -> None:
+def test_fixture_roundtrip(tmp_path: Path, monkeypatch) -> None:
     src = _seed_source(tmp_path)
-    blob = build_sqlite_fixture_bytes(src)
+
+    # A merchant-rules.md in the active workspace must be snapshotted into the
+    # fixture so backtests are reproducible against the run's rules.
+    ws = tmp_path / "ws"
+    (ws / "memory").mkdir(parents=True)
+    (ws / "memory" / "merchant-rules.md").write_text("WHOLE FOODS -> food.groceries\n")
+    monkeypatch.setenv("PENNY_WORKSPACE", str(ws))
+
+    blob = build_fixture_bytes(src)
     assert isinstance(blob, bytes) and len(blob) > 0
 
-    hydrated = hydrate_fixture(blob, tmp_path / "fixture.sqlite")
+    out_ws = tmp_path / "hydrated"
+    hydrated = hydrate_fixture(blob, out_ws)
     # Reachable rows survived the round-trip.
     with hydrated.session() as session:
         assert session.query(DerivedTransaction).count() == 1
@@ -77,3 +86,7 @@ def test_fixture_roundtrip(tmp_path: Path) -> None:
 
     # The categorizer read API works against the hydrated fixture (backtest path).
     assert hydrated.events_for_transaction(1)[0]["to_category_key"] == "food.groceries"
+
+    # merchant-rules.md was bundled and laid out for PENNY_WORKSPACE=out_ws.
+    rules = (out_ws / "memory" / "merchant-rules.md").read_text()
+    assert rules == "WHOLE FOODS -> food.groceries\n"

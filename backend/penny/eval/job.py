@@ -21,7 +21,7 @@ from penny.adapters.db.facade import DB
 from penny.adapters.db.models import Category, DerivedTransaction
 from penny.adapters.storage.r2 import store_object_in_r2
 from penny.eval.branch import EvalBranchError, create_eval_branch, delete_eval_branch
-from penny.eval.fixture import build_sqlite_fixture_bytes
+from penny.eval.fixture import build_fixture_bytes
 from penny.eval.replay import replay_one
 from penny.eval.report import disagreements, render_eval_report
 from penny.eval.version import version_stamp
@@ -146,9 +146,9 @@ async def run_eval(
 
         # Dump the branch to R2 for backtests. Best-effort: the eval rows are the
         # measurement of record; a failed upload must not lose the run.
-        r2_key: str | None = f"eval-fixtures/{branch_name}.sqlite.gz"
+        r2_key: str | None = f"eval-fixtures/{branch_name}.tar.gz"
         try:
-            blob = build_sqlite_fixture_bytes(branch)
+            blob = build_fixture_bytes(branch)
             store_object_in_r2(
                 key=r2_key,
                 body=blob,
