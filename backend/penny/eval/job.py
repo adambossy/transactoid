@@ -29,7 +29,8 @@ from penny.eval.version import version_stamp
 
 def _send_report_email(
     to: list[str], run_at: datetime, n_items: int, n_disagree: int, html_doc: str
-) -> None:
+) -> bool:
+    """Send the report; return whether it actually went out (send_report doesn't raise)."""
     from penny.tools.delivery import _build_email_service
 
     service = _build_email_service()
@@ -41,9 +42,10 @@ def _send_report_email(
         f"Categorizer eval for {run_at:%Y-%m-%d %H:%M}: {n_items} transactions, "
         f"{n_disagree} legacy-vs-agent disagreements. Open the HTML report."
     )
-    service.send_report(
+    result = service.send_report(
         to=to, subject=subject, html_content=html_doc, text_content=text
     )
+    return bool(getattr(result, "success", False))
 
 
 async def run_eval(
@@ -166,8 +168,13 @@ async def run_eval(
                 run_at=run_at.isoformat(timespec="seconds"),
                 version=version_stamp(),
             )
-            _send_report_email(email_to, run_at, len(items), len(disagree), html_doc)
-            emailed = True
+            # Best-effort: a bounced report must not fail the eval (rows are kept).
+            try:
+                emailed = _send_report_email(
+                    email_to, run_at, len(items), len(disagree), html_doc
+                )
+            except Exception as exc:  # noqa: BLE001 - email is non-critical
+                logger.warning("eval: report email failed (run kept): {}", exc)
         logger.info(
             "eval: completed run {} ({} items, {} disagreements, emailed={})",
             run_id,
