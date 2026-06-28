@@ -9,7 +9,7 @@ multi-tenancy is the productionization plan's problem.
 from __future__ import annotations
 
 from penny.db import get_db
-from penny.rules.loader import MerchantRulesLoader
+from penny.rules.loader import MerchantRulesLoader, TaxonomyRulesLoader
 from penny.taxonomy.core import Taxonomy
 from penny.taxonomy.loader import load_taxonomy_from_db
 from penny.tools._services.categorizer import Categorizer
@@ -19,6 +19,7 @@ from penny.workspace import resolve_memory_dir
 
 _taxonomy: Taxonomy | None = None
 _rules_loader: MerchantRulesLoader | None = None
+_taxonomy_rules_loader: TaxonomyRulesLoader | None = None
 _persister: PersistTool | None = None
 _migrator: MigrationTool | None = None
 
@@ -40,6 +41,15 @@ def get_rules_loader() -> MerchantRulesLoader:
             taxonomy=get_taxonomy(),
         )
     return _rules_loader
+
+
+def get_taxonomy_rules_loader() -> TaxonomyRulesLoader:
+    global _taxonomy_rules_loader
+    if _taxonomy_rules_loader is None:
+        memory_dir = resolve_memory_dir()
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        _taxonomy_rules_loader = TaxonomyRulesLoader(memory_dir / "taxonomy-rules.md")
+    return _taxonomy_rules_loader
 
 
 def get_persister() -> PersistTool:

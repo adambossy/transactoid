@@ -28,7 +28,11 @@ import yaml
 from penny.agent_factory import build_model
 from penny.db import get_db
 from penny.prompts import load_prompt
-from penny.services import get_rules_loader, get_taxonomy
+from penny.services import (
+    get_rules_loader,
+    get_taxonomy,
+    get_taxonomy_rules_loader,
+)
 from penny.taxonomy.loader import get_category_id
 from penny.tools._services.categorizer_tools import build_categorizer_toolset
 from penny.workspace import resolve_workspace_dir
@@ -69,10 +73,7 @@ def _render_categorizer_prompt() -> str:
     taxonomy_text = yaml.dump(
         taxonomy.to_prompt(), default_flow_style=False, sort_keys=False
     )
-    try:
-        taxonomy_rules = load_prompt("taxonomy-rules")
-    except Exception:
-        taxonomy_rules = ""
+    taxonomy_rules = get_taxonomy_rules_loader().load()
     rules_loader = get_rules_loader()
     merchant_rules = (
         rules_loader.load() if rules_loader else ""

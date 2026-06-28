@@ -13,12 +13,6 @@
       "last_hash": "sha256:a036bae39edc54871f586305d1885dc4da2f93979e83bbdd8d3fb7cf2e8d4f45",
       "last_version": 4
     },
-    "taxonomy-rules": {
-      "source_file": ".prompts/taxonomy-rules/2.md",
-      "version_dir": ".prompts/taxonomy-rules",
-      "last_hash": "sha256:c3d7a12893baa2727e2115f66771d1ea623fe6ea852d2a31559c07541ff79eb4",
-      "last_version": 2
-    },
     "generate-memory-index": {
       "source_file": ".prompts/generate-memory-index/2.md",
       "version_dir": ".prompts/generate-memory-index",

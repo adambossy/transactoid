@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -598,7 +599,7 @@ class Categorizer:
         template = load_prompt(self._prompt_key)
         taxonomy_text = self._serialize_taxonomy(taxonomy_dict)
         txn_json_str = json.dumps(txn_json_list, ensure_ascii=False, indent=2)
-        taxonomy_rules = load_prompt("taxonomy-rules")
+        taxonomy_rules = self._load_taxonomy_rules()
         merchant_rules = self._rules_content or ""
 
         rendered = template.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text)
@@ -611,7 +612,7 @@ class Categorizer:
         self, txn_json_list: list[dict[str, object]], taxonomy_dict: dict[str, object]
     ) -> str:
         """Create deterministic cache key from transactions and taxonomy."""
-        taxonomy_rules = load_prompt("taxonomy-rules")
+        taxonomy_rules = self._load_taxonomy_rules()
         merchant_rules = self._rules_content or ""
         cache_payload = {
             "txns": txn_json_list,
@@ -885,6 +886,16 @@ class Categorizer:
             return None
         return revised_category
 
+    def _load_taxonomy_rules(self) -> str:
+        """Taxonomy rules markdown from the workspace.
+
+        Lazy import of the service to avoid a circular import (``penny.services``
+        imports this module).
+        """
+        from penny.services import get_taxonomy_rules_loader
+
+        return get_taxonomy_rules_loader().load()
+
     def _get_prompt_version(self, key: str) -> int:
         """Get the latest version number for a prompt key."""
         prompts = self._prompt_service.list_prompts()
@@ -904,7 +915,11 @@ class Categorizer:
         """Log API call inputs and outputs to JSON file."""
         # Get prompt versions
         prompt_version = self._get_prompt_version(self._prompt_key)
-        taxonomy_rules_version = self._get_prompt_version("taxonomy-rules")
+        # Taxonomy rules now live in the workspace (not promptorium); version it by
+        # a short content hash.
+        taxonomy_rules_version = hashlib.sha256(
+            self._load_taxonomy_rules().encode("utf-8")
+        ).hexdigest()[:12]
 
         metadata = {
             "prompt_key": f"{self._prompt_key}-{prompt_version}",
