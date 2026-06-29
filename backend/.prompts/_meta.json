@@ -44,10 +44,10 @@
       "last_version": 1
     },
     "categorize-transaction-agent": {
-      "source_file": ".prompts/categorize-transaction-agent/1.md",
+      "source_file": ".prompts/categorize-transaction-agent/2.md",
       "version_dir": ".prompts/categorize-transaction-agent",
-      "last_hash": "sha256:81da08961fed4054bc2d07974b3d4a02abc0303f2d2a272c87e1f1a83fd6cc0a",
-      "last_version": 1
+      "last_hash": "sha256:661926c647920168bf977ac8949b9acbab4c539bb8ff8078ac36bf819dca50c9",
+      "last_version": 2
     }
   }
 }

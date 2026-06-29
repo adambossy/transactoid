@@ -23,7 +23,6 @@ import uuid
 from agent_harness import Agent
 from agent_harness.core.models import ModelSettings
 from agent_harness.sandboxes.inprocess import InProcessSandbox
-import yaml
 
 from penny.agent_factory import build_model
 from penny.db import get_db
@@ -67,12 +66,14 @@ def _format_recent_events(events: list[dict[str, Any]]) -> str:
 
 
 def _render_categorizer_prompt() -> str:
-    """Render the categorizer agent's system prompt with live context."""
-    taxonomy = get_taxonomy()
+    """Render the categorizer agent's system prompt with live context.
+
+    The taxonomy reaches the agent through a single ``{{TAXONOMY_RULES}}`` block:
+    the workspace ``taxonomy-rules.md`` lists every category as ``Name (key)``
+    with its definition and the cross-category decision logic. We no longer
+    inject a separate hierarchy block — the keys are folded into the rules.
+    """
     template = load_prompt("categorize-transaction-agent")
-    taxonomy_text = yaml.dump(
-        taxonomy.to_prompt(), default_flow_style=False, sort_keys=False
-    )
     taxonomy_rules = get_taxonomy_rules_loader().load()
     rules_loader = get_rules_loader()
     merchant_rules = (
@@ -83,7 +84,6 @@ def _render_categorizer_prompt() -> str:
     )
 
     rendered = template.replace("{{CURRENT_DATE}}", date.today().isoformat())
-    rendered = rendered.replace("{{TAXONOMY_HIERARCHY}}", taxonomy_text)
     rendered = rendered.replace("{{TAXONOMY_RULES}}", taxonomy_rules)
     rendered = rendered.replace("{{MERCHANT_RULES}}", merchant_rules)
     rendered = rendered.replace("{{RECENT_EVENTS}}", recent_block)

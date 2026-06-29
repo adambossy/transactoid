@@ -33,8 +33,12 @@ def run_migration(
     this. The returned shape is stable across surfaces.
     """
     if operation == "add":
-        if not new_key or not name:
-            return _error("add", "add requires new_key and name")
+        if not new_key or not name or not description:
+            return _error(
+                "add",
+                "add requires new_key, name, and description "
+                "(define the category, including examples and exclusions)",
+            )
         result = migration_tool.add_category(new_key, name, parent_key, description)
     elif operation == "remove":
         if not source_key:

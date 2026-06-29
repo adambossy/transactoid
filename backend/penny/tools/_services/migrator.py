@@ -89,16 +89,21 @@ class MigrationTool:
         key: str,
         name: str,
         parent_key: str | None,
-        description: str | None = None,
+        description: str,
     ) -> MigrationResult:
         """
         Add a new category to the taxonomy.
+
+        The description is the category's source-of-truth definition: it is
+        written to `categories.description` and folded into the regenerated
+        taxonomy rules. Write a real definition — what belongs here, with
+        examples and exclusions — not a placeholder.
 
         Args:
             key: Unique key for the new category
             name: Display name for the category
             parent_key: Parent category key (None for root category)
-            description: Optional category description
+            description: Category definition (with examples and exclusions)
 
         Returns:
             MigrationResult with operation outcome
