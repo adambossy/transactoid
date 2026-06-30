@@ -44,6 +44,12 @@ class Merchant(Base):
     )
     normalized_name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Tier 2 wrapper-descriptor metadata (kept in sync with migration 006).
+    # source_channel: 'direct' for ordinary merchants, or a wrapper channel
+    # ('zelle' | 'venmo' | 'atm' | 'paypal' | ...). counterparty: the human
+    # behind a wrapper (e.g. 'Tania (XXX-4352)'); NULL for direct merchants.
+    source_channel: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -124,6 +130,11 @@ class PlaidTransaction(Base):
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False)
     merchant_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Raw issuer description from Plaid (their `original_description`; named with
+    # the `_descriptor` suffix here to match merchant_descriptor). Retains
+    # counterparty detail dropped by merchant_descriptor for wrapper merchants
+    # (e.g. the person behind a Venmo payment). Kept in sync with migration 007.
+    original_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
     institution: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
@@ -223,6 +234,13 @@ class DerivedTransaction(Base):
     )
     web_search_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
+    # User-controlled flag: rows the user has chosen to exclude from spending
+    # analysis. Excluded by default in the agent's query filters (see
+    # hide_transactions / unhide_transactions tools). NOT NULL DEFAULT FALSE
+    # mirrors is_verified — existing rows read as FALSE, no backfill needed.
+    is_hidden: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )
     reporting_mode: Mapped[str | None] = mapped_column(String, nullable=True)

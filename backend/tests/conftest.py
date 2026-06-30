@@ -8,24 +8,24 @@ import pytest
 import penny.api.main
 from penny.api.persistence.engine import reset_web_engine
 import penny.db
+import penny.observability.otel as _otel
 import penny.services
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _disable_observability() -> None:
-    """Hard-disable Langfuse/OTEL tracing for the whole test session.
+@pytest.fixture(autouse=True)
+def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hard-disable Langfuse/OTEL tracing for every test.
 
-    Tests run with a developer's real Langfuse keys in scope (``load_dotenv``
-    walks up and finds the parent worktree's ``.env``), so without this the
-    fixture agent runs in tests/api/ export ``penny-agent-run`` traces to the
-    live cloud project. Null the cached globals before anything can resolve
-    ``is_enabled()`` to True. ``test_otel.py`` re-enables tracing per-test via
-    its own ``monkeypatch``-based fixtures, which restore these afterward.
+    Tracing turns on automatically whenever ``LANGFUSE_PUBLIC_KEY`` +
+    ``LANGFUSE_SECRET_KEY`` are present (e.g. exported into the shell, or
+    sourced from ``.env.test``), so a bare ``pytest`` run would otherwise ship
+    synthetic spans to the real Langfuse project. Force the explicit-off flag
+    and pin the cached enablement decision so no test — fixture or scripted
+    fake agent — can emit a trace.
     """
-    from penny.observability import otel as ot
-
-    ot._enabled = False
-    ot._provider = None
+    monkeypatch.setenv("PENNY_LANGFUSE_ENABLED", "false")
+    monkeypatch.setattr(_otel, "_enabled", False)
+    monkeypatch.setattr(_otel, "_provider", None)
 
 
 def _reset_singletons() -> None:

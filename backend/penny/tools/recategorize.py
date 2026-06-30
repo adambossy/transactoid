@@ -52,20 +52,25 @@ async def recategorize_merchant(
 
 @tool
 async def recategorize_transaction(
-    transaction_id: int, category_key: str, reason: str
+    transaction_id: int,
+    category_key: str,
+    reason: str | None = None,
+    verify: bool = True,
 ) -> dict[str, Any]:
-    """Recategorize a single (unverified) transaction.
+    """Recategorize a single transaction to a new category.
 
-    Use this when the user wants to correct one specific transaction rather than
-    every transaction for a merchant. Verified transactions cannot be changed.
+    Use this to fix one specific transaction, as opposed to
+    ``recategorize_merchant`` which moves every unverified transaction for a
+    merchant. By default the transaction is marked verified, which protects the
+    manual fix from being overwritten by future bulk recategorization.
 
     Args:
         transaction_id: The transaction to recategorize.
         category_key: The target category key (e.g. ``food_and_dining.groceries``).
             Must be a key in the live taxonomy.
-        reason: A concise, one-sentence natural-language explanation of WHY the
-            user wants this change, derived from the conversation. Written to the
-            audit log so the original categorization can be debugged.
+        reason: Optional human-readable note recorded on the audit event.
+        verify: If True (default), mark the transaction verified so subsequent
+            ``recategorize_merchant`` calls skip it.
     """
 
     def _run() -> dict[str, Any]:
@@ -73,17 +78,25 @@ async def recategorize_transaction(
             return {
                 "status": "error",
                 "message": f"Invalid category key: {category_key}",
+                "updated": False,
             }
         try:
-            get_persister().recategorize_transaction(
-                transaction_id=transaction_id, category_key=category_key, reason=reason
+            result = get_persister().recategorize_transaction(
+                transaction_id=transaction_id,
+                category_key=category_key,
+                reason=reason,
+                verify=verify,
             )
             return {
                 "status": "success",
-                "message": f"Recategorized transaction {transaction_id} to {category_key}",
+                "updated": result["updated"],
+                "event_id": result["event_id"],
+                "message": (
+                    f"Recategorized transaction {transaction_id} to {category_key}"
+                ),
             }
         except Exception as exc:
-            return {"status": "error", "message": str(exc)}
+            return {"status": "error", "message": str(exc), "updated": False}
 
     return await asyncio.to_thread(_run)
 

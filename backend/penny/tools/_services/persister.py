@@ -60,21 +60,26 @@ class PersistTool:
         transaction_id: int,
         category_key: str,
         reason: str | None = None,
-    ) -> None:
+        verify: bool = True,
+    ) -> dict[str, Any]:
         """
-        Recategorize a single (unverified) transaction.
+        Recategorize a single transaction to a new category.
 
-        Routes through ``DB.update_derived_mutable``; the manual ``category_method``
-        sends ``reason`` to the event's ``recategorization_reason`` column.
+        Sets the category as a manual override. When ``verify`` is True the row
+        is marked verified, protecting it from future bulk recategorization.
 
         Args:
-            transaction_id: The transaction to recategorize.
+            transaction_id: ID of the transaction to update.
             category_key: Taxonomy key for the new category.
-            reason: Natural-language reason for the change.
+            reason: Optional human-readable reason recorded on the audit event.
+            verify: If True, mark the transaction verified.
+
+        Returns:
+            Dict with ``updated`` (bool) and ``event_id`` (int | None).
 
         Raises:
-            ValueError: If the category_key is invalid or the transaction is
-                verified / not found (propagated from the facade).
+            ValueError: If the category_key is invalid or the transaction
+                does not exist.
         """
         if not self._taxonomy.is_valid_key(category_key):
             raise ValueError(f"Invalid category_key: {category_key!r}")
@@ -83,13 +88,11 @@ class PersistTool:
         if category_id is None:
             raise ValueError(f"Category ID not found for key: {category_key!r}")
 
-        self._db.update_derived_mutable(
-            transaction_id,
-            {
-                "category_id": category_id,
-                "category_method": "manual",
-                "category_reason": reason,
-            },
+        return self._db.recategorize_transaction(
+            transaction_id=transaction_id,
+            category_id=category_id,
+            reason=reason,
+            verify=verify,
         )
 
     def apply_tags(
@@ -137,6 +140,24 @@ class PersistTool:
         applied_count = self._db.attach_tags(transaction_ids, tag_ids)
 
         return ApplyTagsOutcome(applied=applied_count, created_tags=created_tags)
+
+    def set_transactions_visibility(
+        self, transaction_ids: list[int], visible: bool
+    ) -> int:
+        """
+        Show or hide derived transactions.
+
+        Hidden transactions are excluded by default from the agent's spending
+        analysis. This is fully reversible.
+
+        Args:
+            transaction_ids: List of derived_transactions.transaction_id values.
+            visible: True to show (unhide), False to hide.
+
+        Returns:
+            Number of transactions updated (matched rows).
+        """
+        return self._db.set_transactions_visibility(transaction_ids, visible)
 
 
 class RecategorizeTool(StandardTool):

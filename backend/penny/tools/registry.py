@@ -27,7 +27,12 @@ from .sign_conventions import (
 )
 from .sync import sync_transactions
 from .taxonomy import migrate_taxonomy
-from .transactions import record_refund, split_transaction
+from .transactions import (
+    hide_transactions,
+    record_refund,
+    split_transaction,
+    unhide_transactions,
+)
 
 
 def build_toolset() -> Toolset:
@@ -45,6 +50,8 @@ def build_toolset() -> Toolset:
             migrate_taxonomy,
             split_transaction,
             record_refund,
+            hide_transactions,
+            unhide_transactions,
             # Sign conventions + re-derive
             set_sign_convention,
             list_sign_conventions,

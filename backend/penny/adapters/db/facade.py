@@ -125,7 +125,11 @@ _COMPACT_SCHEMA_NOTES: dict[str, str] = {
         "for those queries (that table is only relevant when joining plaid_transactions "
         "raw data). "
         "Run `scripts/backfill_sign_conventions.py` once after `alembic upgrade head` "
-        "to retroactively normalize historical rows."
+        "to retroactively normalize historical rows. "
+        "\n"
+        "is_hidden flags rows the user has chosen to exclude from analysis. For "
+        "all spend queries add `AND is_hidden = FALSE`; only drop that filter "
+        "when the user explicitly asks to see hidden transactions."
     ),
     "transaction_items": (
         "Itemization table. One row per line item within a transaction. "
@@ -428,9 +432,14 @@ class DB:
         reason: str | None,
         model: str | None = None,
         preserve_model: bool = False,
-        reset_verified: bool = False,
+        is_verified: bool | None = None,
     ) -> int:
-        """Atomically update current category fields and append history events."""
+        """Atomically update current category fields and append history events.
+
+        ``is_verified`` controls the verified flag: ``True``/``False`` sets the
+        column to that value; ``None`` (default) leaves the existing value
+        untouched.
+        """
         if not updates:
             return 0
 
@@ -471,8 +480,8 @@ class DB:
             txn.category_assigned_at = now
             if not preserve_model:
                 txn.category_model = model
-            if reset_verified:
-                txn.is_verified = False
+            if is_verified is not None:
+                txn.is_verified = is_verified
             txn.updated_at = now
 
             self._insert_category_event(
@@ -535,6 +544,39 @@ class DB:
             session.expunge(merchant)
             return merchant
 
+    def get_or_create_merchant_id(
+        self,
+        *,
+        normalized_name: str,
+        display_name: str | None,
+        source_channel: str | None = None,
+        counterparty: str | None = None,
+    ) -> int:
+        """Resolve a normalized merchant identity to a merchant_id.
+
+        Looks up the merchant by ``normalized_name`` (the stable identity key);
+        creates it with the supplied metadata if absent. Takes primitives rather
+        than a NormalizedMerchant so the DB layer stays decoupled from the
+        normalizer package. Metadata is set at creation; existing rows are left
+        as-is (the identity is the normalized_name).
+        """
+        with self.session() as session:  # type: Session
+            merchant = (
+                session.query(Merchant)
+                .filter(Merchant.normalized_name == normalized_name)
+                .first()
+            )
+            if merchant is None:
+                merchant = Merchant(
+                    normalized_name=normalized_name,
+                    display_name=display_name,
+                    source_channel=source_channel,
+                    counterparty=counterparty,
+                )
+                session.add(merchant)
+                session.flush()
+            return merchant.merchant_id
+
     def get_transaction_by_external(
         self,
         *,
@@ -586,6 +628,7 @@ class DB:
             currency=data["currency"],
             merchant_descriptor=data.get("merchant_descriptor"),
             institution=data.get("institution"),
+            original_descriptor=data.get("original_descriptor"),
         )
 
         # Then create DerivedTransaction
@@ -664,6 +707,52 @@ class DB:
                 preserve_model=True,
             )
 
+    def recategorize_transaction(
+        self,
+        transaction_id: int,
+        category_id: int,
+        *,
+        reason: str | None = None,
+        verify: bool = True,
+    ) -> dict[str, Any]:
+        """Recategorize a single derived transaction.
+
+        Sets ``category_method='manual'`` and ``category_model=NULL``. When
+        ``verify`` is True the row is marked ``is_verified=True`` (protecting it
+        from future bulk ``recategorize_merchant`` runs); otherwise the existing
+        verified flag is left untouched. A ``transaction_category_events`` row is
+        appended in the same transaction.
+
+        Returns a dict with ``updated`` (bool) and ``event_id`` (int | None).
+
+        Raises:
+            ValueError: If the transaction does not exist.
+        """
+        with self.session() as session:  # type: Session
+            txn = session.get(DerivedTransaction, transaction_id)
+            if txn is None:
+                raise ValueError(f"Transaction {transaction_id} does not exist")
+
+            updated = self._apply_category_updates(
+                session,
+                updates={transaction_id: category_id},
+                method="manual",
+                reason=reason,
+                is_verified=True if verify else None,
+            )
+            session.flush()
+
+            event = (
+                session.query(TransactionCategoryEvent)
+                .filter(TransactionCategoryEvent.transaction_id == transaction_id)
+                .order_by(TransactionCategoryEvent.event_id.desc())
+                .first()
+            )
+            return {
+                "updated": updated > 0,
+                "event_id": event.event_id if event is not None else None,
+            }
+
     def upsert_tag(self, name: str, description: str | None = None) -> Tag:
         """Insert or update a tag.
 
@@ -724,6 +813,31 @@ class DB:
                         new_count += 1
 
             return new_count
+
+    def set_transactions_visibility(
+        self, transaction_ids: list[int], visible: bool
+    ) -> int:
+        """Set is_hidden on the given derived transactions.
+
+        Args:
+            transaction_ids: derived_transactions.transaction_id values.
+            visible: True to show (unhide), False to hide.
+
+        Returns:
+            Number of transactions whose flag was updated (matched rows).
+        """
+        if not transaction_ids:
+            return 0
+
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(DerivedTransaction)
+                .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
+                .all()
+            )
+            for row in rows:
+                row.is_hidden = not visible
+            return len(rows)
 
     def delete_transactions_by_external_ids(
         self,
@@ -889,6 +1003,7 @@ class DB:
                     "amount_cents": amount_cents,
                     "currency": currency,
                     "merchant_descriptor": merchant_descriptor,
+                    "original_descriptor": txn.get("original_descriptor"),
                     "category_id": category_id,
                     "category_method": "llm" if category_id is not None else None,
                     "category_model": (
@@ -1327,6 +1442,7 @@ class DB:
         currency: str,
         merchant_descriptor: str | None,
         institution: str | None,
+        original_descriptor: str | None = None,
     ) -> PlaidTransaction:
         """Insert or update a Plaid transaction.
 
@@ -1362,6 +1478,7 @@ class DB:
                     amount_cents=amount_cents,
                     currency=currency,
                     merchant_descriptor=merchant_descriptor,
+                    original_descriptor=original_descriptor,
                     institution=institution,
                 )
                 session.add(plaid_txn)
@@ -1371,6 +1488,7 @@ class DB:
                 plaid_txn.amount_cents = amount_cents
                 plaid_txn.currency = currency
                 plaid_txn.merchant_descriptor = merchant_descriptor
+                plaid_txn.original_descriptor = original_descriptor
                 plaid_txn.institution = institution
                 plaid_txn.updated_at = datetime.now()
 
@@ -1409,6 +1527,7 @@ class DB:
                     "amount_cents": insert_stmt.excluded.amount_cents,
                     "currency": insert_stmt.excluded.currency,
                     "merchant_descriptor": insert_stmt.excluded.merchant_descriptor,
+                    "original_descriptor": insert_stmt.excluded.original_descriptor,
                     "institution": insert_stmt.excluded.institution,
                     "updated_at": datetime.now(),
                 },
@@ -2517,7 +2636,7 @@ class DB:
                 method="taxonomy_migration",
                 reason=reason,
                 preserve_model=True,
-                reset_verified=reset_verified,
+                is_verified=False if reset_verified else None,
             )
 
     def replace_categories_from_taxonomy(self, taxonomy: Any) -> None:

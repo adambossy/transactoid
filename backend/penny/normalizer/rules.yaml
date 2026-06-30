@@ -1,0 +1,219 @@
+# Merchant-normalization extraction rules.
+#
+# This is the source of truth for how wrapper descriptors are turned into stable
+# merchant identities. The descriptions below are written in plain English and
+# fed to an LLM (see llm.py) — they codify, in prose, what hand-written
+# per-vendor extractors would have done, but stay readable and editable.
+#
+# Each channel entry describes:
+#   detect          - how to recognize a descriptor belongs to this channel
+#   extract         - what identity to pull out and what noise to discard
+#   normalized_name - how to form the stable identity key (lowercase slug)
+#   display_name    - the human-facing label
+#   counterparty    - the human/entity behind the wrapper (null for `direct`)
+#   examples        - real descriptors from the corpus with expected output
+#
+# Channel formats here were derived from a real descriptor sample
+# (scripts/sample_descriptors.py). Re-sample and update when bank formats drift.
+
+# v2: Venmo rule extracts the person from directly-linked Venmo descriptors
+# (original_descriptor), keeping bare/bank-routed Venmo collapsed.
+version: 2
+
+# Default when no wrapper channel matches.
+default_channel: direct
+
+channels:
+  - channel: zelle
+    detect: >
+      Descriptor begins with "Zelle Payment TO" or "Zelle Payment FROM"
+      (case-insensitive).
+    extract: >
+      The counterparty is the name following TO/FROM. It is frequently
+      truncated by the bank (~20 chars) — keep it as-is, do not try to expand
+      it. Treat money sent TO a counterparty and received FROM the same
+      counterparty as the SAME merchant identity (direction is not part of
+      identity). Discard the literal words "Zelle Payment" and "TO"/"FROM".
+    normalized_name: 'zelle:<slug of counterparty>'
+    display_name: 'Zelle: <Counterparty as written>'
+    counterparty: '<Counterparty as written>'
+    examples:
+      - descriptor: 'Zelle Payment TO MARGARITA HOUSE CLE'
+        normalized_name: 'zelle:margarita-house-cle'
+        display_name: 'Zelle: MARGARITA HOUSE CLE'
+        counterparty: 'MARGARITA HOUSE CLE'
+      - descriptor: 'Zelle Payment FROM JENNY OLEARY'
+        normalized_name: 'zelle:jenny-oleary'
+        display_name: 'Zelle: JENNY OLEARY'
+        counterparty: 'JENNY OLEARY'
+
+  - channel: atm
+    detect: >
+      Descriptor begins with "ATM Withdrawal" followed by a street address /
+      location. Do NOT classify generic "Withdrawal Ach ..." autopay strings or
+      "ATM FEE" adjustments as this channel — those are ACH/fee rows, not ATM
+      cash withdrawals at a location.
+    extract: >
+      The identity is the location (street address + city/state). Discard the
+      trailing "Transaction Date : MM/DD/YYYY" and any card-number fragments.
+      All withdrawals at the same location are the SAME merchant — never split
+      by amount; the purpose of a withdrawal is not knowable from the descriptor
+      and is the user's responsibility to express via merchant rules.
+    normalized_name: 'atm:<slug of location>'
+    display_name: 'ATM: <Location>'
+    counterparty: null
+    examples:
+      - descriptor: 'ATM Withdrawal 896 MANHATTAN AV BROOKLYN NY Transaction Date : 05/30/2026'
+        normalized_name: 'atm:896-manhattan-av-brooklyn-ny'
+        display_name: 'ATM: 896 MANHATTAN AV BROOKLYN NY'
+        counterparty: null
+      - descriptor: 'ATM Withdrawal 929 MANHATTAN AVE BROOKLYN NY Transaction Date : 01/30/2026'
+        normalized_name: 'atm:929-manhattan-ave-brooklyn-ny'
+        display_name: 'ATM: 929 MANHATTAN AVE BROOKLYN NY'
+        counterparty: null
+
+  - channel: billpay
+    detect: >
+      Descriptor begins with "Automated Payment" — a scheduled bill payment to a
+      named biller. Often ends with "CHK ACCT ENDING IN <digits>".
+    extract: >
+      The counterparty is the biller name immediately after "Automated Payment"
+      (e.g. "CON ED OF NY", "NYCWATERBOARD", "AMEX EPAYMENT", "MORGAN STANLEY").
+      Discard noise tokens like "CECONY", "BILLPAY", "LOAN PAYMT", "XFER", and
+      the trailing "CHK ACCT ENDING IN <digits>". If the biller name is repeated
+      consecutively (e.g. "NGRID38 NGRID38"), keep only a single copy.
+    normalized_name: 'billpay:<slug of biller>'
+    display_name: '<Biller name>'
+    counterparty: '<Biller name>'
+    examples:
+      - descriptor: 'Automated Payment CON ED OF NY CECONY CHK ACCT ENDING IN 4864'
+        normalized_name: 'billpay:con-ed-of-ny'
+        display_name: 'CON ED OF NY'
+        counterparty: 'CON ED OF NY'
+      - descriptor: 'Automated Payment NYCWATERBOARD    BILLPAY CHK ACCT ENDING IN 1729'
+        normalized_name: 'billpay:nycwaterboard'
+        display_name: 'NYCWATERBOARD'
+        counterparty: 'NYCWATERBOARD'
+
+  - channel: ach
+    detect: >
+      ACH credit/debit flows: descriptors containing "Direct Deposit", "DES:ACH
+      PMT", "Deposit Ach ...", or "Withdrawal Ach ..." with a "Co:" / company
+      field.
+    extract: >
+      The counterparty is the originating/receiving company. Prefer an explicit
+      "Co: <name>" field; otherwise use the most specific employer/payer name
+      present (e.g. "SPARA", "AIRBNB", "AMERICAN EXPRESS", "CHASE CREDIT CRD").
+      Discard transaction ids ("Id: ..."), account fragments ("Acct: Xx21729"),
+      type codes ("Type: Transfer"), data blobs ("Data: 3Qkft"), and individual
+      names in "INDN:" / "Name:" fields. Keep payroll deposits keyed to the
+      employer.
+    normalized_name: 'ach:<slug of company>'
+    display_name: '<Company name>'
+    counterparty: '<Company name>'
+    examples:
+      - descriptor: 'Direct Deposit DIRECT DEP FUNDS RECVD C154197 SPARA IN PAYROLL'
+        normalized_name: 'ach:spara'
+        display_name: 'SPARA'
+        counterparty: 'SPARA'
+      - descriptor: 'AMERICAN EXPRESS DES:ACH PMT ID:A0408 INDN:Jenny OLeary CO ID:XXXXX33497 WEB'
+        normalized_name: 'ach:american-express'
+        display_name: 'AMERICAN EXPRESS'
+        counterparty: 'AMERICAN EXPRESS'
+
+  - channel: transfer
+    detect: >
+      Internal money movement: "CASH TRANSFER ...", "Online Transfer ...",
+      "Online Banking transfer to/from CHK/SAV/Share <n>", "Standard transfer".
+    extract: >
+      These are transfers between the user's own accounts or generic cash
+      movements — there is usually no external counterparty. Use the destination
+      account hint when present (e.g. "Share 40", "CHK 7536", "SAV 3024");
+      otherwise treat as a generic transfer. Discard confirmation hashes
+      ("Confirmation# ...", "Confirmation - #..."), dates ("AS OF 11/10"), and
+      masked account tails ("XXX-XX4882").
+    normalized_name: 'transfer:<slug of account hint, else "internal">'
+    display_name: 'Transfer<: account hint if any>'
+    counterparty: null
+    examples:
+      - descriptor: 'CASH TRANSFER FUNDS TRANSFERRED'
+        normalized_name: 'transfer:internal'
+        display_name: 'Transfer'
+        counterparty: null
+      - descriptor: 'Online Banking transfer from SAV 3024 Confirmation# XXXXX69324'
+        normalized_name: 'transfer:sav-3024'
+        display_name: 'Transfer: SAV 3024'
+        counterparty: null
+
+  - channel: check
+    detect: >
+      Paper/electronic checks: "Check <number>", "Check <NAME>", "Coffee Check",
+      or "Online ... transfer to/from CHK <n>". (Note: "Automated Payment ... CHK
+      ACCT ..." is billpay, not check — match billpay first.)
+    extract: >
+      If a payee name is present (e.g. "CHARLES STEWART"), use it as the
+      counterparty. Bare numbered checks ("Check 1021") have no payee — key them
+      generically. Discard the check number itself from identity.
+    normalized_name: 'check:<slug of payee, else "check">'
+    display_name: 'Check<: payee if any>'
+    counterparty: '<Payee if any, else null>'
+    examples:
+      - descriptor: 'Check CHARLES STEWART'
+        normalized_name: 'check:charles-stewart'
+        display_name: 'Check: CHARLES STEWART'
+        counterparty: 'CHARLES STEWART'
+      - descriptor: 'Check 1021'
+        normalized_name: 'check:check'
+        display_name: 'Check'
+        counterparty: null
+
+  - channel: venmo
+    detect: >
+      Any Venmo activity: the bare label "Venmo"; a directly-linked Venmo
+      payment, which looks like "<Person Name> "<note / :venmo_dollar: / emoji>"";
+      or a bank-side Venmo ACH line like "Withdrawal/Deposit Ach Venmo ... Co:
+      Venmo [Name: <account holder>]".
+    extract: >
+      Only the directly-linked Venmo form carries a real counterparty: the
+      person's name is the leading text BEFORE the quoted note / emoji — extract
+      it and drop the note. The bare "Venmo" label and the bank ACH form carry
+      NO external counterparty (the "Name:" in the ACH line is the account
+      holder, not the payee) — collapse those to a single counterparty-less
+      "venmo" identity. Never invent a counterparty.
+    normalized_name: 'venmo:<slug of person> when a person is present, else "venmo"'
+    display_name: 'Venmo: <Person> when present, else "Venmo"'
+    counterparty: '<Person if present, else null>'
+    examples:
+      - descriptor: 'Jenny O''Leary ":venmo_dollar:"'
+        normalized_name: 'venmo:jenny-o-leary'
+        display_name: 'Venmo: Jenny O''Leary'
+        counterparty: "Jenny O'Leary"
+      - descriptor: 'Keela Williams ":venmo_dollar: :venmo_dollar:"'
+        normalized_name: 'venmo:keela-williams'
+        display_name: 'Venmo: Keela Williams'
+        counterparty: 'Keela Williams'
+      - descriptor: 'Venmo'
+        normalized_name: 'venmo'
+        display_name: 'Venmo'
+        counterparty: null
+      - descriptor: 'Withdrawal Ach Venmo Type: Payment Id: 3264681992 Co: Venmo Name: Adam Bossy'
+        normalized_name: 'venmo'
+        display_name: 'Venmo'
+        counterparty: null
+
+  - channel: paypal
+    detect: >
+      PayPal flows: descriptors mentioning "Paypal" in an ACH/transfer context
+      ("Withdrawal Ach Paypal ...", "Deposit Ach Paypal ...").
+    extract: >
+      The counterparty is the PayPal sub-merchant/store when present
+      (e.g. "Adambossy S Store"); otherwise key generically to PayPal. Discard
+      ids ("Id: Paypalsi77"), type/data fields, and the "Co: Paypal" boilerplate.
+    normalized_name: 'paypal:<slug of sub-merchant, else "paypal">'
+    display_name: 'PayPal<: sub-merchant if any>'
+    counterparty: '<Sub-merchant if any, else null>'
+    examples:
+      - descriptor: 'Withdrawal Ach Paypal Type: Inst Xfer Id: Paypalsi77 Data: Instant Transfer Co: Paypal Name: Adambossy S Store'
+        normalized_name: 'paypal:adambossy-s-store'
+        display_name: 'PayPal: Adambossy S Store'
+        counterparty: 'Adambossy S Store'

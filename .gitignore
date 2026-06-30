@@ -21,6 +21,9 @@ dist/
 .cache/
 .logs/
 
+# Descriptor sampling output — contains real (prod-mirrored) merchant strings
+.descriptor-corpus/
+
 # Local databases
 *.db
 *.sqlite
