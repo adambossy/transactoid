@@ -98,6 +98,7 @@ def store_object_in_r2(
     content_type: str,
     metadata: dict[str, str] | None = None,
     config: R2Config | None = None,
+    bucket: str | None = None,
 ) -> R2StoredObject:
     """Upload an object to Cloudflare R2.
 
@@ -107,6 +108,8 @@ def store_object_in_r2(
         content_type: MIME type (e.g. ``text/markdown; charset=utf-8``).
         metadata: Optional user metadata dict.
         config: R2 credentials. Loaded from env if *None*.
+        bucket: Override the destination bucket (e.g. a separate PUBLIC bucket for
+            shareable reports); defaults to ``config.bucket``.
 
     Returns:
         R2StoredObject with the stored key, bucket, and content type.
@@ -118,10 +121,11 @@ def store_object_in_r2(
     if config is None:
         config = load_r2_config_from_env()
 
+    dest_bucket = bucket or config.bucket
     client = _build_client(config)
 
     put_kwargs: dict[str, object] = {
-        "Bucket": config.bucket,
+        "Bucket": dest_bucket,
         "Key": key,
         "Body": body,
         "ContentType": content_type,
@@ -132,11 +136,11 @@ def store_object_in_r2(
     try:
         client.put_object(**put_kwargs)
     except (BotoCoreError, ClientError) as exc:
-        msg = f"Failed to upload {key!r} to {config.bucket}: {exc}"
+        msg = f"Failed to upload {key!r} to {dest_bucket}: {exc}"
         raise R2UploadError(msg) from exc
 
-    logger.bind(key=key, bucket=config.bucket).info("Uploaded object to R2: {}", key)
-    return R2StoredObject(key=key, bucket=config.bucket, content_type=content_type)
+    logger.bind(key=key, bucket=dest_bucket).info("Uploaded object to R2: {}", key)
+    return R2StoredObject(key=key, bucket=dest_bucket, content_type=content_type)
 
 
 def download_object_from_r2(
@@ -169,6 +173,40 @@ def download_object_from_r2(
     except (BotoCoreError, ClientError) as exc:
         msg = f"Failed to download {key!r} from {config.bucket}: {exc}"
         raise R2DownloadError(msg) from exc
+
+
+# Max presigned-URL lifetime for SigV4 (S3/R2): 7 days.
+_MAX_PRESIGN_SECONDS = 7 * 24 * 3600
+
+
+def public_url_for_key(
+    key: str,
+    *,
+    expires_seconds: int = _MAX_PRESIGN_SECONDS,
+    config: R2Config | None = None,
+    bucket: str | None = None,
+) -> str:
+    """A shareable URL for an R2 object.
+
+    Prefers a permanent public link when ``R2_PUBLIC_BASE_URL`` is set (the public
+    bucket's ``r2.dev`` URL or a custom domain): ``<base>/<key>``. Otherwise falls
+    back to a presigned GET URL (capped at the 7-day SigV4 maximum) for ``bucket``
+    (or the default), which works without making the bucket public.
+
+    Raises:
+        R2ConfigError: If config cannot be loaded and no public base is set.
+    """
+    base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return f"{base}/{key}"
+    if config is None:
+        config = load_r2_config_from_env()
+    client = _build_client(config)
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket or config.bucket, "Key": key},
+        ExpiresIn=min(expires_seconds, _MAX_PRESIGN_SECONDS),
+    )
 
 
 def make_artifact_key(*, artifact_type: str, timestamp: datetime | None = None) -> str:

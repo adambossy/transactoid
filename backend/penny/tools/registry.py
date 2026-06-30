@@ -6,6 +6,11 @@ from agent_harness import StaticToolset
 from agent_harness.core.toolsets import Toolset
 
 from .analytics import generate_chart, run_sql
+from .audit import (
+    category_history,
+    find_similar_tagged_transactions,
+    transaction_tags,
+)
 from .bash import bash
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
@@ -54,6 +59,10 @@ def build_toolset() -> Toolset:
             # Analytics
             run_sql,
             generate_chart,
+            # Audit / history (read-only)
+            category_history,
+            transaction_tags,
+            find_similar_tagged_transactions,
             # Delivery
             upload_artifact_to_r2,
             send_email_report,

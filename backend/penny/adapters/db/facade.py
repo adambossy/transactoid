@@ -39,6 +39,8 @@ from penny.adapters.db.models import (
     CategoryRow,
     DerivedTransaction,
     EmailReceipt,
+    EvalItem,
+    EvalRun,
     Merchant,
     PendingReceiptMatch,
     PlaidItem,
@@ -54,6 +56,22 @@ from penny.adapters.db.models import (
 
 M = TypeVar("M")
 CategoryMethod = Literal["llm", "manual", "taxonomy_migration"]
+
+# Investment trades/income (buys, sells, dividends, fees) are recorded but NOT
+# categorized — categorizing them spends tokens for no reporting value. They carry
+# ``reporting_mode='DEFAULT_EXCLUDE'`` (set during investment sync). Regular txns
+# have NULL reporting_mode; investment-account money movement is DEFAULT_INCLUDE
+# and IS still categorized. This predicate selects "should be categorized".
+_SKIP_CATEGORIZATION_REPORTING_MODE = "DEFAULT_EXCLUDE"
+
+
+def _needs_categorization_clause() -> Any:
+    """SQL clause: the row is not an investment trade to skip (NULL-safe)."""
+    return (
+        func.coalesce(DerivedTransaction.reporting_mode, "")
+        != _SKIP_CATEGORIZATION_REPORTING_MODE
+    )
+
 
 _COMPACT_SCHEMA_MODELS: tuple[type[Base], ...] = (
     Merchant,
@@ -376,7 +394,20 @@ class DB:
         reason: str | None,
         created_at: datetime,
     ) -> None:
-        """Insert a category change event row."""
+        """Insert a category change event row.
+
+        ``reason`` is routed to the column that matches ``method``:
+        - ``llm`` (an agent/LLM categorization decision) -> ``categorization_reasoning``
+          (why this category was chosen).
+        - ``manual`` / ``taxonomy_migration`` (a change to an existing category) ->
+          ``recategorization_reason`` (why it changed).
+        """
+        if method == "llm":
+            categorization_reasoning = reason
+            recategorization_reason = None
+        else:
+            recategorization_reason = reason
+            categorization_reasoning = None
         session.add(
             TransactionCategoryEvent(
                 transaction_id=transaction_id,
@@ -386,7 +417,8 @@ class DB:
                 to_category_key=to_category_key,
                 method=method,
                 model=model,
-                reason=reason,
+                recategorization_reason=recategorization_reason,
+                categorization_reasoning=categorization_reasoning,
                 created_at=created_at,
             )
         )
@@ -643,12 +675,16 @@ class DB:
         self,
         merchant_id: int,
         category_id: int,
+        reason: str | None = None,
     ) -> int:
         """Recategorize all unverified derived transactions for a merchant.
 
         Args:
             merchant_id: Merchant ID
             category_id: New category ID
+            reason: Natural-language reason for the change (recorded on each
+                event's ``recategorization_reason``). Falls back to a marker
+                string when not supplied.
 
         Returns:
             Number of transactions updated
@@ -667,7 +703,7 @@ class DB:
                 session,
                 updates=updates,
                 method="manual",
-                reason="recategorize_merchant",
+                reason=reason or "recategorize_merchant",
                 preserve_model=True,
             )
 
@@ -2002,11 +2038,13 @@ class DB:
                 Joins to plaid_transactions to filter by source.
 
         Returns:
-            List of transaction_ids where category_id IS NULL.
+            List of transaction_ids where category_id IS NULL (excluding
+            investment trades, which are recorded but never categorized).
         """
         with self.session() as session:  # type: Session
             query = session.query(DerivedTransaction.transaction_id).filter(
-                DerivedTransaction.category_id.is_(None)
+                DerivedTransaction.category_id.is_(None),
+                _needs_categorization_clause(),
             )
             if source is not None:
                 query = query.join(
@@ -2016,6 +2054,187 @@ class DB:
                 ).filter(PlaidTransaction.source == source)
             rows = query.order_by(DerivedTransaction.transaction_id).all()
             return [row[0] for row in rows]
+
+    def derived_ids_created_since(self, since: datetime | None) -> list[int]:
+        """Transaction ids for derived rows ingested after ``since`` (oldest first).
+
+        Powers the eval cohort: the transactions that arrived since the previous
+        eval run's high-water mark. Keyed on ``created_at`` (the ingest timestamp),
+        NOT ``posted_at`` — Plaid back-dates pending->posted transitions and late
+        arrivals, so a posted_at window would both miss and mis-bucket rows. When
+        ``since`` is None, returns the full table (first run). Investment trades
+        (``reporting_mode='DEFAULT_EXCLUDE'``) are excluded — they are never
+        categorized, so they don't belong in the eval cohort either.
+        """
+        with self.session() as session:  # type: Session
+            query = session.query(DerivedTransaction.transaction_id).filter(
+                _needs_categorization_clause()
+            )
+            if since is not None:
+                query = query.filter(DerivedTransaction.created_at > since)
+            rows = query.order_by(
+                DerivedTransaction.created_at.asc(),
+                DerivedTransaction.transaction_id.asc(),
+            ).all()
+            return [row[0] for row in rows]
+
+    def max_created_at_for_ids(self, transaction_ids: list[int]) -> datetime | None:
+        """Max ``created_at`` over the given derived rows (the next run's watermark)."""
+        if not transaction_ids:
+            return None
+        with self.session() as session:  # type: Session
+            return (
+                session.query(func.max(DerivedTransaction.created_at))
+                .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
+                .scalar()
+            )
+
+    # ------------------------------------------------------------------ eval store
+
+    def last_eval_watermark(self) -> datetime | None:
+        """High-water mark (max ``cohort_max_created_at``) over completed eval runs.
+
+        The next eval cohort is everything ingested strictly after this.
+        """
+        with self.session() as session:  # type: Session
+            return (
+                session.query(func.max(EvalRun.cohort_max_created_at))
+                .filter(EvalRun.status == "completed")
+                .scalar()
+            )
+
+    def record_eval_run(
+        self,
+        *,
+        run_at: datetime,
+        status: str,
+        cohort_size: int,
+        cohort_max_created_at: datetime | None = None,
+        branch_name: str | None = None,
+        r2_fixture_url: str | None = None,
+        version: dict[str, Any] | None = None,
+    ) -> int:
+        """Insert an ``eval_runs`` row and return its id."""
+        version = version or {}
+        with self.session() as session:  # type: Session
+            run = EvalRun(
+                run_at=run_at,
+                status=status,
+                cohort_size=cohort_size,
+                cohort_max_created_at=cohort_max_created_at,
+                branch_name=branch_name,
+                r2_fixture_url=r2_fixture_url,
+                model=version.get("model"),
+                prompt_version=version.get("prompt_version"),
+                harness_sha=version.get("harness_sha"),
+                taxonomy_version=version.get("taxonomy_version"),
+                rules_version=version.get("rules_version"),
+            )
+            session.add(run)
+            session.flush()
+            return run.eval_run_id
+
+    def record_eval_items(self, eval_run_id: int, items: list[dict[str, Any]]) -> None:
+        """Bulk-insert ``eval_items`` rows for a run."""
+        if not items:
+            return
+        with self.session() as session:  # type: Session
+            session.add_all(
+                [
+                    EvalItem(
+                        eval_run_id=eval_run_id,
+                        transaction_id=item["transaction_id"],
+                        merchant_descriptor=item.get("merchant_descriptor"),
+                        legacy_key=item.get("legacy_key"),
+                        agent_key=item.get("agent_key"),
+                        agent_reasoning=item.get("agent_reasoning"),
+                        agent_confidence=item.get("agent_confidence"),
+                        method_at_eval_time=item["method_at_eval_time"],
+                        trace_link=item.get("trace_link"),
+                    )
+                    for item in items
+                ]
+            )
+
+    def set_eval_run_fixture(self, eval_run_id: int, r2_fixture_url: str) -> None:
+        """Record the R2 fixture URL once the branch has been dumped and uploaded."""
+        with self.session() as session:  # type: Session
+            run = session.get(EvalRun, eval_run_id)
+            if run is not None:
+                run.r2_fixture_url = r2_fixture_url
+
+    def eval_items_with_verdicts(
+        self, *, settled_before: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        """All eval items enriched with a verdict derived from your corrections.
+
+        There is no stored verdict (no staging step). For each item:
+        - ``corrected`` if the transaction has a ``manual`` category event created
+          after the run's ``run_at`` (you recategorized it post-eval); ``human_key``
+          is that latest post-run event's ``to_category_key``.
+        - ``confirmed`` if no such correction exists AND the run is settled
+          (``run_at <= settled_before``); ``human_key`` is the agent's key.
+        - ``provisional`` otherwise (too new to have been reviewed).
+
+        ``settled_before`` is "now minus the settling window"; pass None to treat
+        every uncorrected item as still provisional.
+        """
+        from collections import defaultdict
+
+        with self.session() as session:  # type: Session
+            runs = {r.eval_run_id: r for r in session.query(EvalRun).all()}
+            items = session.query(EvalItem).all()
+            manual = (
+                session.query(
+                    TransactionCategoryEvent.transaction_id,
+                    TransactionCategoryEvent.created_at,
+                    TransactionCategoryEvent.to_category_key,
+                )
+                .filter(TransactionCategoryEvent.method == "manual")
+                .order_by(TransactionCategoryEvent.created_at.desc())
+                .all()
+            )
+            by_txn: dict[int, list[tuple[datetime, str]]] = defaultdict(list)
+            for tid, created, to_key in manual:
+                if created is not None:
+                    by_txn[tid].append((created, to_key))
+
+            out: list[dict[str, Any]] = []
+            for item in items:
+                run = runs.get(item.eval_run_id)
+                if run is None:
+                    continue
+                post = [
+                    c for c in by_txn.get(item.transaction_id, []) if c[0] > run.run_at
+                ]
+                if post:
+                    verdict = "corrected"
+                    human_key = post[0][1]  # newest (events are desc-ordered)
+                elif settled_before is not None and run.run_at <= settled_before:
+                    verdict = "confirmed"
+                    human_key = item.agent_key
+                else:
+                    verdict = "provisional"
+                    human_key = None
+                out.append(
+                    {
+                        "eval_run_id": item.eval_run_id,
+                        "run_at": run.run_at,
+                        "transaction_id": item.transaction_id,
+                        "legacy_key": item.legacy_key,
+                        "agent_key": item.agent_key,
+                        "method_at_eval_time": item.method_at_eval_time,
+                        "agent_confidence": item.agent_confidence,
+                        "verdict": verdict,
+                        "human_key": human_key,
+                        "model": run.model,
+                        "prompt_version": run.prompt_version,
+                        "harness_sha": run.harness_sha,
+                        "taxonomy_version": run.taxonomy_version,
+                        "rules_version": run.rules_version,
+                    }
+                )
+            return out
 
     def get_derived_transactions_by_ids(
         self,
@@ -2244,6 +2463,7 @@ class DB:
                     "amount_cents",
                     "merchant_descriptor",
                     "web_search_summary",
+                    "is_verified",
                 ):
                     setattr(derived_txn, key, value)
 
@@ -3218,3 +3438,280 @@ class DB:
             )
             session.flush()
             return int(deleted)
+
+    # ------------------------------------------------------------------
+    # Categorization read API (events, history, tags)
+    #
+    # All methods return plain JSON-serializable dicts/lists (never detached
+    # ORM rows) so the categorizer agent's tools and the system-prompt
+    # injection can use them after the session closes without risking
+    # DetachedInstanceError.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _category_event_to_dict(
+        event: TransactionCategoryEvent,
+        merchant_descriptor: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "event_id": event.event_id,
+            "transaction_id": event.transaction_id,
+            "merchant_descriptor": merchant_descriptor,
+            "from_category_key": event.from_category_key,
+            "to_category_key": event.to_category_key,
+            "method": event.method,
+            "model": event.model,
+            "recategorization_reason": event.recategorization_reason,
+            "categorization_reasoning": event.categorization_reasoning,
+            "created_at": (event.created_at.isoformat() if event.created_at else None),
+        }
+
+    def recent_category_events(
+        self, limit: int = 20, *, method: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the most recent category-change events (newest first)."""
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(
+                    TransactionCategoryEvent,
+                    DerivedTransaction.merchant_descriptor,
+                )
+                .join(
+                    DerivedTransaction,
+                    TransactionCategoryEvent.transaction_id
+                    == DerivedTransaction.transaction_id,
+                )
+                .order_by(
+                    TransactionCategoryEvent.created_at.desc(),
+                    TransactionCategoryEvent.event_id.desc(),
+                )
+            )
+            if method is not None:
+                query = query.filter(TransactionCategoryEvent.method == method)
+            rows = query.limit(limit).all()
+            return [
+                self._category_event_to_dict(event, descriptor)
+                for event, descriptor in rows
+            ]
+
+    def events_for_merchant(
+        self, merchant_id: int, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Return category-change events for a merchant's transactions (newest first)."""
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(
+                    TransactionCategoryEvent,
+                    DerivedTransaction.merchant_descriptor,
+                )
+                .join(
+                    DerivedTransaction,
+                    TransactionCategoryEvent.transaction_id
+                    == DerivedTransaction.transaction_id,
+                )
+                .filter(DerivedTransaction.merchant_id == merchant_id)
+                .order_by(
+                    TransactionCategoryEvent.created_at.desc(),
+                    TransactionCategoryEvent.event_id.desc(),
+                )
+            )
+            rows = query.limit(limit).all()
+            return [
+                self._category_event_to_dict(event, descriptor)
+                for event, descriptor in rows
+            ]
+
+    def events_for_transaction(self, transaction_id: int) -> list[dict[str, Any]]:
+        """Return the full category-change history of one transaction (oldest first)."""
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(TransactionCategoryEvent)
+                .join(
+                    DerivedTransaction,
+                    TransactionCategoryEvent.transaction_id
+                    == DerivedTransaction.transaction_id,
+                )
+                .filter(TransactionCategoryEvent.transaction_id == transaction_id)
+                .order_by(
+                    TransactionCategoryEvent.created_at.asc(),
+                    TransactionCategoryEvent.event_id.asc(),
+                )
+            )
+            events = query.all()
+            return [self._category_event_to_dict(event) for event in events]
+
+    def verified_category_for_descriptor(self, descriptor: str) -> str | None:
+        """Most recent VERIFIED category key for an exact merchant descriptor.
+
+        Powers the categorization fast path: an exact descriptor that already has
+        a verified categorization is reused with confidence 1.0 and no LLM call.
+        """
+        if not descriptor:
+            return None
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(Category.key)
+                .join(
+                    DerivedTransaction,
+                    DerivedTransaction.category_id == Category.category_id,
+                )
+                .filter(
+                    DerivedTransaction.merchant_descriptor == descriptor,
+                    DerivedTransaction.is_verified.is_(True),
+                )
+                .order_by(
+                    DerivedTransaction.category_assigned_at.desc(),
+                    DerivedTransaction.transaction_id.desc(),
+                )
+            )
+            row = query.first()
+            return row[0] if row else None
+
+    def get_transactions_by_merchant_descriptor(
+        self, descriptor: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Recent transactions for an exact merchant descriptor (newest first)."""
+        if not descriptor:
+            return []
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(
+                    DerivedTransaction.transaction_id,
+                    DerivedTransaction.posted_at,
+                    DerivedTransaction.amount_cents,
+                    DerivedTransaction.is_verified,
+                    Category.key,
+                )
+                .outerjoin(
+                    Category, Category.category_id == DerivedTransaction.category_id
+                )
+                .filter(DerivedTransaction.merchant_descriptor == descriptor)
+                .order_by(DerivedTransaction.posted_at.desc())
+            )
+            rows = query.limit(limit).all()
+            return [
+                {
+                    "transaction_id": tid,
+                    "date": posted_at.isoformat() if posted_at else None,
+                    "amount": amount_cents / 100.0,
+                    "is_verified": bool(is_verified),
+                    "category_key": category_key,
+                }
+                for tid, posted_at, amount_cents, is_verified, category_key in rows
+            ]
+
+    def get_merchant_category_distribution(
+        self, descriptor: str
+    ) -> list[dict[str, Any]]:
+        """How an exact merchant descriptor has been categorized historically.
+
+        Returns ``[{category_key, count, verified_count}]`` sorted by count desc.
+        """
+        if not descriptor:
+            return []
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(
+                    Category.key,
+                    DerivedTransaction.is_verified,
+                    func.count().label("n"),
+                )
+                .join(
+                    DerivedTransaction,
+                    DerivedTransaction.category_id == Category.category_id,
+                )
+                .filter(DerivedTransaction.merchant_descriptor == descriptor)
+                .group_by(Category.key, DerivedTransaction.is_verified)
+            )
+            rows = query.all()
+        dist: dict[str, dict[str, Any]] = {}
+        for category_key, is_verified, count in rows:
+            entry = dist.setdefault(
+                category_key,
+                {"category_key": category_key, "count": 0, "verified_count": 0},
+            )
+            entry["count"] += count
+            if is_verified:
+                entry["verified_count"] += count
+        return sorted(dist.values(), key=lambda e: e["count"], reverse=True)
+
+    @contextmanager
+    def try_advisory_lock(self, key: int) -> Iterator[bool]:
+        """Best-effort run-level lock. Yields True if acquired, False if already held.
+
+        Uses a Postgres session-level advisory lock (held on a dedicated connection
+        for the duration of the ``with`` block). On SQLite (single-user dev) this is
+        a no-op that always yields True.
+        """
+        if self._engine.dialect.name != "postgresql":
+            yield True
+            return
+        conn = self._engine.connect()
+        try:
+            acquired = bool(
+                conn.execute(
+                    text("SELECT pg_try_advisory_lock(:k)"), {"k": key}
+                ).scalar()
+            )
+            if not acquired:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": key})
+                conn.commit()
+        finally:
+            conn.close()
+
+    def tags_for_transactions(self, transaction_ids: list[int]) -> dict[int, list[str]]:
+        """Map each transaction id to its tag names (empty list if untagged)."""
+        result: dict[int, list[str]] = {tid: [] for tid in transaction_ids}
+        if not transaction_ids:
+            return result
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(TransactionTag.transaction_id, Tag.name)
+                .join(Tag, Tag.tag_id == TransactionTag.tag_id)
+                .filter(TransactionTag.transaction_id.in_(transaction_ids))
+                .all()
+            )
+        for transaction_id, name in rows:
+            result.setdefault(transaction_id, []).append(name)
+        return result
+
+    def get_transactions_by_tag(
+        self, tag_name: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Recent transactions carrying a given tag (newest first)."""
+        with self.session() as session:  # type: Session
+            query = (
+                session.query(
+                    DerivedTransaction.transaction_id,
+                    DerivedTransaction.merchant_descriptor,
+                    DerivedTransaction.posted_at,
+                    DerivedTransaction.amount_cents,
+                    Category.key,
+                )
+                .join(
+                    TransactionTag,
+                    TransactionTag.transaction_id == DerivedTransaction.transaction_id,
+                )
+                .join(Tag, Tag.tag_id == TransactionTag.tag_id)
+                .outerjoin(
+                    Category, Category.category_id == DerivedTransaction.category_id
+                )
+                .filter(Tag.name == tag_name)
+                .order_by(DerivedTransaction.posted_at.desc())
+            )
+            rows = query.limit(limit).all()
+            return [
+                {
+                    "transaction_id": tid,
+                    "merchant_descriptor": descriptor,
+                    "date": posted_at.isoformat() if posted_at else None,
+                    "amount": amount_cents / 100.0,
+                    "category_key": category_key,
+                }
+                for tid, descriptor, posted_at, amount_cents, category_key in rows
+            ]

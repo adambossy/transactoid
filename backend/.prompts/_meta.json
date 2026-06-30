@@ -13,12 +13,6 @@
       "last_hash": "sha256:a036bae39edc54871f586305d1885dc4da2f93979e83bbdd8d3fb7cf2e8d4f45",
       "last_version": 4
     },
-    "taxonomy-rules": {
-      "source_file": ".prompts/taxonomy-rules/2.md",
-      "version_dir": ".prompts/taxonomy-rules",
-      "last_hash": "sha256:c3d7a12893baa2727e2115f66771d1ea623fe6ea852d2a31559c07541ff79eb4",
-      "last_version": 2
-    },
     "generate-memory-index": {
       "source_file": ".prompts/generate-memory-index/2.md",
       "version_dir": ".prompts/generate-memory-index",
@@ -48,6 +42,12 @@
       "version_dir": ".prompts/sql-directives-sqlite",
       "last_hash": "sha256:b278b4ef1a54309b60974983a55d2db6ba0daf2a4dc6f328b7fa4f8444842937",
       "last_version": 1
+    },
+    "categorize-transaction-agent": {
+      "source_file": ".prompts/categorize-transaction-agent/2.md",
+      "version_dir": ".prompts/categorize-transaction-agent",
+      "last_hash": "sha256:661926c647920168bf977ac8949b9acbab4c539bb8ff8078ac36bf819dca50c9",
+      "last_version": 2
     }
   }
 }

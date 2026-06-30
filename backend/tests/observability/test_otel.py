@@ -178,3 +178,91 @@ def test_enabled_gate(monkeypatch):
     monkeypatch.setattr(ot, "_enabled", None)
     monkeypatch.setenv("PENNY_LANGFUSE_ENABLED", "false")
     assert observability.is_enabled() is False
+
+
+# --- canonical trace id / url ------------------------------------------------
+
+_KNOWN_ID = "d2cb03fd69383bb608ed3348f60ffb35"
+
+
+def test_current_trace_id_disabled_is_none(monkeypatch):
+    """Strict no-op: id/url are None when tracing is off, with no SDK import."""
+    monkeypatch.setattr(ot, "_enabled", False)
+
+    def _boom():  # pragma: no cover - must never be reached
+        raise AssertionError("get_client should not be called when disabled")
+
+    monkeypatch.setitem(__import__("sys").modules, "langfuse", None)
+    assert observability.current_trace_id() is None
+    assert observability.current_trace_url() is None
+
+
+def test_current_trace_id_from_sdk(monkeypatch):
+    """When enabled, the id comes from the Langfuse SDK's get_current_trace_id."""
+    monkeypatch.setattr(ot, "_enabled", True)
+
+    class _FakeClient:
+        def get_current_trace_id(self):
+            return _KNOWN_ID
+
+    fake = type("langfuse", (), {"get_client": staticmethod(lambda: _FakeClient())})
+    monkeypatch.setitem(__import__("sys").modules, "langfuse", fake)
+
+    assert observability.current_trace_id() == _KNOWN_ID
+
+
+def test_current_trace_url_format(monkeypatch):
+    """URL is host + /trace/{canonical id}; host honors LANGFUSE_HOST."""
+    monkeypatch.setattr(ot, "_enabled", True)
+    monkeypatch.setenv("LANGFUSE_HOST", "https://eu.cloud.langfuse.com/")
+
+    class _FakeClient:
+        def get_current_trace_id(self):
+            return _KNOWN_ID
+
+    fake = type("langfuse", (), {"get_client": staticmethod(lambda: _FakeClient())})
+    monkeypatch.setitem(__import__("sys").modules, "langfuse", fake)
+
+    assert (
+        observability.current_trace_url()
+        == f"https://eu.cloud.langfuse.com/trace/{_KNOWN_ID}"
+    )
+
+
+def test_current_trace_id_falls_back_to_otel_span(monkeypatch):
+    """If the SDK yields no id, fall back to the active OTEL span context.
+
+    The fallback equals the SDK id (both are ``format(trace_id, "032x")``).
+    """
+    monkeypatch.setattr(ot, "_enabled", True)
+
+    class _FakeClient:
+        def get_current_trace_id(self):
+            return None  # e.g. SDK has no active span of its own
+
+    fake = type("langfuse", (), {"get_client": staticmethod(lambda: _FakeClient())})
+    monkeypatch.setitem(__import__("sys").modules, "langfuse", fake)
+
+    from opentelemetry.sdk.trace import TracerProvider
+
+    tracer = TracerProvider().get_tracer("test")
+    with tracer.start_as_current_span("span") as span:
+        raw = format(span.get_span_context().trace_id, "032x")
+        assert observability.current_trace_id() == raw
+        assert observability.current_trace_url() == f"{ot._trace_host()}/trace/{raw}"
+
+
+def test_current_trace_id_no_active_span_is_none(monkeypatch):
+    """Enabled but no active span anywhere ⇒ None (no link)."""
+    monkeypatch.setattr(ot, "_enabled", True)
+
+    class _FakeClient:
+        def get_current_trace_id(self):
+            return None
+
+    fake = type("langfuse", (), {"get_client": staticmethod(lambda: _FakeClient())})
+    monkeypatch.setitem(__import__("sys").modules, "langfuse", fake)
+
+    # No active recording span → INVALID_SPAN has trace_id 0 → None.
+    assert observability.current_trace_id() is None
+    assert observability.current_trace_url() is None

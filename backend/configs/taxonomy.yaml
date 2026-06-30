@@ -2,673 +2,730 @@
   name: Adult Education & Professional Development
   parent_key: null
   description: Adult courses, certifications, conferences, learning materials, tutoring,
-    and professional training.
+    and professional training. (For anything related to a child, use Child & Baby
+    Expenses.)
   rules: null
 - key: banking_movements_transfers_refunds_and_fees
   name: Banking Movements (Transfers, Refunds & Fees)
   parent_key: null
-  description: null
+  description: Non-spend movements and bank adjustments. Apply these first when applicable.
   rules: null
 - key: child_and_baby_expenses
   name: Child & Baby Expenses
   parent_key: null
   description: 'All child- and baby-related spending: care, supplies, gear, school
-    fees, classes, clothing, feeding, etc.'
+    fees, classes, clothing, feeding, etc. (Pediatric health care belongs in Health
+    & Wellness.)'
   rules: null
 - key: debt_and_loans
   name: Debt & Loans
   parent_key: null
-  description: null
+  description: Payments and charges tied to credit cards and loans (non-mortgage).
   rules: null
 - key: entertainment_and_subscriptions
   name: Entertainment & Subscriptions
   parent_key: null
-  description: null
+  description: Media, digital content, hobbies/leisure, and subscription services.
   rules: null
 - key: food_and_dining
   name: Food & Dining
   parent_key: null
-  description: null
+  description: Consumable food and beverage purchases.
   rules: null
 - key: gifts_and_donations
   name: Gifts & Donations
   parent_key: null
-  description: null
+  description: Money given to others without direct goods/services for you.
   rules: null
 - key: health_and_wellness
   name: Health & Wellness
   parent_key: null
-  description: null
+  description: Out-of-pocket health and wellness spending (premiums under Insurance).
   rules: null
 - key: housing_and_utilities
   name: Housing & Utilities
   parent_key: null
-  description: null
+  description: Ongoing costs to live in and maintain a primary residence.
   rules: null
 - key: income
   name: Income
   parent_key: null
-  description: null
+  description: Money received that increases your balance (earned or unearned).
   rules: null
 - key: insurance
   name: Insurance
   parent_key: null
-  description: null
+  description: Recurring premiums for personal risk coverage.
   rules: null
 - key: other
   name: Other
   parent_key: null
-  description: null
+  description: Rare, miscellaneous items that do not clearly fit elsewhere. Use sparingly
+    and consider recategorization later.
   rules: null
 - key: pets
   name: Pets
   parent_key: null
-  description: null
+  description: Goods and services for household pets (excluding pet insurance premiums).
   rules: null
 - key: savings_and_investments
   name: Savings & Investments
   parent_key: null
-  description: null
+  description: Building assets via saving and investing; includes related fees. Investment
+    income lives under Income.
   rules: null
 - key: shopping_and_personal_care
   name: Shopping & Personal Care
   parent_key: null
-  description: null
+  description: Non-food consumer goods and personal services for you or your household.
   rules: null
 - key: taxes_and_government
   name: Taxes & Government
   parent_key: null
-  description: null
+  description: Taxes, fines, and payments to government entities.
   rules: null
 - key: transportation_and_auto
   name: Transportation & Auto
   parent_key: null
-  description: null
+  description: Moving yourself and operating vehicles (excluding insurance and loan
+    payments).
   rules: null
 - key: travel
   name: Travel
   parent_key: null
-  description: null
+  description: Spend tied to trips away from home. Use Travel to group trip costs
+    distinctly; otherwise classify under everyday categories and add a trip tag.
   rules: null
 - key: unknown
   name: Unknown
   parent_key: null
-  description: null
+  description: Temporary placeholder when the merchant or purpose cannot be determined
+    yet.
   rules: null
 - key: wedding
   name: Wedding
   parent_key: null
-  description: null
+  description: Wedding-specific spending you want tracked as a dedicated project.
+    Use when you prefer to aggregate all wedding costs; otherwise classify by purchase
+    type and tag “Wedding.”
   rules: null
 - key: work_expenses
   name: Work Expenses
   parent_key: null
-  description: null
+  description: Out-of-pocket expenses for work that are not payroll-deducted. Use
+    when you expect reimbursement or want to track work costs separately.
   rules: null
 - key: income.bonus_and_commission
   name: Bonus & Commission
   parent_key: income
-  description: null
+  description: 'Variable compensation from employment. Examples: annual bonus; sales
+    commission; referral bonus from employer.'
   rules: null
 - key: income.gifts_received
   name: Gifts Received
   parent_key: income
-  description: null
+  description: 'Monetary gifts received from individuals. Examples: birthday cash;
+    family transfer labeled “gift.”'
   rules: null
 - key: income.government_benefits
   name: Government Benefits
   parent_key: income
-  description: null
+  description: 'Income from public programs. Examples: Social Security; unemployment;
+    disability benefits. Excludes: tax refunds → Tax Refunds.'
   rules: null
 - key: income.interest_and_dividends
   name: Interest & Dividends
   parent_key: income
-  description: null
+  description: 'Passive income from deposits or investments. Examples: savings account
+    interest; bond interest; ETF dividend. Excludes: trading proceeds → Savings &
+    Investments → Investment Sell/Withdrawal.'
   rules: null
 - key: income.salary_and_wages
   name: Salary & Wages
   parent_key: income
-  description: null
+  description: 'Regular pay from employment. Examples: biweekly payroll deposit; W-2
+    paycheck; hourly wage direct deposit. Excludes: bonuses/commissions → Bonus &
+    Commission; tips → Tips.'
   rules: null
 - key: income.self_employment_and_side_hustle
   name: Self-Employment & Side Hustle
   parent_key: income
-  description: null
+  description: 'Business income paid to you personally. Examples: freelance invoice
+    paid; Etsy/Square payout; rideshare/food delivery payout.'
   rules: null
 - key: income.tax_refunds
   name: Tax Refunds
   parent_key: income
-  description: null
+  description: 'Income tax refunds from government. Examples: IRS refund; state return
+    refund.'
   rules: null
 - key: income.tips
   name: Tips
   parent_key: income
-  description: null
+  description: 'Gratuities paid by customers or pooled tip outs. Examples: card tip
+    payout; cash tips deposited; tip share from shift.'
   rules: null
 - key: housing_and_utilities.electricity
   name: Electricity
   parent_key: housing_and_utilities
-  description: null
+  description: 'Residential electric utility (includes home EV charging on the home
+    bill). Excludes: public EV charging → Transportation & Auto → EV Charging.'
   rules: null
 - key: housing_and_utilities.gas
   name: Gas
   parent_key: housing_and_utilities
-  description: null
+  description: Residential natural gas utility.
   rules: null
 - key: housing_and_utilities.hoa_condo_fees
   name: HOA/Condo Fees
   parent_key: housing_and_utilities
-  description: null
+  description: Recurring dues to associations (including special assessments).
   rules: null
 - key: housing_and_utilities.home_decor
   name: Home Decor
   parent_key: housing_and_utilities
-  description: null
+  description: 'Decorative home goods and minor aesthetic updates. Excludes: furniture/appliances
+    → Shopping & Personal Care → Furniture & Appliances.'
   rules: null
 - key: housing_and_utilities.home_renovation
   name: Home Renovation
   parent_key: housing_and_utilities
-  description: null
+  description: Material/labor for significant upgrades or remodels.
   rules: null
 - key: housing_and_utilities.home_services_and_maintenance
   name: Home Services & Maintenance
   parent_key: housing_and_utilities
-  description: null
+  description: 'Cleaning, repairs, lawn, pest, handyman. Excludes: major remodels
+    → Home Renovation.'
   rules: null
 - key: housing_and_utilities.internet
   name: Internet
   parent_key: housing_and_utilities
-  description: null
+  description: 'Home broadband. Excludes: mobile cellular plans → Mobile Phone.'
   rules: null
 - key: housing_and_utilities.mobile_phone
   name: Mobile Phone
   parent_key: housing_and_utilities
-  description: null
+  description: 'Wireless service plans and add-ons. Excludes: device financing → Debt
+    & Loans → Personal/BNPL Loan Payment; device purchased outright → Shopping & Personal
+    Care → Electronics & Gadgets.'
   rules: null
 - key: housing_and_utilities.mortgage_payment
   name: Mortgage Payment
   parent_key: housing_and_utilities
-  description: null
+  description: 'Monthly mortgage payment (principal+interest+escrow together). Excludes:
+    property tax paid separately → Taxes & Government → Property Tax.'
   rules: null
 - key: housing_and_utilities.rent
   name: Rent
   parent_key: housing_and_utilities
-  description: null
+  description: Payments to landlord or rental platform.
   rules: null
 - key: housing_and_utilities.trash_and_recycling
   name: Trash & Recycling
   parent_key: housing_and_utilities
-  description: null
+  description: Waste and recycling services.
   rules: null
 - key: housing_and_utilities.water_and_sewer
   name: Water & Sewer
   parent_key: housing_and_utilities
-  description: null
+  description: Municipal or private water/sewer charges.
   rules: null
 - key: food_and_dining.bars_and_alcohol
   name: Bars & Alcohol
   parent_key: food_and_dining
-  description: null
+  description: Bars, pubs, liquor stores, wine shops.
   rules: null
 - key: food_and_dining.coffee_shops
   name: Coffee Shops
   parent_key: food_and_dining
-  description: null
+  description: Cafes and coffee chains.
   rules: null
 - key: food_and_dining.delivery_and_takeout
   name: Delivery & Takeout
   parent_key: food_and_dining
-  description: null
+  description: Food platforms and restaurant delivery/takeout orders (DoorDash, Uber
+    Eats).
   rules: null
 - key: food_and_dining.groceries
   name: Groceries
   parent_key: food_and_dining
-  description: null
+  description: 'Supermarkets, warehouse clubs, grocery delivery as groceries. Excludes:
+    restaurant meals → Restaurants; liquor-only → Bars & Alcohol.'
   rules: null
 - key: food_and_dining.meal_kits
   name: Meal Kits
   parent_key: food_and_dining
-  description: null
+  description: Subscription or recurring meal-prep kits (HelloFresh, Blue Apron).
   rules: null
 - key: food_and_dining.restaurants
   name: Restaurants
   parent_key: food_and_dining
-  description: null
+  description: 'Sit-down or counter-service meals consumed as meals. Excludes: pure
+    bars → Bars & Alcohol; delivery platforms → Delivery & Takeout.'
   rules: null
 - key: food_and_dining.treats
   name: Treats
   parent_key: food_and_dining
-  description: null
+  description: 'Dessert/snack shops that are not full meals (ice cream, bakeries,
+    smoothies). Excludes: coffee-focused → Coffee Shops.'
   rules: null
 - key: transportation_and_auto.auto_service_and_parts
   name: Auto Service & Parts
   parent_key: transportation_and_auto
-  description: null
+  description: Vehicle maintenance and parts (oil change, tires, brakes).
   rules: null
 - key: transportation_and_auto.car_wash_and_detailing
   name: Car Wash & Detailing
   parent_key: transportation_and_auto
-  description: null
+  description: Standalone wash/detail services.
   rules: null
 - key: transportation_and_auto.ev_charging
   name: EV Charging
   parent_key: transportation_and_auto
-  description: null
+  description: 'Pay-per-use EV charging networks (Electrify America, ChargePoint,
+    Supercharger). Excludes: home EV charging on the home electric bill → Housing
+    & Utilities → Electricity.'
   rules: null
 - key: transportation_and_auto.fuel
   name: Fuel
   parent_key: transportation_and_auto
-  description: null
+  description: 'Gasoline/diesel for vehicles. Excludes: EV public charging → EV Charging.'
   rules: null
 - key: transportation_and_auto.parking_and_tolls
   name: Parking & Tolls
   parent_key: transportation_and_auto
-  description: null
+  description: 'Garages, meters, tolls. Excludes: tickets/fines → Taxes & Government
+    → Fines & Tickets.'
   rules: null
 - key: transportation_and_auto.public_transit
   name: Public Transit
   parent_key: transportation_and_auto
-  description: null
+  description: Mass transit fare and passes (subway, bus, commuter rail, ferries).
   rules: null
 - key: transportation_and_auto.rental_car
   name: Rental Car
   parent_key: transportation_and_auto
-  description: null
+  description: 'Car rentals for local/non-trip use. Excludes: car rentals while traveling
+    → Travel → Local Transport.'
   rules: null
 - key: transportation_and_auto.rides_and_taxis
   name: Rides & Taxis
   parent_key: transportation_and_auto
-  description: null
+  description: Ride-hailing and taxis (Uber, Lyft).
   rules: null
 - key: health_and_wellness.dental
   name: Dental
   parent_key: health_and_wellness
-  description: null
+  description: Cleanings, fillings, orthodontics, periodontics.
   rules: null
 - key: health_and_wellness.doctor_and_hospital
   name: Doctor & Hospital
   parent_key: health_and_wellness
-  description: null
+  description: 'Office visits, urgent care, inpatient/outpatient services. Excludes:
+    insurance premiums → Insurance → Health Insurance.'
   rules: null
 - key: health_and_wellness.fitness_and_gym
   name: Fitness & Gym
   parent_key: health_and_wellness
-  description: null
+  description: Gyms, studios, fitness classes/apps.
   rules: null
 - key: health_and_wellness.medical
   name: Medical
   parent_key: health_and_wellness
-  description: null
+  description: General medical expenses not covered by other medical sub-categories
+    (lab fees, durable medical equipment).
   rules: null
 - key: health_and_wellness.pharmacy_and_prescriptions
   name: Pharmacy & Prescriptions
   parent_key: health_and_wellness
-  description: null
+  description: 'Prescription copays and pharmacy purchases. Excludes: general toiletries
+    → Shopping & Personal Care → Beauty & Personal Care.'
   rules: null
 - key: health_and_wellness.supplements
   name: Supplements
   parent_key: health_and_wellness
-  description: null
+  description: Vitamins and dietary supplements.
   rules: null
 - key: health_and_wellness.therapy
   name: Therapy
   parent_key: health_and_wellness
-  description: null
+  description: 'Counseling, psychiatry, and mental-health or coaching services. Examples:
+    psychologist sessions; teletherapy; couples counseling; life coach.'
   rules: null
 - key: health_and_wellness.vision
   name: Vision
   parent_key: health_and_wellness
-  description: null
+  description: Exams, glasses/contacts, LASIK.
   rules: null
 - key: health_and_wellness.wellness_products
   name: Wellness Products
   parent_key: health_and_wellness
-  description: null
+  description: 'OTC health goods and devices (thermometers, first-aid, OTC meds).
+    Excludes: vitamins/supplements → Supplements.'
   rules: null
 - key: insurance.auto_insurance
   name: Auto Insurance
   parent_key: insurance
-  description: null
+  description: Vehicle insurance premiums.
   rules: null
 - key: insurance.flood_insurance
   name: Flood Insurance
   parent_key: insurance
-  description: null
+  description: Flood policy premiums (NFIP or private).
   rules: null
 - key: insurance.health_insurance
   name: Health Insurance
   parent_key: insurance
-  description: null
+  description: Medical/dental/vision insurance premiums paid out of pocket.
   rules: null
 - key: insurance.home_renters_insurance
   name: Home/Renters Insurance
   parent_key: insurance
-  description: null
+  description: Homeowners or renters policy premiums.
   rules: null
 - key: insurance.life_and_disability_insurance
   name: Life & Disability Insurance
   parent_key: insurance
-  description: null
+  description: Term/whole life, long/short-term disability.
   rules: null
 - key: insurance.pet_insurance
   name: Pet Insurance
   parent_key: insurance
-  description: null
+  description: Pet medical policy premiums.
   rules: null
 - key: insurance.travel_insurance
   name: Travel Insurance
   parent_key: insurance
-  description: null
+  description: Trip insurance premiums.
   rules: null
 - key: debt_and_loans.auto_loan_payment
   name: Auto Loan Payment
   parent_key: debt_and_loans
-  description: null
+  description: 'Car loan payments. Excludes: auto insurance → Insurance → Auto Insurance.'
   rules: null
 - key: debt_and_loans.credit_card_interest_and_fees
   name: Credit Card Interest & Fees
   parent_key: debt_and_loans
-  description: null
+  description: 'Interest, annual fees, late fees on credit cards. Excludes: card payment
+    itself → Banking Movements → Credit Card Payment.'
   rules: null
 - key: debt_and_loans.loan_fees_and_adjustments
   name: Loan Fees & Adjustments
   parent_key: debt_and_loans
-  description: null
+  description: Origination fees, deferment/forbearance charges, other loan adjustments.
   rules: null
 - key: debt_and_loans.personal_bnpl_loan_payment
   name: Personal/BNPL Loan Payment
   parent_key: debt_and_loans
-  description: null
+  description: Personal loans and buy-now-pay-later installments (Affirm, Klarna,
+    Afterpay).
   rules: null
 - key: debt_and_loans.student_loan_payment
   name: Student Loan Payment
   parent_key: debt_and_loans
-  description: null
+  description: Payments to student loan servicers.
   rules: null
 - key: savings_and_investments.529_other_long_term_savings
   name: 529/Other Long-Term Savings
   parent_key: savings_and_investments
-  description: null
+  description: Education or other earmarked long-horizon accounts.
   rules: null
 - key: savings_and_investments.investment_buy
   name: Investment Buy
   parent_key: savings_and_investments
-  description: null
+  description: Purchases of stocks/ETFs/funds/crypto.
   rules: null
 - key: savings_and_investments.investment_fees_and_commissions
   name: Investment Fees & Commissions
   parent_key: savings_and_investments
-  description: null
+  description: Advisory, trading, platform fees.
   rules: null
 - key: savings_and_investments.investment_sell_withdrawal
   name: Investment Sell/Withdrawal
   parent_key: savings_and_investments
-  description: null
+  description: Proceeds from selling investments or withdrawing funds.
   rules: null
 - key: savings_and_investments.retirement_contribution
   name: Retirement Contribution
   parent_key: savings_and_investments
-  description: null
+  description: IRA/401(k)/Roth contributions visible in the feed.
   rules: null
 - key: savings_and_investments.savings_contribution
   name: Savings Contribution
   parent_key: savings_and_investments
-  description: null
+  description: 'Transfers into savings/high-yield accounts. Excludes: lateral checking-to-checking
+    moves → Banking Movements → Transfer: Own Accounts.'
   rules: null
 - key: shopping_and_personal_care.beauty_and_personal_care
   name: Beauty & Personal Care
   parent_key: shopping_and_personal_care
-  description: null
+  description: Cosmetics, hair, spa, toiletries.
   rules: null
 - key: shopping_and_personal_care.clothing_and_accessories
   name: Clothing & Accessories
   parent_key: shopping_and_personal_care
-  description: null
+  description: 'Apparel, shoes, jewelry (adults). Excludes: children''s clothing →
+    Child & Baby Expenses → Clothing.'
   rules: null
 - key: shopping_and_personal_care.dry_cleaning
   name: Dry Cleaning
   parent_key: shopping_and_personal_care
-  description: null
+  description: Dry cleaning and garment care.
   rules: null
 - key: shopping_and_personal_care.electronics_and_gadgets
   name: Electronics & Gadgets
   parent_key: shopping_and_personal_care
-  description: null
+  description: Consumer electronics and accessories.
   rules: null
 - key: shopping_and_personal_care.furniture_and_appliances
   name: Furniture & Appliances
   parent_key: shopping_and_personal_care
-  description: null
+  description: 'Home furnishings and appliances (small or major). Excludes: built-in
+    remodel fixtures → Housing & Utilities → Home Renovation; nursery furniture →
+    Child & Baby Expenses → Nursery & Furniture.'
   rules: null
 - key: shopping_and_personal_care.household_supplies
   name: Household Supplies
   parent_key: shopping_and_personal_care
-  description: null
+  description: 'Consumables and cleaning supplies. Excludes: decor → Housing & Utilities
+    → Home Decor.'
   rules: null
 - key: shopping_and_personal_care.postage_and_shipping
   name: Postage & Shipping
   parent_key: shopping_and_personal_care
-  description: null
+  description: Retail postage and shipping services.
   rules: null
 - key: entertainment_and_subscriptions.books_apps_and_media
   name: Books, Apps & Media
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: Ebooks, print books, app stores, media purchases.
   rules: null
 - key: entertainment_and_subscriptions.cloud_and_software_subscriptions
   name: Cloud & Software Subscriptions
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: Storage, productivity, utility software subs (iCloud, Google One, Adobe).
   rules: null
 - key: entertainment_and_subscriptions.gaming
   name: Gaming
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: Games, DLC, in-app purchases, platform subscriptions.
   rules: null
 - key: entertainment_and_subscriptions.hobbies_and_leisure
   name: Hobbies & Leisure
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: Non-travel leisure activities and hobby supplies.
   rules: null
 - key: entertainment_and_subscriptions.music_and_audio
   name: Music & Audio
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: Music, audiobooks, podcasts platforms (Spotify, Apple Music, Audible).
   rules: null
 - key: entertainment_and_subscriptions.news_and_publications
   name: News & Publications
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: Newspapers, magazines, professional journals.
   rules: null
 - key: entertainment_and_subscriptions.streaming_video
   name: Streaming Video
   parent_key: entertainment_and_subscriptions
-  description: null
+  description: TV/video streaming services (Netflix, Hulu, Disney+).
   rules: null
 - key: travel.activities_and_tours
   name: Activities & Tours
   parent_key: travel
-  description: null
+  description: Attractions, excursions, tickets on a trip.
   rules: null
 - key: travel.baggage_other_travel_fees
   name: Baggage/Other Travel Fees
   parent_key: travel
-  description: null
+  description: Baggage, change, resort/amenity, visa service fees.
   rules: null
 - key: travel.flights
   name: Flights
   parent_key: travel
-  description: null
+  description: Airline tickets and seat/change fees.
   rules: null
 - key: travel.hotels
   name: Hotels
   parent_key: travel
-  description: null
+  description: Hotel stays specifically (optional; prefer Lodging to avoid split use).
   rules: null
 - key: travel.local_transport
   name: Local Transport
   parent_key: travel
-  description: null
+  description: 'Transportation at destination, including car rentals during a trip.
+    Excludes: routine/local rentals → Transportation & Auto → Rental Car.'
   rules: null
 - key: travel.lodging
   name: Lodging
   parent_key: travel
-  description: null
+  description: All accommodations while traveling (hotels, rentals, hostels, resort
+    fees).
   rules: null
 - key: travel.travel_meals_and_dining
   name: Travel Meals & Dining
   parent_key: travel
-  description: null
+  description: Meals and drinks while traveling (if using the Travel rollup).
   rules: null
 - key: gifts_and_donations.charitable_donations
   name: Charitable Donations
   parent_key: gifts_and_donations
-  description: null
+  description: Donations to registered charities (501(c)(3), foundations).
   rules: null
 - key: gifts_and_donations.crowdfunding_support
   name: Crowdfunding Support
   parent_key: gifts_and_donations
-  description: null
+  description: 'Support for personal causes or non-product campaigns (GoFundMe). Excludes:
+    crowdfunding to buy a product → Shopping & Personal Care or Entertainment depending
+    on item.'
   rules: null
 - key: gifts_and_donations.gifts_given
   name: Gifts Given
   parent_key: gifts_and_donations
-  description: null
+  description: 'Presents and cash gifts to individuals. Excludes: charitable donations
+    → Charitable Donations.'
   rules: null
 - key: gifts_and_donations.religious_giving
   name: Religious Giving
   parent_key: gifts_and_donations
-  description: null
+  description: Tithes and offerings to religious organizations.
   rules: null
 - key: taxes_and_government.customs_and_duties
   name: Customs & Duties
   parent_key: taxes_and_government
-  description: null
+  description: Import duties and customs fees.
   rules: null
 - key: taxes_and_government.dmv_and_registration
   name: DMV & Registration
   parent_key: taxes_and_government
-  description: null
+  description: 'Vehicle registration, licensing, and related fees. Excludes: parking
+    meters/garages → Transportation & Auto → Parking & Tolls.'
   rules: null
 - key: taxes_and_government.federal_income_tax
   name: Federal Income Tax
   parent_key: taxes_and_government
-  description: null
+  description: Payments and estimates to the IRS.
   rules: null
 - key: taxes_and_government.fines_and_tickets
   name: Fines & Tickets
   parent_key: taxes_and_government
-  description: null
+  description: Government-issued penalties (parking/speeding tickets, toll violations).
   rules: null
 - key: taxes_and_government.property_tax
   name: Property Tax
   parent_key: taxes_and_government
-  description: null
+  description: Real estate property taxes paid directly.
   rules: null
 - key: taxes_and_government.sales_use_tax_standalone
   name: Sales/Use Tax (Standalone)
   parent_key: taxes_and_government
-  description: null
+  description: 'Only when sales/use tax posts as its own transaction. Excludes: embedded
+    sales tax → leave with the purchase category.'
   rules: null
 - key: taxes_and_government.state_local_income_tax
   name: State/Local Income Tax
   parent_key: taxes_and_government
-  description: null
+  description: Payments and estimates to state/local authorities.
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.bank_fee_service_charge
   name: Bank Fee/Service Charge
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: 'Bank-level fees and service charges (maintenance, overdraft, wire,
+    out-of-network ATM). Excludes: investment advisory/trading fees → Savings & Investments
+    → Investment Fees & Commissions.'
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.cash_deposit
   name: Cash Deposit
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: Depositing physical cash.
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.cash_withdrawal_atm
   name: Cash Withdrawal (ATM)
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: 'ATM cash withdrawals. Excludes: ATM fee → Bank Fee/Service Charge.'
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.check_payment_deposit
   name: Check Payment/Deposit
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: Paper or eCheck payments and deposits.
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.credit_card_payment
   name: Credit Card Payment
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: 'Payments from bank to card accounts. Excludes: card interest/fees
+    → Debt & Loans → Credit Card Interest & Fees.'
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.refund_chargeback
   name: Refund/Chargeback
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: Merchant refunds, reversals of purchases.
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.reversal_correction
   name: Reversal/Correction
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: Bank error corrections and duplicate reversals.
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.transfer_external_p2p
   name: 'Transfer: External (P2P)'
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: Person-to-person transfers when purpose is unclear.
   rules: null
 - key: banking_movements_transfers_refunds_and_fees.transfer_own_accounts
   name: 'Transfer: Own Accounts'
   parent_key: banking_movements_transfers_refunds_and_fees
-  description: null
+  description: 'Moves between your accounts (same owner). Excludes: credit card payments
+    → Credit Card Payment; investment contributions → Savings & Investments.'
   rules: null
 - key: pets.adoption_licensing_and_microchipping
   name: Adoption, Licensing & Microchipping
   parent_key: pets
-  description: null
+  description: Initial pet acquisition and official fees.
   rules: null
 - key: pets.boarding_and_daycare
   name: Boarding & Daycare
   parent_key: pets
-  description: null
+  description: Overnight boarding, daycare facilities.
   rules: null
 - key: pets.food_and_treats
   name: Food & Treats
   parent_key: pets
-  description: null
+  description: Pet food and treats.
   rules: null
 - key: pets.grooming
   name: Grooming
   parent_key: pets
-  description: null
+  description: Grooming services and supplies.
   rules: null
 - key: pets.litter_and_waste
   name: Litter & Waste
   parent_key: pets
-  description: null
+  description: Litter, waste bags, pads, disposal systems.
   rules: null
 - key: pets.medications_and_preventives
   name: Medications & Preventives
   parent_key: pets
-  description: null
+  description: Vet-prescribed meds and preventives (flea/tick, heartworm).
   rules: null
 - key: pets.supplies_and_accessories
   name: Supplies & Accessories
   parent_key: pets
-  description: null
+  description: Collars, leashes, bowls, beds, toys, crates.
   rules: null
 - key: pets.training_and_behavior
   name: Training & Behavior
   parent_key: pets
-  description: null
+  description: Classes and behaviorists.
   rules: null
 - key: pets.veterinary_care
   name: Veterinary Care
   parent_key: pets
-  description: null
+  description: Vet exams, procedures, tests.
   rules: null
 - key: pets.walking_and_sitting
   name: Walking & Sitting
   parent_key: pets
-  description: null
+  description: Pet sitters and dog walkers (Rover, neighborhood sitter).
   rules: null
 - key: child_and_baby_expenses.baby_gear
   name: Baby Gear
@@ -693,7 +750,8 @@
 - key: child_and_baby_expenses.clothing
   name: Clothing
   parent_key: child_and_baby_expenses
-  description: Baby/kid clothing.
+  description: 'Baby/kid clothing. Excludes: adult clothing → Shopping & Personal
+    Care → Clothing & Accessories.'
   rules: null
 - key: child_and_baby_expenses.daycare_and_preschool
   name: Daycare & Preschool
@@ -708,7 +766,8 @@
 - key: child_and_baby_expenses.feeding
   name: Feeding
   parent_key: child_and_baby_expenses
-  description: Formula, bottles, feeding supplies, pumping accessories.
+  description: 'Formula, bottles, feeding supplies, pumping accessories. Excludes:
+    regular groceries → Food & Dining → Groceries.'
   rules: null
 - key: child_and_baby_expenses.nanny_and_babysitting
   name: Nanny & Babysitting

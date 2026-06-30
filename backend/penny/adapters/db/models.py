@@ -335,7 +335,12 @@ class TransactionCategoryEvent(Base):
     to_category_key: Mapped[str] = mapped_column(String, nullable=False)
     method: Mapped[str] = mapped_column(String, nullable=False)
     model: Mapped[str | None] = mapped_column(String, nullable=True)
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why a category CHANGED — set for manual recats (NL reason from the
+    # conversation) and taxonomy migrations.
+    recategorization_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why the agent originally CHOSE this category — the LLM's rationale on an
+    # llm-method categorization decision.
+    categorization_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -749,3 +754,88 @@ class PendingReceiptMatch(Base):
     candidate_transaction: Mapped[DerivedTransaction] = relationship(
         "DerivedTransaction", foreign_keys=[candidate_txn_id]
     )
+
+
+class EvalRun(Base):
+    """One categorizer-eval run (per 12-hour sync).
+
+    Eval infrastructure — a separate concern from the product tables, but resident
+    in the same durable DB so the trend survives the disposable Neon branch. The
+    verdict is NOT stored here; it is derived later from the corrections in
+    ``transaction_category_events`` (a manual recat after ``run_at`` = the agent was
+    wrong). ``cohort_max_created_at`` is the high-water mark the next run resumes
+    from. The version-stamp columns record what defined the agent's decision space.
+    """
+
+    __tablename__ = "eval_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('completed', 'skipped_empty', 'skipped_incomplete_baseline')",
+            name="ck_eval_runs_status",
+        ),
+    )
+
+    eval_run_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    run_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    cohort_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    cohort_max_created_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP, nullable=True
+    )
+    branch_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    r2_fixture_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Version stamp — what shaped the agent's decision space this run.
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    harness_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    taxonomy_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    rules_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    items: Mapped[list[EvalItem]] = relationship(
+        "EvalItem", back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class EvalItem(Base):
+    """One cohort transaction's agent decision within an eval run.
+
+    The legacy baseline (``legacy_key``) and the agent's pick (``agent_key``) are
+    captured at run time; right/wrong is derived later from your corrections, so no
+    verdict column lives here. ``agent_confidence`` is captured in-process (it is
+    never persisted on the transaction itself).
+    """
+
+    __tablename__ = "eval_items"
+    __table_args__ = (
+        CheckConstraint(
+            "method_at_eval_time IN ('fast_path', 'agent')",
+            name="ck_eval_items_method_at_eval_time",
+        ),
+        Index("idx_eval_items_transaction_id", "transaction_id"),
+    )
+
+    eval_run_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("eval_runs.eval_run_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    transaction_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    merchant_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agent_confidence: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    method_at_eval_time: Mapped[str] = mapped_column(String, nullable=False)
+    trace_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    run: Mapped[EvalRun] = relationship("EvalRun", back_populates="items")

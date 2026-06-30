@@ -244,6 +244,37 @@ def sync(
     )
 
 
+@app.command("eval-categorizer")
+def eval_categorizer(
+    limit: int = typer.Option(
+        None, "--limit", help="Cap the cohort to the most recent N (for testing)."
+    ),
+    email: list[str] = typer.Option(
+        None, "--email", help="Recipient(s) for disagreement reports (repeatable)."
+    ),
+) -> None:
+    """Run one categorizer eval (every 12h schedule).
+
+    Branches off the Neon production branch, replays the new agent on the branch,
+    records durable eval rows to prod, dumps the branch to a SQLite fixture in R2,
+    deletes the branch, and emails the report only when legacy and agent disagree.
+    Right/wrong is read later from your corrections — there is no staging step.
+    """
+    from penny.eval.job import run_eval
+    import penny.observability as observability
+
+    try:
+        result = asyncio.run(run_eval(limit=limit, email_to=email or None))
+    except Exception as exc:
+        typer.echo(f"Eval failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    finally:
+        # Force-flush spans so per-turn traces export before this short-lived
+        # process exits (no-op when Langfuse is disabled).
+        observability.flush()
+    typer.echo(f"Eval {result.get('status')}: {result}")
+
+
 def main() -> None:
     """Console-script entry point (``[project.scripts] penny``)."""
     app()

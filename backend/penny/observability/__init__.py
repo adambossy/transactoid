@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from .otel import (
     categorizer_span,
+    current_trace_id,
+    current_trace_url,
     flush,
     is_enabled,
     llm_generation,
@@ -19,6 +21,8 @@ from .otel import (
 
 __all__ = [
     "categorizer_span",
+    "current_trace_id",
+    "current_trace_url",
     "flush",
     "is_enabled",
     "llm_generation",

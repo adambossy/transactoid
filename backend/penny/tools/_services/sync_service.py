@@ -31,6 +31,16 @@ if TYPE_CHECKING:
     from penny.adapters.db.models import DerivedTransaction, PlaidItem, PlaidTransaction
 
 
+# Max concurrent per-descriptor categorizations during the end-of-sync sweep.
+# Each is an agent run (multi-turn LLM), so this is smaller than the old batch
+# fan-out.
+_CATEGORIZE_CONCURRENCY = 6
+# Recorded on sibling rows that reuse a deduped agent decision.
+_CATEGORIZER_MODEL = "gemini-3.5-flash"
+# Arbitrary fixed key for the Postgres advisory lock guarding the whole sync run.
+_SYNC_LOCK_KEY = 0x50454E4E59  # "PENNY"
+
+
 def _apply_sign_convention(
     plaid_txn: PlaidTransaction, *, sign_convention: str
 ) -> PlaidTransaction:
@@ -306,11 +316,11 @@ class SyncTool:
         Items are synced in parallel for maximum performance. Each item has its
         own independent cursor, so there are no cross-item dependencies.
 
-        For each Plaid item:
-        - Loads cursor from database for incremental sync
-        - Fetches transactions from Plaid with pagination
-        - Persists and categorizes transactions
-        - Saves cursor after successful sync
+        Items fetch/persist/mutate in parallel; categorization then runs once as a
+        single end-of-sync sweep over all uncategorized rows. The whole run is
+        guarded by a best-effort advisory lock so a second run (next cron tick, a
+        manual sync, or a chat-driven recategorize) cannot start while agents are
+        mid-flight — if the lock is already held this call is a no-op.
 
         Args:
             count: Maximum number of transactions per page (default: 250, max: 500)
@@ -322,45 +332,55 @@ class SyncTool:
             PlaidClientError: If TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION occurs
                 and cannot be recovered after retries
         """
-        plaid_items = self._db.list_plaid_items()
-        if not plaid_items:
-            return SyncSummary(
-                total_added=0, total_modified=0, total_removed=0, items_synced=0
-            )
+        with self._db.try_advisory_lock(_SYNC_LOCK_KEY) as acquired:
+            if not acquired:
+                logger.info("sync skipped: another sync run holds the lock")
+                return SyncSummary(
+                    total_added=0, total_modified=0, total_removed=0, items_synced=0
+                )
 
-        # Sync all items in parallel (each has independent cursor)
-        tasks = [self._sync_item_with_cursor(item, count) for item in plaid_items]
-        all_results_with_investments = await asyncio.gather(*tasks)
+            plaid_items = self._db.list_plaid_items()
+            if not plaid_items:
+                return SyncSummary(
+                    total_added=0, total_modified=0, total_removed=0, items_synced=0
+                )
 
-        # Flatten results and aggregate investments
-        all_results: list[SyncResult] = []
-        total_inv_added = 0
-        total_inv_excluded = 0
-        total_inv_deduped = 0
-        consent_errors: list[str] = []
+            # Fetch/persist/mutate all items in parallel (independent cursors).
+            tasks = [self._sync_item_with_cursor(item, count) for item in plaid_items]
+            all_results_with_investments = await asyncio.gather(*tasks)
 
-        for (
-            results,
-            inv_added,
-            inv_excluded,
-            inv_deduped,
-            consent_error,
-        ) in all_results_with_investments:
-            all_results.extend(results)
-            total_inv_added += inv_added
-            total_inv_excluded += inv_excluded
-            total_inv_deduped += inv_deduped
-            if consent_error:
-                consent_errors.append(consent_error)
+            # Flatten results and aggregate investments
+            all_results: list[SyncResult] = []
+            total_inv_added = 0
+            total_inv_excluded = 0
+            total_inv_deduped = 0
+            consent_errors: list[str] = []
 
-        summary = self._aggregate_results(all_results, len(plaid_items))
-        summary.investment_added = total_inv_added
-        summary.investment_skipped_excluded = total_inv_excluded
-        summary.investment_deduped = total_inv_deduped
-        if consent_errors:
-            summary.consent_required_items = consent_errors
+            for (
+                results,
+                inv_added,
+                inv_excluded,
+                inv_deduped,
+                consent_error,
+            ) in all_results_with_investments:
+                all_results.extend(results)
+                total_inv_added += inv_added
+                total_inv_excluded += inv_excluded
+                total_inv_deduped += inv_deduped
+                if consent_error:
+                    consent_errors.append(consent_error)
 
-        return summary
+            # End-of-sync categorization sweep (per-transaction agent), under lock.
+            await self._categorize_uncategorized()
+
+            summary = self._aggregate_results(all_results, len(plaid_items))
+            summary.investment_added = total_inv_added
+            summary.investment_skipped_excluded = total_inv_excluded
+            summary.investment_deduped = total_inv_deduped
+            if consent_errors:
+                summary.consent_required_items = consent_errors
+
+            return summary
 
     async def _sync_item_with_cursor(
         self,
@@ -720,105 +740,79 @@ class SyncTool:
         self,
         derived_ids: list[int],
     ) -> None:
-        """
-        Categorize derived transactions using LLM.
+        """Categorize derived transactions via the per-transaction agent.
 
-        Phase 4 of 5-phase sync workflow. Only categorizes if category_id
-        is NULL or is_verified is FALSE.
+        Only rows with ``category_id IS NULL`` are processed (brand-new rows plus
+        any stranded by a prior failed run). Identical merchant descriptors are
+        deduped within the run: the first is decided by ``categorize_one`` (fast
+        path or agent), and the rest reuse that decision via a bulk update — so a
+        merchant that appears N times costs at most one agent run.
 
         Args:
-            derived_ids: List of derived transaction IDs to categorize
+            derived_ids: Candidate derived transaction IDs to categorize.
         """
+        from collections import defaultdict
+
+        from penny.services import get_taxonomy
+        from penny.taxonomy.loader import get_category_id
+        from penny.tools._services.categorizer_agent import categorize_one
+
         derived_txns = self._db.get_derived_transactions_by_ids(derived_ids)
-
-        # Filter to uncategorized or unverified
-        to_categorize = [
-            txn
-            for txn in derived_txns
-            if txn.category_id is None or not txn.is_verified
-        ]
-
+        to_categorize = [txn for txn in derived_txns if txn.category_id is None]
         if not to_categorize:
             return
 
-        # All are "added" from perspective
         self._logger.categorization_start(len(to_categorize), len(to_categorize), 0)
 
-        # Convert DerivedTransaction to dict format for categorizer
-        txn_dicts = [
-            {
-                "transaction_id": txn.external_id,
-                "date": txn.posted_at.isoformat(),
-                "amount": txn.amount_cents / 100.0,
-                "merchant_name": txn.merchant_descriptor,
-                "name": txn.merchant_descriptor,
-                "account_id": "",
-                "iso_currency_code": "USD",
-            }
-            for txn in to_categorize
-        ]
+        by_descriptor: dict[str, list[Any]] = defaultdict(list)
+        for txn in to_categorize:
+            by_descriptor[txn.merchant_descriptor or ""].append(txn)
 
-        # Lazily initialize categorizer on first use
-        if self._categorizer is None:
-            self._categorizer = self._categorizer_factory()
+        semaphore = asyncio.Semaphore(_CATEGORIZE_CONCURRENCY)
 
-        # Categorize in batches
-        categorized = await self._categorizer.categorize(txn_dicts, batch_size=10)
+        async def _handle(txns: list[Any]) -> None:
+            async with semaphore:
+                first = txns[0]
+                decision = await categorize_one(
+                    {
+                        "transaction_id": first.transaction_id,
+                        "merchant_descriptor": first.merchant_descriptor,
+                        "amount": first.amount_cents / 100.0,
+                        "date": first.posted_at.isoformat()
+                        if first.posted_at
+                        else None,
+                    }
+                )
+                category_key = decision.get("category_key")
+                siblings = [txn.transaction_id for txn in txns[1:]]
+                if not category_key or not siblings:
+                    return
+                category_id = get_category_id(self._db, get_taxonomy(), category_key)
+                if category_id is None:
+                    return
+                self._db.bulk_update_derived_categories(
+                    dict.fromkeys(siblings, category_id),
+                    method="llm",
+                    model=_CATEGORIZER_MODEL,
+                    reason=(
+                        decision.get("reasoning")
+                        or "Reused the agent decision for an identical merchant "
+                        "descriptor in the same sync run."
+                    ),
+                )
 
-        # Build mapping from external_id to transaction_id
-        external_to_id = {txn.external_id: txn.transaction_id for txn in to_categorize}
+        await asyncio.gather(*[_handle(txns) for txns in by_descriptor.values()])
 
-        # Collect unique category keys and resolve them in one bulk query
-        unique_keys: set[str] = set()
-        for cat_txn in categorized:
-            key = (
-                cat_txn.revised_category_key
-                if cat_txn.revised_category_key
-                else cat_txn.category_key
-            )
-            if key:
-                unique_keys.add(key)
+    async def _categorize_uncategorized(self) -> None:
+        """End-of-sync sweep: categorize every uncategorized derived row.
 
-        category_id_map = self._db.get_category_ids_by_keys(list(unique_keys))
-
-        # Collect all category updates for bulk operation
-        category_updates: dict[int, int] = {}
-        summary_updates: dict[int, str | None] = {}
-
-        for cat_txn in categorized:
-            external_id = cat_txn.txn.get("transaction_id", "")
-            transaction_id = external_to_id.get(external_id)
-            if transaction_id is None:
-                continue
-
-            # Determine category key (prefer revised if present)
-            category_key = (
-                cat_txn.revised_category_key
-                if cat_txn.revised_category_key
-                else cat_txn.category_key
-            )
-            category_id = category_id_map.get(category_key) if category_key else None
-
-            if category_id:
-                category_updates[transaction_id] = category_id
-
-            summary: str | None = None
-            if cat_txn.used_web_search:
-                summary = cat_txn.merchant_summary
-                if summary is not None and not summary.strip():
-                    summary = None
-            summary_updates[transaction_id] = summary
-
-        # Bulk update all categories in single DB transaction
-        if category_updates:
-            self._db.bulk_update_derived_categories(
-                category_updates,
-                method="llm",
-                model=self._categorizer.model_name,
-                reason="sync_categorize",
-            )
-        if summary_updates:
-            self._db.bulk_update_derived_web_search_summaries(summary_updates)
+        Cursor-independent (queries ``category_id IS NULL`` directly), so it also
+        recovers rows stranded by an earlier failed run. Runs under the sync run
+        lock held by :meth:`sync`.
+        """
+        ids = self._db.get_uncategorized_derived_ids()
+        if ids:
+            await self._categorize_derived(ids)
 
     def _build_sync_result_from_accumulated(
         self,
@@ -1103,9 +1097,10 @@ class SyncTool:
                     removed_ids, source="PLAID"
                 )
 
-        # Batch categorization (after pipeline completes for LLM efficiency)
-        if all_derived_ids:
-            await self._categorize_derived(all_derived_ids)
+        # Categorization is no longer done per-item here. It runs once as an
+        # end-of-sync sweep in sync() (over all uncategorized rows), so it is
+        # deduped across items and guarded by the run lock.
+        _ = all_derived_ids
 
         return [self._build_sync_result_from_accumulated(accumulated)]
 

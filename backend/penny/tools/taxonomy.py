@@ -27,7 +27,9 @@ async def migrate_taxonomy(
     """Perform a taxonomy migration: add, remove, rename, merge, or split.
 
     Required arguments per operation:
-      - **add**: new_key, name; optional parent_key, description
+      - **add**: new_key, name, description (the category definition, including
+        examples and exclusions — it becomes the source-of-truth
+        `categories.description`); optional parent_key
       - **remove**: source_key; optional fallback_key (required if the
         category has transactions)
       - **rename**: source_key, new_key

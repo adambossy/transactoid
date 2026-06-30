@@ -127,7 +127,7 @@ def test_recategorize_transaction_updates_row_and_writes_event(
     assert events[0].from_category_key == "food.groceries"
     assert events[0].to_category_key == "food.restaurants"
     assert events[0].method == "manual"
-    assert events[0].reason == "user fix"
+    assert events[0].recategorization_reason == "user fix"
 
 
 def test_recategorize_merchant_skips_verified_manual_fix(
