@@ -1,8 +1,8 @@
 # Phase 4 — Signup / Account-Creation UI (Plan Stub)
 
-> **Status: Roadmap — needs brainstorming before a detailed plan.**
+> **Status: Planned** — see the [Phase 4 spec](../specs/2026-07-02-phase-4-signup-ui-design.md) and the [detailed plan](2026-07-02-phase-4-signup-ui.md).
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
-> Spec: [foundation design](../specs/2026-06-27-multi-account-foundation-design.md).
+> Spec: [Phase 4 design](../specs/2026-07-02-phase-4-signup-ui-design.md) · foundation: [phase 1a design](../specs/2026-06-27-multi-account-foundation-design.md).
 > **Prev:** [Phase 2 — Auth / social login](2026-06-27-phase-2-auth-social-login.md) ·
 > **Next:** [Phase 5 — Onboarding](2026-06-27-phase-5-onboarding.md)
 
