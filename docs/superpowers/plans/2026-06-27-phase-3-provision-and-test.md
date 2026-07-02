@@ -1,8 +1,8 @@
 # Phase 3 — Provision the Two Accounts + Test (Plan Stub)
 
-> **Status: Roadmap — needs brainstorming before a detailed plan.**
+> **Status: Planned** — see the [Phase 3 spec](../specs/2026-07-01-phase-3-provision-and-test-design.md) and the [detailed plan](2026-07-01-phase-3-provision-and-test.md).
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
-> Spec: [foundation design](../specs/2026-06-27-multi-account-foundation-design.md).
+> Spec: [Phase 3 design](../specs/2026-07-01-phase-3-provision-and-test-design.md) · foundation: [phase 1a design](../specs/2026-06-27-multi-account-foundation-design.md).
 > **Prev:** [Phase 2 — Auth / social login](2026-06-27-phase-2-auth-social-login.md) ·
 > **Next:** [Phase 6 — Security audit](2026-06-27-phase-6-security-audit.md)
 

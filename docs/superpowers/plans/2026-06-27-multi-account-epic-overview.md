@@ -21,7 +21,7 @@
 | 1a | [Multi-tenant data model (tenancy + RLS + encryption)](2026-06-27-phase-1a-multi-tenant-data-model.md) | — | **Designed**; plan complete |
 | 1b | [Workspace hybrid (R2 + Postgres manifests)](2026-06-27-phase-1b-workspace-hybrid.md) | 1a | Designed (in spec); needs plan |
 | 2 | [Auth / social login](2026-06-27-phase-2-auth-social-login.md) | 1a | **Designed** ([spec](../specs/2026-07-01-phase-2-auth-social-login-design.md)); needs plan |
-| 3 | [Provision + test the two accounts](2026-06-27-phase-3-provision-and-test.md) | 1a, 1b, 2 | Roadmap — needs brainstorming |
+| 3 | [Provision + test the two accounts](2026-06-27-phase-3-provision-and-test.md) | 1a, 1b, 2 | **Planned** ([spec](../specs/2026-07-01-phase-3-provision-and-test-design.md) · [plan](2026-07-01-phase-3-provision-and-test.md)) |
 | 4 | [Signup / account-creation UI](2026-06-27-phase-4-signup-ui.md) | 2 | Roadmap — needs brainstorming |
 | 5 | [Onboarding](2026-06-27-phase-5-onboarding.md) | 2, 4 | Roadmap — needs brainstorming |
 | 6 | [Security audit](2026-06-27-phase-6-security-audit.md) | 1a–5 | Roadmap — needs brainstorming |
