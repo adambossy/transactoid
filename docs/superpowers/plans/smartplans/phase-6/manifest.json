@@ -1,0 +1,11 @@
+{
+  "title": "Phase 6 — Security Audit",
+  "root": {
+    "id": "phase-6",
+    "label": "Phase 6 — Security audit",
+    "href": "index.html",
+    "sections": ["goal", "focus-items", "output"],
+    "crosslinks": [],
+    "children": []
+  }
+}

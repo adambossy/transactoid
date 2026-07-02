@@ -1,0 +1,36 @@
+{
+  "title": "Phase 3 — Provision + Test",
+  "root": {
+    "id": "phase-3",
+    "label": "Phase 3 — Provision + test",
+    "href": "index.html",
+    "sections": ["goal", "decisions", "deliverable"],
+    "crosslinks": ["phase-3-admin", "phase-3-provisioning", "phase-3-acceptance"],
+    "children": [
+      {
+        "id": "phase-3-admin",
+        "label": "Admin CLI",
+        "href": "admin-cli.html",
+        "sections": ["commands", "idempotency", "rls-context"],
+        "crosslinks": ["phase-3-provisioning"],
+        "children": []
+      },
+      {
+        "id": "phase-3-provisioning",
+        "label": "Provisioning runbook",
+        "href": "provisioning.html",
+        "sections": ["rehearse", "steps"],
+        "crosslinks": ["phase-3-admin", "phase-3-acceptance"],
+        "children": []
+      },
+      {
+        "id": "phase-3-acceptance",
+        "label": "Acceptance checklist",
+        "href": "acceptance.html",
+        "sections": ["automated", "real-data", "secrets"],
+        "crosslinks": ["phase-3-provisioning"],
+        "children": []
+      }
+    ]
+  }
+}

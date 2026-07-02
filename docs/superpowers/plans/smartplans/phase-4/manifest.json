@@ -1,0 +1,11 @@
+{
+  "title": "Phase 4 — Signup UI",
+  "root": {
+    "id": "phase-4",
+    "label": "Phase 4 — Signup UI",
+    "href": "index.html",
+    "sections": ["goal", "scope", "security"],
+    "crosslinks": [],
+    "children": []
+  }
+}

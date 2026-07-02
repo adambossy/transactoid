@@ -1,0 +1,45 @@
+{
+  "title": "Multi-Account Epic — Overview",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "the-plans", "tradeoffs"],
+    "crosslinks": ["foundation"],
+    "children": [
+      {
+        "id": "foundation",
+        "label": "Foundation decisions",
+        "href": "foundation/index.html",
+        "sections": ["boundary", "visibility", "what-stays-shared"],
+        "crosslinks": ["data-model", "workspace-storage"],
+        "children": [
+          {
+            "id": "data-model",
+            "label": "Data model & RLS",
+            "href": "foundation/data-model.html",
+            "sections": ["identity", "ownership-chain", "rls-predicate"],
+            "crosslinks": ["workspace-storage"],
+            "children": []
+          },
+          {
+            "id": "workspace-storage",
+            "label": "Workspace storage",
+            "href": "foundation/workspace-storage.html",
+            "sections": ["why-hybrid", "layout", "versioning-cas"],
+            "crosslinks": ["data-model"],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open"],
+        "crosslinks": ["foundation"],
+        "children": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "title": "Phase 2 — Auth / Social Login",
+  "root": {
+    "id": "phase-2",
+    "label": "Phase 2 — Auth / social login",
+    "href": "index.html",
+    "sections": ["goal", "flow", "decisions"],
+    "crosslinks": ["phase-2-identity", "phase-2-backend", "phase-2-conversations", "phase-2-frontend", "phase-2-hardening"],
+    "children": [
+      {
+        "id": "phase-2-identity",
+        "label": "Identity & linking",
+        "href": "identity.html",
+        "sections": ["linking", "allowlist"],
+        "crosslinks": ["phase-2-backend"],
+        "children": []
+      },
+      {
+        "id": "phase-2-backend",
+        "label": "Backend verification",
+        "href": "backend.html",
+        "sections": ["verify", "request-context", "auth-mode", "cors"],
+        "crosslinks": ["phase-2-identity", "phase-2-conversations"],
+        "children": []
+      },
+      {
+        "id": "phase-2-conversations",
+        "label": "Conversation scoping",
+        "href": "conversations.html",
+        "sections": ["schema", "scoping", "idor"],
+        "crosslinks": ["phase-2-backend"],
+        "children": []
+      },
+      {
+        "id": "phase-2-frontend",
+        "label": "Frontend (Clerk)",
+        "href": "frontend.html",
+        "sections": ["gate", "token-storage", "mode-picker"],
+        "crosslinks": ["phase-2-backend"],
+        "children": []
+      },
+      {
+        "id": "phase-2-hardening",
+        "label": "Hardening & testing",
+        "href": "hardening.html",
+        "sections": ["run-sql", "email", "cron", "review-and-amendments", "testing"],
+        "crosslinks": ["phase-2-backend", "phase-2-conversations"],
+        "children": []
+      }
+    ]
+  }
+}

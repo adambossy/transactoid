@@ -1,0 +1,11 @@
+{
+  "title": "Phase 5 — Onboarding",
+  "root": {
+    "id": "phase-5",
+    "label": "Phase 5 — Onboarding",
+    "href": "index.html",
+    "sections": ["goal", "scope", "security"],
+    "crosslinks": [],
+    "children": []
+  }
+}
