@@ -6,6 +6,7 @@ import re
 from typing import TypedDict
 
 from sqlalchemy import (
+    JSON,
     TIMESTAMP,
     Boolean,
     CheckConstraint,
@@ -135,6 +136,18 @@ class PlaidTransaction(Base):
     # counterparty detail dropped by merchant_descriptor for wrapper merchants
     # (e.g. the person behind a Venmo payment). Kept in sync with migration 007.
     original_descriptor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Plaid's raw ``name`` — the fuller descriptor before Plaid collapses it into
+    # ``merchant_name`` (which we store as merchant_descriptor). Often carries
+    # location / payment-rail detail the cleaned name drops
+    # (e.g. "AplPay MY FAVORITE CBROOKLYN" vs "my favorite"). Kept in sync with
+    # migration 009.
+    raw_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Plaid's structured enrichment, stored verbatim for analysis (NOT surfaced to
+    # the categorizer). ``counterparties``: Plaid's merchant/payment counterparty
+    # list. ``personal_finance_category``: Plaid's own category guess
+    # (primary/detailed/confidence). Kept in sync with migration 009.
+    counterparties: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    personal_finance_category: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     institution: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
