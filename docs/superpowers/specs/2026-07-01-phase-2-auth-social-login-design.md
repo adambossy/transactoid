@@ -135,9 +135,12 @@ principal env is unset (never runs RLS-unscoped). Two job kinds:
 - **Household shared report:** `ctx = {household, joint/shared-only}`, delivered
   to both users.
 
-**Recipients are read from `users.email` (verified records) at job-construction
-time — never from prompt text.** `send_email_report` refuses any address not in
-the authenticated household. Cron uses the same `session_for(ctx)` path as chat.
+**`send_email_report` takes no recipient parameter.** It derives recipients
+entirely from the authenticated context: an *individual* context emails that
+user; a *joint/household* context emails all household members (from verified
+`users.email`). The agent cannot name, add, or influence a recipient — the
+injection surface is removed, not merely validated. Cron uses the same
+`session_for(ctx)` path as chat, so the same rule applies to scheduled reports.
 
 ## Section 6 — `run_sql` read-only
 
@@ -175,17 +178,19 @@ Postgres-marked where RLS is involved (reuse phase-1a's `@pytest.mark.postgres`)
   visible to household; `owner_user_id` taken from JWT even if the body lies.
 - **`run_sql` read-only:** a DML statement via `run_sql` is rejected; a typed
   write tool still succeeds.
-- **Email guard:** `send_email_report` refuses a prompt-injected/non-household
-  address; cron per-user report goes only to that user; shared report is
-  shared-only.
+- **Email guard:** `send_email_report` exposes **no recipient parameter** —
+  recipients derive from the authed context (a per-user report reaches only that
+  user; a household report only household members); a prompt attempting to add a
+  recipient has no effect because no such parameter exists.
 - **CORS:** a disallowed origin is blocked; credentials never combined with `*`.
 
 ## Security review outcome
 
 Reviewed by the `rook` agent (2026-07-01). All Critical/High findings are folded
 into this design as hard requirements (dev-stub fail-closed & unreachable in
-prod; auth on every route incl. `/api/sessions/{id}`; recipients from verified
-records; JWKS-from-config + `iss`/`email_verified` checks; `owner_user_id` from
+prod; auth on every route incl. `/api/sessions/{id}`; `send_email_report` takes
+no recipient parameter (recipients derived from the authed context);
+JWKS-from-config + `iss`/`email_verified` checks; `owner_user_id` from
 JWT; CORS required; in-memory token storage; cron explicit context;
 `run_sql` read-only). No architectural rework was required.
 
