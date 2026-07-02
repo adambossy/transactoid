@@ -764,6 +764,18 @@ class SyncTool:
 
         self._logger.categorization_start(len(to_categorize), len(to_categorize), 0)
 
+        # Plaid's raw `name` lives on the plaid row, not the derived row; fetch it
+        # per plaid_transaction_id so the agent can see the fuller descriptor.
+        plaid_map = self._db.get_plaid_transactions_by_ids(
+            [txn.plaid_transaction_id for txn in to_categorize]
+        )
+        raw_name_by_txn: dict[int, str | None] = {
+            txn.transaction_id: getattr(
+                plaid_map.get(txn.plaid_transaction_id), "raw_name", None
+            )
+            for txn in to_categorize
+        }
+
         by_descriptor: dict[str, list[Any]] = defaultdict(list)
         for txn in to_categorize:
             by_descriptor[txn.merchant_descriptor or ""].append(txn)
@@ -777,6 +789,7 @@ class SyncTool:
                     {
                         "transaction_id": first.transaction_id,
                         "merchant_descriptor": first.merchant_descriptor,
+                        "raw_name": raw_name_by_txn.get(first.transaction_id),
                         "amount": first.amount_cents / 100.0,
                         "date": first.posted_at.isoformat()
                         if first.posted_at
@@ -1144,6 +1157,12 @@ class SyncTool:
                     "currency": txn.get("iso_currency_code") or "USD",
                     "merchant_descriptor": txn.get("merchant_name") or txn.get("name"),
                     "original_descriptor": txn.get("original_descriptor"),
+                    # Plaid's raw `name` — the fuller descriptor, kept even though
+                    # merchant_descriptor prefers the cleaned merchant_name.
+                    "raw_name": txn.get("name"),
+                    # Plaid enrichment, stored verbatim (not surfaced to the agent).
+                    "counterparties": txn.get("counterparties"),
+                    "personal_finance_category": txn.get("personal_finance_category"),
                     "institution": None,
                 }
             )
