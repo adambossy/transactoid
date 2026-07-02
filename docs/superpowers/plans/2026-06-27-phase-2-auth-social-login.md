@@ -1,8 +1,8 @@
 # Phase 2 — Auth / Social Login (Plan Stub)
 
-> **Status: Roadmap — needs brainstorming before a detailed plan.**
+> **Status: Designed** — see the [Phase 2 spec](../specs/2026-07-01-phase-2-auth-social-login-design.md); needs a detailed implementation plan.
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
-> Spec: [foundation design](../specs/2026-06-27-multi-account-foundation-design.md).
+> Spec: [Phase 2 auth design](../specs/2026-07-01-phase-2-auth-social-login-design.md) · foundation: [phase 1a design](../specs/2026-06-27-multi-account-foundation-design.md).
 > **Prev:** [Phase 1 — Multi-tenant data model](2026-06-27-phase-1-multi-tenant-data-model.md) ·
 > **Next:** [Phase 3 — Provision + test](2026-06-27-phase-3-provision-and-test.md),
 > [Phase 4 — Signup UI](2026-06-27-phase-4-signup-ui.md)
