@@ -770,9 +770,17 @@ In `models.py` add to `Conversation`:
                                               server_default=text("'individual'"))
 ```
 
-(The web schema is `create_all`-managed — existing local DBs recreate; for the
-deployed web DB add the three columns with a one-off `ALTER TABLE` backfilled to
-the phase-3 household/owner before rollout.)
+**Web schema is Postgres, under RLS (series-review decision).** The web DB stops
+being `create_all`-managed: add **migration `015_add_conversation_tenancy`** (the
+web-schema migration set) that adds the three columns **and** enables the same
+`tenant_isolation` policy (USING + WITH CHECK) + `FORCE ROW LEVEL SECURITY` on
+`conversations`/`conversation_messages` (dialect-guarded). The
+`ConversationStore` session must emit the same transaction-local
+`set_config('app.current_household'/'app.current_user', …, true)` on the web-DB
+connection (reuse the phase-1a `_apply_rls_settings` shape) so RLS binds. Local
+SQLite dev gets the columns but no RLS (app-layer filter still applies). Prod
+column backfill is owned by the phase-3 cutover (it assigns conversation
+tenancy), not a one-off ALTER here.
 
 In `store.py`:
 
@@ -1304,13 +1312,17 @@ git commit -m "feat(frontend): Clerk auth gate, bearer transport, per-conversati
 ### Task 11: Phase-1a amendments (WITH CHECK + nil-uuid CHECK)
 
 The two security-review findings recorded in the spec's "Amendments to phase 1a".
-If phase 1a is already built, these are new migrations; if not yet built, fold
-them into the phase-1a plan's migrations 010/011 before execution.
+**Because phase 1a is not yet built, these fold directly into phase-1a's
+migrations `010`/`011` — they do NOT get their own revision** (so `014` stays
+free for phase-1b's workspace store per the migration ledger). This task is the
+verification that the fold happened, not a new migration.
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-06-27-phase-1a-multi-tenant-data-model.md`
-  (Tasks 7 and 10) — or, if phase 1a is merged, create
-  `backend/db/migrations/014_rls_with_check_and_nil_guard.py`
+  (Tasks 7 and 10) — add `WITH CHECK (<same predicate as USING>)` to every
+  `tenant_isolation` policy in migration `011`, and
+  `CHECK (owner_user_id <> nil-uuid)` in migration `010`. No standalone
+  amendment migration.
 - Test: covered by phase-1a's acceptance suite test 5
   (`test_write_cannot_set_foreign_household_id`) plus a new nil-uuid case.
 
@@ -1321,9 +1333,10 @@ them into the phase-1a plan's migrations 010/011 before execution.
   (named `ck_<table>_owner_not_nil`); the backfill (migration 009) is asserted
   never to write the nil UUID.
 
-- [ ] **Step 1:** Apply the policy/constraint changes in whichever form matches
-  the repo state (plan edit or migration 014), using the exact predicate from
-  phase-1a migration 011 for the `WITH CHECK` clause.
+- [ ] **Step 1:** Confirm the `WITH CHECK` clause and the nil-uuid `CHECK` are
+  folded into phase-1a migrations `011`/`010` (no standalone amendment
+  migration), using the exact predicate from phase-1a migration `011` for the
+  `WITH CHECK` clause.
 - [ ] **Step 2:** Extend the phase-1a acceptance battery with
   `test_joint_sentinel_never_matches_a_real_row` — inserting a row with the nil
   owner UUID raises `IntegrityError`.

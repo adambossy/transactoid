@@ -87,9 +87,19 @@ http://localhost:5173]` with `allow_credentials=True`; scoped methods/headers.
 
 ## Section 3 — Conversation scoping & per-conversation session mode
 
-`conversations` (web schema — a **separate engine/DB**, so phase-1a Postgres RLS
-does not automatically cover it) gains `household_id`, `owner_user_id`, and
-`session_mode (individual|joint)`, set at creation and immutable.
+`conversations` (web schema — a **separate engine/DB**) gains `household_id`,
+`owner_user_id`, and `session_mode (individual|joint)`, set at creation and
+immutable.
+
+**Decision (from the series review): the web schema is Postgres and is put under
+RLS**, so conversations are not the one soft spot in the "RLS is the guarantee"
+thesis. Concretely: the web DB stops being `create_all`-managed and joins a
+migration set (**migration `015`** in the ledger); `conversations` /
+`conversation_messages` get the **same `tenant_isolation` policy (USING **and**
+WITH CHECK)** as the finance tables; and the web store's session emits the same
+transaction-local `SET LOCAL app.current_household` / `app.current_user` on the
+web-DB connection so RLS binds there too. App-layer filtering remains as the
+belt-and-suspenders second layer.
 
 - **Visibility derives from `session_mode`:** `individual` → owner-only;
   `joint` → household-shared. (One source of truth.)
@@ -104,9 +114,10 @@ does not automatically cover it) gains `household_id`, `owner_user_id`, and
 - **Every route is authenticated**, including `GET /api/sessions/{id}` — it does
   an ownership check *before* querying (closes the IDOR). A default-deny routing
   convention: new routes must make a deliberate auth decision.
-- **Enforcement is app-layer** for the web schema, with the **same RLS policy as
-  a backstop if the web DB is Postgres**. Web-schema isolation is an explicit
-  phase-6 audit item regardless.
+- **Enforcement is RLS (hard) + app-layer (legible),** identical to the finance
+  schema — the web DB is Postgres, under the `tenant_isolation` policy, with
+  `SET LOCAL` bound on its connection. Web-schema isolation remains a phase-6
+  audit item, but it is now a **built control, not a conditional**.
 
 ## Section 4 — Frontend (Clerk + React)
 

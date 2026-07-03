@@ -769,12 +769,23 @@ git commit -m "feat(db): add nullable tenant columns to financial tables (migrat
 
 ### Task 6: Backfill existing data + migration 009
 
-A **data-only** migration. Creates your household + two users if absent
-(reading ids from `PENNY_DEV_HOUSEHOLD_ID` / `PENNY_DEV_USER_ID` so dev/prod
-stay consistent), populates `plaid_accounts` from distinct
+A **data-only** migration for **dev/test only** — it does **not** run on prod.
+The migration body is a no-op unless the explicit opt-in env
+`PENNY_DEV_BACKFILL=1` is set; when set (local/CI), it creates a dev household +
+two users, populates `plaid_accounts` from distinct
 `plaid_transactions.account_id` (+ their `item_id`), and backfills every tenant
-column to that household / you as owner / `visibility='private'`. Idempotent
-(guards on existing rows / null columns).
+column to that household / user1 / `visibility='private'` so the contract
+migration (010) can apply on a populated dev DB. Idempotent (guards on existing
+rows / null columns).
+
+> **Prod ownership belongs to the cutover, not this migration.** Migration 009
+> never hardcodes a specific household's identity on prod. On prod the
+> [Phase-3 cutover](../specs/2026-07-03-phase-3-cutover-design.md) applies the
+> chain in two halves — expand (006–009, with 009 a no-op) → **interactive
+> account assignment + re-parent** → contract (010–013) — so legacy rows are
+> assigned real owners/visibility *before* the NOT-NULL/RLS contract lands.
+> This is the single-source-of-truth fix: exactly one mechanism (the cutover)
+> creates prod identity and assigns ownership.
 
 **Files:**
 - Create: `backend/db/migrations/009_backfill_tenant_columns.py`
@@ -1578,8 +1589,13 @@ Plaid call site.
 - Produces:
   - `encrypt_token(plaintext: str) -> str` and `decrypt_token(ciphertext: str)
     -> str` reading the Fernet key from `PENNY_PLAID_TOKEN_KEY`.
-  - `is_encrypted(value: str) -> bool` (detects the Fernet `gAAAAA` prefix) so
-    the migration and read path are idempotent during rollout.
+  - **Key-version prefix (per the migration ledger):** stored ciphertext is
+    prefixed with a key id, e.g. `v1:<fernet-token>`. `encrypt_token` writes the
+    active key's prefix; `decrypt_token` reads the prefix and selects the key.
+    No rotation *logic* is built now — but stamping the format now means rotation
+    later is not a re-encrypt-everything migration. `is_encrypted(value)` matches
+    the `v<N>:` prefix (falling back to the Fernet `gAAAAA` sniff for any
+    unprefixed legacy value) so the migration/read path stay idempotent.
 
 - [ ] **Step 1: Write the failing test**
 

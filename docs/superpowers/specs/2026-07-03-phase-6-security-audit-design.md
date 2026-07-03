@@ -48,7 +48,7 @@ accumulated from earlier phases slot in as **must-cover** rows.
 | **Cross-tenant isolation** | Every façade method + a `run_sql` battery from household A returns zero B rows; RLS policy audit (USING **and** WITH CHECK on every table); nil-uuid owner guard | 1a WITH CHECK / nil-uuid |
 | **Within-household privacy** | Spouse's private accounts / conversations / workspace invisible; joint = shared-only | — |
 | **Auth** | JWT verification (alg/iss/aud/exp, JWKS-from-config), fail-closed dev-stub, IDOR on every route, session-mode tamper | 2 dev-bypass, `/api/sessions` IDOR |
-| **Web-schema conversations** | App-layer scoping correctness; RLS backstop present if Postgres | 2 web-schema isolation |
+| **Web-schema conversations** | Confirm the `tenant_isolation` RLS policy (USING+WITH CHECK) is enabled on conversations/messages and `SET LOCAL` binds on the web-DB connection; app-layer scoping correctness | 2 web-schema isolation (now a built control) |
 | **Secrets** | Plaid token encryption at rest + never in logs; **key rotation procedure**; env/secret storage | 1a/2 tokens; deferred rotation |
 | **Prompt/agent injection** | Coerce `run_sql` (read-only role holds), tools, and the **reminder flush path** into cross-tenant reads/exfil; email-recipient tamper | 5 reminder injection, 2/8 email tool |
 | **R2 access path** | Opaque tokens, no-`LIST` creds, keys only from RLS lookups, no direct agent R2, temp-dir hygiene | 1b R2 path |

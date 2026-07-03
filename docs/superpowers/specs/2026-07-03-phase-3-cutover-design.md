@@ -4,7 +4,11 @@
 **Date:** 2026-07-03
 **Branch:** `feat/account-creation`
 **Part of:** [Multi-Account Epic](../plans/2026-06-27-multi-account-epic-overview.md)
-**Depends on:** Phases 1a, 1b, 2 (built); hands off to Phase 4 signup.
+**Depends on:** Phases 1a, 1b, 2 — **and Phase 4** (the cutover's completion
+requires the Phase-4 signup surface; see §4). Build order: Phase 4 ships
+**before** the cutover's handoff/verify. The data-migration stages (backup →
+reconcile-expand → bootstrap → assign → reparent → finalize) can run before
+Phase 4; only the handoff + `verify` need it.
 **Repurposed from** the old "Provision + test" phase (provisioning → Phase 4,
 validation → Phase 6).
 
@@ -56,15 +60,21 @@ supporting `--dry-run`:
 
 0. **`backup`** — create a **frozen Neon branch** of prod (the restore point);
    record its name; do not touch it again until `verify` passes.
-1. **`reconcile-schema`** — bring prod's alembic state in line and apply the
-   multi-tenant migration chain (§2).
+1. **`reconcile-expand`** — bring prod's alembic state in line and apply the
+   **expand half** of the chain: `006`–`009` (identity tables, `plaid_accounts`,
+   nullable tenant columns; migration `009` is a **no-op on prod**). Legacy rows
+   still have null tenant columns at this point — that's expected. (§2)
 2. **`bootstrap`** — create the household + **pending** `users` rows (you + wife;
    `external_auth_id` NULL).
 3. **`assign-accounts`** — list each linked account and interactively prompt
    owner + visibility (§3), writing each answer to the mapping record file.
 4. **`reparent`** — apply the mapping; set tenancy on every item/account and
    denormalize onto all child rows; assert zero unassigned rows (§3).
-5. **`verify`** — run the isolation/privacy checks against the migrated data
+5. **`finalize-schema`** — now that every row is assigned, apply the **contract
+   half**: `010`–`013` (NOT NULL, FKs, CHECKs, RLS, per-household categories,
+   token encryption), `014` (1b workspace), `015` (conversation tenancy + web
+   RLS). The NOT-NULL/RLS contract can only land *after* re-parent.
+6. **`verify`** — run the isolation/privacy checks against the migrated data
    (feeds Phase 6); only after this passes is the cutover "complete."
 
 **Run order:** step 0 backup → full **rehearsal on a separate Neon branch clone**
@@ -75,14 +85,18 @@ supporting `--dry-run`:
 Prod is `create_all`-managed with multi-head alembic history, so `upgrade head`
 alone is unsafe. `reconcile-schema`:
 
-1. On a throwaway Neon branch off prod: resolve the **multi-head** history to a
-   single head (`alembic merge` the branches), `alembic stamp` the revision
-   matching prod's current `create_all` schema (alembic now believes the
-   baseline is applied), then `alembic upgrade head` to run **only** the new
-   revisions (1a `006`–`013`, 1b `015`, 2's conversation columns, plus the
-   cutover's own data steps).
-2. Rehearse the full stamp+upgrade there; confirm schema + a smoke query; then
-   repeat on prod after the pre-apply snapshot.
+1. On a throwaway Neon branch off prod: resolve the **legacy** multi-head history
+   to a single head (`alembic merge`), `alembic stamp` the revision matching
+   prod's current `create_all` schema (alembic now believes the baseline is
+   applied). The new epic migrations are a **single linear chain** per the
+   ledger (1a `006`–`013` → 1b `014` → 2 `015`), so the only merge needed is for
+   the *legacy* split — the epic manufactures no new head.
+2. Apply the chain **in two halves around the data assignment** (stages 1 and 5):
+   `upgrade` to `009` first (expand), then bootstrap/assign/reparent, then
+   `upgrade head` (`010`→`015`, contract). This is why the NOT-NULL/RLS contract
+   can't be a single `upgrade head` on prod.
+3. Rehearse the full sequence on the branch; confirm schema + a smoke query;
+   then repeat on prod after the pre-apply snapshot.
 
 **Making it stick (so `create_all` drift can't recur):**
 - On prod, `bootstrap()` runs **`alembic upgrade head` only** — `create_all`
@@ -112,11 +126,18 @@ Reconciliation is the one-time fix; these three keep it fixed.
 
 - `bootstrap` seeds the household + two **pending** `users` rows (your email,
   your wife's; `external_auth_id` NULL) — no Clerk objects, no passwords.
-- You each sign up via the normal **Phase-4 flow**; Phase-2 first-login linking
-  matches your verified email to the pending row and claims it. You land in the
-  migrated household with your assigned accounts already owned correctly; your
-  wife lands in the same household seeing her accounts + shared ones, **not**
-  your private accounts. Reuses the invite/link mechanism exactly.
+- **This handoff requires the Phase-4 signup surface** (series-review fix):
+  claiming a pending row needs each spouse to *create* a Clerk identity and
+  sign in, and Phase 2 only wires `<SignIn>` — brand-new-account creation
+  (`<SignUp>`) arrives in Phase 4. **So Phase 4 must ship before this step.**
+  The build order is therefore …→ Phase 2 → Phase 4 → **Phase 3 handoff/verify**
+  (the earlier data-migration stages may run before Phase 4).
+- You each sign up via the **Phase-4 flow** (`<SignUp>` with your invited
+  emails); Phase-2 first-login linking matches your verified email to the
+  pending row and claims it. You land in the migrated household with your
+  assigned accounts already owned correctly; your wife lands in the same
+  household seeing her accounts + shared ones, **not** your private accounts.
+  Reuses the invite/link mechanism exactly.
 
 ## Section 5 — Safety & validation
 

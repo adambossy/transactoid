@@ -51,9 +51,13 @@ SDK, promptorium for the prompt version bump.
   no `active`. Activation is computed, never stored.
 - **Reminder content is server-generated only** — never interpolate client
   input into reminder text.
-- **Migrations:** Penny revisions `016_add_queued_reminders`,
-  `017_add_onboarding_items` (renumber to next free slots at execution time).
-  Standard RLS policies (USING + WITH CHECK) on both tables, dialect-guarded.
+- **Migrations (per the epic migration ledger):** these tables live in the
+  **web DB** (conversation-adjacent app state, not financial data), in the **web
+  migration chain** established in phase 2 — revision **`018_add_onboarding_items`**
+  and **`019_add_queued_reminders`** (web chain head after phase-2 `015` and
+  phase-2b `016`/`017`). Standard `tenant_isolation` RLS (USING + WITH CHECK) on
+  both, dialect-guarded; the web store session binds `SET LOCAL` (phase-2 web
+  RLS plumbing) so the policies take effect.
 - **Prompts:** the system-prompt change is a promptorium version bump — new
   `<n+1>.md` under `backend/.prompts/penny-system-prompt/` AND `_meta.json`
   bump (`source_file`, `version_dir`, `last_version`,
@@ -72,8 +76,8 @@ SDK, promptorium for the prompt version bump.
   `packages/agent-ui/src/index.ts` (export); Test: package test setup.
 - Penny — Create: `backend/penny/reminders.py` (DB queue),
   `backend/penny/onboarding.py`, `backend/penny/tools/plaid_link.py`,
-  `backend/db/migrations/016_add_queued_reminders.py`,
-  `017_add_onboarding_items.py`; Modify: `backend/penny/adapters/db/models.py`,
+  `backend/db/migrations/019_add_queued_reminders.py`,
+  `018_add_onboarding_items.py`; Modify: `backend/penny/adapters/db/models.py`,
   `backend/penny/agent_factory.py`, `backend/penny/api/main.py`,
   `backend/penny/tools/registry.py`, `backend/.prompts/…`, `.env.example`.
 - Penny frontend — Create: `frontend/src/PlaidLinkCard.tsx`; Modify:
@@ -390,12 +394,12 @@ git commit -m "feat: first-class system-reminder hiding in user messages"
 
 ---
 
-### Task 4 (Penny): DB-backed reminder queue + migration 016
+### Task 4 (Penny): DB-backed reminder queue + migration 019
 
 **Files:**
 - Modify: `backend/penny/adapters/db/models.py` (add `QueuedReminder`)
 - Create: `backend/penny/reminders.py`,
-  `backend/db/migrations/016_add_queued_reminders.py`
+  `backend/db/migrations/019_add_queued_reminders.py`
 - Modify: `backend/penny/agent_factory.py` (`build_agent(..., reminders=…)`)
 - Test: `backend/tests/test_reminder_queue.py`
 
@@ -411,7 +415,7 @@ git commit -m "feat: first-class system-reminder hiding in user messages"
     appends a uuid-suffixed kind); `drain(session_id)` selects FIFO by
     `created_at`, deletes, returns `list[Reminder]`. Sync DB work wrapped in
     `asyncio.to_thread` per repo convention.
-  - Migration `016` creates the table + the standard RLS policy (household +
+  - Migration `019` creates the table + the standard RLS policy (household +
     owner terms, USING + WITH CHECK, dialect-guarded).
   - `build_agent` passes `reminders=DbReminderQueue(ctx)` so every chat/cron
     run flushes pending reminders.
@@ -521,7 +525,7 @@ class DbReminderQueue:
             return out
 ```
 
-Migration `016_add_queued_reminders.py` mirrors the model (+ unique
+Migration `019_add_queued_reminders.py` mirrors the model (+ unique
 `(conversation_id, kind)` index + RLS block, dialect-guarded). In
 `agent_factory.build_agent(..., ctx, ...)` construct `DbReminderQueue(ctx)` and
 pass `reminders=` to `Agent(...)`. (Non-override enqueue: insert with kind
@@ -531,15 +535,15 @@ the suffix when building `Reminder.kind` via `kind.split("#", 1)[0]`.)
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd backend && uv run pytest tests/test_reminder_queue.py -v` → PASS (2).
-Migration chain check as in prior phases → ends at `016`.
+Migration chain check as in prior phases → ends at `019`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/penny/adapters/db/models.py backend/penny/reminders.py \
-  backend/db/migrations/016_add_queued_reminders.py backend/penny/agent_factory.py \
+  backend/db/migrations/019_add_queued_reminders.py backend/penny/agent_factory.py \
   backend/tests/test_reminder_queue.py
-git commit -m "feat(reminders): DB-backed reminder queue wired into agent runs (migration 016)"
+git commit -m "feat(reminders): DB-backed reminder queue wired into agent runs (migration 019)"
 ```
 
 ---
@@ -549,7 +553,7 @@ git commit -m "feat(reminders): DB-backed reminder queue wired into agent runs (
 **Files:**
 - Modify: `backend/penny/adapters/db/models.py` (add `OnboardingItem`)
 - Create: `backend/penny/onboarding.py`,
-  `backend/db/migrations/017_add_onboarding_items.py`,
+  `backend/db/migrations/018_add_onboarding_items.py`,
   `backend/penny/tools/onboarding.py` (the `@tool`)
 - Modify: `backend/penny/tools/registry.py` (register the tool)
 - Test: `backend/tests/test_onboarding.py`
@@ -665,22 +669,22 @@ updates: `categorized_turns += 1` when `response_had_categorized_rows`;
 `corrections += 1` when `user_corrected_category`; once-per-session items stamp
 `trigger_state["last_nudged_conversation"]` and skip when it matches the
 current conversation (pass the conversation id via `signals` — add field
-`conversation_id: str`). Add the model + migration `017` (unique index, CHECK,
+`conversation_id: str`). Add the model + migration `018` (unique index, CHECK,
 RLS). The `@tool` in `tools/onboarding.py` wraps a sync service call in
 `asyncio.to_thread` and returns the dict (registry pattern per existing tools).
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd backend && uv run pytest tests/test_onboarding.py -v` → PASS (3).
-Migration chain → ends at `017`.
+Migration chain → ends at `018`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/penny/adapters/db/models.py backend/penny/onboarding.py \
   backend/penny/tools/onboarding.py backend/penny/tools/registry.py \
-  backend/db/migrations/017_add_onboarding_items.py backend/tests/test_onboarding.py
-git commit -m "feat(onboarding): items table, deterministic trigger engine, resolve tool (migration 017)"
+  backend/db/migrations/018_add_onboarding_items.py backend/tests/test_onboarding.py
+git commit -m "feat(onboarding): items table, deterministic trigger engine, resolve tool (migration 018)"
 ```
 
 ---
