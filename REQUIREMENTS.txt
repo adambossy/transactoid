@@ -1,0 +1,95 @@
+Penny — Requirements
+====================
+
+The living spec of what Penny must do (Product / Functional) and the
+non-negotiable rules it must hold (Technical Invariants / Constraints).
+
+Maintained per the directive in AGENTS.md ("Requirements"): update the
+relevant section in the SAME change that alters a behaviour or a constraint.
+This file states WHAT and WHY, not HOW — implementation detail lives in
+AGENTS.md / AGENTS.local.md and the code.
+
+
+PRODUCT / FUNCTIONAL REQUIREMENTS
+---------------------------------
+
+P1. Transaction sync
+    Sync bank/card transactions from every connected Plaid item into the
+    finance database. Sync is re-runnable and idempotent; the immutable Plaid
+    record and the derived/analytical record are kept distinct.
+
+P2. Categorization
+    Categorize each transaction with an LLM against the two-level taxonomy.
+    Split transactions (e.g. itemized Amazon orders) are categorized per line.
+
+P3. Conversational finance Q&A
+    Answer natural-language questions about the user's finances through a
+    streaming chat UI, driving the agent over the user's own data.
+
+P4. Scheduled reports
+    Deliver recurring spending reports by email: a daily report (rolled up to
+    monthly on the 1st of the month) and a weekly report. Reports are produced
+    by the same agent that powers chat and delivered via its own email tool.
+
+P5. Amazon itemization
+    Optionally enrich Amazon transactions by scraping order detail so spending
+    is attributed per item rather than per lump charge.
+
+P6. Conversation persistence
+    Persist conversations and messages so chat history survives across sessions.
+
+P7. Agent workspace
+    Maintain a persistent per-user workspace (memory/, reports/) that carries
+    user state (e.g. budget notes) across chat and scheduled runs.
+
+P8. Output language
+    Reports and chat responses are written in English (US) with $ currency,
+    regardless of the language of transaction descriptors or memory notes.
+
+
+TECHNICAL INVARIANTS / CONSTRAINTS
+----------------------------------
+
+T1. Domain segregation (HARD)
+    Agent, website/app, and deploy are segregated domains with one-directional
+    dependencies (website -> agent, deploy -> app). Application code never
+    imports from deploy or branches on deployment topology.
+    See AGENTS.local.md; enforced by backend/tests/test_deploy_segregation.py.
+
+T2. Finance-data isolation
+    App/website data never shares the finance database or the run_sql blast
+    radius; it lives in a separate schema/db owned by the website's own engine.
+    run_sql is intentionally unrestricted read+write over finance data ONLY.
+
+T3. Never point a dev server at production
+    Dev/test runs against a Neon branch (backend/.env.test). The production
+    databases (Supabase prod / Neon `production`) are off-limits to local or
+    dev servers.
+
+T4. Don't reimplement the libraries
+    The agent loop, providers, sessions, sandboxes, skills, and tool decorator
+    come from agent-harness; the chat UI from agent-ui. Penny wraps or extends
+    them and never forks their responsibilities.
+
+T5. Config is the only runtime seam
+    Cross-environment behaviour reads a PENNY_* variable through config.py.
+    Code never reads a fly.toml/schedules.json or names a deployable.
+
+T6. Scheduler contract (Sprites-forward)
+    Scheduled work runs as manager-spawned, auto-destroyed job machines that
+    execute `penny <command>` from the app image, with per-job env injected
+    from the cron config.env. No native Machine schedule, no in-container
+    scheduler.
+
+T7. Single source of truth
+    Prompts live only in backend/.prompts/ (promptorium); taxonomy seed in
+    backend/configs/taxonomy.yaml; runtime/deploy config in the PENNY_*
+    contract. No value is duplicated across homes.
+
+T8. Single-user
+    No authentication or multi-tenancy yet. Multi-user productionization is
+    tracked separately (see plans/).
+
+T9. Verification gate
+    `ruff check`, `ruff format --check`, and `pytest` pass before any unit of
+    work is considered complete.
