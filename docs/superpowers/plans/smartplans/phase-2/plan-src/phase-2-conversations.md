@@ -22,7 +22,7 @@ The `conversations` table lives in the web schema — a **separate engine/DB**, 
 
 ## scoping — Store filtering
 
-Every read/write filters by `household_id == ctx.household AND (owner_user_id == ctx.user OR session_mode == 'joint')`, and stamps `owner_user_id`/`household_id` from the `RequestContext` on creation — never from the client. On `/api/chat` the backend reads the conversation's stored `session_mode` to build the turn's context ([backend](backend.html)); a joint conversation sets the nil-user sentinel so RLS returns shared-only. Enforcement is app-layer here, with the same RLS policy as a backstop if the web DB is Postgres.
+Every read/write filters by `household_id == ctx.household AND (owner_user_id == ctx.user OR session_mode == 'joint')`, and stamps `owner_user_id`/`household_id` from the `RequestContext` on creation — never from the client. On `/api/chat` the backend reads the conversation's stored `session_mode` to build the turn's context ([backend](backend.html)); a joint conversation sets the nil-user sentinel so RLS returns shared-only. Enforcement is **both layers, like the finance schema**: the web DB is Postgres, so conversations sit under the same `tenant_isolation` RLS policy (USING + WITH CHECK) with `SET LOCAL` bound on the web connection, plus app-layer filtering. The web DB stops being `create_all`-managed and joins the migration ledger — a built control, not a conditional.
 
 ## idor — Closing the IDOR
 

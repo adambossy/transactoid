@@ -22,7 +22,9 @@ Eight new revisions extend the existing chain (current head `005`): `006` adds h
 
 ## expand-backfill-contract — Expand, backfill, contract
 
-Schema changes on a populated database follow the safe three-step pattern. **Expand**: add `household_id`, `owner_user_id`, and `visibility` as nullable columns. **Backfill**: assign every existing row to your household and you as owner, default `private`, and create one `plaid_accounts` row per distinct account. **Contract**: set NOT NULL, add foreign keys, a visibility check, and composite indexes. Splitting these means no step rewrites a column that is still being read.
+Schema changes on a populated database follow the safe three-step pattern. **Expand**: add `household_id`, `owner_user_id`, and `visibility` as nullable columns. **Backfill**: assign every existing row an owner and household. **Contract**: set NOT NULL, add foreign keys, a visibility check, and composite indexes. Splitting these means no step rewrites a column that is still being read.
+
+**Who does the backfill matters.** The `009` backfill migration is **dev/opt-in only** — it seeds a throwaway household so the contract can land on a local database. On production it is a **no-op**: the [cutover](/p/phase-3/) is the single source of truth for creating identity and assigning per-account ownership/visibility, running the expand and contract halves around its interactive assignment. So exactly one mechanism owns prod ownership, and no migration hardcodes a household.
 
 ```mermaid
 flowchart LR
