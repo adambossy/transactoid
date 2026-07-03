@@ -25,6 +25,13 @@ endpoint closes the loop by enqueueing a success reminder.
 React 19 + `react-plaid-link` + agent-ui's tool-renderer registry, Plaid Python
 SDK, promptorium for the prompt version bump.
 
+> **Reused by Phase 2b.** [Phase 2b — BYO Keys & Metered Subsidy](../specs/2026-07-03-phase-2b-byo-keys-metered-subsidy-design.md)
+> consumes this phase's mechanisms rather than adding its own nudge machinery:
+> it introduces a `byo_credential` reminder kind on **this** system-reminder
+> subsystem and an inline "Connect a provider" card via **this** phase's
+> generative-UI tool-renderer pattern (Tasks 7–8). No new reminder/onboarding
+> plumbing is added there — keep both extensible to a new kind + card.
+
 ## Global Constraints
 
 - **Three repos.** agent-harness (`~/code/agent-harness`) and agent-ui

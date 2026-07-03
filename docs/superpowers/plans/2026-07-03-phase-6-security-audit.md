@@ -55,9 +55,16 @@ audit`.
 - [ ] **Step 1:** Create `coverage-matrix.md` with one row per dimension from the
   spec (cross-tenant isolation, within-household privacy, auth, web-schema
   conversations, secrets, prompt/agent injection, R2 access path, open-signup
-  abuse, cutover integrity, transport/infra, dependencies) and columns:
-  *Dimension · Owner · Adversarial pass (link/date) · Findings · Sign-off*.
-  Seed each row's "must-cover" carried-in items verbatim from the spec table.
+  abuse, **BYO credential**, cutover integrity, transport/infra, dependencies)
+  and columns: *Dimension · Owner · Adversarial pass (link/date) · Findings ·
+  Sign-off*. Seed each row's "must-cover" carried-in items verbatim from the spec
+  table. The **BYO credential** dimension (from
+  [Phase 2b](../specs/2026-07-03-phase-2b-byo-keys-metered-subsidy-design.md))
+  must cover: provider keys encrypted at rest (key-version prefix); decrypt only
+  at the call site, never surfaced to the browser or logs; credentials
+  unreachable by the agent's `run_sql` (website schema, owner-scoped); OAuth
+  state/PKCE/refresh-token rotation; and no ambient-key fallback — the metered
+  gate is not client-bypassable.
 - [ ] **Step 2:** Create `findings.md` (table: ID · dimension · severity · repro
   test · status ∈ open/fixed/risk-accepted/tracked) and `remediation-ledger.md`
   (Medium/Low + a "Risk acceptances" section: finding · accepted-by · date · why).

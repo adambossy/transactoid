@@ -29,6 +29,12 @@ API), Vite + React 19 + `@clerk/clerk-react`.
 - **Depends on:** Phases 1a and 2 merged. This plan **owns** the unknown-user
   branch that phase 2's spec marked as changing from 403 → provision; phase 2's
   auth dependency calls `resolve_or_provision_identity` (Task 2).
+- **Gated on Phase 2b (per-user spend cap).** Open self-serve signup must **not**
+  ship without [Phase 2b — BYO Keys & Metered Subsidy](../specs/2026-07-03-phase-2b-byo-keys-metered-subsidy-design.md):
+  its subsidized-runway-then-BYO-key spend cap is the cost/abuse control that
+  largely resolves the open-signup abuse concern flagged in this plan (see
+  Self-Review) and the spec. Provisioning here may land first, but the signup
+  door only opens once Phase 2b's cap is in place.
 - **Invariant:** one individual = one household. A pending invite is a `users`
   row with `external_auth_id IS NULL`; first login claims it via phase 2's
   atomic linking `UPDATE`.
