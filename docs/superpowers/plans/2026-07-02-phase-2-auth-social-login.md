@@ -1605,6 +1605,40 @@ git commit -m "test(e2e): cross-user conversation isolation (B blocked from A's 
 
 ---
 
+## Modularization
+
+Structured so the auth core can be lifted into a standalone package with no
+Penny-specific coupling. Only genuinely clean boundaries are called out — no
+premature abstraction.
+
+**Clerk auth kit for FastAPI.** The reusable unit is the `penny/auth/` core plus
+the `penny/api/auth.py` dependency: fail-closed `AuthSettings` /
+`load_auth_settings()` (Task 1), the `ClerkJwtVerifier` (RS256, config-pinned
+issuer/JWKS, `iss`/`exp`/`aud`/`alg` all verified against config never the token
+— Task 2), and the FastAPI `request_context` dependency that turns a bearer
+token into an authenticated identity and manages the ContextVar lifecycle
+(Task 4).
+
+- **Seam / interface:** the kit's output is a `RequestContext` (the phase-1a
+  tenancy toolkit consumes it downstream). Auth *produces* the context; tenancy
+  *enforces* on it — so the two compose without coupling. Inputs are the
+  `AuthSettings` dataclass and the injectable `signing_key_for` /
+  `get_verifier()` / `get_auth_settings()` indirection (already used by the
+  tests via `app.dependency_overrides`), which is exactly the injection seam an
+  external consumer needs.
+- **Keep OUT (Penny coupling):** the `users`-table specifics live behind a small
+  resolver interface. Today `link_or_resolve_user` (Task 3) reaches straight into
+  Penny's `User` model; the portable boundary is a `sub`/`email` →
+  `(tenant_id, user_id)` resolver callable that another app supplies with its own
+  user lookup. Also keep out: the `PENNY_*` env-var names (pass an
+  `AuthSettings` in rather than reading `os.environ`), the conversation store,
+  `run_sql`, email/cron wiring, and the `NIL_USER_UUID` joint-mode sentinel —
+  all of those are Penny/tenancy concerns, not auth.
+- **Portable to:** any FastAPI + Clerk app that needs verified-JWT request auth
+  yielding a per-request identity context.
+
+---
+
 ## Self-Review
 
 **Spec coverage:** fail-closed settings → Task 1; JWT verification (JWKS from

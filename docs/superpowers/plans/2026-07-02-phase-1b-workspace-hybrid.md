@@ -1183,6 +1183,56 @@ git commit -m "test(e2e): workspace memory round-trips through the UI across cha
 
 ---
 
+## Modularization
+
+**Design principle (epic-wide):** wherever a unit has a genuinely clean
+boundary, structure it so it *could* be lifted into a standalone package
+portable to other projects — no Penny-specific coupling in the core. This is
+not premature abstraction: the module still ships inside this phase, in-tree,
+consumed directly by the agent-run wiring. We only call out the extraction
+where the seam is already clean, and we keep the *shape* portable so a later
+lift-and-shift is mechanical rather than a rewrite.
+
+**Portable module: an RLS-scoped, versioned blob-workspace (candidate
+`workspace_store` package).**
+
+The store built here is a general mechanism for per-tenant, versioned file
+storage with a filesystem checkout: opaque capabilities broker access to
+content-addressed blobs, and a manifest/head chain gives atomic, lost-update-safe
+versioning. None of that is finance- or Penny-specific.
+
+- **What's in the core:**
+  - The `BlobStore` seam — Task 1: `put` / `get` / `exists` over *any* object
+    store, with `R2BlobStore` and `InMemoryBlobStore` as interchangeable
+    implementations and `content_key()` for content addressing. The rest of the
+    package depends only on the protocol, never on R2 directly.
+  - The capability broker — Task 3: opaque `secrets.token_urlsafe` prefix tokens
+    (never derived from tenant ids), lazy idempotent `ensure_prefixes`, and
+    visibility-filtered `resolve_readable_prefixes` (joint never resolves
+    private). The generic "hand a run only the locations it may read" layer.
+  - Manifest / CAS versioning — Tasks 4–5: `materialize` (head manifest → temp
+    checkout, shared-then-private overlay, origin tracking) and `flush` (diff,
+    content-addressed upload, per-prefix compare-and-set with retry and
+    last-writer-wins re-apply). A git-like immutable-blob + moving-head model.
+
+- **Seam / interface:** the store is driven entirely by a `RequestContext`
+  (phase-1a's tenancy toolkit) and a `BlobStore`, and it speaks only in
+  prefixes, manifests, byte blobs, and a checkout directory of arbitrary files.
+  It has no notion of what the files *mean*.
+
+- **Keep OUT of the core (these are consumers, not the store):** Penny's
+  memory/reports specifics (the `memory/*.md` layout, `{{AGENT_MEMORY}}`
+  assembly, `resolve_reports_dir`), the agent-run wiring
+  (`run_with_workspace`, the chat/cron materialize→run→flush glue in
+  `agent_factory` / `api/main.py` / `cli.py`), and the `~/.transactoid`
+  `import-workspace` migration. These import the store; the store never imports
+  them.
+
+- **Portable to:** any app that needs per-tenant, RLS-scoped, versioned file
+  storage with a local filesystem checkout and atomic write-back.
+
+---
+
 ## Self-Review
 
 **Spec coverage:** opaque tokens + visibility-partitioned layout → Tasks 2–3;

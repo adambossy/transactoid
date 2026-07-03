@@ -255,6 +255,50 @@ git commit -m "docs(security): signed coverage matrix, findings, go/no-go memo"
 
 ---
 
+## Modularization
+
+**Principle:** the reusable artifacts here are **tooling + process**, not
+product code. Carve each so it lifts into a standalone package/playbook with no
+Penny-specific coupling in its core — the one product-specific input (Penny's
+table list) stays behind config or a discovered list, never hard-coded into the
+reusable unit. Avoid premature abstraction: these are thin, single-purpose
+guards, not a framework.
+
+- **RLS policy-lint (durable tooling).** `lint_rls_policies(engine) -> list[str]`
+  (Task 2) asserts every tenant table has RLS with both a `USING` and a
+  `WITH CHECK` clause (+ `FORCE ROW LEVEL SECURITY`) by reading `pg_policies` /
+  `pg_class` — pure Postgres introspection.
+  - **Seam:** `(engine, table_list) -> violations`; a `__main__` that exits
+    non-zero for CI.
+  - **Keep OUT of the core:** Penny's concrete table list — pass it in via
+    config or discover it from `pg_class` (tables with `relrowsecurity`), so the
+    linter carries no knowledge of Penny's schema.
+  - *Portable to any RLS-based multi-tenant Postgres app that wants to assert
+    every table is fully policy-covered.*
+
+- **CI regression-guard pattern.** The required CI job (Task 4) that runs the
+  Postgres-marked suites + policy-lint + adversarial E2E + dependency scan on
+  every PR is a reusable shape, independent of the specific tests.
+  - **Seam:** a workflow that composes "isolation suites + policy-lint + browser
+    IDOR E2E + dep scan" as required-for-merge gates.
+  - **Keep OUT of the core:** repo-specific secrets, DB URLs, and suite paths —
+    parameterize via CI secrets/vars.
+  - *Portable to any app that wants tenant-isolation invariants enforced as a
+    standing, can't-silently-break merge gate.*
+
+- **Agent-driven coverage-matrix audit harness (repeatable process).** The
+  fan-out adversarial workflow (Task 5) — one reviewer per matrix dimension,
+  `rook` + `/security-review` depth passes, each candidate verified by a failing
+  test — is a re-runnable audit *process*, not a one-off.
+  - **Seam:** a signed coverage matrix (dimensions × owner × pass × findings ×
+    sign-off) driving a `Workflow` fan-out with per-dimension adversarial
+    prompts; every survivor ships a regression test that joins the CI guard.
+  - **Keep OUT of the core:** Penny's specific dimensions and table/route
+    inventory — the matrix rows are data, and the prompts reference "each
+    dimension" generically.
+  - *Portable to any project that needs a repeatable, evidence-gated security
+    audit whose findings harden into standing regression tests.*
+
 ## Self-Review
 
 **Spec coverage:** methodology (fan-out + rook + verify) → Task 5; coverage

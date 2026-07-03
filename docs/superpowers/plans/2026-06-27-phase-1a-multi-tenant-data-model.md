@@ -1865,6 +1865,59 @@ git commit -m "test(e2e): chat smoke spec proves tenancy layer keeps chat workin
 
 ---
 
+## Modularization
+
+**Design principle (epic-wide):** wherever a unit has a genuinely clean
+boundary, structure it so it *could* be lifted into a standalone package
+portable to other projects — no Penny-specific coupling in the core. This is
+not premature abstraction: the module still ships inside this phase, in-tree,
+consumed directly. We only call out the extraction where the seam is already
+clean, and we keep the *shape* portable so a later lift-and-shift is mechanical
+rather than a rewrite.
+
+**Portable module: a multi-tenant-Postgres toolkit (candidate `tenancy` package).**
+
+The tenancy primitives introduced here form a self-contained toolkit for
+adding household/owner/visibility isolation to *any* SQLAlchemy + Postgres app,
+independent of Penny's domain tables.
+
+- **What's in the core:**
+  - `RequestContext` / `SessionMode` / `NIL_USER_UUID` and the `ContextVar`
+    plumbing (`set_/get_/require_/reset_request_context`, `effective_user_id`) —
+    Tasks 1–2. A request-scoped principal carried out-of-band from call
+    signatures.
+  - `session_for(ctx)` + the transaction-local session binding
+    (`_apply_rls_settings` → `SET LOCAL` / `set_config('app.current_*', …, true)`)
+    — Task 8. The generic "stamp the connection with the current principal so
+    RLS can read it" mechanism.
+  - `visible_filter(model, ctx)` — Task 9. A parametric SQLAlchemy predicate
+    builder: it takes *any* model exposing `household_id` / `owner_user_id` /
+    `visibility` and returns the individual-vs-joint clause. It never names a
+    concrete table.
+  - The RLS policy pattern itself — Task 10 / migration 011: the
+    `tenant_isolation` policy shape (USING **and** WITH CHECK, the nil-user
+    sentinel for the shared/joint view, `FORCE ROW LEVEL SECURITY`,
+    dialect-guarded DDL) expressed against the `app.current_household` /
+    `app.current_user` GUCs.
+
+- **Seam / interface:** everything in the core reads a `RequestContext` and
+  assumes only the *conventional* tenancy column triple
+  (`household_id`, `owner_user_id`, `visibility`) plus the two session GUCs. It
+  makes no assumption about which tables exist or what they mean — it works for
+  any owner/household/visibility schema.
+
+- **Keep OUT of the core (these are consumers, not the toolkit):** Penny's
+  concrete ORM models (`Household`, `User`, `PlaidAccount`, the financial
+  tables), the façade query methods (`list_visible_plaid_transactions` et al.),
+  the dev-stub principal's Penny-specific header/env names
+  (`X-Penny-*` / `PENNY_DEV_*`), and the taxonomy/backfill wiring. These import
+  the toolkit; the toolkit never imports them.
+
+- **Portable to:** any SQLAlchemy-on-Postgres project that needs per-request,
+  RLS-enforced multi-tenancy with a private/shared visibility model.
+
+---
+
 ## Self-Review
 
 **Spec coverage check (spec § → task):**

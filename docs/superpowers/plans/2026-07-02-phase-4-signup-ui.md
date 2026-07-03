@@ -730,6 +730,43 @@ git commit -m "test(e2e): invited email joins inviter household; active email sh
 
 ---
 
+## Modularization
+
+Structured so the account system can be lifted into a standalone package. It
+sits at the top of a three-layer reusable stack — **tenancy → auth → accounts**
+— composing with the phase-1a tenancy toolkit and the phase-2 auth kit without
+coupling to either's internals. Only genuinely clean boundaries are called out.
+
+**Account system.** The reusable unit is `penny/signup.py` plus its routes: the
+households/users account model, self-serve provisioning
+(`provision_solo_household`, Task 1), the pending-user invite / first-login-link
+mechanism (`resolve_or_provision_identity`, Task 2; `create_invite` /
+`list_pending_invites` / `revoke_invite`, Tasks 3–4), household rename, and
+`GET /api/me` (Task 5). The invariant it enforces — **one user = one tenant**,
+with an invite realized as a pending row (`external_auth_id IS NULL`) that a
+first login atomically claims — is the portable core.
+
+- **Seam / interface:** upstream it consumes the phase-2 auth kit's
+  unknown-identity branch — the auth dependency calls
+  `resolve_or_provision_identity(email, external_auth_id) -> (tenant_id,
+  user_id)` and wraps the result in a `RequestContext`; downstream every service
+  takes a `RequestContext` + session and derives the tenant from
+  `ctx.household_id` (never a request body). The external invite provider is
+  already injected behind the `ClerkInvites` protocol
+  (`create_invitation` / `revoke_invitation`), with `FakeClerkInvites` in tests —
+  that is the seam a different app swaps.
+- **Keep OUT (Penny coupling):** taxonomy/workspace seeding — `provision_solo_household`
+  currently calls `seed_taxonomy_for_household` inline; the portable boundary is
+  a post-provision hook (`on_household_created`) another app supplies with its
+  own seeding (or none), and phase-1b workspace prefixes stay lazy so they never
+  couple in. Also keep out: the Clerk specifics (behind the auth kit / the
+  `ClerkInvites` protocol) and Penny's concrete `Household`/`User` column set
+  beyond the `(tenant, user, email, external_auth_id)` shape the invariant needs.
+- **Portable to:** any multi-tenant app needing self-serve signup plus
+  invite-to-join under a one-tenant-per-user invariant.
+
+---
+
 ## Self-Review
 
 **Spec coverage:** auto-provision → Tasks 1/2/7; invite (new users only) →

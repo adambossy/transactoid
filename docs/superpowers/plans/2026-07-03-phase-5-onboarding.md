@@ -1155,6 +1155,66 @@ git commit -m "test(e2e): inline Plaid Link card renders and enables connect but
 
 ---
 
+## Modularization
+
+**Principle:** carve each unit at a clean boundary so it could be lifted into a
+standalone package with no Penny-specific coupling in its core. This phase is
+already largely modular *by construction* — three of the four units land in
+external packages (agent-harness, agent-ui) as general-purpose subsystems.
+Guard against premature abstraction: keep concrete item keys, Plaid specifics,
+and DB wiring out of the reusable cores.
+
+- **System-reminder subsystem (the exemplar).** `ReminderQueue` +
+  `wrap_system_reminder` + the run-loop drain (Tasks 1–2) are built *into*
+  agent-harness (`agent_harness/extras/reminders.py` + `core/loop.py`), not
+  Penny. This is the model the rest of the plan follows: a product-agnostic
+  subsystem that any agent-harness host inherits for free.
+  - **Seam:** the `ReminderQueue` Protocol (`enqueue`/`drain`) + the frozen
+    `Reminder(kind, content)` value. Hosts supply any implementation
+    (`InMemoryReminderQueue` ships in-package; Penny's `DbReminderQueue` is one
+    adapter behind the same Protocol).
+  - **Keep OUT of the core:** persistence choices, tenancy/`RequestContext`,
+    conversation-id semantics, and any notion of "onboarding." The core only
+    knows sessions, kinds, and text.
+  - *Portable to any project that needs backend-enqueued state flushed into the
+    next model turn without mutating the (cache-stable) system prompt.*
+
+- **agent-ui reminder-hiding.** `stripSystemReminders` (Task 3) is a first-class
+  library change in agent-ui (`packages/agent-ui/src/reminders.ts`, exported
+  from `index.ts`), not a Penny-side render hack.
+  - **Seam:** a pure `string -> string` function plus the `Message.tsx`
+    user-branch integration; exported for direct reuse.
+  - **Keep OUT of the core:** any Penny-specific reminder `kind` values or
+    copy — it strips the generic `<system-reminder …>` span shape only.
+  - *Portable to any agent-ui host that injects system-reminder spans and must
+    keep them model-facing (never rendered).*
+
+- **Generative-UI inline-card pattern.** The Plaid Link card (Tasks 7–8) is a
+  concrete instance of a reusable pattern: a `@tool` returns structured content
+  → a renderer registered via agent-ui's `registerToolRenderer(toolName, …)`
+  draws it inline, keyed on `part.state`/`part.output`.
+  - **Seam:** tool structured-content shape ⟷ renderer registration by tool
+    name. The pattern is the contract, independent of what the card does.
+  - **Keep OUT of the core:** Plaid/`react-plaid-link` specifics live entirely
+    inside `PlaidLinkCard`; the registry mechanism knows nothing about banking.
+  - *Portable to any project that wants a tool call to render its own inline UI
+    widget instead of plain text.*
+
+- **Onboarding trigger-engine (more product-specific — split the core).** The
+  engine (Task 5) is Penny-flavored, so structure it as a generic
+  state-machine / trigger-evaluation core parameterized over an item set,
+  kept separate from Penny's concrete `ITEM_KEYS` and rule table.
+  - **Seam:** `evaluate(state, signals) -> reminder | None` over a declarative
+    rule set + a `{pending, accepted, dismissed}` per-item state machine. The
+    signals struct and rule predicates are injected, not baked in.
+  - **Keep OUT of the core:** Penny's specific item keys (`connect_plaid`,
+    `account_visibility`, …), their copy, the SQLAlchemy models, and
+    `RequestContext`. Those live in a thin Penny layer that instantiates the
+    engine with its own item set.
+  - *Portable to any project that needs deterministic, per-turn "nudge when
+    condition X holds, once/ every turn, until resolved" progressive
+    onboarding — with a different item set.*
+
 ## Self-Review
 
 **Spec coverage:** harness `ReminderQueue` + flush → Tasks 1–2; first-class
