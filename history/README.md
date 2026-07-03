@@ -22,3 +22,8 @@ the canonical packages and outside the recurring dev tooling in
   `derived_transactions` rows for expense_negative accounts, run once after
   migration 005. Going-forward rows are sign-normalized at ingest by the sync
   path, so the backfill is spent. Kept as the record of the cut-over.
+- `apply_taxonomy_descriptions.py` — one-off apply step for the category
+  description backfill: pushed the `description` field from
+  `configs/taxonomy.yaml` into existing `categories` rows on a live DB
+  (`bootstrap` only seeds descriptions when the table is empty). Spent once
+  applied. Kept as the record of the cut-over.
