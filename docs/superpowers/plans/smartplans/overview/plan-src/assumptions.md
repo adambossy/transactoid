@@ -10,6 +10,12 @@ crosslinks: [foundation, phase-1a]
 
 This SmartPlan renders a plan tree decided through brainstorming (design spec dated 2026-06-27). Because the plan was already settled with the user, no new questions were asked while generating the tree — the decisions below were made in that session, and the assumptions are the tactical defaults taken while transcribing it.
 
+## Requirements
+
+- The reader can see every decision the user made, and who made it, in one place.
+- The reader can tell which choices were deliberate design decisions and which were tactical defaults taken while writing the plan.
+- The reader can see every question still open, so nothing unresolved is hidden.
+
 ## asked — What the user decided
 
 | Question | Decision |

@@ -10,6 +10,12 @@ crosslinks: [data-model, phase-1a-testing]
 
 The two layers that make isolation real, and how the current household reaches the database. The predicate itself is described on the data model page.
 
+## Requirements
+
+- A member's queries only ever return their own household's data, and within it only what they own or what has been shared.
+- Even the agent's most open-ended database access cannot reach another household's records or a spouse's private ones.
+- A member can never write a record into someone else's household, so data can't be planted where it doesn't belong.
+
 ## request-context — Request context
 
 A `RequestContext` carries the user id, household id, and session mode. It travels via a context variable set at the start of each request, so the façade can read it without threading a parameter through fifty methods. In phase 1 a dev-stub resolver builds it from a header or env var; phase 2 swaps that for verified auth with no downstream change.

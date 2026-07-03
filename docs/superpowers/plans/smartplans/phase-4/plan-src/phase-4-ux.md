@@ -10,6 +10,13 @@ crosslinks: [phase-4-signup]
 
 Phase 4 adds the self-serve signup and invite surfaces, validated end to end by driving Clerk signup with testing tokens in a real browser.
 
+## Requirements
+
+- I can find a signup screen inside the normal app, sign up with Google, and land directly in my own space.
+- I can see my household's name in the header and rename it in place.
+- I can invite a family member, review my pending invites, and cancel one — with a clear message if they already have an account.
+- A brand-new space with no data yet greets me with a friendly explanation of what to do next, not a blank or broken screen.
+
 ## ui-ux — UI/UX requirements
 
 A prospective user can reach a self-serve signup screen (Clerk `<SignUp>`) rendered inside the normal app shell, sign up with Google, and land directly in their own solo household (see [signup.html](signup.html)). A newly signed-up user sees their household's name in the header and can click it to rename the household inline, persisted via `PATCH /api/household`. A household member can open an Invite screen, enter an email, and send an invitation; the screen lists the household's pending invites, each with a revoke control. When inviting an email that already has an account, the inviter sees a clear "start fresh" message (the `409` case) rather than a generic error. A member of a brand-new household with no synced data yet sees a friendly empty state explaining what to do next instead of a blank or broken screen. New screens use the shared UI template primitives — Header, Footer, Logo, color tokens, type scale — responsive, with loading, empty, and error states.

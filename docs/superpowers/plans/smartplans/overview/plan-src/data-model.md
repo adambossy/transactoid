@@ -10,6 +10,12 @@ crosslinks: [workspace-storage, phase-1a-enforcement]
 
 How identity, ownership, and the isolation predicate fit together. The Phase 1a plan's enforcement page shows how this is wired into the running system.
 
+## Requirements
+
+- Every piece of financial data can be traced to the household and the person it belongs to.
+- A member only ever sees data from their own household, and within it only what they own or what has been shared with them.
+- In a shared conversation, private information is automatically held back, with no extra steps from either spouse.
+
 ## identity — Identity tables
 
 Two new tables anchor tenancy. `households` is the tenant. `users` carries a `household_id`, an `email`, and an `external_auth_id` (the Clerk/Auth0 subject, null until phase 2). A revived `plaid_accounts` table is the source of truth for per-account ownership and sharing, carrying `owner_user_id`, `household_id`, and a `visibility` of `private` or `shared`.

@@ -10,6 +10,12 @@ crosslinks: [phase-3-assign]
 
 Production is `create_all`-managed with a multi-head alembic history, so a plain upgrade is unsafe. This stage brings alembic and the real schema into agreement, then applies the multi-tenant migration chain.
 
+## Requirements
+
+- My production database is upgraded to the new multi-tenant structure without losing or corrupting any existing data.
+- The upgrade is rehearsed on a throwaway copy first, so surprises surface before production is touched.
+- After the fix, future schema changes stay disciplined and cannot silently drift out of sync again.
+
 ## reconcile — Reconciling alembic with reality
 
 On a throwaway Neon branch off production: resolve the multi-head history to a single head by merging the branches, then stamp the revision that matches production's current `create_all` schema so alembic believes the baseline is already applied, then upgrade to run only the new revisions — phase 1a's identity/tenancy migrations, phase 1b's workspace tables, phase 2's conversation columns, and the cutover's own data steps. Rehearse the whole stamp-and-upgrade on that branch, confirm the schema and a smoke query, then repeat on production behind the pre-apply snapshot.

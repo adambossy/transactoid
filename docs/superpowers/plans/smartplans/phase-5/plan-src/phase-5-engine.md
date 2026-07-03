@@ -10,6 +10,12 @@ crosslinks: [phase-5-reminders, phase-5-plaid]
 
 Deterministic rules decide what to nudge; the [reminder subsystem](reminders.html) carries the nudge to the model.
 
+## Requirements
+
+- Penny nudges me toward the setup steps that actually matter for me, and stops once I've done them or told it to drop them.
+- If I dismiss a suggestion it stays gone, but I can still ask for that thing whenever I want.
+- Setup nudges only show up in my personal chats, never in a thread I share with family.
+
 ## state — State machine
 
 An `onboarding_items` table (RLS-protected) tracks each user's items with exactly three statuses: **pending** (initial), **accepted**, **dismissed**. There is no "active" status — whether an item currently warrants a nudge is a pure function of pending status plus trigger rules, computed per request. The agent's `resolve_onboarding_item` tool sets accepted or dismissed, nothing else. A dismissed item stays dismissed (nudging never resumes), but the user can always just ask for the underlying thing later.

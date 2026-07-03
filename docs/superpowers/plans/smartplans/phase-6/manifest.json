@@ -4,8 +4,33 @@
     "id": "phase-6",
     "label": "Phase 6 — Security audit",
     "href": "index.html",
-    "sections": ["goal", "focus-items", "output"],
-    "crosslinks": [],
-    "children": []
+    "sections": ["goal", "method", "gate"],
+    "crosslinks": ["phase-6-matrix", "phase-6-guard", "phase-6-deliverables"],
+    "children": [
+      {
+        "id": "phase-6-matrix",
+        "label": "Coverage matrix",
+        "href": "matrix.html",
+        "sections": ["dimensions", "must-cover", "signoff"],
+        "crosslinks": ["phase-6-guard", "phase-6-deliverables"],
+        "children": []
+      },
+      {
+        "id": "phase-6-guard",
+        "label": "CI regression guard",
+        "href": "guard.html",
+        "sections": ["policy-lint", "suites", "e2e", "dep-scan"],
+        "crosslinks": ["phase-6-matrix", "phase-6-deliverables"],
+        "children": []
+      },
+      {
+        "id": "phase-6-deliverables",
+        "label": "Gate & deliverables",
+        "href": "deliverables.html",
+        "sections": ["gate", "findings", "memo"],
+        "crosslinks": ["phase-6-matrix", "phase-6-guard"],
+        "children": []
+      }
+    ]
   }
 }

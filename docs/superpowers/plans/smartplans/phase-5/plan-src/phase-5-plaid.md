@@ -10,6 +10,12 @@ crosslinks: [phase-5-engine]
 
 Bank linking is the core onboarding step, so it lives where onboarding lives: inline in the conversation. This is the B-6 rearchitecture from the productionization plan — Link in the frontend, token exchange server-side — with the localhost flow kept for local development.
 
+## Requirements
+
+- When Penny suggests connecting a bank, I can do it right there in the chat without leaving for a separate screen.
+- After I link a bank, Penny confirms it worked, starts pulling in my transactions, and reminds me I can add more accounts anytime just by asking.
+- My bank connection stays secure — new accounts default to private, and only I can link accounts for myself.
+
 ## inline-flow — The inline flow
 
 When the user accepts the [nudge](engine.html), the agent calls a `connect_bank_account` tool that mints a Plaid link token and returns it as structured output. The frontend registers a tool renderer for that tool name, so a connect card hosting `react-plaid-link` renders inline in the chat — the Vercel generative-UI pattern. Institutions that bounce through OAuth redirect out and back; Link resumes via the received redirect URI, and the conversation itself rehydrates from the store, so the user returns to the same agent state.

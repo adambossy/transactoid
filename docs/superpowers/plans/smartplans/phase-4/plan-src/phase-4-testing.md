@@ -8,6 +8,12 @@ crosslinks: [phase-4-invites]
 
 # Security & testing
 
+## Requirements
+
+- I can trust that two different people who sign up can never see each other's finances.
+- Opening signup to everyone doesn't expose me to runaway costs or abuse from strangers creating accounts.
+- I can be confident the signup and invite rules actually hold, because they're checked automatically.
+
 ## abuse-surface — The open-signup abuse surface
 
 Fully open signup on a bank-linking app means anyone can create accounts and initiate Plaid links — a cost and abuse surface. Mitigations to add and track: rate-limit signup and Plaid-link initiation per identity/IP, and monitor Plaid usage. Flagged as an explicit phase-6 audit item. Isolation itself is not at risk: two independent signups yield two fully isolated households under phase-1a RLS, and re-linking the same bank in two households produces independent Plaid items with no shared rows.

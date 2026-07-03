@@ -10,6 +10,12 @@ crosslinks: [phase-1a-enforcement]
 
 How the schema moves from single-user to multi-tenant without losing the existing real data. Appended to the current Alembic chain; the [enforcement page](enforcement.html) covers the RLS migration that follows.
 
+## Requirements
+
+- A household's existing financial history carries over intact — nothing is lost or scrambled as the system moves to the multi-household design.
+- After the move, every past record belongs to the right household and owner and stays private until someone chooses to share it.
+- The change can be applied to a database that already holds real data without a moment where records are half-updated or exposed to the wrong person.
+
 ## chain — The migration chain
 
 Eight new revisions extend the existing chain (current head `005`): `006` adds households and users, `007` revives `plaid_accounts`, `008` adds the nullable tenant columns, `009` backfills them, `010` tightens to NOT NULL with keys and checks, `011` enables RLS, `012` makes the taxonomy per-household, and `013` encrypts existing tokens.

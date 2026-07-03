@@ -10,6 +10,12 @@ crosslinks: [phase-1b-versioning]
 
 Phase 1b moves the workspace off the local filesystem, so it too is invisible infrastructure — memory and reports must keep surfacing naturally, proven by a round-trip through the real UI.
 
+## Requirements
+
+- A user who relies on the agent's memory and past reports keeps seeing them surface naturally in conversation after the storage change.
+- Nothing about the chat experience changes and no new error screens appear; any failure shows the same familiar message.
+- The team can prove, through a real browser, that a saved memory survives and comes back in a later conversation.
+
 ## ui-ux — UI/UX requirements
 
 The workspace hybrid (Postgres manifest + R2 blobs) replaces `~/.transactoid` as invisible infrastructure — never a screen of its own. A user who relies on the agent's memory and past reports keeps seeing those surface naturally in conversation after the store moves onto the hybrid; memory, rules, and reports appear in agent replies just as they did from the local filesystem. No new empty or error states arise from this work; any failure still surfaces through the existing error banner. The bar is again a negative one: the store round-trips correctly and nothing about the chat surface changes. New screens use the shared UI template primitives — Header, Footer, Logo, color tokens, type scale — responsive, with loading, empty, and error states.

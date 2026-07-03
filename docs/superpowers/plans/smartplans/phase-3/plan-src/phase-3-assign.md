@@ -10,6 +10,12 @@ crosslinks: [phase-3-schema, phase-3-safety]
 
 Who owns each account, how visible it is, and how the two of you take ownership after the data has moved.
 
+## Requirements
+
+- I decide, for each account, who owns it and whether it is private or shared, one account at a time.
+- Every one of my legacy transactions ends up attached to the right owner and household, with none left unassigned.
+- After the move, my wife and I each sign up normally and land in the shared household with our accounts already owned correctly.
+
 ## interactive — Interactive account assignment
 
 The tool lists each linked account — institution, name, and a few sample transactions for recognition — and prompts for owner (you or your wife) and visibility (private or shared). Every choice is appended to a mapping record file as it is made, so a re-run resumes rather than re-prompting, and the assignment is auditable after the fact.

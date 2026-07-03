@@ -10,6 +10,12 @@ crosslinks: [phase-1a-testing]
 
 Phase 1a is backend-only, so its UI/UX bar is a negative one — the user must notice nothing — and its browser validation is a smoke test plus the harness every later phase reuses.
 
+## Requirements
+
+- An existing user opens the app and everything looks and behaves exactly as before — no login wall, no new controls, no added delay.
+- If something goes wrong, the user sees the same familiar error message rather than a new or confusing screen.
+- The team can prove, through a real browser, that the everyday chat experience still works end to end after the change.
+
 ## ui-ux — UI/UX requirements
 
 Sub-project 1 slides the tenancy layer (households, RLS, the dev-stub principal) underneath the current single-user surface, so the goal is that nothing visible changes. An existing user opens the app and the chat screen loads exactly as before — no login wall, no new controls — and sending a message streams the assistant response back with no added latency or regression, even though every query now runs on an RLS-governed, household-scoped connection. No new empty or error states are introduced; any failure still surfaces through the existing error banner rather than a bespoke screen. Verifying that "nothing changed" is the whole job here, so the app shell and chat flow are exercised end to end rather than restyled. New screens use the shared UI template primitives — Header, Footer, Logo, color tokens, type scale — responsive, with loading, empty, and error states.

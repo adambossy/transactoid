@@ -10,6 +10,12 @@ crosslinks: [phase-2-backend]
 
 Clerk's React SDK handles login and token lifecycle; the app attaches a fresh bearer token to every backend call.
 
+## Requirements
+
+- A spouse signs in with Google and lands directly in their own chat, where they can see who they are signed in as and sign out at any time.
+- When starting a chat, they choose whether it is private to them or shared with the household.
+- Their session stays protected even if a malicious script runs in the page.
+
 ## gate — Auth gate
 
 Wrap the app in `<ClerkProvider>` (`VITE_CLERK_PUBLISHABLE_KEY`). Unauthenticated users see the hosted `<SignIn>` (Google enabled); authenticated users get the existing `ChatScreen` with a `<UserButton>` / sign-out. Attach `Authorization: Bearer <getToken()>` per request (fresh each call) on the AI SDK `/api/chat` transport and the `/api/sessions/{id}` fetch, replacing the old `penny:sessionId` localStorage scheme with server-provided, user-scoped conversation ids.

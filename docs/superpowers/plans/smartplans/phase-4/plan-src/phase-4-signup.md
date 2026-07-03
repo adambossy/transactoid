@@ -10,6 +10,12 @@ crosslinks: [phase-4-invites]
 
 Phase 2 already turns a verified token into a `RequestContext`. Phase 4 changes exactly one branch of that resolution — what happens when the user is unknown.
 
+## Requirements
+
+- Anyone can sign up on their own and immediately get their own private space, without waiting for someone to grant them access.
+- When I sign up, my new space is ready to use right away, with sensible defaults I can adjust later.
+- My finances and another new signup's finances never mix — each person gets a fully separate, isolated space.
+
 ## resolution — Identity resolution order
 
 On a verified token: (1) resolve by Clerk subject; (2) no match but a **pending invite row** exists for the verified email → claim it and join that household (see [invites](invites.html)); (3) no match, no pending row → **auto-provision** a new solo household. This replaces phase 2's unknown-user 403 — the users table stops being an allowlist and becomes the registry that signup populates.

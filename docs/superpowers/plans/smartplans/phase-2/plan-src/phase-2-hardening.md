@@ -10,6 +10,12 @@ crosslinks: [phase-2-backend, phase-2-conversations]
 
 The fixes from the security review, plus the test surface that proves them.
 
+## Requirements
+
+- A report can only ever reach the signed-in spouse or the household, never a recipient the agent picks.
+- Even if the agent is tricked, it cannot delete or alter data through free-form actions.
+- Automated background reports always run as a known person and reach only the intended recipients.
+
 ## run-sql — run_sql read-only
 
 The agent's free-form SQL path runs on a **dedicated read-only Postgres role** (or DML is rejected before execution). RLS already blocks cross-household reads; read-only `run_sql` closes the within-household prompt-injection *write/destruction* path. Curated `@tool` write functions (recategorize, verify, persister, conversation persistence) keep a normal RLS-scoped read-write connection — writes flow only through typed, reviewed code.

@@ -10,6 +10,12 @@ crosslinks: [phase-1b-broker, phase-1b-versioning]
 
 The implementation lands in eight test-driven tasks that stack from the storage seam upward to the proof-of-isolation suite. Each task ships behind the standard verification gate (ruff, format, pytest) and reuses phase 1a's tenancy plumbing. This page is the map; the [capability broker](broker.html) and [versioning and CAS](versioning.html) pages hold the design detail.
 
+## Requirements
+
+- When the work is complete, a household's memory, rules, and reports live on the same protected boundary as its financial data.
+- The move preserves each household's isolation — no household can reach another's files, and a shared conversation can never touch a private one.
+- A household's existing local files are carried over into the new store without loss.
+
 ## sequence — How the tasks stack
 
 Two foundation seams come first and independently: the `BlobStore` interface over R2, and the three RLS-protected tables in migration 015. The broker sits on both. Materialize and flush build the read and write halves of the sync layer on top of the broker. Only then does the integration tier land — wiring every agent run in materialize-run-flush, the one-time import command, and the Postgres RLS battery that proves a joint run can never touch a private prefix.

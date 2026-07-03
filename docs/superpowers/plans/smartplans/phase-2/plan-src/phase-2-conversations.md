@@ -10,6 +10,12 @@ crosslinks: [phase-2-backend]
 
 The `conversations` table lives in the web schema — a **separate engine/DB**, so phase 1a's Postgres RLS does not automatically cover it. Phase 2 makes conversations tenant-scoped and records the mode chosen at creation.
 
+## Requirements
+
+- Each spouse sees only their own private chats plus the ones shared with the household.
+- Nobody can reach another person's chat history by guessing its link.
+- Whether a conversation is private or shared is fixed when it is created, so its audience never drifts.
+
 ## schema — Schema additions
 
 `conversations` gains `household_id`, `owner_user_id`, and `session_mode` (individual | joint), set at creation and **immutable**. **Visibility derives from `session_mode`** rather than a separate column: an individual conversation is private to its owner; a joint conversation is visible to the whole household. One source of truth — the mode you picked also decides who can see the thread.

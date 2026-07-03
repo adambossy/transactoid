@@ -10,6 +10,13 @@ crosslinks: [data-model, workspace-storage, phase-1a]
 
 The locked decisions from the design spec. Everything in later phases inherits these. They split into two areas: how tenancy and isolation work (the [data model](foundation/data-model.html)), and where per-household files live (the [workspace store](foundation/workspace-storage.html)).
 
+## Requirements
+
+- A household is a hard wall: a member can trust that nothing they do is ever visible to another household.
+- Within a household, each spouse controls which accounts are shared and which stay private, account by account.
+- When both spouses are present in a shared conversation, only shared information appears — neither person's private data slips in.
+- The reader can see, up front, exactly which information is shared across a household and which stays personal.
+
 ## boundary — The tenancy boundary
 
 A **household** is the tenant and the hard isolation boundary — nothing ever crosses between households. A **user** belongs to exactly one household (multi-household membership is deferred, not designed out). The hard boundary is enforced as **user-centric row-level security**: the database itself rejects rows from other households and a household member's private rows, on every query.

@@ -10,6 +10,12 @@ crosslinks: [phase-3-assign]
 
 The cutover touches real financial data once, so the safety machinery matters as much as the migration itself.
 
+## Requirements
+
+- Before anything changes, an untouched backup is frozen so I can restore production if the cutover goes wrong.
+- The entire migration is rehearsed end to end on a copy before it ever runs for real.
+- Once it is done, signing in shows me my accounts plus shared ones, and confirms my wife can never see my private accounts.
+
 ## backup — Frozen-branch backup
 
 Step zero takes a frozen Neon branch of production — the restore point — and leaves it untouched until the final verify stage passes. It is separate from the rehearsal branch clone. If the production apply goes wrong, production is restored from that frozen branch. A pre-apply snapshot is also taken immediately before the production run.

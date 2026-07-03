@@ -10,6 +10,13 @@ crosslinks: [foundation]
 
 Turn Penny from a single-user finance agent into a multi-tenant product that a household — starting with two spouses — can use, with bank-grade isolation of personal financial data. The work is six sequenced sub-projects, each with its own spec, plan, and build cycle. Phase 1a (the data model) is fully planned; the rest are framed here and detailed when reached.
 
+## Requirements
+
+- Two spouses can share a single Penny and see a combined household view of their finances whenever they both choose to.
+- Either spouse can mark an account private so it stays hidden from their partner and from everyone else.
+- No household can ever reach another household's financial data, no matter how the question is asked.
+- The reader can trace the whole effort as a sequence of phases, each with its own goal and current state.
+
 ## the-goal — The goal
 
 Two people should share one Penny, see a combined household picture where they choose to, and keep private accounts genuinely private — from each other and from every other household. Financial data leaking across a household boundary, or a spouse's private account leaking within one, is the failure this whole effort exists to prevent. Security is treated as a property of every phase, not a final audit.

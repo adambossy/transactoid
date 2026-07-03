@@ -10,6 +10,13 @@ crosslinks: [phase-5-plaid]
 
 Phase 5 delivers conversational onboarding and the inline Plaid Link card, validated end to end up to the card render and a stubbed exchange.
 
+## Requirements
+
+- I land straight in the chat and get onboarded through natural conversation, with no separate wizard, stepper, or setup screen.
+- When prompted to connect a bank, I can launch it from an inline card without ever leaving the conversation.
+- I can add more banks and choose whether each account is private or shared simply by asking Penny.
+- The hidden onboarding state never appears in my transcript — I only see Penny's natural reactions to it.
+
 ## ui-ux — UI/UX requirements
 
 A new user lands straight in the chat and starts talking to Penny; onboarding nudges arrive as natural conversational messages inline in the transcript — there is no separate wizard, stepper, or setup screen. A user prompted to connect a bank sees the inline Plaid Link connect card rendered as generative UI within the agent's message, styled with the shared template, and launches Plaid from it without leaving the conversation (see [plaid.html](plaid.html)). A returning user can reach a "Connect accounts" surface to link more banks and toggle each account's visibility between private and shared, simply by asking the agent. A user who just linked a bank sees clear first-sync progress indication. The system-reminder-driven onboarding state is never visible in the transcript — only the agent's natural reactions to the invisible reminders appear. New screens use the shared UI template primitives — Header, Footer, Logo, color tokens, type scale — responsive, with loading, empty, and error states.

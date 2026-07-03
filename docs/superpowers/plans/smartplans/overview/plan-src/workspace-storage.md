@@ -10,6 +10,13 @@ crosslinks: [data-model, phase-1b]
 
 Today the workspace is a local git repo at `~/.transactoid`. Multi-tenant and remote-deployable, it becomes a hybrid store. The build details are in phase 1b.
 
+## Requirements
+
+- A household's saved notes, rules, and reports stay private to that household and are never reachable by anyone else.
+- Those files survive restarts and moves between machines, so nothing a household relies on is lost.
+- When both spouses share a conversation, only shared files are opened — private files are never even fetched.
+- Two things happening at once can't quietly overwrite each other's saved work, and an interrupted session leaves saved files untouched.
+
 ## why-hybrid — Why a hybrid
 
 Two clean options each fall short: putting files in Postgres reuses the security boundary but fights the agent's filesystem expectations and bloats with blobs; putting files in object storage is durable and cheap but creates a second isolation surface the database does not protect. The hybrid takes the best of both — **Postgres and RLS as the capability broker, R2 as the blob store** — so authorization rides on the same boundary as financial data while bytes live where bytes belong.

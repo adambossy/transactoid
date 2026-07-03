@@ -10,6 +10,12 @@ crosslinks: [phase-2-identity, phase-2-conversations]
 
 A FastAPI dependency (composes per-route, easy to test) turns a bearer token into a phase-1a `RequestContext`. Identity resolution is on the [identity page](identity.html).
 
+## Requirements
+
+- Every request acts as the actual signed-in spouse, never an identity supplied by the caller.
+- A missing, forged, or expired login is rejected before any data is touched.
+- The system refuses to start in an insecure configuration, so it can never accidentally run wide open.
+
 ## verify — JWT verification
 
 Extract `Authorization: Bearer`. Verify against Clerk's JWKS: signature, `iss` against a hardcoded expected value, `exp` with 60s skew, audience if set. Reject `alg=none` / alg-confusion. Missing/invalid → **401**; unknown user → **403**. The **JWKS URL comes from config, never from the token's `iss`** (closes an SSRF hole); cache with a ~15-minute TTL and force-refresh on a verification miss (key rotation).

@@ -10,6 +10,12 @@ crosslinks: [phase-4-signup, phase-4-testing]
 
 "Invite" and "first-login linking" are one mechanism: an invite pre-creates a pending user row that the invitee's signup claims.
 
+## Requirements
+
+- I can invite a family member by email, and when they sign up they land in my household with me instead of getting a separate space.
+- I can see everyone I've invited and cancel an invitation I no longer want.
+- Inviting someone who already has an account can never hijack or merge accounts — I get a clear explanation instead of a broken outcome.
+
 ## flow — The flow
 
 A member posts an email to `/api/invites`. The server creates a **pending users row** in the caller's household (lowercased email, no auth subject yet) and issues a Clerk invitation, which emails the invitee and scopes their signup. When the invitee first logs in, the [resolution order](signup.html) finds the pending row by verified email and links them into that household instead of provisioning a new one.

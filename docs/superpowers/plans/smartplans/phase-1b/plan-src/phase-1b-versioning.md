@@ -10,6 +10,13 @@ crosslinks: [phase-1b-broker, phase-1b-build]
 
 The mental model: **temp dir = working tree, R2 = object store, a Postgres manifest = the commit.** The read side is in the [capability broker](broker.html).
 
+## Requirements
+
+- A household's saved work is preserved as a history of snapshots, so an earlier version can be recovered if needed.
+- Two sessions saving at the same time can't quietly overwrite each other — every change is preserved or the save is retried.
+- A session that stops partway through leaves the saved files exactly as they were, with no half-finished save.
+- Private and shared files are always saved back to the right place, so private content is never exposed by a save.
+
 ## manifests — Manifests over immutable blobs
 
 R2 holds content as immutable, content-addressed blobs keyed `prefix token then sha256`. Postgres holds an append-only **manifest** row per save: the set of blobs making up that point-in-time snapshot, chained to its parent, under the same RLS policy. The manifest is the source of truth for "current version"; rollback is pointing the head at an older manifest. **Refinement from the implementation plan:** heads are per-*prefix* (shared, private-per-user), not one per household — a household-wide head cannot survive RLS, because a joint run's flush would have to copy forward private entries it cannot read, so those files would vanish from the head. Per-prefix chains keep every guarantee; a joint run only ever holds the shared head, and a run editing both scopes performs one CAS per touched prefix.
