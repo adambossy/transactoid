@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Human review loop — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="human-review" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Human review loop</p>
+      <header class="page-header">
+        <p class="eyebrow">The async half</p>
+        <h1>Human review loop</h1>
+        <p class="lede">Get the report by email, improve the categorizer in code or recategorize a wrong row — no stamp or staging step.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The owner can review a day's results whenever convenient, without the pipeline waiting on them.</li>
+<li>A verdict always refers to exactly what the agent decided that day, even if the data changed since.</li>
+<li>Correcting a category in review uses the same simple chat action the owner already knows.</li>
+</ol>
+</section>
+<section id="review-flow">
+<header class="section-header">
+<h2>The review flow (MVP)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="review-flow"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Each 12-hour run writes its records, dumps to R2, and deletes its branch on its own. If the run has any
+legacy&ne;agent disagreements, its HTML artifact &mdash; every cohort transaction with legacy vs agent, the
+agent's reasoning, tools consulted, web-search summary, confidence, and a Langfuse trace deep-link &mdash; is
+<strong>emailed to the owner</strong>. There is <strong>no staging or stamp step</strong>: you read the email
+whenever, and improve the categorizer by editing code (prompt / taxonomy / rules) and/or recategorizing a
+wrong row in chat via the existing <code>recategorize_transaction</code> tool.</p>
+<div class="callout callout--good"><strong>Fully-agreed runs are silent.</strong> When legacy and agent agree on
+every row, there is nothing to review, so no email is sent &mdash; the run still records its metrics and R2
+fixture. You only ever get email for runs that actually need your eyes.</div>
+
+</section>
+<section id="verdict-binding">
+<header class="section-header">
+<h2>How right/wrong is recorded</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="verdict-binding"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>No explicit verdict is captured at review time. Right/wrong is <strong>derived from your natural
+corrections</strong>: when you recategorize a cohort transaction (a <code>manual</code> recat event after the
+run's <code>run_at</code>), the eval reads that as "the agent was wrong here" &mdash; <code>corrected</code>,
+with your new key. A row you never recategorize counts as correct once the
+<a href="../metrics/index.html">settling window</a> has passed (you saw the emailed report and let it stand).</p>
+<p>The verdict therefore binds to the durable <code>(eval_run_id, transaction_id)</code> record, computed
+lazily from the events log &mdash; not to the live prod category, which may move later. Your chat correction
+updates prod for your real data as usual; the eval simply reads it.</p>
+<div class="callout callout--muted"><strong>Honesty note.</strong> Without a confirm step, "uncorrected" can't
+be told apart from "not-yet-reviewed" until the settling window elapses. Emailing every disagreement run is the
+mitigation &mdash; it ensures the runs that need eyes actually get them.</div>
+
+</section>
+<section id="deferred-ui">
+<header class="section-header">
+<h2>Deferred: a dedicated correction UI</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="deferred-ui"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>A purpose-built HTML review-and-correct screen (one-click confirm/correct) is <strong>explicitly out of
+scope</strong> for now. Chat-based correction is the MVP; the HTML artifact is read-only. Revisit once the
+daily volume makes chat tedious.</p>
+
+</section>
+      <p class="foot">Reuses: <a href="../data-model/index.html">eval store &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Branch lifecycle & R2 fixtures — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="neon-branching" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; <a href="index.html">The eval job</a> &nbsp;/&nbsp; Branch lifecycle</p>
+      <header class="page-header">
+        <p class="eyebrow">Branch + fixture</p>
+        <h1>Branch lifecycle & R2 fixtures</h1>
+        <p class="lede">A transient Neon branch for the live run; at the end of the run it becomes a cheap SQLite fixture in R2 and is deleted.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The live evaluation always connects to an isolated snapshot, never accidentally to production.</li>
+<li>Every eval is preserved forever cheaply, and can be re-run against a newer categorizer.</li>
+<li>Branches never accumulate cost, because each is deleted at the end of its run.</li>
+</ol>
+</section>
+<section id="branch-create">
+<header class="section-header">
+<h2>Creating the branch</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="branch-create"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Cut <code>eval/&lt;timestamp&gt;</code> off prod with <code>neonctl branches create</code> with a compute
+endpoint. Copy-on-write, so it is instant and cheap even off a large prod DB. The branch is
+<strong>transient</strong> &mdash; it exists only for the duration of the run, not for retention.</p>
+
+</section>
+<section id="host-workaround">
+<header class="section-header">
+<h2>The connection-string footgun</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="host-workaround"><span class="section-check-label">Read</span></label>
+</header>
+
+<p><strong>Do not</strong> use <code>neonctl connection-string --branch-name</code> &mdash; a documented CLI
+bug returns the <em>parent</em> endpoint, so you would silently connect to prod. Build the URL from the
+<strong>branch's own endpoint host</strong> (see the <code>backend/.env.test</code> header, which already
+documents this for the test branch). Getting this wrong is exactly why the job must fail closed.</p>
+
+</section>
+<section id="teardown">
+<header class="section-header">
+<h2>End of run: dump to R2 &rarr; delete</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="teardown"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>As the last step of the same unattended run &mdash; no human action, no waiting &mdash; the job retires the
+branch:</p>
+<ol>
+<li><strong>Dump</strong> the branch's categorizer-reachable tables (~14&nbsp;MB) into a fresh SQLite file by
+copying table-by-table through the shared SQLAlchemy models (not <code>pg_dump</code> &mdash; the models keep
+types and CHECK constraints dialect-correct).</li>
+<li><strong>Upload</strong> the file (gzipped, ~3&nbsp;MB) to <strong>R2</strong> via Penny's storage adapter
+and record its URL as <code>r2_fixture_url</code> on the run.</li>
+<li><strong>Delete</strong> the Neon branch.</li>
+</ol>
+<p>The eval then lives in perpetuity as the prod <code>eval_*</code> rows plus the R2 fixture. A backtest of a
+future categorizer version downloads the fixture, hydrates a throwaway SQLite, and replays
+<code>categorize_one</code> against that exact frozen input + history.</p>
+<div class="callout callout--good"><strong>Cost.</strong> Branches are created and deleted within a single run,
+so they stay within Neon's included allowance &mdash; effectively <strong>$0</strong>. Perpetual storage is
+R2: a few MB per run at ~$0.015/GB-month, so a year of runs is pennies. The $500&ndash;$3,000/month
+branch-retention cost of the earlier design is gone, and so is any review-backlog concern &mdash; a branch
+never outlives its run.</div>
+<div class="callout callout--muted"><strong>Caveat.</strong> SQLite is dev-only in Penny, so backtests carry a
+minor fidelity caveat vs. the Postgres run &mdash; acceptable for a non-production backtest. A reaper still
+sweeps orphan branches left by a crash between create and delete.</div>
+
+</section>
+      <p class="foot">&larr; Back to <a href="index.html">The eval job</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

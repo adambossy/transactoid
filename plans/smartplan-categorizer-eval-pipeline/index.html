@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Categorizer Evaluation Pipeline — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="root" data-page-depth="0">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+      <header class="page-header">
+        <p class="eyebrow">Penny &middot; categorizer</p>
+        <h1>Daily Categorizer Evaluation Pipeline</h1>
+        <p class="lede">A twice-daily (every 12h), human-adjudicated A/B of the new categorizer agent against the legacy incumbent, tracked as a versioned accuracy trend aggregated by day.</p>
+      </header>
+<section id="the-goal">
+<header class="section-header">
+<h2>The goal</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="the-goal"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Penny categorizes bank transactions against a two-level taxonomy. Production today uses the
+<strong>legacy</strong> single-shot categorizer. A new <strong>per-transaction agent</strong> (with history
+tools and web search) is the candidate replacement. Before it ships, we need evidence — measured on
+real, fresh data — that it is at least as good as the incumbent, and a <strong>trend line</strong> that
+shows it improving as we tune its prompt and taxonomy.</p>
+<p>This plan builds an <strong>evaluation that runs on every 12-hour sync</strong>: after each sync, replay the
+new agent on the just-synced transactions, A/B each decision against the legacy categorization, present the
+disagreements to a human for a thumbs-up-or-correct verdict, and append the result to a versioned time series
+aggregated by day. At Penny's volume that is a reviewable batch of ~10 transactions per run — see the
+<a href="cohort/index.html">data note</a>.</p>
+
+</section>
+<section id="the-strategy">
+<header class="section-header">
+<h2>The strategy</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="the-strategy"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Three concerns are kept strictly separate. <strong>The system under test</strong> is the production
+12-hour sync, which categorizes new rows with the legacy method — left untouched. <strong>The snapshot</strong>
+is a Neon branch cut off prod on each sync; the agent replays there (Neon/Postgres is Penny's first-class
+database) so its writes never touch prod and it reads the same frozen history the legacy categorizer saw.
+The branch is <em>transient</em>: at the end of the run the DB is dumped to <strong>R2</strong> as a SQLite
+fixture and the branch is deleted — nothing waits on a human. <strong>The measurement</strong> is a durable,
+prod-resident eval record — the agent's decision, the legacy baseline, metrics, and a reference to the R2
+fixture; right/wrong is read later from the corrections you make naturally, and metrics are computed lazily.</p>
+<p>The branch is the keystone of the live run: it makes the legacy-vs-agent write conflict a non-issue (they
+live on different snapshots) and the append-only events log records both decisions as a single
+<code>from&rarr;to</code> row. The R2 fixture is the keystone of perpetuity: the eval lives forever as a cheap
+object a future categorizer version can be backtested against. See
+<a href="architecture/index.html">Architecture overview</a>.</p>
+
+</section>
+<section id="key-tradeoffs">
+<header class="section-header">
+<h2>Key tradeoffs</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="key-tradeoffs"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><strong>Re-run, don't just read.</strong> We replay the new agent rather than grading a single stored
+decision, because we are A/B-ing two different categorizers on the same input.</li>
+<li><strong>Langfuse is debugging-only.</strong> Penny emits OTEL spans push-only; there is no SDK client,
+so Scores/Datasets/Experiments are out. Verdicts and the trend live in a local prod-resident store.
+See <a href="langfuse/index.html">Langfuse role</a>.</li>
+<li><strong>Async, no staging step.</strong> Cron cannot block on review. The durable record is written when the
+agent runs; you review the emailed report and improve the categorizer in code (or recategorize a wrong row),
+and the eval reads those corrections later — there is no "stamp" or approval button.</li>
+<li><strong>Neon for the live run, R2 forever.</strong> Each run dumps the branch to R2 (a few MB) and deletes
+it at the end, so branches stay short-lived and inside the included allowance (~$0). Perpetual retention lives
+in R2 at pennies; backtests hydrate a throwaway SQLite from the R2 fixture.
+See <a href="eval-job/neon-branching.html">Branch lifecycle &amp; R2</a>.</li>
+<li><strong>This change deletes the "blind" eval mechanism.</strong> The A/B + human adjudication replaces it.
+See <a href="blind-removal/index.html">Blind removal</a>.</li>
+</ul>
+<p>Start with <a href="goals/index.html">Goals &amp; success criteria</a>, then the
+<a href="architecture/index.html">architecture</a>. Every default is recorded in
+<a href="assumptions/index.html">Assumptions &amp; open questions</a>.</p>
+
+</section>
+      <p class="foot"></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="smartplan.js"></script>
+</body>
+</html>

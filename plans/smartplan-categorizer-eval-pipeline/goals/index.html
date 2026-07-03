@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goals & success criteria — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="goals" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Goals &amp; success criteria</p>
+      <header class="page-header">
+        <p class="eyebrow">Why this exists</p>
+        <h1>Goals & success criteria</h1>
+        <p class="lede">What the pipeline must produce: a continuous quality signal that guides ongoing improvement, not a one-time ship gate.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The owner can see, each day, how often the new categorizer matched a human judgment on brand-new transactions.</li>
+<li>The owner can compare the new categorizer head-to-head against the current one and see which the human kept.</li>
+<li>The owner can watch the accuracy trend over weeks and tell whether a change actually helped.</li>
+<li>The owner has a continuous signal of categorizer quality that guides ongoing improvement, with no fixed finish line.</li>
+</ol>
+</section>
+<section id="outcomes">
+<header class="section-header">
+<h2>Outcomes we want</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="outcomes"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li>A daily number: <em>how often the new agent agrees with a human</em> on fresh transactions.</li>
+<li>A side-by-side: <em>agent vs legacy</em>, so we can see which one the human keeps.</li>
+<li>A trend over weeks, annotated where the categorizer version changes, so improvement is attributable
+to a specific prompt/taxonomy change rather than to easier data.</li>
+</ul>
+
+</section>
+<section id="ship-criteria">
+<header class="section-header">
+<h2>A continuous quality signal (no fixed "ready" state)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="ship-criteria"><span class="section-check-label">Read</span></label>
+</header>
+
+<p><strong>Decision (2026-06-27):</strong> there is no numeric ship gate. The agent is improved gradually and
+indefinitely; the eval is a <em>permanent quality monitor</em>, not a one-time acceptance test, and it
+<strong>keeps running even after the agent replaces legacy in prod</strong>. The numbers below are how we
+<em>watch</em> quality, not a bar that flips a switch:</p>
+<ul>
+<li>Agent exact-match accuracy on agent-decided rows (fast path excluded), tracked over a rolling window.</li>
+<li>Agent win-rate vs legacy (human prefers agent vs prefers legacy).</li>
+<li>Parent-level regressions vs legacy on the same cohort &mdash; the signal that a change made things worse.</li>
+</ul>
+<p>What matters is the <em>direction</em> of the trend across categorizer versions, not any single threshold.</p>
+
+</section>
+<section id="non-goals">
+<header class="section-header">
+<h2>Non-goals</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="non-goals"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li>Not building a labeling product — corrections happen in the existing chat for the MVP.</li>
+<li>Not auto-promoting the agent to prod; the decision to ship stays manual and human-read.</li>
+<li>Not evaluating legacy in isolation beyond the baseline it provides for comparison.</li>
+</ul>
+
+</section>
+      <p class="foot">Next: <a href="../architecture/index.html">Architecture overview &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

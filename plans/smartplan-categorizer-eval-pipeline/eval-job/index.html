@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The eval job (cron) — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="eval-job" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; The eval job (cron)</p>
+      <header class="page-header">
+        <p class="eyebrow">The unattended half</p>
+        <h1>The eval job (cron)</h1>
+        <p class="lede">On each 12-hour sync, all in one unattended run: branch, replay, write durably, dump to R2, delete the branch, email if anything disagreed — with fail-closed and no-op guards.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The twice-daily job runs without supervision and produces a review page for the owner.</li>
+<li>If anything about the snapshot looks wrong, the job refuses to record results rather than recording bad ones.</li>
+<li>Re-running an eval can never silently inflate or corrupt its numbers.</li>
+</ol>
+</section>
+<section id="job-sequence">
+<header class="section-header">
+<h2>What runs on each 12-hour sync</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="job-sequence"><span class="section-check-label">Read</span></label>
+</header>
+
+<ol>
+<li>Resolve this run's cohort against prod (read-only) via the new facade method (ingested since the last
+successful eval run).</li>
+<li>If empty or the legacy baseline is incomplete &rarr; write a <code>skipped_*</code> run row,
+<strong>no branch</strong>, exit 0.</li>
+<li>Create the Neon branch (see <a href="neon-branching.html">Branch lifecycle &amp; R2</a>). On any
+branch/connection error &rarr; <strong>fail closed</strong>: write nothing, exit non-zero.</li>
+<li>Replay the agent on the branch, capture decisions, write durable <code>eval_*</code> records to prod.</li>
+<li>Dump the branch's reachable tables to a SQLite fixture, upload to R2, store its <code>r2_fixture_url</code>
+on the run, mark <code>status = completed</code>, and <strong>delete the branch</strong> &mdash; all in this
+same unattended run.</li>
+<li>If the cohort has any legacy&ne;agent disagreements, <strong>email the report</strong>; a fully-agreed run
+sends nothing. You review later and improve the categorizer in code (or recategorize a wrong row); the eval
+reads those corrections lazily. No staging step.</li>
+</ol>
+
+</section>
+<section id="replay-and-capture">
+<header class="section-header">
+<h2>Replay & capture</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="replay-and-capture"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Reuse <code>categorize_one</code> and the harness's <code>_run_agent_traced</code> wrapper so the agent's
+per-turn spans are traced exactly as in production. For each cohort row capture, in-process:</p>
+<ul>
+<li><code>agent_key</code> (= the persisted <code>to_category_key</code>),</li>
+<li><code>agent_reasoning</code>, tools consulted, web-search summary,</li>
+<li><code>agent_confidence</code> &mdash; <em>only</em> available from the tool call at run time; it is never
+written to the DB, so it must be captured here,</li>
+<li><code>method_at_eval_time</code> &mdash; whether the fast path fired.</li>
+</ul>
+
+</section>
+<section id="durable-write">
+<header class="section-header">
+<h2>Write durable records to prod</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="durable-write"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>As the agent runs, write one <code>eval_items</code> row per cohort transaction to the <strong>prod</strong>
+eval store, plus the <code>eval_runs</code> header with the version stamp &mdash; so the measurement survives
+the branch deletion. <code>legacy_key</code> comes from the agent event's <code>from_category_key</code>. The
+<code>r2_fixture_url</code> is written at the end of the same run, right after the dump.</p>
+
+</section>
+<section id="idempotency">
+<header class="section-header">
+<h2>Idempotency & re-runs</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="idempotency"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Each run maps to one timestamped <code>eval_run_id</code>; the cohort high-water mark guarantees a
+transaction is evaluated by exactly one run. Re-running a given run is idempotent on that id
+(delete-and-reinsert its items), never appended. The branch is gone as soon as the run completes, so any later
+re-run is a <strong>backtest</strong> that hydrates SQLite from <code>r2_fixture_url</code>
+(see <a href="neon-branching.html">Branch lifecycle &amp; R2</a>).</p>
+
+</section>
+      <p class="foot">Detail: <a href="neon-branching.html">Branch lifecycle &amp; R2 &rarr;</a> &middot; Guards: <a href="../failure-ops/index.html">Failure modes &amp; ops &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

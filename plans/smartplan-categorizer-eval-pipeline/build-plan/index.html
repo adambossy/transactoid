@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phased build plan — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="build-plan" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Phased build plan</p>
+      <header class="page-header">
+        <p class="eyebrow">How we get there</p>
+        <h1>Phased build plan</h1>
+        <p class="lede">Seven dependency-ordered phases, each independently verifiable, starting with deletion + the cohort query.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>Work lands in small, independently shippable steps that each leave the build green.</li>
+<li>The riskiest integration (live branching) is exercised against a test database before production.</li>
+<li>Nothing that runs the agent is ever pointed at real production data during development.</li>
+</ol>
+</section>
+<section id="phases">
+<header class="section-header">
+<h2>Phases (dependency-ordered)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="phases"><span class="section-check-label">Read</span></label>
+</header>
+
+<ol>
+<li><strong>Blind removal + cohort facade method.</strong> Pure deletion plus one new read method (cohort by
+created-at high-water mark). Independent, unblocks everything. See
+<a href="../blind-removal/index.html">Blind removal</a>, <a href="../cohort/index.html">Cohort</a>.</li>
+<li><strong>Eval store schema + version-stamp capture.</strong> The two prod tables (incl.
+<code>r2_fixture_url</code>) and the version-stamp helper (model, prompt, SHA, taxonomy, rules). See
+<a href="../data-model/index.html">Data model</a>.</li>
+<li><strong>Eval job (one unattended run).</strong> Branch + replay agent + write durable records + dump to
+SQLite + upload to R2 + delete branch, all in-run; plus fail-closed/no-op handling. See
+<a href="../eval-job/index.html">The eval job</a>.</li>
+<li><strong>HTML review artifact + email.</strong> Extend <code>categorizer_review.py</code> to render
+legacy-vs-agent; email it to the owner only when the run has disagreements (fully-agreed runs send nothing).</li>
+<li><strong>Corrections-derived verdicts + backtest path.</strong> Compute <code>corrected</code> vs correct by
+reading <code>manual</code> recat events after <code>run_at</code> (settling window); add the backtest that
+hydrates SQLite from <code>r2_fixture_url</code>. See <a href="../metrics/index.html">Metrics</a>,
+<a href="../eval-job/neon-branching.html">Branch lifecycle</a>.</li>
+<li><strong>Lazy metrics + versioned trend page.</strong> See <a href="../metrics/index.html">Metrics</a>.</li>
+<li><strong>Move sync + eval to a 12-hour cadence.</strong> Update <code>deploy/cron-manager/schedules.json</code>
+(sync is currently hourly) and add the orphan-branch reaper.</li>
+</ol>
+
+</section>
+<section id="verification">
+<header class="section-header">
+<h2>Verification at each step</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="verification"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Per <code>AGENTS.md</code>, before completing any unit of work run from <code>backend/</code>:
+<code>uv run ruff check .</code>, <code>uv run ruff format --check .</code>, <code>uv run pytest -q</code>.
+Point any agent-running step at the <strong>penny-test</strong> Neon branch, never prod (the agent persists).
+The deletion, schema, and metrics phases are unit-testable offline; the live-run and dump phases need a real
+branch and R2 bucket and should first be exercised against penny-test.</p>
+
+</section>
+      <p class="foot">Unknowns first: <a href="../assumptions/index.html">Assumptions &amp; open questions &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

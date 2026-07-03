@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blind removal — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="blind-removal" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Blind removal</p>
+      <header class="page-header">
+        <p class="eyebrow">Scope removal</p>
+        <h1>Blind removal</h1>
+        <p class="lede">Delete the blind eval mechanism entirely — 7 call sites plus helpers — keeping _normalize_descriptor.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The codebase no longer carries an evaluation mechanism we've decided not to use.</li>
+<li>Nothing outside the evaluation tooling breaks when the blind feature is removed.</li>
+</ol>
+</section>
+<section id="rationale">
+<header class="section-header">
+<h2>Why blind goes away</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="rationale"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>The old "blind" mechanism hid a merchant's own history from the agent so it couldn't echo its prior
+categorization. With a <strong>legacy-vs-agent A/B plus human adjudication</strong>, that signal is no longer
+needed — the human is the ground truth, and we want the agent to use history exactly as it does in
+production. Blind is dead weight and is removed as part of this change.</p>
+
+</section>
+<section id="deletion-checklist">
+<header class="section-header">
+<h2>Deletion checklist</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="deletion-checklist"><span class="section-check-label">Read</span></label>
+</header>
+
+<p><strong><code>facade.py</code></strong></p>
+<ul>
+<li><code>_excluded_merchant_ids</code> / <code>_excluded_descriptors</code> ContextVars</li>
+<li><code>review_blind_exclusions</code> context manager</li>
+<li><code>_apply_merchant_blind</code> static method <strong>and all 7 call sites</strong>
+(~lines 3208, 3236, 3259, 3287, 3311, 3346, 3455). After removal it has no readers.</li>
+</ul>
+<p><strong><code>scripts/categorizer_review.py</code></strong></p>
+<ul>
+<li><code>_blind_descriptor_set</code> helper</li>
+<li>the <code>--blind</code> flag and all its plumbing</li>
+</ul>
+<p><strong><code>categorizer_agent.py</code></strong></p>
+<ul>
+<li>the blind docstring comment in <code>_render_categorizer_prompt</code></li>
+</ul>
+
+</section>
+<section id="keep-list">
+<header class="section-header">
+<h2>Keep — do not delete</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="keep-list"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><code>_normalize_descriptor</code> in <code>categorizer_review.py</code> — shared with recategorized-mode
+(<code>_select_recategorized_txns</code>), not blind-only.</li>
+</ul>
+<p>Verified: no non-eval consumer references any blind symbol. The 7th call site (<code>get_transactions_by_tag</code>,
+~line 3455) is easy to miss — count to seven.</p>
+
+</section>
+      <p class="foot">Phase 1 of the <a href="../build-plan/index.html">build plan &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

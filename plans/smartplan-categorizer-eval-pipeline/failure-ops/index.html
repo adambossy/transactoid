@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failure modes & ops — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="failure-ops" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Failure modes &amp; ops</p>
+      <header class="page-header">
+        <p class="eyebrow">When things go wrong</p>
+        <h1>Failure modes & ops</h1>
+        <p class="lede">No-op on empty/incomplete; fail closed on branch/connection errors; perpetual retention is R2, branches transient.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>A failed or incomplete run shows up as a clear gap, never as a falsely good or bad number.</li>
+<li>A misconfigured connection can never cause the evaluation to run against real production data.</li>
+<li>Unreviewed work is visible so branches don't quietly accumulate.</li>
+</ol>
+</section>
+<section id="no-op-cases">
+<header class="section-header">
+<h2>No-op cleanly (exit 0, record a marker)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="no-op-cases"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><strong>Empty cohort</strong> (uncommon at 12h, ~10 txns/run): write
+<code>eval_runs(status=skipped_empty)</code>, cut no branch.</li>
+<li><strong>Incomplete legacy baseline</strong> (this run's sync failed / hadn't run): write
+<code>status=skipped_incomplete_baseline</code>. Measuring the agent against a hole would corrupt the trend.</li>
+</ul>
+<p>A skipped marker keeps the trend honest (a visible gap) instead of a missing or fabricated point.</p>
+
+</section>
+<section id="fail-closed">
+<header class="section-header">
+<h2>Fail closed (exit non-zero, write nothing)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="fail-closed"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><strong>Branch creation fails</strong> (Neon quota/API): abort before any write.</li>
+<li><strong>Connection/host error</strong>: if the branch endpoint can't be resolved correctly, never fall
+back to prod — the <code>connection-string --branch-name</code> bug makes this a live footgun. Build from the
+branch's own endpoint host; if that fails, stop.</li>
+</ul>
+<p>Pattern to mirror: the existing sync tool's structured catch-and-return-error, no partial writes.</p>
+
+</section>
+<section id="retention-note">
+<header class="section-header">
+<h2>Retention (R2) & orphan cleanup</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="retention-note"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Perpetual retention lives in <strong>R2</strong>, not Neon: at the end of each run the branch is dumped to a
+SQLite fixture in R2 and deleted. A year of 12-hour runs is a few GB of objects &mdash; pennies. Neon branches
+are created and deleted within a run, so they stay within the included allowance at ~$0, and there is
+<strong>no review backlog</strong> to worry about &mdash; a branch never outlives its run.</p>
+<div class="callout callout--warn"><strong>Orphan branches.</strong> A crash between create and delete can
+leave a branch behind. A reaper sweeps any <code>eval/*</code> branch whose run already has an
+<code>r2_fixture_url</code> (or is older than a run's max duration), so orphans can't accumulate.</div>
+<div class="callout callout--muted"><strong>Backtest fidelity.</strong> Backtests hydrate SQLite (dev-only in
+Penny) from the R2 fixture, so they may differ subtly from the Postgres run. Acceptable for a non-production
+backtest; the live measurement always runs on the Neon branch.</div>
+
+</section>
+      <p class="foot">Guards: <a href="../eval-job/index.html">The eval job &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

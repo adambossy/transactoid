@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assumptions & open questions — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="assumptions" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Assumptions &amp; open questions</p>
+      <header class="page-header">
+        <p class="eyebrow">Decisions & unknowns</p>
+        <h1>Assumptions & open questions</h1>
+        <p class="lede">What you decided, the defaults I picked, and the questions still worth your attention.</p>
+      </header>
+<section id="asked">
+<header class="section-header">
+<h2>What I asked you</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="asked"><span class="section-check-label">Read</span></label>
+</header>
+
+<table>
+<tr><th>Question</th><th>Your answer</th></tr>
+<tr><td>Grade prod's stored decision, or re-run the agent in eval?</td>
+<td><strong>Re-run</strong> the agent and A/B it against the legacy decision; human adjudicates.</td></tr>
+<tr><td>Keep the "blind" eval mechanism?</td>
+<td><strong>No</strong> — rip it out entirely as part of this change.</td></tr>
+<tr><td>Review/correction UX for the MVP?</td>
+<td><strong>Chat-based</strong> via <code>recategorize_transaction</code>; dedicated HTML UI deferred.</td></tr>
+<tr><td>Does Langfuse give us the verdict/dataset store?</td>
+<td>Investigated &rarr; <strong>no</strong> (OTEL push-only); Langfuse stays a debugging deep-link.</td></tr>
+<tr><td>Sync &amp; eval cadence?</td>
+<td><strong>Every 12 hours</strong> (sync moves from hourly); the eval runs as part of each sync &mdash;
+~10 transactions/run.</td></tr>
+<tr><td>Retention mechanism &amp; storage engine?</td>
+<td>Neon branch is <strong>transient</strong>; at the end of each run, dump to <strong>R2</strong> as a SQLite
+fixture and delete the branch (no human gate). The eval lives in perpetuity as prod rows + an R2 reference;
+backtests hydrate SQLite.</td></tr>
+<tr><td>Is SQLite first-class in Penny?</td>
+<td><strong>No</strong> &mdash; Neon/Postgres is first-class; SQLite is dev-only and used here only to hydrate
+R2 fixtures for backtests (slow/quirky is acceptable there).</td></tr>
+<tr><td>How many transactions per day/run? (measured live prod, 2026-06-21)</td>
+<td>~20&ndash;23/day, ~10 per 12-hour run; clustered, so cohorts are rarely empty at this cadence.</td></tr>
+</table>
+
+</section>
+<section id="assumed">
+<header class="section-header">
+<h2>What I assumed without asking</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="assumed"><span class="section-check-label">Read</span></label>
+</header>
+
+<table>
+<tr><th>Assumption</th><th>Alternative</th><th>Why this default</th><th>Affects</th></tr>
+<tr><td>Eval store lives in the prod DB, own namespace</td><td>Separate store in R2/workspace</td>
+<td>Cron machines are ephemeral; the prod DB is the durable home for the queryable verdict/metric rows (R2 holds the heavy fixture)</td>
+<td><a href="data-model/index.html">Data model</a></td></tr>
+<tr><td>Cohort = ingested since the last successful eval run (high-water mark on UTC <code>created_at</code>)</td>
+<td>Fixed clock-hour window</td><td>A late/skipped sync never drops transactions</td>
+<td><a href="cohort/index.html">Cohort</a></td></tr>
+<tr><td>Every reviewed (non-empty) run is dumped to R2 &mdash; no "retain only if useful" filter</td>
+<td>Dump only disagreements</td>
+<td>R2 is cheap enough to keep the whole backtest corpus; simpler than a usefulness gate</td>
+<td><a href="eval-job/neon-branching.html">Branch lifecycle</a></td></tr>
+<tr><td>A branch is created and deleted within its own run (no human gate, no stamp)</td>
+<td>Keep branches alive for review / a fixed TTL</td>
+<td>Keeps branch count (and cost) near zero; perpetuity is R2's job</td>
+<td><a href="failure-ops/index.html">Failure modes</a></td></tr>
+<tr><td>Re-running a run is idempotent on <code>eval_run_id</code> (delete-and-reinsert)</td>
+<td>Refuse re-runs outright</td><td>Lets you re-eval after a bug fix without double-counting</td>
+<td><a href="eval-job/index.html">Eval job</a></td></tr>
+<tr><td>Trend is aggregated by day even though runs fire every 12h</td><td>Plot every run</td>
+<td>Daily points are readable and align with how you'll review</td>
+<td><a href="metrics/index.html">Metrics</a></td></tr>
+<tr><td>Only disagreement runs are emailed; fully-agreed runs are silent</td><td>Email every run</td>
+<td>Cuts review load to runs that actually need eyes (decision 2026-06-27)</td>
+<td><a href="human-review/index.html">Human review</a></td></tr>
+<tr><td>Verdicts derived from your corrections; uncorrected = correct after a settling window</td><td>Explicit confirm/stamp per run</td>
+<td>No staging step (decision 2026-06-27); the act of recategorizing is the label</td>
+<td><a href="metrics/index.html">Metrics</a></td></tr>
+</table>
+
+</section>
+<section id="open">
+<header class="section-header">
+<h2>Open questions &amp; resolutions</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="open"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>The questions raised earlier, resolved on 2026-06-27 except where noted:</p>
+<ul>
+<li><strong>Auto-confirm fully-agreed cohorts? &mdash; YES (no stamp).</strong> There is no stamp step at all;
+runs where legacy and agent agree on every row simply send no email and need no review (still dumped to R2).
+Only disagreement runs are emailed. See <a href="human-review/index.html">Human review</a>.</li>
+<li><strong>Notification channel &mdash; EMAIL.</strong> Each run that needs review is emailed to the owner.
+See <a href="human-review/index.html">Human review</a>.</li>
+<li><strong>Legacy retirement &mdash; eval KEEPS RUNNING.</strong> It continues even after the agent replaces
+legacy in prod; it stays a permanent quality monitor (the baseline becomes the then-incumbent categorizer).
+See <a href="goals/index.html">Goals</a>.</li>
+<li><strong>Ship threshold numbers &mdash; DROPPED.</strong> No fixed "ready" state; the agent is improved
+gradually and the trend is a continuous signal, not a gate. See <a href="goals/index.html">Goals</a>.</li>
+<li><strong>Review backlog vs. branch lifetime &mdash; NOT A CONCERN.</strong> Deliberately ignored at current
+volume.</li>
+<li><strong>Confidence calibration &mdash; LATER.</strong> Plotting confidence-vs-correctness is worthwhile
+eventually; not in the initial build. Affects <a href="metrics/index.html">Metrics</a> scope.</li>
+</ul>
+
+</section>
+      <p class="foot">&larr; Back to <a href="../index.html">Executive summary</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

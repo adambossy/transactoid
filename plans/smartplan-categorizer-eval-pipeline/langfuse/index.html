@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Langfuse role — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="langfuse" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Langfuse role</p>
+      <header class="page-header">
+        <p class="eyebrow">Observability boundary</p>
+        <h1>Langfuse role</h1>
+        <p class="lede">Trace deep-links for debugging only — Scores/Datasets/Experiments don't fit OTEL push-only ingestion.</p>
+      </header>
+<section id="deep-links">
+<header class="section-header">
+<h2>What Langfuse does for us</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="deep-links"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Tracing is already wired: <code>penny.observability</code> exports OTEL spans to Langfuse, and the harness
+emits a per-run trace. The eval artifact includes a <strong>best-effort trace deep-link</strong> per
+transaction (the existing <code>_current_trace_link</code>) so a surprising decision can be opened and its
+model turns, tool calls, and web searches inspected. That is the whole role: <strong>debugging</strong>.</p>
+
+</section>
+<section id="why-not-scores">
+<header class="section-header">
+<h2>Why not Scores / Datasets / Experiments</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="why-not-scores"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>A P0 review finding: Penny's tracing is <strong>OTEL push-only</strong> (<code>BatchSpanProcessor</code> +
+<code>OTLPSpanExporter</code>); there is <strong>no Langfuse SDK client</strong>. Scores, Datasets, and
+Experiments are SDK/REST features keyed by Langfuse's own trace id — and the OTEL trace id we hold is not
+guaranteed to be the id Langfuse stores against the ingested trace. So "attach a Score by trace id" is not
+reliably addressable, and Datasets/Experiments are an entire integration that does not exist. Relying on them
+would put the load-bearing part of the eval on a feature we haven't wired.</p>
+<p>Hence: verdicts and the golden set live in our <a href="../data-model/index.html">prod eval store</a>, and
+the trend is our own page.</p>
+
+</section>
+<section id="future-spike">
+<header class="section-header">
+<h2>Out of scope: a Langfuse SDK spike</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="future-spike"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>If, later, we want native Scores/Datasets/Experiments (e.g. to run backtests in the Langfuse UI), that is a
+<strong>separate spike</strong>: add the SDK client, confirm trace-id addressability under OTLP ingestion,
+then mirror verdicts as Scores. Not part of this plan.</p>
+
+</section>
+      <p class="foot">Decision recorded in <a href="../assumptions/index.html">Assumptions &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cohort identification — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="cohort" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Cohort identification</p>
+      <header class="page-header">
+        <p class="eyebrow">What gets evaluated</p>
+        <h1>Cohort identification</h1>
+        <p class="lede">This run's cohort is rows ingested since the last run, addressed by created_at — not posted_at.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>Every transaction that newly arrived today is evaluated, even if its bank date is older.</li>
+<li>A transaction is never double-counted or missed because of how its date is interpreted.</li>
+<li>On a day with no new transactions, the pipeline records a clean gap rather than an error.</li>
+</ol>
+</section>
+<section id="definition">
+<header class="section-header">
+<h2>What "this sync's cohort" means</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="definition"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>The eval runs on every 12-hour sync, so the cohort is the transactions <strong>ingested by this sync</strong>
+&mdash; the rows that arrived since the previous run &mdash; addressed by <code>created_at</code>, not
+<code>posted_at</code>. Plaid back-dates pending&rarr;posted transitions and late arrivals, so a
+<code>posted_at</code> filter both misses transactions that posted earlier but synced now and is empty on
+quiet windows. This was a P0 review finding.</p>
+<div class="callout callout--muted"><strong>Measured prod volume (2026-06-21):</strong> ~20&ndash;23
+transactions/day (last 30&ndash;90 days) &mdash; about <strong>~10 per 12-hour run</strong>, a reviewable
+batch. The 12-hour cadence was chosen for exactly this: large enough that runs are rarely empty, small enough
+to review in one sitting. After per-descriptor dedup the number of agent runs per cohort is smaller still.</div>
+
+</section>
+<section id="selection-query">
+<header class="section-header">
+<h2>The selection query (one new facade method)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="selection-query"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Add a single method to <code>facade.py</code>; do not invent a cohort table.</p>
+<ul>
+<li>Primary: <code>derived_transactions.created_at</code> &gt; the previous run's high-water mark.</li>
+<li>Equivalent: transaction ids whose <em>earliest</em> <code>transaction_category_events.created_at</code>
+falls in-window (the events log is already timestamped and append-only).</li>
+</ul>
+<p>Note the existing <code>get_uncategorized_derived_ids</code> (<code>category_id IS NULL</code>) does
+<strong>not</strong> work here: by branch time the legacy sync has already set <code>category_id</code>, so
+the cohort would be empty.</p>
+
+</section>
+<section id="edge-cases">
+<header class="section-header">
+<h2>Edge cases</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="edge-cases"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><strong>Empty cohort</strong> (uncommon at the 12-hour cadence): no branch is cut; record an
+<code>eval_runs</code> row with <code>status = skipped_empty</code>.</li>
+<li><strong>Window boundaries:</strong> define the cohort as "ingested since the previous successful eval
+run" (a high-water mark on <code>created_at</code>) rather than a fixed clock window, so a late or skipped
+sync never drops transactions. <code>created_at</code> is a UTC server timestamp.</li>
+<li><strong>Re-categorized-before-eval:</strong> if a row was already manually recategorized before the eval
+ran, treat its current category as the baseline and flag it (rare).</li>
+</ul>
+
+</section>
+      <p class="foot">Used by: <a href="../eval-job/index.html">The eval job &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

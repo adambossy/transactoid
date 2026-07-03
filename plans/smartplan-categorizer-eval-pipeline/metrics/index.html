@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metrics & trend — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="metrics" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Metrics &amp; trend</p>
+      <header class="page-header">
+        <p class="eyebrow">What we measure</p>
+        <h1>Metrics & trend</h1>
+        <p class="lede">Accuracy, win-rate, an exact/parent rubric, fast-path segmented out, coverage always shown.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The owner sees how often the new categorizer was right, and how that compares to the current one.</li>
+<li>Easy-by-construction cases never inflate the headline accuracy number.</li>
+<li>Recent runs are marked provisional until enough time has passed for the owner to have reviewed them.</li>
+<li>When a number moves, the owner can tell whether a categorizer change or just the data caused it.</li>
+</ol>
+</section>
+<section id="definitions">
+<header class="section-header">
+<h2>The numbers</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="definitions"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><strong>% corrected</strong> = agent decisions you later recategorized / agent decisions in the cohort. This
+is the primary signal &mdash; the act of correcting a wrong row <em>is</em> the label, no confirm step needed.</li>
+<li><strong>Agent % correct</strong> = 1 &minus; % corrected, over rows past the settling window (uncorrected =
+correct, because you reviewed the emailed report).</li>
+<li><strong>Legacy % correct</strong> = where your final key equals <code>legacy_key</code> (does the correction
+land back on what legacy chose?).</li>
+<li><strong>Agent-vs-legacy win-rate</strong> = rows where your final key equals the agent's but not legacy's,
+vs the reverse.</li>
+</ul>
+
+</section>
+<section id="grading-rubric">
+<header class="section-header">
+<h2>Grading rubric</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="grading-rubric"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Graded against your final taxonomy key (the category after any correction you made):</p>
+<ul>
+<li><strong>Correct</strong> &mdash; exact key match.</li>
+<li><strong>Partial</strong> &mdash; right parent, wrong child.</li>
+<li><strong>Incorrect</strong> &mdash; wrong parent.</li>
+</ul>
+<p>Track <strong>exact-match and parent-level accuracy separately</strong> — a wrong child matters far less
+than a wrong parent, and conflating them hides real movement.</p>
+
+</section>
+<section id="segmentation-coverage">
+<header class="section-header">
+<h2>Segmentation & honesty</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="segmentation-coverage"><span class="section-check-label">Read</span></label>
+</header>
+
+<ul>
+<li><strong>Exclude fast-path</strong> from the accuracy denominator — it is verified-reuse and ~100% by
+construction. Use the stored <code>method_at_eval_time</code> flag, <strong>never a live recompute</strong>
+(verification state drifts day to day).</li>
+<li><strong>Settling window.</strong> A row counts as "correct" only after enough time has passed for you to
+have reviewed its report (a tunable window, default ~7 days). Newer runs are provisional. This is the cost of
+having no explicit confirm step: "uncorrected" can't be distinguished from "not-yet-reviewed" until the
+window elapses &mdash; mitigated by emailing every disagreement run so you actually see it.</li>
+<li>Corrections do <strong>not</strong> set <code>is_verified</code>, so a correction does not silently become a
+fast-path hit on later days — the feedback loop is damped (see <a href="../assumptions/index.html">assumptions</a>).</li>
+</ul>
+
+</section>
+<section id="trend-page">
+<header class="section-header">
+<h2>The trend page</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="trend-page"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>A static HTML page rendered from the eval store, computed <strong>lazily on render</strong> (no
+submission-time trigger). Eval runs fire twice daily (every 12h) and points <strong>aggregate by day</strong>,
+with version-stamp annotations on the x-axis where any stamp field changes. This is the artifact that answers
+"is it getting better, and because of what?"</p>
+
+</section>
+      <p class="foot">Feeds: <a href="../goals/index.html">Ship criteria &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

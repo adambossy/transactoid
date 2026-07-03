@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data model & eval store — Daily Categorizer Evaluation Pipeline</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="categorizer-eval-pipeline" data-page-id="data-model" data-page-depth="1">
+<div class="sp-layout">
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+  <div class="sp-main">
+    <div class="container">
+<p class="crumbs"><a href="../index.html">Daily Categorizer Evaluation Pipeline</a>&nbsp;/&nbsp; Data model &amp; eval store</p>
+      <header class="page-header">
+        <p class="eyebrow">What we store</p>
+        <h1>Data model & eval store</h1>
+        <p class="lede">Two durable prod tables for the verdict and the version stamp — everything else is a join over the append-only events log.</p>
+      </header>
+<section class="requirements">
+<h2>Requirements</h2>
+<ol>
+<li>The owner's verdict on a transaction survives even after that run's branch is deleted.</li>
+<li>Each run's measurement records exactly which version of the categorizer produced it, and where its fixture lives.</li>
+<li>The same fact is never stored twice, so the comparison can't drift out of sync with itself.</li>
+</ol>
+</section>
+<section id="eval-store-tables">
+<header class="section-header">
+<h2>The eval store (prod-resident, own namespace)</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="eval-store-tables"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Durable because the branch is deleted at the end of each run and the snapshot then lives only in R2. The
+store is in the prod DB but a separate concern from the product tables. Two tables:</p>
+<p><strong><code>eval_runs</code></strong> &mdash; one row per 12-hour run: <code>eval_run_id</code> (PK),
+<code>run_at</code>, <code>branch_name</code>, <code>cohort_size</code>, <code>status</code>
+(<code>completed</code> / <code>skipped_empty</code> / <code>skipped_incomplete_baseline</code>),
+<code>r2_fixture_url</code> (written at the end of the run), and the <strong>version stamp</strong> (see
+below). No review-state column &mdash; there is no staging step.</p>
+<p><strong><code>eval_items</code></strong> &mdash; one row per cohort transaction:
+<code>(eval_run_id, transaction_id)</code> PK, <code>merchant_descriptor</code>, <code>legacy_key</code>,
+<code>agent_key</code>, <code>agent_reasoning</code>, <code>agent_confidence</code>,
+<code>method_at_eval_time</code> (<code>fast_path</code>&nbsp;|&nbsp;<code>agent</code>),
+<code>trace_link</code>. The verdict is <strong>not stored at write time</strong>; it is derived later from
+your corrections: a <code>manual</code> recat of this transaction after <code>run_at</code> means the agent was
+wrong (<code>corrected</code>, with the new key), otherwise it counts as correct once a settling window has
+passed.</p>
+
+</section>
+<section id="reuse-events-log">
+<header class="section-header">
+<h2>Reuse the events log; don't duplicate the baseline</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="reuse-events-log"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>On the branch, the agent's <code>submit_categorization</code> overwrites the row in place and appends a
+<code>transaction_category_events</code> row whose <code>from_category_key</code> is the legacy key and
+<code>to_category_key</code> is the agent key. <strong>Legacy-vs-agent is therefore one event row</strong> —
+no separate baseline table (explicitly rejected). The eval store's only genuinely new facts are
+<code>agent_confidence</code> (never persisted to the DB; captured in-process at run time),
+<code>method_at_eval_time</code>, the version stamp, and the run's <code>r2_fixture_url</code>. The verdict is
+not stored &mdash; it is derived from the corrections in the events log.</p>
+
+</section>
+<section id="version-stamp">
+<header class="section-header">
+<h2>The version stamp</h2>
+<label class="section-check-wrap" title="Mark section as read"><input type="checkbox" class="section-check" data-section-id="version-stamp"><span class="section-check-label">Read</span></label>
+</header>
+
+<p>Every <code>eval_runs</code> row records what defined the agent's decision space that day, so the trend can
+attribute change to a cause:</p>
+<ul>
+<li>model id (e.g. <code>gemini-3.5-flash</code>)</li>
+<li>categorizer prompt version (<code>categorize-transaction-agent/&lt;n&gt;</code>)</li>
+<li>agent-harness git SHA</li>
+<li><strong>taxonomy version</strong> &mdash; the key set is the grading target</li>
+<li><strong>merchant-rules version</strong> &mdash; also shapes decisions</li>
+</ul>
+<p>Taxonomy and merchant-rules versions are easy to forget and were a review finding: omit them and a
+taxonomy rename looks like a model regression.</p>
+
+</section>
+      <p class="foot">Related: <a href="../metrics/index.html">Metrics &amp; trend &rarr;</a></p>
+    </div>
+  </div>
+</div>
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Daily Categorizer Evaluation Pipeline",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": [
+      "the-goal",
+      "the-strategy",
+      "key-tradeoffs"
+    ],
+    "children": [
+      {
+        "id": "goals",
+        "label": "Goals & success criteria",
+        "href": "goals/index.html",
+        "sections": [
+          "outcomes",
+          "ship-criteria",
+          "non-goals"
+        ],
+        "children": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture overview",
+        "href": "architecture/index.html",
+        "sections": [
+          "principles",
+          "daily-sequence",
+          "components"
+        ],
+        "children": []
+      },
+      {
+        "id": "data-model",
+        "label": "Data model & eval store",
+        "href": "data-model/index.html",
+        "sections": [
+          "eval-store-tables",
+          "reuse-events-log",
+          "version-stamp"
+        ],
+        "children": []
+      },
+      {
+        "id": "cohort",
+        "label": "Cohort identification",
+        "href": "cohort/index.html",
+        "sections": [
+          "definition",
+          "selection-query",
+          "edge-cases"
+        ],
+        "children": []
+      },
+      {
+        "id": "eval-job",
+        "label": "The eval job (cron)",
+        "href": "eval-job/index.html",
+        "sections": [
+          "job-sequence",
+          "replay-and-capture",
+          "durable-write",
+          "idempotency"
+        ],
+        "children": [
+          {
+            "id": "neon-branching",
+            "label": "Branch lifecycle & R2 fixtures",
+            "href": "eval-job/neon-branching.html",
+            "sections": [
+              "branch-create",
+              "host-workaround",
+              "teardown"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics",
+        "label": "Metrics & trend",
+        "href": "metrics/index.html",
+        "sections": [
+          "definitions",
+          "grading-rubric",
+          "segmentation-coverage",
+          "trend-page"
+        ],
+        "children": []
+      },
+      {
+        "id": "human-review",
+        "label": "Human review loop",
+        "href": "human-review/index.html",
+        "sections": [
+          "review-flow",
+          "verdict-binding",
+          "deferred-ui"
+        ],
+        "children": []
+      },
+      {
+        "id": "langfuse",
+        "label": "Langfuse role",
+        "href": "langfuse/index.html",
+        "sections": [
+          "deep-links",
+          "why-not-scores",
+          "future-spike"
+        ],
+        "children": []
+      },
+      {
+        "id": "blind-removal",
+        "label": "Blind removal",
+        "href": "blind-removal/index.html",
+        "sections": [
+          "rationale",
+          "deletion-checklist",
+          "keep-list"
+        ],
+        "children": []
+      },
+      {
+        "id": "failure-ops",
+        "label": "Failure modes & ops",
+        "href": "failure-ops/index.html",
+        "sections": [
+          "no-op-cases",
+          "fail-closed",
+          "retention-note"
+        ],
+        "children": []
+      },
+      {
+        "id": "build-plan",
+        "label": "Phased build plan",
+        "href": "build-plan/index.html",
+        "sections": [
+          "phases",
+          "verification"
+        ],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": [
+          "asked",
+          "assumed",
+          "open"
+        ],
+        "children": []
+      }
+    ]
+  }
+}
+</script>
+<script src="../smartplan.js"></script>
+</body>
+</html>
