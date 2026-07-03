@@ -118,11 +118,13 @@ def _build_txn_prompt(txn: dict[str, Any]) -> str:
         "Categorize this single transaction. Pass the exact transaction_id below to "
         "submit_categorization when you are done.\n",
         f"- transaction_id: {txn['transaction_id']}",
-        f"- merchant name: {txn.get('merchant_descriptor') or '(none)'}",
+        # Label kept as "merchant descriptor" so it matches the string the agent's
+        # history/fast-path tools key on (merchant_category_history(descriptor)).
+        f"- merchant descriptor: {txn.get('merchant_descriptor') or '(none)'}",
     ]
     # Plaid's raw `name` is the fuller, uncleaned descriptor — it often carries
-    # location or payment-rail detail the cleaned merchant name drops. Only show it
-    # when it adds something (present and not identical to the merchant name).
+    # location or payment-rail detail the cleaned merchant descriptor drops. Only
+    # show it when it adds something (present and not identical to the descriptor).
     raw_name = (txn.get("raw_name") or "").strip()
     merchant = (txn.get("merchant_descriptor") or "").strip()
     if raw_name and raw_name.lower() != merchant.lower():

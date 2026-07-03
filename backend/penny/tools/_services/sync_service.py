@@ -776,9 +776,20 @@ class SyncTool:
             for txn in to_categorize
         }
 
-        by_descriptor: dict[str, list[Any]] = defaultdict(list)
+        # Dedup by raw_name: it is the finer signal the agent actually reads and
+        # it determines merchant_descriptor (which is `merchant_name or name`), so
+        # a compound key would be redundant. Fall back to merchant_descriptor when
+        # raw_name is absent (CSV / pre-backfill rows) so unrelated null-raw_name
+        # rows don't collapse into one group. Trade-off: raw strings carrying
+        # per-transaction tokens (e.g. a Zelle confirmation number) dedup less and
+        # cost an extra agent run — acceptable, and it never merges distinct
+        # counterparties.
+        by_key: dict[str, list[Any]] = defaultdict(list)
         for txn in to_categorize:
-            by_descriptor[txn.merchant_descriptor or ""].append(txn)
+            key = (
+                raw_name_by_txn.get(txn.transaction_id) or txn.merchant_descriptor or ""
+            )
+            by_key[key].append(txn)
 
         semaphore = asyncio.Semaphore(_CATEGORIZE_CONCURRENCY)
 
@@ -814,7 +825,7 @@ class SyncTool:
                     ),
                 )
 
-        await asyncio.gather(*[_handle(txns) for txns in by_descriptor.values()])
+        await asyncio.gather(*[_handle(txns) for txns in by_key.values()])
 
     async def _categorize_uncategorized(self) -> None:
         """End-of-sync sweep: categorize every uncategorized derived row.
