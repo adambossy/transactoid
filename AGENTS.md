@@ -15,6 +15,49 @@ top of two external packages by the same author:
   components (`Message`, `Composer`) speaking the Vercel AI SDK UI
   message-stream protocol.
 
+## Canonical vs. non-canonical artifacts
+
+Everything checked in is one of two kinds, and reading the repo correctly means
+knowing which you're looking at:
+
+- **Canonical** — the current source of truth: what defines how Penny runs in
+  production *today*. Backend/frontend code, `deploy/`, the prompts in
+  `.prompts/`, the taxonomy seed, `REQUIREMENTS.txt`, and these agent docs are
+  canonical. Keep it correct and current; if canonical says something false,
+  that is a bug.
+- **Non-canonical** — point-in-time records kept for **history, not truth**.
+  Often accurate at inception, they drift as the system moves on. We keep them
+  deliberately: to reconstruct *what happened and why* when debugging, doing
+  archaeology, or tracing the lineage of a design. They are **not** a reliable
+  account of how the code works now.
+
+Examples of non-canonical artifacts:
+
+- **Plans** (`plans/`) — a plan captures intent at a moment. Once the work lands
+  or changes course, the plan is a historical record, not a spec: don't read it
+  as the current design, and don't rewrite old plans to match reality.
+- **Migration / cut-over scripts** — one-off code written to *execute* a
+  transition (especially non-database ones: reorganizing files, re-pointing
+  infra, backfilling a workspace). Their worth is the record of the exact steps
+  taken, not how production runs day to day. (Numbered schema migrations under
+  `backend/db/migrations/` are a distinct, tracked mechanism — not the one-off
+  cut-over scripts meant here.)
+
+Directives:
+
+- **Canonical wins.** When a non-canonical artifact disagrees with canonical
+  code, the code is right and the artifact is stale by default.
+- **Keep the history; don't delete it.** A superseded plan or a spent cut-over
+  script stays as a record — removing it erases the lineage we keep it for.
+- **Segregate; never intermingle.** Non-canonical artifacts live in clearly
+  non-canonical locations: plans in `plans/`, and spent one-off / cut-over
+  scripts archived *out of* the canonical packages and apart from the recurring
+  dev tooling in `backend/scripts/`. A spent one-off must not sit in a canonical
+  package as if it still runs.
+- **Don't maintain non-canonical code.** It is frozen: we don't refactor it, fix
+  its lint, or keep it building, and it stays out of the canonical verification
+  gate.
+
 ## Layout
 
 ```
@@ -73,8 +116,13 @@ Run these before completing any unit of work. There is no mypy gate yet.
 ## Databases
 
 - Default: SQLite at `backend/penny.db` (gitignored), schema via
-  `bootstrap()` on startup (`Base.metadata.create_all` — no alembic
-  migrations yet).
+  `bootstrap()` on startup (`Base.metadata.create_all` straight from the
+  models — a dev convenience; migrations are not run there).
+- Schema evolution: alembic migrations live in `backend/db/migrations/`
+  (`version_locations` in `backend/alembic.ini`) and are the mechanism that
+  evolves the Postgres/prod schema. `create_all` only creates *missing tables*
+  — it never runs an `ALTER`, so a column rename/addition must go through a
+  migration.
 - Real data: Neon Postgres. `production` branch mirrors the Supabase prod
   DB; **never point a dev server at it**. Test against the `penny-test`
   Neon branch (`backend/.env.test`, gitignored). Recreate it from current
@@ -131,6 +179,123 @@ Run these before completing any unit of work. There is no mypy gate yet.
   repoint the exporter at any OTLP backend. Turns on automatically when
   `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` are set (toggle via
   `PENNY_LANGFUSE_ENABLED`); strict no-op otherwise. See `.env.example`.
+
+## Design rules
+
+The north star is **managing complexity** — anything that makes the system hard
+to understand or change. Every rule below serves that; when two seem to pull
+apart, choose what leaves the next reader with less to hold in their head. These
+sit on top of the **HARD CONSTRAINTS** in `AGENTS.local.md` (agent/website and
+deploy/app segregation, the scheduler contract) — settle which domain you're in
+and respect the one-directional deps first.
+
+**Work strategically, not tactically.**
+
+- Design is continual, not a phase. Spend the ~10–20% it takes to leave each
+  module a little cleaner than the expedient path would; a run of tactical
+  shortcuts is how this codebase would rot.
+- **Design it twice.** For anything non-trivial — a new tool surface, a schema,
+  a module boundary — sketch two approaches before committing. The second almost
+  always sharpens the first.
+
+**Make modules deep.**
+
+- A good module hides a lot behind a small interface: the functionality
+  (benefit) should dwarf the interface and concepts a caller must learn (cost).
+  Penny already leans this way — thin `@tool` wrappers over deep
+  `tools/_services/`; the `penny.adapters.db` facade over SQLAlchemy. Extend that
+  pattern; don't invert it.
+- **Pull complexity downward.** When something is hard, the module should absorb
+  it rather than hand it up through its interface — handle the special case, the
+  retry, the odd Plaid field *inside* the service so no caller re-handles it.
+  Simple interface + complex implementation is a good trade; the reverse is a
+  red flag.
+- **Distrust shallow modules and pass-throughs.** A function whose interface is
+  nearly as complex as its body, a method that only forwards to another, a
+  variable threaded untouched through many layers — collapse them.
+
+**Hide information; don't leak it.**
+
+- Each module owns a design decision and conceals it (a schema detail, the Plaid
+  wire format, the R2 layout, an SQL-dialect quirk). Two modules encoding the
+  same decision is *leakage* — the source of change-amplification.
+- **Different layer, different abstraction.** If adjacent layers traffic in the
+  same concepts, one probably shouldn't exist. `api/` speaks HTTP/streaming,
+  `services/` orchestration, `tools/_services/` finance operations, `adapters/`
+  I/O — each raises the abstraction of the one below. Reach *down* a layer, never
+  up or sideways into a peer's internals.
+- **Finance data goes through the `penny.adapters.db` facade; app data never
+  does.** Keep the facade finance-only; website/app state gets its own
+  `Base`/models/engine/store in a separate schema/db (`AGENTS.local.md`).
+  Information hiding and a segregation constraint at once.
+
+**Design interfaces for the common case.**
+
+- **Prefer somewhat general-purpose interfaces.** A slightly more general
+  interface is usually simpler and deeper than a narrow one — define the
+  *operation*, not one caller's use of it. This is *not* speculative generality:
+  generalize the interface, not the feature set; add the knob/parameter when the
+  second real caller exists, and delete machinery nothing uses.
+- **Define errors out of existence.** The cheapest exception is the one that
+  can't happen. Shape APIs so routine conditions aren't exceptional — return
+  empty, be idempotent, make the no-op safe (`bootstrap()` is idempotent and
+  sync is re-runnable on purpose). Fewer exception sites, less complexity.
+- **Genuine failures still surface — never hide.** When something is truly
+  wrong, let it propagate to a defined seam (`{type:"error"}` frames,
+  `tool-output-error`, non-zero CLI exit) rather than swallowing it or returning
+  a sentinel "success". Defining errors out of existence removes *spurious*
+  exceptions by design; it never means silencing *real* ones.
+
+**Make it obvious.**
+
+- A reader should form correct expectations without deep study; obscurity and
+  cleverness are complexity. Consistency is the lever — match the surrounding
+  module's naming, structure, and idioms so new code reads as if it were always
+  there. A new convention is a cost everyone pays.
+- **Name precisely and reuse existing terms.** A name that's vague or hard to
+  choose signals a fuzzy abstraction — fix the design, not just the label. Reuse
+  the codebase's vocabulary (transaction, descriptor, category, period…) rather
+  than minting synonyms.
+- **Comments capture what code can't.** Write for the non-obvious — the *why*,
+  the invariant, the abstraction a caller needs — not a paraphrase of the
+  mechanics; match the file's existing comment density.
+
+**Reuse, and keep one source of truth.**
+
+- **Don't reimplement the libraries.** The agent loop, providers, sessions,
+  sandboxes, skills, and tool decorator are agent-harness; the chat UI is
+  agent-ui. Wrap or extend — never fork their responsibilities into Penny.
+- **Single source of truth.** Every value has one home: prompts in `.prompts/`,
+  taxonomy seed in `configs/taxonomy.yaml`, runtime/deploy config in the
+  `PENNY_*` contract via `config.py`. Reference it; copying is leaked information
+  waiting to drift.
+- **Config is the only cross-domain seam.** Environment-varying behaviour reads
+  a `PENNY_*` var; code never branches on deployment topology or names a
+  deployable.
+
+**Keep change safe.**
+
+- Prefer subtraction: delete dead code rather than route around it; retire an
+  abstraction that no longer earns its interface.
+- Small, dependency-ordered commits; idempotent bootstrap/migrations; no
+  irreversible data/infra op without a snapshot or escape hatch. Reversibility
+  is what lets you refactor strategically without fear.
+
+## Requirements (`REQUIREMENTS.txt`)
+
+`REQUIREMENTS.txt` (repo root) is the living spec: **what Penny must do**
+(Product / Functional) and the **non-negotiable rules it must hold** (Technical
+Invariants / Constraints). It states *what* and *why*, not *how* — no file
+paths or implementation detail that this file or `AGENTS.local.md` already own;
+link to the enforcing guardrail (e.g. `test_deploy_segregation.py`) when a rule
+has one.
+
+Maintain it **in the same change** that alters reality:
+
+- Add/change/remove a user-facing behaviour → update the Product section.
+- Add/relax/remove an invariant or constraint → update the Technical section.
+- Reviewers treat `REQUIREMENTS.txt` as the scope-of-record: a behavioural or
+  constraint change not reflected there is an **incomplete** change.
 
 ## Gotchas
 
