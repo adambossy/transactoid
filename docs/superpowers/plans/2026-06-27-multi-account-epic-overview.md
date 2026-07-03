@@ -77,6 +77,15 @@ single linear head; each plan's `down_revision` must match this ledger (plans
 that hardcoded provisional numbers defer to this table). New migrations append
 here in build order.
 
+## Explicit out-of-scope (cross-cutting, decided)
+
+- **Account/household deletion, data retention, R2 GC** — no deletion path or
+  retention policy in this epic (deliberate scope decision, not a gap). Revisit
+  when the product grows beyond the household.
+- **Observability on the new auth surface** — structured security events for
+  403s / IDOR attempts / invites / exchange are out of scope for now; the agent
+  loop's existing Langfuse/OTEL tracing is unchanged.
+
 ## Status legend
 
 - **Roadmap — needs brainstorming:** scope captured; run the brainstorming skill
