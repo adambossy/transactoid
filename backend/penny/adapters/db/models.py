@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import re
 from typing import TypedDict
+import uuid
 
 from sqlalchemy import (
     JSON,
@@ -19,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     text,
 )
 from sqlalchemy.orm import (
@@ -33,6 +35,40 @@ class Base(DeclarativeBase):
     """Base class for SQLAlchemy models."""
 
     pass
+
+
+class Household(Base):
+    """A tenant boundary: every financial row belongs to exactly one household."""
+
+    __tablename__ = "households"
+
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class User(Base):
+    """A member of a household. ``external_auth_id`` is populated in phase 2."""
+
+    __tablename__ = "users"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    external_auth_id: Mapped[str | None] = mapped_column(
+        String, unique=True, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
 
 
 class Merchant(Base):
