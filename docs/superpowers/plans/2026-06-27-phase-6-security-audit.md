@@ -1,8 +1,8 @@
 # Phase 6 — Security Audit (Plan Stub)
 
-> **Status: Roadmap — needs brainstorming before a detailed plan.**
+> **Status: Planned** — see the [Phase 6 spec](../specs/2026-07-03-phase-6-security-audit-design.md) and the [detailed plan](2026-07-03-phase-6-security-audit.md).
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
-> Spec: [foundation design](../specs/2026-06-27-multi-account-foundation-design.md).
+> Spec: [Phase 6 design](../specs/2026-07-03-phase-6-security-audit-design.md) · foundation: [phase 1a design](../specs/2026-06-27-multi-account-foundation-design.md).
 > **Prev:** [Phase 5 — Onboarding](2026-06-27-phase-5-onboarding.md)
 
 **Goal:** Intensely audit the whole system so personal financial data cannot
