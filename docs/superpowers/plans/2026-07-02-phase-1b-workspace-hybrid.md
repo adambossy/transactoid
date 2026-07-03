@@ -1103,6 +1103,86 @@ git commit -m "test(workspace): RLS isolation battery (cross-household, private,
 
 ---
 
+## Browser E2E Validation (Playwright)
+
+The unit/RLS suites prove the workspace round-trips at the store seam. This task
+proves it through the *real UI*: memory saved by the agent in one chat is
+recalled by the agent in a later chat, which only works if the R2 blob upload +
+Postgres manifest CAS actually committed and re-materialized across runs. It
+reuses the phase-1a Playwright harness (dev-mode backend + vite, the pinned dev
+principal) — no new harness scaffolding here.
+
+### Task 9: Workspace memory round-trips through the UI (E2E)
+
+**Files:**
+- Create: `frontend/e2e/workspace-memory.spec.ts`
+
+**Interfaces:**
+- Consumes: the `test` fixture + `webServer` from phase-1a Task 15 (backend in
+  `PENNY_AUTH_MODE=dev` with `PENNY_DEV_USER_ID`/`PENNY_DEV_HOUSEHOLD_ID` pinned).
+  Requires the workspace hybrid wired into agent runs (Task 6) so chat runs
+  materialize → run → flush.
+
+- [ ] **Step 1: Write the failing spec**
+
+```ts
+// frontend/e2e/workspace-memory.spec.ts
+import { test, expect } from "./fixtures/app";
+
+const FACT = `my favorite coffee is a cortado (${Date.now()})`;
+
+test("agent saves a memory in one chat and recalls it in a later chat", async ({ page }) => {
+  // Run 1: ask the agent to remember a fact -> flush writes it to R2 + a manifest.
+  await page.goto("/");
+  let composer = page.getByRole("textbox");
+  await composer.fill(`Please remember this for later: ${FACT}. Save it to memory.`);
+  await composer.press("Enter");
+  const saved = page.locator('[data-role="assistant"]').last();
+  await expect(saved).toBeVisible({ timeout: 30_000 });
+  await expect(saved).not.toBeEmpty();
+
+  // Run 2: a fresh chat load re-materializes the workspace head from R2+manifest.
+  await page.reload();
+  composer = page.getByRole("textbox");
+  await composer.fill("What is my favorite coffee? Check your memory.");
+  await composer.press("Enter");
+  const recalled = page.locator('[data-role="assistant"]').last();
+  await expect(recalled).toContainText(/cortado/i, { timeout: 30_000 });
+});
+```
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/workspace-memory.spec.ts`
+Expected: FAIL — before the workspace wiring lands (or if the flush/materialize
+path is incomplete) the second chat has no memory of the fact, so the
+`toContainText(/cortado/i)` assertion times out.
+
+- [ ] **Step 3: Make it pass**
+
+Ensure Task 6's `run_with_workspace` wraps the chat handler so run 1's flush
+persists `memory/*.md` and run 2's materialize re-hydrates it into the checkout
+that feeds `{{AGENT_MEMORY}}`. Reuse the message selectors established in
+phase-1a Task 16 (`data-role="assistant"` / the message-list `data-testid`). If
+the CI model key is absent, gate the spec behind the same
+`test.skip(!process.env.PENNY_E2E_MODEL)` guard used by the chat smoke spec, and
+document that this spec needs a model that will actually call the memory tool.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/workspace-memory.spec.ts`
+Expected: PASS (1 passed) — the fact saved in run 1 is recalled in run 2,
+proving the R2 + manifest workspace round-trips through the real UI.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/workspace-memory.spec.ts
+git commit -m "test(e2e): workspace memory round-trips through the UI across chat runs"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:** opaque tokens + visibility-partitioned layout → Tasks 2–3;

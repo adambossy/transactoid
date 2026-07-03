@@ -272,6 +272,31 @@ Multi-tenancy lives or dies here.
 - RLS tests run against **Postgres (Neon test branch)**, not SQLite, since SQLite
   won't enforce policies.
 
+## UI/UX Requirements
+
+Sub-project 1 is deliberately backend-only, so its UI/UX bar is a *negative*
+one: the user must notice nothing. As an existing user, I open the app and the
+chat screen loads exactly as before — no login wall, no new controls — because
+phase 1a slides the tenancy layer (households, RLS, the dev-stub principal)
+underneath the current single-user surface. As a user mid-conversation, I send a
+message and see the assistant response stream back with no added latency or
+regression in loading/sending/streaming, even though every query now runs on an
+RLS-governed, household-scoped connection. As a user who relies on the agent's
+memory and past reports, I keep seeing those surface naturally in conversation
+after phase 1b moves the workspace off the local filesystem onto the Postgres+R2
+hybrid — the store is invisible infrastructure, never a screen of its own, and
+memory/rules/reports appear in agent replies just as they did from
+`~/.transactoid`. As a user, I hit no new empty or error states from this work;
+any failure still surfaces through the existing error banner rather than a
+bespoke screen. Verifying "nothing changed" is the whole job here, so the app
+shell and chat flow are exercised end to end by the Playwright smoke and
+workspace-memory specs in the phase 1a/1b plans.
+
+All new screens use the **shared UI template primitives** (Header, Footer, Logo,
+color tokens, type scale, font stack) — no bespoke styling. Screens are
+responsive (mobile and desktop) and handle loading, empty, and error states, and
+the app shell (header/footer) is consistent across screens.
+
 ## Out of scope (sub-project 1)
 
 - Real authentication (phase 2; phase 1 uses a dev-stub principal).

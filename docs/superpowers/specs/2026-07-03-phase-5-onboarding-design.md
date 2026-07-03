@@ -128,6 +128,28 @@ accepted or dismissed. No wizard.
 - First sync is not a nudge — the `plaid_link` reminder plus the agent's sync
   tools report progress.
 
+## UI/UX Requirements
+
+- As a new user, I land straight in the chat and start talking to Penny; the
+  onboarding nudges arrive as natural conversational messages inline in the
+  transcript — there is no separate wizard, stepper, or setup screen.
+- As a user prompted to connect a bank, I see the **inline Plaid Link connect
+  card** rendered as generative UI within the agent's message, styled with the
+  shared template, and I launch Plaid from it without leaving the conversation.
+- As a returning user, I can reach a "Connect accounts" surface to link more
+  banks and toggle each account's visibility between private and shared, and I
+  can get there by simply asking the agent.
+- As a user who just linked a bank, I see clear first-sync progress indication
+  so I know transactions are being pulled in and roughly how far along it is.
+- As any user, I never see the system-reminder-driven onboarding state in the
+  transcript — the reminders are invisible, and only the agent's natural
+  reactions to them appear.
+
+All new screens use the **shared UI template primitives** (Header, Footer, Logo,
+color tokens, type scale, font stack) — no bespoke styling. Screens are
+responsive (mobile and desktop) and handle loading, empty, and error states, and
+the app shell (header/footer) is consistent across screens.
+
 ## Security
 
 - `link_token` minted only for the authenticated user; `public_token` exchange

@@ -84,6 +84,27 @@ Idempotent: a race or retry that finds the row already created is a no-op.
   already-has-an-account case (`409`).
 - Household name is shown and editable (a simple `PATCH /api/household`).
 
+## UI/UX Requirements
+
+- As a prospective user, I can reach a self-serve signup screen (Clerk
+  `<SignUp>`) rendered inside the normal app shell, sign up with Google, and land
+  directly in my own solo household.
+- As a newly signed-up user, I see my household's name in the header, and I can
+  click it to rename the household inline (persisted via `PATCH /api/household`).
+- As a household member, I can open an Invite screen, enter an email address, and
+  send an invitation; the screen lists my household's pending invites, each with a
+  revoke control.
+- As an inviter, when I try to invite an email that already has an account, I see
+  a clear message telling me they must sign up fresh (the `409` "start fresh"
+  case), rather than a generic error.
+- As a member of a brand-new household with no synced data yet, I see a friendly
+  empty state that explains what to do next instead of a blank or broken screen.
+
+All new screens use the **shared UI template primitives** (Header, Footer, Logo,
+color tokens, type scale, font stack) — no bespoke styling. Screens are
+responsive (mobile and desktop) and handle loading, empty, and error states, and
+the app shell (header/footer) is consistent across screens.
+
 ## Amendments to phase 2
 
 - The auth dependency's **unknown-user branch changes from `403` to

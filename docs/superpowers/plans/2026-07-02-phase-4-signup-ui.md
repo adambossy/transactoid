@@ -615,6 +615,121 @@ git commit -m "test(signup): two self-serve signups are fully isolated (postgres
 
 ---
 
+## Browser E2E Validation (Playwright)
+
+Automated headless Playwright specs living in `frontend/e2e/<name>.spec.ts`. They
+reuse the shared E2E harness introduced in **phase 1a** (test server + fixtures)
+and its `signInAsTestUser` helper from **phase 2**. Clerk auth in the browser is
+driven with **Clerk testing tokens** (`@clerk/testing`) so signup/sign-in runs
+without a human solving bot checks. These specs validate the real signed-in
+browser flows the manual checks in Task 6 describe.
+
+---
+
+### Task 8: E2E — self-serve signup lands in a solo household
+
+**Files:**
+- Create: `frontend/e2e/signup.spec.ts`
+
+**Interfaces:**
+- Consumes: the phase-1a Playwright harness (test server + DB reset fixtures);
+  Clerk testing tokens; `/api/me`.
+- Produces: a headless spec proving a brand-new Clerk test user who signs up is
+  auto-provisioned a solo household whose name renders in the header.
+
+- [ ] **Step 1: Write the failing spec**
+
+Create `frontend/e2e/signup.spec.ts`. Using a fresh browser context, inject the
+Clerk testing token, then drive the `<SignUp>` form for a **brand-new** test
+email (e.g. `signup+<timestamp>@example.com`) through Clerk's test verification
+code. Assert the app redirects into the authenticated shell, that `GET /api/me`
+resolves a household (spy on the response or assert on rendered state), and that
+the header shows the household name derived from that email's local part
+(`<local-part>'s household`). Key selectors: the Clerk sign-up email/submit
+fields, and a `data-testid="household-name"` header element.
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/signup.spec.ts`
+Expected: FAIL — spec/selectors not yet present (or the household-name element is
+missing until Task 6 wiring is in place).
+
+- [ ] **Step 3: Make it pass**
+
+Ensure Task 6's `/api/me` wiring exposes the header `data-testid="household-name"`
+and post-signup redirect. Iterate until the spec is green headless.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/signup.spec.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/signup.spec.ts
+git commit -m "test(e2e): signup lands in a solo household with header name (playwright)"
+```
+
+---
+
+### Task 9: E2E — invite a new email; second context joins the same household
+
+**Files:**
+- Create: `frontend/e2e/invite.spec.ts`
+
+**Interfaces:**
+- Consumes: the phase-1a harness; `signInAsTestUser` (phase 2); Clerk testing
+  tokens; `/api/invites`, `/api/me`.
+- Produces: a headless spec proving an invited **new** email signs up into the
+  **inviter's** household (not a new one), and that inviting an **already-active**
+  email surfaces the `409` "start fresh" message.
+
+- [ ] **Step 1: Write the failing spec**
+
+Create `frontend/e2e/invite.spec.ts` with two assertions:
+
+1. **Invite → join same household.** In context A, `signInAsTestUser` as an
+   existing member, open the Invite screen, type a brand-new email into the invite
+   field, submit, and assert the email appears in the pending-invites list
+   (`data-testid="pending-invite"`). Capture the inviter's household name from the
+   header. In a **second browser context** (B), inject a Clerk testing token and
+   complete `<SignUp>` as that same invited email; assert B's header shows the
+   **same** household name as A (joined, not auto-provisioned a new solo
+   household).
+2. **Invite an already-registered email → 409.** Back in context A, invite an
+   email that already has an active account and assert the UI renders the
+   start-fresh message (`data-testid="invite-error"` containing the "sign up with
+   a new account" copy) rather than adding a pending row.
+
+Key selectors: invite email input + submit button, `pending-invite` list items,
+`invite-error` banner, and the `household-name` header element (reused from
+Task 8).
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/invite.spec.ts`
+Expected: FAIL — invite selectors / error copy not yet wired.
+
+- [ ] **Step 3: Make it pass**
+
+Ensure Task 6's Invite screen exposes the `pending-invite` and `invite-error`
+testids and the `409` copy. Iterate until green headless across both contexts.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/invite.spec.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/invite.spec.ts
+git commit -m "test(e2e): invited email joins inviter household; active email shows 409 (playwright)"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:** auto-provision → Tasks 1/2/7; invite (new users only) →

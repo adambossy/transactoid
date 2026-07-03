@@ -154,6 +154,29 @@ RLS-scoped read-write connection — writes flow only through typed, reviewed co
 
 ---
 
+## UI/UX Requirements
+
+- A signed-out user landing anywhere in the app sees a Google sign-in screen —
+  Clerk's hosted `<SignIn>` component wrapped in the app shell — and nothing
+  else, so there is one obvious way in.
+- After signing in with Google, the user lands in the chat and can see who they
+  are signed in as and sign out from a user menu in the header.
+- When starting a new chat, the user picks the session mode — **Individual** or
+  **Household/Joint** — before their first message, and once a conversation is
+  created that mode is fixed and no longer offered.
+- A user whose session has expired is re-prompted to sign in rather than shown a
+  broken or empty chat, and returns to where they were once re-authenticated.
+- The whole authenticated app is wrapped by the shared app shell (header, footer,
+  logo), so the chat, the user menu, and the mode picker all sit inside a
+  consistent frame across screens.
+
+All new screens use the **shared UI template primitives** (Header, Footer, Logo,
+color tokens, type scale, font stack) — no bespoke styling. Screens are
+responsive (mobile and desktop) and handle loading, empty, and error states, and
+the app shell (header/footer) is consistent across screens.
+
+---
+
 ## New dependencies & env
 
 - **Backend:** a JWT/JWKS verification lib (`pyjwt[crypto]` + JWKS fetch/cache,

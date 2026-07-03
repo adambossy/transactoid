@@ -1041,6 +1041,120 @@ git commit -m "test(phase5): RLS on reminder/onboarding tables + reminder e2e ba
 
 ---
 
+## Browser E2E Validation (Playwright)
+
+Automated headless Playwright specs under `frontend/e2e/`, reusing the shared
+harness (phase 1a) and `signInAsTestUser` (phase 2). Plaid Link runs in
+**sandbox**; because the Plaid-hosted popup cannot be driven headlessly, these
+specs assert up to the inline card render + a **stubbed** `/api/plaid/exchange`,
+and the full sandbox link-through stays a manual step (Task 8, Step 3).
+
+### Task 11 (Penny frontend): onboarding nudge E2E
+
+**Files:**
+- Create: `frontend/e2e/onboarding-nudge.spec.ts`
+
+**Interfaces:**
+- Consumes: the phase-1a Playwright harness (base URL + fixtures) and
+  `signInAsTestUser` (phase 2); a scripted/sandbox backend where the signed-in
+  test user has **no linked banks**; a stub for `POST /api/plaid/exchange`
+  (`page.route`) returning a success body so the follow-up turn can proceed
+  without the Plaid popup.
+- Produces: a spec proving the first agent turn nudges to connect a bank, the
+  inline `connect_bank_account` card renders, and the nudge stops after a
+  stubbed successful exchange.
+
+- [ ] **Step 1: Write the failing spec**
+
+Concrete flow/assertions (prose, not full code):
+- `test.beforeEach`: `await signInAsTestUser(page)` (fresh user, zero linked
+  items), then navigate to the chat route.
+- Send a first message (e.g. "hi") via the composer input and submit.
+- Assert the agent's first response contains a connect-a-bank nudge — locate the
+  latest assistant message and expect its text to match `/connect .*bank/i`.
+- Assert the inline card renders: the tool-renderer output for
+  `connect_bank_account` is visible — expect a `[data-tool="connect_bank_account"]`
+  (or the `.plaid-card` container) to be visible with its "Connect a bank" button.
+- Register `await page.route("**/api/plaid/exchange", …)` to fulfill with a 200
+  success JSON, then drive the stubbed success path (invoke the card's
+  `onSuccess` via the exposed test hook rather than opening the real popup).
+- Send a follow-up message; assert a later assistant message confirms the link
+  (text matches `/linked|connected/i`) and that **no** new connect nudge or new
+  `connect_bank_account` card appears after the confirmation.
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/onboarding-nudge.spec.ts`
+Expected: FAIL — spec/selectors not yet present (or nudge/card wiring absent).
+
+- [ ] **Step 3: Make it pass**
+
+Ensure the renderer registration (Task 8) and the nudge wiring (Tasks 5–6,9) are
+in place; adjust selectors/test hooks so the assertions hold against the
+sandbox/scripted backend.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/onboarding-nudge.spec.ts` → PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/onboarding-nudge.spec.ts
+git commit -m "test(e2e): onboarding nudge renders connect card and stops after link"
+```
+
+---
+
+### Task 12 (Penny frontend): Plaid card E2E
+
+**Files:**
+- Create: `frontend/e2e/plaid-card.spec.ts`
+
+**Interfaces:**
+- Consumes: the phase-1a Playwright harness and `signInAsTestUser` (phase 2); a
+  sandbox/scripted backend whose `connect_bank_account` tool output carries a
+  `mode: "hosted"` + `link_token`.
+- Produces: a spec proving the inline Plaid Link card renders from the tool
+  output and enables its "Connect a bank" button once the link token is present.
+
+- [ ] **Step 1: Write the failing spec**
+
+Concrete flow/assertions (prose, not full code):
+- `test.beforeEach`: `await signInAsTestUser(page)`, navigate to chat.
+- Prompt the agent to connect a bank so it emits the `connect_bank_account`
+  tool part (or seed a conversation whose latest turn contains that tool part).
+- Assert the card container (`.plaid-card` / `[data-tool="connect_bank_account"]`)
+  is visible and shows the "Connect a bank" copy.
+- Assert the button is **enabled** once the link token is present — expect
+  `getByRole("button", { name: /connect a bank/i })` to be enabled (Plaid
+  `ready === true` with the token). A comment notes the Plaid popup itself is a
+  manual sandbox step (Task 8, Step 3), so the spec stops at button-enabled and
+  does not click through the hosted Link flow.
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/plaid-card.spec.ts`
+Expected: FAIL — card/selectors not yet present.
+
+- [ ] **Step 3: Make it pass**
+
+Ensure `PlaidLinkCard` (Task 8) renders for `mode: "hosted"` with a token and
+enables the button on `ready`; adjust selectors to match.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/plaid-card.spec.ts` → PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/plaid-card.spec.ts
+git commit -m "test(e2e): inline Plaid Link card renders and enables connect button"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:** harness `ReminderQueue` + flush → Tasks 1–2; first-class

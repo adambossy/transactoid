@@ -1709,6 +1709,162 @@ git commit -m "test: multi-tenant acceptance suite (cross-household, privacy, jo
 
 ---
 
+## Browser E2E Validation (Playwright)
+
+The unit/integration suites above prove tenancy at the DB seam. These two tasks
+prove the *whole app* — real backend + real vite frontend + a real headless
+browser — still works under the tenancy layer, and stand up the Playwright
+harness that every later phase reuses. Phase 1a **owns** the harness bootstrap;
+later phases only add feature specs (and a Clerk-test-sign-in helper) on top of
+it.
+
+### Task 15: Playwright harness bootstrap (this phase owns it)
+
+Stand up `@playwright/test` in the frontend with a config and a fixture that
+boots the backend in `PENNY_AUTH_MODE=dev` with an env-pinned dev principal plus
+the vite frontend, so specs run against a live app in headless CI. No feature
+assertions yet — the deliverable is a green trivial spec proving the harness
+launches both servers and drives a browser.
+
+**Files:**
+- Modify: `frontend/package.json` (add `@playwright/test` devDependency + an
+  `e2e` script), `frontend/.gitignore` (ignore `playwright-report/`,
+  `test-results/`).
+- Create: `frontend/playwright.config.ts` — headless, `use.baseURL` pointing at
+  the vite dev server (`http://127.0.0.1:5173`), a `webServer` (or global-setup)
+  block that starts backend + frontend, single project (chromium), CI-friendly
+  (`forbidOnly: !!process.env.CI`, retries on CI).
+- Create: `frontend/e2e/fixtures/app.ts` — a `test` fixture extending
+  `@playwright/test` that ensures the backend is up in
+  `PENNY_AUTH_MODE=dev` with `PENNY_DEV_USER_ID` / `PENNY_DEV_HOUSEHOLD_ID`
+  (and `PENNY_DEV_SESSION_MODE=individual`) pinned to a seeded dev household, and
+  exposes helpers later phases extend. (A `signInWithClerkTestToken` helper is
+  **added by a later phase** — leave a documented stub/TODO here, do not
+  implement Clerk auth in phase 1a.)
+- Create: `frontend/e2e/harness.spec.ts` — trivial spec: navigate to `/`, assert
+  the document has a title / the app root renders.
+
+**Interfaces:**
+- Produces: a reusable `test`/`expect` export from `e2e/fixtures/app.ts`; a
+  `webServer` config that boots `uvicorn penny.api.main:app` (with the dev env
+  vars) and `npm run dev`; `npm run e2e` → `playwright test`.
+
+- [ ] **Step 1: Write the failing spec**
+
+```ts
+// frontend/e2e/harness.spec.ts
+import { test, expect } from "./fixtures/app";
+
+test("app harness boots and serves the SPA", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveTitle(/Penny/i);
+  await expect(page.locator("#root")).toBeVisible();
+});
+```
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/harness.spec.ts`
+Expected: FAIL — `@playwright/test` not installed / no `playwright.config.ts` /
+`Cannot find module './fixtures/app'`.
+
+- [ ] **Step 3: Implement the harness**
+
+Install and scaffold:
+
+```bash
+cd frontend && npm install -D @playwright/test && npx playwright install --with-deps chromium
+```
+
+Write `frontend/playwright.config.ts` with `use: { baseURL:
+"http://127.0.0.1:5173" }`, `fullyParallel: false`, and a `webServer` array that
+launches (a) the backend with `PENNY_AUTH_MODE=dev`,
+`PENNY_DEV_USER_ID`/`PENNY_DEV_HOUSEHOLD_ID` set to a seeded dev household, and
+`DATABASE_URL` on a throwaway SQLite/Postgres test db, and (b) `npm run dev`,
+each with `reuseExistingServer: !process.env.CI` and a `url` health check.
+Write `frontend/e2e/fixtures/app.ts` re-exporting `test`/`expect` (extend later),
+with a documented `// TODO(phase 2+): signInWithClerkTestToken(page)` stub.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/harness.spec.ts`
+Expected: PASS (1 passed) — both servers boot, the SPA renders headless.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/package.json frontend/package-lock.json frontend/.gitignore \
+  frontend/playwright.config.ts frontend/e2e/fixtures/app.ts \
+  frontend/e2e/harness.spec.ts
+git commit -m "test(e2e): bootstrap Playwright harness (dev-mode backend + vite, headless)"
+```
+
+---
+
+### Task 16: Chat smoke E2E — the tenancy layer didn't break the app
+
+An end-to-end spec that loads the app, sends a chat message, and asserts a
+streamed assistant response renders — proving the phase-1a tenancy/RLS layer
+left the loading → sending → streaming flow intact through the real UI.
+
+**Files:**
+- Create: `frontend/e2e/chat-smoke.spec.ts`
+
+**Interfaces:**
+- Consumes: the `test` fixture from Task 15 (dev principal already pinned).
+
+- [ ] **Step 1: Write the failing spec**
+
+```ts
+// frontend/e2e/chat-smoke.spec.ts
+import { test, expect } from "./fixtures/app";
+
+test("user sends a chat message and an assistant response streams in", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox");
+  await composer.fill("Hello Penny, are you there?");
+  await composer.press("Enter");
+
+  // user message shows immediately
+  await expect(page.getByText("Hello Penny, are you there?")).toBeVisible();
+
+  // an assistant message streams in and ends up non-empty
+  const assistant = page.locator('[data-role="assistant"]').last();
+  await expect(assistant).toBeVisible({ timeout: 30_000 });
+  await expect(assistant).not.toBeEmpty();
+});
+```
+
+- [ ] **Step 2: Run spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/chat-smoke.spec.ts`
+Expected: FAIL initially — selectors (`[data-role="assistant"]`) may need
+aligning with the rendered `Message` markup; adjust the locators to the actual
+agent-ui DOM (add a `data-role`/`data-testid` in `ChatScreen` if none exists).
+
+- [ ] **Step 3: Make it pass**
+
+Run the app locally, inspect the message DOM, and pin the spec to stable
+selectors (prefer a `data-testid` on the message list + `data-role` on each
+message; add them to `ChatScreen`/the agent-ui usage if absent). Keep the
+backend in dev mode with a real (or recorded) model so a response actually
+streams; if the CI model key is absent, gate this spec behind a
+`test.skip(!process.env.PENNY_E2E_MODEL)` guard documented in the spec.
+
+- [ ] **Step 4: Run spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/chat-smoke.spec.ts`
+Expected: PASS (1 passed) — message sent, assistant response rendered end to end.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/chat-smoke.spec.ts frontend/src
+git commit -m "test(e2e): chat smoke spec proves tenancy layer keeps chat working end to end"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage check (spec § → task):**

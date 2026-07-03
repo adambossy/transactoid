@@ -1375,6 +1375,236 @@ git commit -m "test(auth): end-to-end 401/403/404 + IDOR + spoof battery"
 
 ---
 
+## Browser E2E Validation (Playwright)
+
+Automated, headless-CI-able Playwright specs under `frontend/e2e/*.spec.ts`,
+running against the live backend + frontend (dev servers or the CI-built
+preview) and reusing the shared e2e harness bootstrapped in phase 1a
+(fixtures, seeded households/users, base URL, global setup/teardown). These
+cover what the backend `TestClient` battery (Task 12) cannot: the Clerk sign-in
+flow, the rendered chat, and cross-user isolation in a real browser.
+
+**Clerk in tests uses Clerk's testing tokens / test mode** for programmatic
+sign-in — no interactive Google OAuth. This phase adds a
+`signInAsTestUser(page, user)` helper to the shared harness (built on
+`@clerk/testing`'s Playwright utilities + a Clerk test-mode session), reused by
+phases 4 and 5. Test users map to the seeded `users` rows (A and B in household
+H1) so conversation scoping is exercised end-to-end.
+
+**Env/setup:** `frontend/e2e/` gains a `playwright.config.ts` (or extends the
+phase-1a shared config) pointing `baseURL` at the running frontend and a
+`webServer`/global-setup that ensures backend (clerk mode with Clerk **test**
+keys) + frontend are up and the DB is seeded. Clerk test keys and
+`CLERK_SECRET_KEY` come from CI secrets; `signInAsTestUser` obtains a testing
+token via `@clerk/testing` before navigating.
+
+---
+
+### Task 13: E2E harness — `signInAsTestUser` + auth flow spec
+
+**Files:**
+- Create: `frontend/e2e/support/auth.ts` — `signInAsTestUser(page, user)` helper
+  (added to the shared harness; reused by phases 4 and 5).
+- Create: `frontend/e2e/auth.spec.ts`
+- Modify: `frontend/e2e/playwright.config.ts` (or the phase-1a shared config) and
+  `frontend/package.json` (add `@playwright/test`, `@clerk/testing`; `e2e` script).
+
+**Interfaces:**
+- Produces: `signInAsTestUser(page: Page, user: TestUser): Promise<void>` —
+  injects a Clerk testing token and establishes a test-mode session for the given
+  seeded user, then waits for the chat shell to render.
+- Consumes: the phase-1a shared e2e fixtures (seeded households/users, base URL).
+
+- [ ] **Step 1: Write the failing spec**
+
+```ts
+// frontend/e2e/auth.spec.ts
+import { expect, test } from "@playwright/test";
+import { signInAsTestUser, USER_A } from "./support/auth";
+
+test("signed-out user sees the Clerk sign-in screen", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /message/i })).toHaveCount(0);
+});
+
+test("sign in, send a message, get a response, sign out", async ({ page }) => {
+  await signInAsTestUser(page, USER_A);
+  await expect(page.getByRole("textbox", { name: /message/i })).toBeVisible();
+
+  await page.getByRole("textbox", { name: /message/i }).fill("How much did I spend?");
+  await page.getByRole("button", { name: /send/i }).click();
+  await expect(page.locator("[data-message-role='assistant']").last()).toBeVisible();
+
+  await page.getByRole("button", { name: /account|user menu/i }).click();
+  await page.getByRole("menuitem", { name: /sign out/i }).click();
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+});
+
+test("a protected request while signed-out is rejected (no chat access)", async ({ page }) => {
+  const res = await page.request.post("/api/chat", {
+    data: { messages: [], sessionMode: "individual" },
+  });
+  expect([401, 403]).toContain(res.status());
+});
+```
+
+- [ ] **Step 2: Run the spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/auth.spec.ts`
+Expected: FAIL — no `signInAsTestUser` helper / sign-in flow not yet wired.
+
+- [ ] **Step 3: Implement the harness helper + enable the spec**
+
+Add `frontend/e2e/support/auth.ts` with `signInAsTestUser` (Clerk testing token
+via `@clerk/testing/playwright`, navigate to `/`, wait for the composer). Define
+`USER_A`/`USER_B` mapped to the seeded rows. Wire `playwright.config.ts`
+(`baseURL`, `webServer`/global-setup starting backend in clerk **test** mode +
+frontend, seeding the DB). Ensure the signed-out and protected-request
+assertions pass against the Task 4/Task 10 behavior.
+
+- [ ] **Step 4: Run the spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/auth.spec.ts` → PASS (3 passed).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/support/auth.ts frontend/e2e/auth.spec.ts \
+  frontend/e2e/playwright.config.ts frontend/package.json frontend/package-lock.json
+git commit -m "test(e2e): Clerk test-mode sign-in helper + auth flow spec"
+```
+
+---
+
+### Task 14: E2E — session-mode picker
+
+**Files:**
+- Create: `frontend/e2e/session-mode.spec.ts`
+
+**Interfaces:** consumes `signInAsTestUser` (Task 13) and the Task 10 new-chat
+mode picker + Task 5/6 persistence.
+
+- [ ] **Step 1: Write the failing spec**
+
+```ts
+// frontend/e2e/session-mode.spec.ts
+import { expect, test } from "@playwright/test";
+import { signInAsTestUser, USER_A } from "./support/auth";
+
+test("new-chat picker offers Individual and Joint", async ({ page }) => {
+  await signInAsTestUser(page, USER_A);
+  await page.getByRole("button", { name: /new chat/i }).click();
+  await expect(page.getByRole("radio", { name: /individual/i })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /joint|household/i })).toBeVisible();
+});
+
+test("creating a joint conversation persists that mode", async ({ page }) => {
+  await signInAsTestUser(page, USER_A);
+  await page.getByRole("button", { name: /new chat/i }).click();
+  await page.getByRole("radio", { name: /joint|household/i }).check();
+  await page.getByRole("textbox", { name: /message/i }).fill("Household summary");
+  await page.getByRole("button", { name: /send/i }).click();
+  await expect(page.locator("[data-message-role='assistant']").last()).toBeVisible();
+
+  // Mode is immutable server-side: reloading the conversation keeps it joint and
+  // no longer offers the picker.
+  await page.reload();
+  await expect(page.getByText(/joint|household/i)).toBeVisible();
+  await expect(page.getByRole("radio", { name: /individual/i })).toHaveCount(0);
+});
+```
+
+- [ ] **Step 2: Run the spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/session-mode.spec.ts`
+Expected: FAIL — picker/persistence not yet wired.
+
+- [ ] **Step 3: Implement/enable**
+
+Ensure the Task 10 picker exposes accessible `radio` roles for
+Individual/Joint, sends `sessionMode` on the first message, and that an existing
+conversation renders its stored mode (and hides the picker). No new backend
+work — this validates Tasks 5, 6, and 10 through the browser.
+
+- [ ] **Step 4: Run the spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/session-mode.spec.ts` → PASS (2 passed).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/session-mode.spec.ts
+git commit -m "test(e2e): session-mode picker offers + persists Individual/Joint"
+```
+
+---
+
+### Task 15: E2E — conversation isolation across users
+
+**Files:**
+- Create: `frontend/e2e/conversation-isolation.spec.ts`
+
+**Interfaces:** consumes `signInAsTestUser` (Task 13) and the Task 5 scoped
+store (`ConversationAccessError` → 404).
+
+- [ ] **Step 1: Write the failing spec**
+
+```ts
+// frontend/e2e/conversation-isolation.spec.ts
+import { expect, test } from "@playwright/test";
+import { signInAsTestUser, USER_A, USER_B } from "./support/auth";
+
+test("user B cannot open user A's individual conversation URL", async ({ browser }) => {
+  // Context A: create an individual conversation, capture its id/URL.
+  const ctxA = await browser.newContext();
+  const pageA = await ctxA.newPage();
+  await signInAsTestUser(pageA, USER_A);
+  await pageA.getByRole("textbox", { name: /message/i }).fill("Private note");
+  await pageA.getByRole("button", { name: /send/i }).click();
+  await expect(pageA.locator("[data-message-role='assistant']").last()).toBeVisible();
+  const privateUrl = pageA.url(); // /c/<conversation-id>
+
+  // Context B: a different signed-in user cannot open A's individual thread.
+  const ctxB = await browser.newContext();
+  const pageB = await ctxB.newPage();
+  await signInAsTestUser(pageB, USER_B);
+  await pageB.goto(privateUrl);
+  await expect(pageB.getByText(/not found|no access|404/i)).toBeVisible();
+  await expect(pageB.locator("[data-message-role='assistant']")).toHaveCount(0);
+
+  await ctxA.close();
+  await ctxB.close();
+});
+```
+
+- [ ] **Step 2: Run the spec to verify it fails**
+
+Run: `cd frontend && npx playwright test e2e/conversation-isolation.spec.ts`
+Expected: FAIL — until scoping + a not-found route render are wired.
+
+- [ ] **Step 3: Implement/enable**
+
+Rely on the Task 5 store returning 404 for a conversation the principal can't
+access; ensure the frontend renders a not-found/blocked state (not an empty
+chat) for that response. Two `browser.newContext()` instances give the two users
+independent Clerk test sessions.
+
+- [ ] **Step 4: Run the spec to verify it passes**
+
+Run: `cd frontend && npx playwright test e2e/conversation-isolation.spec.ts` → PASS.
+Also run the whole browser suite headless:
+`cd frontend && npx playwright test` → green.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/e2e/conversation-isolation.spec.ts
+git commit -m "test(e2e): cross-user conversation isolation (B blocked from A's thread)"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:** fail-closed settings → Task 1; JWT verification (JWKS from
