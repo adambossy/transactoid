@@ -33,15 +33,49 @@
 ```
 1a ──► 1b ──┐
  │          │
- └─► 2 ──┬─► 2b ──► 4 ──► 5
-         ├─► 3
-         │
-1a─1b────┴──────────────► 6 (audits everything built in 1a–5, 2b)
+ └─► 2 ──► 2b ──► 4 ──► 5
+     │           │
+     └─► 3 ◄─────┘  (cutover)
+ │
+1a─1b──────────────────► 6 (audits everything built in 1a–5, 2b)
 ```
 
-Note: **2b (BYO keys & metered subsidy)** sits between 2 and 4 — open self-serve
-signup (4) must not ship without 2b's per-user spend cap. It also requires an
-**agent-harness** change (token counting + credential resolver).
+Notes:
+- **2b (BYO keys & metered subsidy)** sits between 2 and 4 — open self-serve
+  signup (4) must not ship without 2b's per-user spend cap. It also requires an
+  **agent-harness** change (token counting + credential resolver).
+- **3 (cutover)** can run its schema/data migration once 2 exists, but its
+  **pending-user signup handoff completes only after 4** provides the `<SignUp>`
+  surface (Phase 2 wires `<SignIn>` only). So the handoff edge is **4 → 3**:
+  build 4's signup surface before the two spouses claim their pending rows.
+
+## Migration ledger (single source of truth)
+
+Two databases, **one logical number space**, numbered strictly by **build
+order**, **one head per database** — so no phase manufactures a multi-head (the
+only multi-head to reconcile is the *legacy* prod one, handled by Phase 3).
+
+| # | Migration | DB | Phase |
+|---|---|---|---|
+| 006 | households + users | finance | 1a |
+| 007 | revive plaid_accounts | finance | 1a |
+| 008 | tenant columns (nullable) | finance | 1a |
+| 009 | backfill tenant columns — **dev/opt-in only**; prod identity is handled by Phase 3 cutover, not this migration | finance | 1a |
+| 010 | contract: NOT NULL + FK + `CHECK visibility` + `CHECK owner≠nil-uuid` + indexes | finance | 1a |
+| 011 | RLS policies **USING + WITH CHECK** (the phase-2 "amendment" is folded in here from the start) | finance | 1a |
+| 012 | categories `household_id` | finance | 1a |
+| 013 | encrypt plaid access tokens (key-version-prefixed cipher) | finance | 1a |
+| 014 | workspace prefix/manifest/head tables + RLS | finance | 1b |
+| 015 | conversations tenant columns + `session_mode` + RLS (web DB now Postgres+alembic, not `create_all`) | web | 2 |
+| 016 | `user_credentials` + RLS | web | 2b |
+| 017 | `usage_events` + `user_billing` + RLS | web | 2b |
+| 018 | `onboarding_items` + RLS | web | 5 |
+| 019 | `queued_reminders` + RLS | web | 5 |
+
+Rules: the finance chain (`backend/db/migrations/`) and the web chain each keep a
+single linear head; each plan's `down_revision` must match this ledger (plans
+that hardcoded provisional numbers defer to this table). New migrations append
+here in build order.
 
 ## Status legend
 
