@@ -1,0 +1,84 @@
+{
+  "title": "Individual Recategorization & Smarter Merchant Normalization",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "the-two-tiers", "key-tradeoffs"],
+    "children": [
+      {
+        "id": "problem",
+        "label": "The problem",
+        "href": "problem/index.html",
+        "sections": ["two-failure-modes", "concrete-examples", "tooling-gap"],
+        "crosslinks": ["tier-1", "tier-2"],
+        "children": []
+      },
+      {
+        "id": "tier-1",
+        "label": "Tier 1 — Per-transaction recategorize",
+        "href": "tier-1/index.html",
+        "sections": ["goal", "the-tool", "reuse-and-protection", "verification"],
+        "crosslinks": ["problem", "payoff"],
+        "children": []
+      },
+      {
+        "id": "tier-2",
+        "label": "Tier 2 — Smarter merchant normalization",
+        "href": "tier-2/index.html",
+        "sections": ["goal", "schema-changes", "approach"],
+        "crosslinks": ["tier-2-sampling", "tier-2-normalizer", "tier-2-validation"],
+        "children": [
+          {
+            "id": "tier-2-sampling",
+            "label": "Collect descriptor samples",
+            "href": "tier-2/sampling.html",
+            "sections": ["why-first", "the-query", "what-it-feeds"],
+            "crosslinks": ["tier-2-normalizer", "tier-2-validation"],
+            "children": []
+          },
+          {
+            "id": "tier-2-normalizer",
+            "label": "The LLM normalizer",
+            "href": "tier-2/normalizer.html",
+            "sections": ["rules-repository", "normalized-merchant", "build-notes", "ambiguous-channels"],
+            "crosslinks": ["tier-2-sampling", "tier-2-validation"],
+            "children": []
+          },
+          {
+            "id": "tier-2-validation",
+            "label": "Validation, not backfill",
+            "href": "tier-2/validation.html",
+            "sections": ["no-backfill", "dry-run-and-review", "iterate"],
+            "crosslinks": ["tier-2-normalizer", "payoff"],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "payoff",
+        "label": "Combined payoff",
+        "href": "payoff/index.html",
+        "sections": ["resolution-table", "precision-vs-prevention"],
+        "crosslinks": ["tier-1", "tier-2"],
+        "children": []
+      },
+      {
+        "id": "out-of-scope",
+        "label": "Out of scope",
+        "href": "out-of-scope/index.html",
+        "sections": ["tier-3", "tier-4"],
+        "crosslinks": [],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open"],
+        "crosslinks": ["tier-2-validation"],
+        "children": []
+      }
+    ]
+  }
+}
