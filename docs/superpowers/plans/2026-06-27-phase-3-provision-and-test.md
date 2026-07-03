@@ -1,11 +1,10 @@
-# Phase 3 — Production Cutover & Legacy-Data Migration (Re-spec pending)
+# Phase 3 — Production Cutover & Legacy-Data Migration
 
-> **Status: Being repurposed.** Phase 3 was "Provision + test"; that scope is now
-> absorbed elsewhere (self-serve provisioning → [Phase 4](2026-06-27-phase-4-signup-ui.md);
+> **Status: Designed** — see the [Phase 3 cutover spec](../specs/2026-07-03-phase-3-cutover-design.md); needs a detailed plan.
+> Repurposed from "Provision + test": provisioning → [Phase 4](2026-06-27-phase-4-signup-ui.md);
 > real-data validation → [Phase 6](2026-06-27-phase-6-security-audit.md); the
-> household/user admin CLI becomes a minor utility, folded into Phase 4). What
-> remains — and needs its own brainstorm + spec + plan — is the **one-time
-> production cutover and legacy-data migration**.
+> household/user admin CLI becomes a minor Phase-4 utility. What remains is the
+> **one-time production cutover and legacy-data migration** (this phase).
 >
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
 > **Superseded docs** (kept for reference): old
