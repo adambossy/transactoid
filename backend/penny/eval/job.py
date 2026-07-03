@@ -19,7 +19,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from penny.adapters.db.facade import DB
-from penny.adapters.db.models import Category, DerivedTransaction
+from penny.adapters.db.models import Category, DerivedTransaction, PlaidTransaction
 from penny.adapters.storage.r2 import public_url_for_key, store_object_in_r2
 from penny.eval.branch import EvalBranchError, create_eval_branch, delete_eval_branch
 from penny.eval.fixture import build_fixture_bytes
@@ -103,10 +103,16 @@ async def run_eval(
                     DerivedTransaction.amount_cents,
                     DerivedTransaction.posted_at,
                     Category.key,
+                    PlaidTransaction.raw_name,
                 )
                 .select_from(DerivedTransaction)
                 .outerjoin(
                     Category, Category.category_id == DerivedTransaction.category_id
+                )
+                .outerjoin(
+                    PlaidTransaction,
+                    PlaidTransaction.plaid_transaction_id
+                    == DerivedTransaction.plaid_transaction_id,
                 )
                 .where(DerivedTransaction.transaction_id.in_(cohort_ids))
             ).all()
@@ -116,6 +122,7 @@ async def run_eval(
                 "amount": (r[2] / 100.0) if r[2] is not None else None,
                 "date": r[3].isoformat() if r[3] else None,
                 "legacy_key": r[4],
+                "raw_name": r[5],
             }
             for r in rows
         }
@@ -130,6 +137,7 @@ async def run_eval(
                 txn = {
                     "transaction_id": tid,
                     "merchant_descriptor": meta.get("merchant_descriptor"),
+                    "raw_name": meta.get("raw_name"),
                     "amount": meta.get("amount"),
                     "date": meta.get("date"),
                 }

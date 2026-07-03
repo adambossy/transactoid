@@ -114,14 +114,24 @@ def build_categorizer_agent() -> Agent:
 def _build_txn_prompt(txn: dict[str, Any]) -> str:
     amount = txn.get("amount")
     amount_str = f"${amount:.2f}" if isinstance(amount, (int, float)) else "unknown"
-    return (
+    lines = [
         "Categorize this single transaction. Pass the exact transaction_id below to "
-        "submit_categorization when you are done.\n\n"
-        f"- transaction_id: {txn['transaction_id']}\n"
-        f"- merchant descriptor: {txn.get('merchant_descriptor') or '(none)'}\n"
-        f"- amount: {amount_str}\n"
-        f"- date: {txn.get('date') or 'unknown'}\n"
-    )
+        "submit_categorization when you are done.\n",
+        f"- transaction_id: {txn['transaction_id']}",
+        # Label kept as "merchant descriptor" so it matches the string the agent's
+        # history/fast-path tools key on (merchant_category_history(descriptor)).
+        f"- merchant descriptor: {txn.get('merchant_descriptor') or '(none)'}",
+    ]
+    # Plaid's raw `name` is the fuller, uncleaned descriptor — it often carries
+    # location or payment-rail detail the cleaned merchant descriptor drops. Only
+    # show it when it adds something (present and not identical to the descriptor).
+    raw_name = (txn.get("raw_name") or "").strip()
+    merchant = (txn.get("merchant_descriptor") or "").strip()
+    if raw_name and raw_name.lower() != merchant.lower():
+        lines.append(f"- raw bank descriptor: {raw_name}")
+    lines.append(f"- amount: {amount_str}")
+    lines.append(f"- date: {txn.get('date') or 'unknown'}")
+    return "\n".join(lines) + "\n"
 
 
 def _apply_fast_path(db: Any, transaction_id: int, category_key: str) -> None:

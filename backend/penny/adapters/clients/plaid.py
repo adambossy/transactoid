@@ -139,6 +139,7 @@ class PlaidTransactionModel(PlaidBaseModel):
     category: list[str] | None = None
     category_id: str | None = None
     personal_finance_category: dict[str, Any] | None = None
+    counterparties: list[dict[str, Any]] | None = None
 
     def to_typed(self) -> Transaction:
         txn: Transaction = {
@@ -160,6 +161,7 @@ class PlaidTransactionModel(PlaidBaseModel):
             "personal_finance_category": cast(
                 PersonalFinanceCategory | None, self.personal_finance_category
             ),
+            "counterparties": self.counterparties,
         }
         return txn
 

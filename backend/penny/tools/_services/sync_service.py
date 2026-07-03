@@ -764,9 +764,25 @@ class SyncTool:
 
         self._logger.categorization_start(len(to_categorize), len(to_categorize), 0)
 
-        by_descriptor: dict[str, list[Any]] = defaultdict(list)
+        # Plaid's raw `name` lives on the plaid row; it is eager-loaded onto
+        # ``txn.plaid_transaction`` by get_derived_transactions_by_ids (raw_name
+        # only), so no extra fetch is needed.
+        def _raw_name(txn: Any) -> str | None:
+            pt = txn.plaid_transaction
+            return pt.raw_name if pt is not None else None
+
+        # Dedup by raw_name: it is the finer signal the agent actually reads and
+        # it determines merchant_descriptor (which is `merchant_name or name`), so
+        # a compound key would be redundant. Fall back to merchant_descriptor when
+        # raw_name is absent (CSV / pre-backfill rows) so unrelated null-raw_name
+        # rows don't collapse into one group. Trade-off: raw strings carrying
+        # per-transaction tokens (e.g. a Zelle confirmation number) dedup less and
+        # cost an extra agent run — acceptable, and it never merges distinct
+        # counterparties.
+        by_key: dict[str, list[Any]] = defaultdict(list)
         for txn in to_categorize:
-            by_descriptor[txn.merchant_descriptor or ""].append(txn)
+            key = _raw_name(txn) or txn.merchant_descriptor or ""
+            by_key[key].append(txn)
 
         semaphore = asyncio.Semaphore(_CATEGORIZE_CONCURRENCY)
 
@@ -777,6 +793,7 @@ class SyncTool:
                     {
                         "transaction_id": first.transaction_id,
                         "merchant_descriptor": first.merchant_descriptor,
+                        "raw_name": _raw_name(first),
                         "amount": first.amount_cents / 100.0,
                         "date": first.posted_at.isoformat()
                         if first.posted_at
@@ -801,7 +818,7 @@ class SyncTool:
                     ),
                 )
 
-        await asyncio.gather(*[_handle(txns) for txns in by_descriptor.values()])
+        await asyncio.gather(*[_handle(txns) for txns in by_key.values()])
 
     async def _categorize_uncategorized(self) -> None:
         """End-of-sync sweep: categorize every uncategorized derived row.
@@ -1144,6 +1161,12 @@ class SyncTool:
                     "currency": txn.get("iso_currency_code") or "USD",
                     "merchant_descriptor": txn.get("merchant_name") or txn.get("name"),
                     "original_descriptor": txn.get("original_descriptor"),
+                    # Plaid's raw `name` — the fuller descriptor, kept even though
+                    # merchant_descriptor prefers the cleaned merchant_name.
+                    "raw_name": txn.get("name"),
+                    # Plaid enrichment, stored verbatim (not surfaced to the agent).
+                    "counterparties": txn.get("counterparties"),
+                    "personal_finance_category": txn.get("personal_finance_category"),
                     "institution": None,
                 }
             )

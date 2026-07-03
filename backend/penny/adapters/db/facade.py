@@ -629,6 +629,9 @@ class DB:
             merchant_descriptor=data.get("merchant_descriptor"),
             institution=data.get("institution"),
             original_descriptor=data.get("original_descriptor"),
+            raw_name=data.get("raw_name"),
+            counterparties=data.get("counterparties"),
+            personal_finance_category=data.get("personal_finance_category"),
         )
 
         # Then create DerivedTransaction
@@ -1443,6 +1446,9 @@ class DB:
         merchant_descriptor: str | None,
         institution: str | None,
         original_descriptor: str | None = None,
+        raw_name: str | None = None,
+        counterparties: list[Any] | None = None,
+        personal_finance_category: dict[str, Any] | None = None,
     ) -> PlaidTransaction:
         """Insert or update a Plaid transaction.
 
@@ -1455,6 +1461,10 @@ class DB:
             currency: Currency code
             merchant_descriptor: Merchant descriptor
             institution: Institution name
+            original_descriptor: Plaid's raw ``original_description`` (rarely set)
+            raw_name: Plaid's raw ``name`` (the fuller descriptor)
+            counterparties: Plaid's structured counterparty list (verbatim)
+            personal_finance_category: Plaid's own category guess (verbatim)
 
         Returns:
             Created or updated PlaidTransaction instance
@@ -1479,6 +1489,9 @@ class DB:
                     currency=currency,
                     merchant_descriptor=merchant_descriptor,
                     original_descriptor=original_descriptor,
+                    raw_name=raw_name,
+                    counterparties=counterparties,
+                    personal_finance_category=personal_finance_category,
                     institution=institution,
                 )
                 session.add(plaid_txn)
@@ -1489,6 +1502,9 @@ class DB:
                 plaid_txn.currency = currency
                 plaid_txn.merchant_descriptor = merchant_descriptor
                 plaid_txn.original_descriptor = original_descriptor
+                plaid_txn.raw_name = raw_name
+                plaid_txn.counterparties = counterparties
+                plaid_txn.personal_finance_category = personal_finance_category
                 plaid_txn.institution = institution
                 plaid_txn.updated_at = datetime.now()
 
@@ -1528,6 +1544,11 @@ class DB:
                     "currency": insert_stmt.excluded.currency,
                     "merchant_descriptor": insert_stmt.excluded.merchant_descriptor,
                     "original_descriptor": insert_stmt.excluded.original_descriptor,
+                    "raw_name": insert_stmt.excluded.raw_name,
+                    "counterparties": insert_stmt.excluded.counterparties,
+                    "personal_finance_category": (
+                        insert_stmt.excluded.personal_finance_category
+                    ),
                     "institution": insert_stmt.excluded.institution,
                     "updated_at": datetime.now(),
                 },
@@ -2246,7 +2267,13 @@ class DB:
             transaction_ids: List of transaction IDs
 
         Returns:
-            List of DerivedTransaction instances
+            List of DerivedTransaction instances with ``plaid_transaction``
+            eager-loaded but restricted to ``raw_name`` (via ``load_only``), so
+            the categorizer sweep can read ``txn.plaid_transaction.raw_name``
+            after the session closes without a second round trip and without
+            hydrating the plaid row's JSON blobs. Other ``plaid_transaction``
+            columns and every other relationship remain deferred/lazy and will
+            raise ``DetachedInstanceError`` if accessed.
         """
         if not transaction_ids:
             return []
@@ -2254,11 +2281,20 @@ class DB:
         with self.session() as session:  # type: Session
             derived_txns = (
                 session.query(DerivedTransaction)
+                .options(
+                    joinedload(DerivedTransaction.plaid_transaction).load_only(
+                        PlaidTransaction.raw_name
+                    )
+                )
                 .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
                 .order_by(DerivedTransaction.external_id)  # Deterministic for cache
                 .all()
             )
             for txn in derived_txns:
+                # Expunge the joined parent before the txn so neither is expired
+                # by the implicit commit on session exit.
+                if txn.plaid_transaction is not None:
+                    session.expunge(txn.plaid_transaction)
                 session.expunge(txn)
             return derived_txns
 
