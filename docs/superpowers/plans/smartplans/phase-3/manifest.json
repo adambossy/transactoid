@@ -1,34 +1,34 @@
 {
-  "title": "Phase 3 — Provision + Test",
+  "title": "Phase 3 — Production Cutover & Legacy-Data Migration",
   "root": {
     "id": "phase-3",
-    "label": "Phase 3 — Provision + test",
+    "label": "Phase 3 — Cutover & migration",
     "href": "index.html",
-    "sections": ["goal", "decisions", "deliverable"],
-    "crosslinks": ["phase-3-admin", "phase-3-provisioning", "phase-3-acceptance"],
+    "sections": ["goal", "stages", "decisions"],
+    "crosslinks": ["phase-3-schema", "phase-3-assign", "phase-3-safety"],
     "children": [
       {
-        "id": "phase-3-admin",
-        "label": "Admin CLI",
-        "href": "admin-cli.html",
-        "sections": ["commands", "idempotency", "rls-context"],
-        "crosslinks": ["phase-3-provisioning"],
+        "id": "phase-3-schema",
+        "label": "Schema reconciliation",
+        "href": "schema.html",
+        "sections": ["reconcile", "create-all-fix"],
+        "crosslinks": ["phase-3-assign"],
         "children": []
       },
       {
-        "id": "phase-3-provisioning",
-        "label": "Provisioning runbook",
-        "href": "provisioning.html",
-        "sections": ["rehearse", "steps"],
-        "crosslinks": ["phase-3-admin", "phase-3-acceptance"],
+        "id": "phase-3-assign",
+        "label": "Assignment & handoff",
+        "href": "assign.html",
+        "sections": ["interactive", "reparent", "handoff"],
+        "crosslinks": ["phase-3-schema", "phase-3-safety"],
         "children": []
       },
       {
-        "id": "phase-3-acceptance",
-        "label": "Acceptance checklist",
-        "href": "acceptance.html",
-        "sections": ["automated", "real-data", "secrets"],
-        "crosslinks": ["phase-3-provisioning"],
+        "id": "phase-3-safety",
+        "label": "Safety & validation",
+        "href": "safety.html",
+        "sections": ["backup", "rehearse", "validate"],
+        "crosslinks": ["phase-3-assign"],
         "children": []
       }
     ]
