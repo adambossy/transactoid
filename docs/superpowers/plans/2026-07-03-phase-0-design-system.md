@@ -1,15 +1,36 @@
 # Phase 0 — Design System (Shared UI Template) — Plan Stub
 
-> **Status: Roadmap — awaiting HTML templates from the user, then brainstorm → spec → plan.**
+> **Status: Reference received — ready to brainstorm → spec → plan.**
+> Template captured at [`frontend/design-reference/`](../../../frontend/design-reference/)
+> (`index.html` + `preview.jpeg` + [`DESIGN-SYSTEM.md`](../../../frontend/design-reference/DESIGN-SYSTEM.md)).
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
 > **Precedes** the UI-bearing phases ([2 auth](2026-07-02-phase-2-auth-social-login.md),
 > [4 signup](2026-07-02-phase-4-signup-ui.md), [5 onboarding](2026-07-03-phase-5-onboarding.md)),
 > which all reference "the shared UI template primitives."
 
-**Goal:** Turn the user-provided HTML web templates into a **reusable design
-system / component library** that supplies the primitives every UI phase depends
-on — Header, Footer, Logo, color tokens, type scale, font stack, and the app
-shell — so no phase invents bespoke styling.
+**Goal:** Turn the provided template (the "Penny — your finance savant" HTML) into
+a **reusable design system / component library** that supplies the primitives
+every UI phase depends on — Header/app-shell, Footer, Logo, color tokens, type
+scale, font stack, and the core controls — so no phase invents bespoke styling.
+
+## Extracted design system (from the template)
+
+- **Palette (CSS tokens):** `--paper #FAF4E7`, `--cream #ECE0C0`,
+  `--cream-soft #F3E9CF`, `--ink #1C3E3A`, `--navy #1E4846`, `--navy-700 #2A625D`,
+  `--steel #3C7A72`, `--orange #D69E3D`, `--orange-soft #E3B255`. Warm cream
+  ground, deep teal-green ink, gold accent.
+- **Type (Google Fonts):** Fraunces (display, gold-underlined headlines),
+  Cormorant Garamond (serif section labels + `PENNY` wordmark), Work Sans
+  (body + UI). Tailwind-utility based.
+- **Logos:** circular emblem (classical savant profile in teal + gold) — a small
+  **avatar** and a large **emblem**; both embedded in the reference, to be
+  vendored as `logo-avatar` / `logo-emblem` (raster now, ideally SVG-traced).
+- **Core controls:** rounded-full pill buttons (filled teal / outlined), eyebrow
+  pills, emoji suggestion chips, input+button combo, bordered rounded cards (the
+  chat/product surface), serif feature labels, gold-underline headline accent.
+
+See [`frontend/design-reference/DESIGN-SYSTEM.md`](../../../frontend/design-reference/DESIGN-SYSTEM.md)
+for the full extraction.
 
 **Why it's a phase (and comes first):** phases 2/4/5 were written assuming these
 primitives exist. Building them once, up front, is the precondition for any UI
