@@ -116,8 +116,13 @@ Run these before completing any unit of work. There is no mypy gate yet.
 ## Databases
 
 - Default: SQLite at `backend/penny.db` (gitignored), schema via
-  `bootstrap()` on startup (`Base.metadata.create_all` — no alembic
-  migrations yet).
+  `bootstrap()` on startup (`Base.metadata.create_all` straight from the
+  models — a dev convenience; migrations are not run there).
+- Schema evolution: alembic migrations live in `backend/db/migrations/`
+  (`version_locations` in `backend/alembic.ini`) and are the mechanism that
+  evolves the Postgres/prod schema. `create_all` only creates *missing tables*
+  — it never runs an `ALTER`, so a column rename/addition must go through a
+  migration.
 - Real data: Neon Postgres. `production` branch mirrors the Supabase prod
   DB; **never point a dev server at it**. Test against the `penny-test`
   Neon branch (`backend/.env.test`, gitignored). Recreate it from current
