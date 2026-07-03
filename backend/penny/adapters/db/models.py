@@ -466,6 +466,34 @@ class PlaidItem(Base):
     )
 
 
+class PlaidAccount(Base):
+    """A bank account under a Plaid Item, carrying ownership + visibility.
+
+    ``account_id`` matches Plaid's account id string and the existing
+    ``account_sign_conventions.account_id``.
+    """
+
+    __tablename__ = "plaid_accounts"
+
+    account_id: Mapped[str] = mapped_column(String, primary_key=True)
+    item_id: Mapped[str] = mapped_column(
+        String, ForeignKey("plaid_items.item_id", ondelete="CASCADE"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'private'")
+    )
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
 class CategoryRow(TypedDict):
     category_id: int
     parent_id: int | None

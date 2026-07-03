@@ -20,6 +20,7 @@ from penny.adapters.db.models import (  # noqa: F401, E402
     Household,
     Merchant,
     PendingReceiptMatch,
+    PlaidAccount,
     PlaidItem,
     PlaidTransaction,
     Tag,
