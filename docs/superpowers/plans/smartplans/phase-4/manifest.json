@@ -1,11 +1,36 @@
 {
-  "title": "Phase 4 — Signup UI",
+  "title": "Phase 4 — Signup / Account-Creation UI",
   "root": {
     "id": "phase-4",
     "label": "Phase 4 — Signup UI",
     "href": "index.html",
-    "sections": ["goal", "scope", "security"],
-    "crosslinks": [],
-    "children": []
+    "sections": ["goal", "model", "decisions"],
+    "crosslinks": ["phase-4-signup", "phase-4-invites", "phase-4-testing"],
+    "children": [
+      {
+        "id": "phase-4-signup",
+        "label": "Self-serve signup",
+        "href": "signup.html",
+        "sections": ["resolution", "auto-provision", "bootstrap"],
+        "crosslinks": ["phase-4-invites"],
+        "children": []
+      },
+      {
+        "id": "phase-4-invites",
+        "label": "Invites",
+        "href": "invites.html",
+        "sections": ["flow", "guards", "manage"],
+        "crosslinks": ["phase-4-signup", "phase-4-testing"],
+        "children": []
+      },
+      {
+        "id": "phase-4-testing",
+        "label": "Security & testing",
+        "href": "testing.html",
+        "sections": ["abuse-surface", "tests", "future-work"],
+        "crosslinks": ["phase-4-invites"],
+        "children": []
+      }
+    ]
   }
 }

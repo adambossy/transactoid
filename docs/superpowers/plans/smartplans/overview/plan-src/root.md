@@ -38,11 +38,11 @@ This is the hub. Each phase is a **separate SmartPlan** under `docs/superpowers/
 | Phase | Open | State |
 | --- | --- | --- |
 | Foundation & shared design | this plan | shared design |
-| Phase 1a — Multi-tenant data model | [open](/p/phase-1a/) | fully planned, 4 pages |
-| Phase 1b — Workspace hybrid | [open](/p/phase-1b/) | designed, slim |
-| Phase 2 — Auth / social login | [open](/p/phase-2/) | roadmap, slim |
-| Phase 3 — Provision + test | [open](/p/phase-3/) | roadmap, slim |
-| Phase 4 — Signup UI | [open](/p/phase-4/) | roadmap, slim |
+| Phase 1a — Multi-tenant data model | [open](/p/phase-1a/) | designed + planned |
+| Phase 1b — Workspace hybrid | [open](/p/phase-1b/) | designed + planned |
+| Phase 2 — Auth / social login | [open](/p/phase-2/) | designed + planned |
+| Phase 3 — Provision + test | [open](/p/phase-3/) | designed + planned |
+| Phase 4 — Signup UI | [open](/p/phase-4/) | designed + planned |
 | Phase 5 — Onboarding | [open](/p/phase-5/) | roadmap, slim |
 | Phase 6 — Security audit | [open](/p/phase-6/) | roadmap, slim |
 

@@ -39,4 +39,4 @@ Detail lives in the sub-pages: [identity & linking](identity.html), [backend ver
 
 ## decisions — Locked decisions
 
-Clerk (Google). No user creation here — link an authenticated identity to an existing `users` row by verified email; allowlist = the `users` table. Session mode stays binary (individual | joint), per-conversation and immutable. `run_sql` goes read-only. Cron builds an explicit context and fails closed. The participant-set generalization is deferred (open question: how to designate an account shared to a subset).
+Clerk (Google). No user creation here — link an authenticated identity to an existing `users` row by verified email; allowlist = the `users` table (until phase 4 replaces the unknown-user 403 with self-serve auto-provision). Session mode stays binary (individual | joint), per-conversation and immutable. `run_sql` goes read-only. Cron builds an explicit context and fails closed. The participant-set generalization is deferred (open question: how to designate an account shared to a subset). A 12-task TDD implementation plan exists in the repo (`docs/superpowers/plans/2026-07-02-phase-2-auth-social-login.md`).

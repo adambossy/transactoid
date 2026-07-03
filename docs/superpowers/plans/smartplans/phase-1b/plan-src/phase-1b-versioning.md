@@ -12,7 +12,7 @@ The mental model: **temp dir = working tree, R2 = object store, a Postgres manif
 
 ## manifests — Manifests over immutable blobs
 
-R2 holds content as immutable object versions. Postgres holds an append-only **manifest** row per save: the set of R2 object versions making up that point-in-time snapshot, under the same RLS policy. The manifest is the source of truth for "current version"; rollback is pointing the head at an older manifest.
+R2 holds content as immutable, content-addressed blobs. Postgres holds an append-only **manifest** row per save: the set of blobs making up that point-in-time snapshot, under the same RLS policy. The manifest is the source of truth for "current version"; rollback is pointing the head at an older manifest. **Refinement from the implementation plan:** heads are per-*prefix* (shared, private-per-user), not one per household — a household-wide head cannot survive RLS, because a joint run's flush would have to copy forward private entries it cannot read. Per-prefix chains keep every guarantee; a joint run only ever holds the shared head.
 
 ## commit-cas — Commit boundary & atomic CAS
 
