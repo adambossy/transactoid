@@ -2267,7 +2267,13 @@ class DB:
             transaction_ids: List of transaction IDs
 
         Returns:
-            List of DerivedTransaction instances
+            List of DerivedTransaction instances with ``plaid_transaction``
+            eager-loaded but restricted to ``raw_name`` (via ``load_only``), so
+            the categorizer sweep can read ``txn.plaid_transaction.raw_name``
+            after the session closes without a second round trip and without
+            hydrating the plaid row's JSON blobs. Other ``plaid_transaction``
+            columns and every other relationship remain deferred/lazy and will
+            raise ``DetachedInstanceError`` if accessed.
         """
         if not transaction_ids:
             return []
@@ -2275,11 +2281,20 @@ class DB:
         with self.session() as session:  # type: Session
             derived_txns = (
                 session.query(DerivedTransaction)
+                .options(
+                    joinedload(DerivedTransaction.plaid_transaction).load_only(
+                        PlaidTransaction.raw_name
+                    )
+                )
                 .filter(DerivedTransaction.transaction_id.in_(transaction_ids))
                 .order_by(DerivedTransaction.external_id)  # Deterministic for cache
                 .all()
             )
             for txn in derived_txns:
+                # Expunge the joined parent before the txn so neither is expired
+                # by the implicit commit on session exit.
+                if txn.plaid_transaction is not None:
+                    session.expunge(txn.plaid_transaction)
                 session.expunge(txn)
             return derived_txns
 

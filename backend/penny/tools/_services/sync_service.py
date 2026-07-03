@@ -764,17 +764,12 @@ class SyncTool:
 
         self._logger.categorization_start(len(to_categorize), len(to_categorize), 0)
 
-        # Plaid's raw `name` lives on the plaid row, not the derived row; fetch it
-        # per plaid_transaction_id so the agent can see the fuller descriptor.
-        plaid_map = self._db.get_plaid_transactions_by_ids(
-            [txn.plaid_transaction_id for txn in to_categorize]
-        )
-        raw_name_by_txn: dict[int, str | None] = {
-            txn.transaction_id: getattr(
-                plaid_map.get(txn.plaid_transaction_id), "raw_name", None
-            )
-            for txn in to_categorize
-        }
+        # Plaid's raw `name` lives on the plaid row; it is eager-loaded onto
+        # ``txn.plaid_transaction`` by get_derived_transactions_by_ids (raw_name
+        # only), so no extra fetch is needed.
+        def _raw_name(txn: Any) -> str | None:
+            pt = txn.plaid_transaction
+            return pt.raw_name if pt is not None else None
 
         # Dedup by raw_name: it is the finer signal the agent actually reads and
         # it determines merchant_descriptor (which is `merchant_name or name`), so
@@ -786,9 +781,7 @@ class SyncTool:
         # counterparties.
         by_key: dict[str, list[Any]] = defaultdict(list)
         for txn in to_categorize:
-            key = (
-                raw_name_by_txn.get(txn.transaction_id) or txn.merchant_descriptor or ""
-            )
+            key = _raw_name(txn) or txn.merchant_descriptor or ""
             by_key[key].append(txn)
 
         semaphore = asyncio.Semaphore(_CATEGORIZE_CONCURRENCY)
@@ -800,7 +793,7 @@ class SyncTool:
                     {
                         "transaction_id": first.transaction_id,
                         "merchant_descriptor": first.merchant_descriptor,
-                        "raw_name": raw_name_by_txn.get(first.transaction_id),
+                        "raw_name": _raw_name(first),
                         "amount": first.amount_cents / 100.0,
                         "date": first.posted_at.isoformat()
                         if first.posted_at
