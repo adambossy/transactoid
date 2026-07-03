@@ -1,8 +1,8 @@
 # Phase 5 — Onboarding (Plan Stub)
 
-> **Status: Roadmap — needs brainstorming before a detailed plan.**
+> **Status: Planned** — see the [Phase 5 spec](../specs/2026-07-03-phase-5-onboarding-design.md) and the [detailed plan](2026-07-03-phase-5-onboarding.md).
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
-> Spec: [foundation design](../specs/2026-06-27-multi-account-foundation-design.md).
+> Spec: [Phase 5 design](../specs/2026-07-03-phase-5-onboarding-design.md) · foundation: [phase 1a design](../specs/2026-06-27-multi-account-foundation-design.md).
 > **Prev:** [Phase 4 — Signup UI](2026-06-27-phase-4-signup-ui.md) ·
 > **Next:** [Phase 6 — Security audit](2026-06-27-phase-6-security-audit.md)
 
