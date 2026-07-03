@@ -181,28 +181,34 @@ git commit -m "test(security): adversarial browser E2E (cross-user/cross-househo
 
 ---
 
-### Task 4: CI regression guard
+### Task 4: Harden the existing CI regression guard
+
+**The CI job already exists** — it was stood up in **Phase 1a (Task 17)** and
+every phase since has appended its suites (auth/IDOR, conversation scoping,
+signup isolation, reminder e2e, workspace RLS, BYO-credential isolation). This
+task **hardens** that gate; it does not create CI from zero.
 
 **Files:**
-- Create/Modify: `.github/workflows/security.yml` (or the repo's CI equivalent)
+- Modify: the existing CI workflow (`.github/workflows/ci.yml`)
 
 **Interfaces:**
-- Produces: a required CI job that runs, on every PR: the Postgres-marked suites
-  (`uv run pytest -q -m postgres` with `POSTGRES_TEST_URL`/`POSTGRES_TEST_RO_URL`
-  from CI secrets → Neon test branch), the full `uv run pytest -q`, the RLS
-  policy-lint (`python backend/scripts/rls_policy_lint.py`), the Playwright E2E
-  (`cd frontend && npx playwright test` headless), and a dependency scan
-  (`uv pip audit` or `uv lock --check` + `npm audit --audit-level=high`).
+- Adds to the existing required job: the RLS **policy-lint**
+  (`python backend/scripts/rls_policy_lint.py`, Task 2), a **dependency scan**
+  (`uv pip audit` / `uv lock --check` + `npm audit --audit-level=high`), and the
+  **alembic drift guard** (`alembic check` / empty autogenerate diff, per the
+  Phase-3 cutover's "keep `create_all` from recurring"). Confirms the whole set
+  is a **blocking** merge gate.
 
-- [ ] **Step 1:** Author the workflow with those steps; mark it required for merge.
-- [ ] **Step 2:** Trigger it (push a no-op branch) and confirm it runs green on
-  the current tree; confirm a deliberately-broken RLS policy makes it red
-  (sanity — revert after).
+- [ ] **Step 1:** Add the policy-lint, dep-scan, and alembic-drift steps to the
+  existing workflow; confirm the job is a required status check.
+- [ ] **Step 2:** Confirm green on the current tree; confirm a deliberately
+  broken RLS policy (dropped `WITH CHECK`) and a stray unmigrated model change
+  each turn it red (sanity — revert after).
 - [ ] **Step 3: Commit**
 
 ```bash
-git add .github/workflows/security.yml
-git commit -m "ci(security): required regression job (RLS suites, policy-lint, e2e, dep scan)"
+git add .github/workflows/ci.yml
+git commit -m "ci(security): harden regression gate (policy-lint, dep scan, alembic drift)"
 ```
 
 ---

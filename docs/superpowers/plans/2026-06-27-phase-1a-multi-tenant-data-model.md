@@ -1881,6 +1881,41 @@ git commit -m "test(e2e): chat smoke spec proves tenancy layer keeps chat workin
 
 ---
 
+### Task 17: CI regression job (stand it up here; every later phase adds to it)
+
+**Why here:** Phase 1a owns the first isolation suites and the Playwright
+harness. The standing CI gate must exist from the *first* phase that touches RLS
+— not be introduced at Phase 6 — so no later phase can silently regress an
+isolation guarantee, and so Phase 3 never ships real data before a guard exists.
+Phase 6 later *hardens* this job (adds the policy-lint, dep-scan, alembic drift
+check, and the blocking-gate discipline); it does not create CI from zero.
+
+**Files:**
+- Create: `.github/workflows/ci.yml` (repo's CI; adjust to the actual provider)
+
+**Interfaces:**
+- Produces: a **required-for-merge** CI job that runs, on every PR:
+  `cd backend && uv run ruff check . && uv run ruff format --check . && uv run pytest -q`;
+  the **Postgres-marked** suites with `POSTGRES_TEST_URL` (and
+  `POSTGRES_TEST_RO_URL`) from CI secrets pointing at the Neon `penny-test`
+  branch (`uv run pytest -q -m postgres`); and the Playwright E2E
+  (`cd frontend && npx playwright test`) headless. Later phases append their
+  suites to this same job; Phase 6 adds the durable guards.
+
+- [ ] **Step 1:** Author `ci.yml` with those steps; mark the job a required
+  status check on the branch.
+- [ ] **Step 2:** Push a branch and confirm it runs green on the current tree;
+  confirm a deliberately-broken RLS policy (drop a `WITH CHECK`) turns it red,
+  then revert.
+- [ ] **Step 3: Commit**
+
+```bash
+git add .github/workflows/ci.yml
+git commit -m "ci: standing regression gate (ruff + pytest + postgres suites + e2e)"
+```
+
+---
+
 ## Modularization
 
 **Design principle (epic-wide):** wherever a unit has a genuinely clean

@@ -43,6 +43,15 @@ SDK, promptorium for the prompt version bump.
   `uv run pytest -q` from `backend/`.
 - **Backend restarts:** uvicorn `--reload` does not watch `~/code/agent-harness`
   or `.prompts/` — manual restart after those change.
+- **Prod version pin (three-repo coordination).** The reminder subsystem lands
+  in agent-harness and agent-ui, consumed in dev via editable path / vite alias
+  — but **prod cannot install `~/code/...`**. This phase must **tag** the
+  agent-harness and agent-ui commits that carry the reminder subsystem and
+  **pin Penny's prod dependency** to those tags/commits (replace the editable
+  source with a versioned dependency for the prod build), and document the prod
+  install path. A fresh prod build must resolve a harness/UI that *has* the
+  reminder subsystem, or the flush path fails at runtime. The epic index owns the
+  cross-repo version matrix; record the pinned versions there.
 - **Reminder contract:** wrap format is
   `<system-reminder kind="{kind}">\n{content}\n</system-reminder>`; override
   replaces same-kind queued reminders; only the most recent reminder reflects
