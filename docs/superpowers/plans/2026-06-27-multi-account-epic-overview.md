@@ -19,7 +19,7 @@
 | # | Plan | Depends on | Design status |
 |---|------|-----------|---------------|
 | 1a | [Multi-tenant data model (tenancy + RLS + encryption)](2026-06-27-phase-1a-multi-tenant-data-model.md) | — | **Designed**; plan complete |
-| 1b | [Workspace hybrid (R2 + Postgres manifests)](2026-06-27-phase-1b-workspace-hybrid.md) | 1a | Designed (in spec); needs plan |
+| 1b | [Workspace hybrid (R2 + Postgres manifests)](2026-06-27-phase-1b-workspace-hybrid.md) | 1a | **Planned** ([plan](2026-07-02-phase-1b-workspace-hybrid.md)) |
 | 2 | [Auth / social login](2026-06-27-phase-2-auth-social-login.md) | 1a | **Planned** ([spec](../specs/2026-07-01-phase-2-auth-social-login-design.md) · [plan](2026-07-02-phase-2-auth-social-login.md)) |
 | 3 | [Provision + test the two accounts](2026-06-27-phase-3-provision-and-test.md) | 1a, 1b, 2 | **Planned** ([spec](../specs/2026-07-01-phase-3-provision-and-test-design.md) · [plan](2026-07-01-phase-3-provision-and-test.md)) |
 | 4 | [Signup / account-creation UI](2026-06-27-phase-4-signup-ui.md) | 2 | **Planned** ([spec](../specs/2026-07-02-phase-4-signup-ui-design.md) · [plan](2026-07-02-phase-4-signup-ui.md)) |

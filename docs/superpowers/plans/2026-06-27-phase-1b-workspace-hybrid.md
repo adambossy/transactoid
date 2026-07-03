@@ -1,6 +1,6 @@
 # Phase 1b — Workspace Hybrid (R2 + Postgres Manifests) (Plan Stub)
 
-> **Status: Designed in the spec — needs a detailed bite-sized plan.**
+> **Status: Planned** — see the [detailed plan](2026-07-02-phase-1b-workspace-hybrid.md).
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
 > Spec: [foundation design — Workspace section](../specs/2026-06-27-multi-account-foundation-design.md).
 > **Prev:** [Phase 1a — Multi-tenant data model](2026-06-27-phase-1a-multi-tenant-data-model.md) ·

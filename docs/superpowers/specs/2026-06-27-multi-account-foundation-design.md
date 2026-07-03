@@ -201,10 +201,16 @@ speed, **zero R2/Postgres traffic per edit**). Versioning happens at a
   checkpoint manifests for long runs; not in v1.)
 - **Atomic optimistic concurrency** (chosen strategy): each manifest records its
   **parent**. The commit is a single conditional transaction — *insert the new
-  manifest row and advance the household's workspace head iff the head still
-  equals the parent we materialized from* (a compare-and-set on the head
-  pointer; e.g. `UPDATE … WHERE head = :parent` or an append-only manifest table
-  with a unique `(workspace_id, parent)` constraint). Blobs are uploaded to R2
+  manifest row and advance the workspace head iff the head still equals the
+  parent we materialized from* (a compare-and-set on the head pointer; e.g.
+  `UPDATE … WHERE head = :parent` or an append-only manifest table with a
+  unique `(workspace_id, parent)` constraint).
+  *(Refinement, 2026-07-02, from the phase-1b plan: heads are per-**prefix** —
+  shared, private-per-user — not one per household. A single household-wide
+  head cannot work under RLS: a joint run's flush would have to copy forward
+  private manifest entries it cannot read, so private files would vanish from
+  the head. Per-prefix chains preserve every guarantee — each CAS is atomic and
+  lost-update-safe, and a joint run only ever holds the shared head.)* Blobs are uploaded to R2
   **first** (immutable, side-effect-free; orphans from a losing race are
   harmless and GC-able), so the only mutating step is the single CAS on the head
   — making the commit atomic and leaving no half-applied state. If the CAS
