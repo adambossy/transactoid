@@ -5,7 +5,7 @@
     "label": "Phase 4 — Signup UI",
     "href": "index.html",
     "sections": ["goal", "model", "decisions"],
-    "crosslinks": ["phase-4-signup", "phase-4-invites", "phase-4-testing"],
+    "crosslinks": ["phase-4-signup", "phase-4-invites", "phase-4-testing", "phase-4-ux"],
     "children": [
       {
         "id": "phase-4-signup",
@@ -29,6 +29,14 @@
         "href": "testing.html",
         "sections": ["abuse-surface", "tests", "future-work"],
         "crosslinks": ["phase-4-invites"],
+        "children": []
+      },
+      {
+        "id": "phase-4-ux",
+        "label": "UI/UX & E2E",
+        "href": "ux.html",
+        "sections": ["ui-ux", "e2e"],
+        "crosslinks": [],
         "children": []
       }
     ]

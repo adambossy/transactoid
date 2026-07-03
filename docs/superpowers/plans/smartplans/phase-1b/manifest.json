@@ -5,7 +5,7 @@
     "label": "Phase 1b — Workspace hybrid",
     "href": "index.html",
     "sections": ["goal", "pipeline", "deliverables"],
-    "crosslinks": ["phase-1b-broker", "phase-1b-versioning", "phase-1b-build"],
+    "crosslinks": ["phase-1b-broker", "phase-1b-versioning", "phase-1b-build", "phase-1b-ux"],
     "children": [
       {
         "id": "phase-1b-broker",
@@ -29,6 +29,14 @@
         "href": "build.html",
         "sections": ["sequence", "tasks"],
         "crosslinks": ["phase-1b-broker", "phase-1b-versioning"],
+        "children": []
+      },
+      {
+        "id": "phase-1b-ux",
+        "label": "UI/UX & E2E",
+        "href": "ux.html",
+        "sections": ["ui-ux", "e2e"],
+        "crosslinks": [],
         "children": []
       }
     ]

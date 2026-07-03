@@ -5,7 +5,7 @@
     "label": "Phase 1a — Multi-tenant data model",
     "href": "index.html",
     "sections": ["goal", "sequence", "key-choices"],
-    "crosslinks": ["phase-1a-migrations", "phase-1a-enforcement", "phase-1a-testing"],
+    "crosslinks": ["phase-1a-migrations", "phase-1a-enforcement", "phase-1a-testing", "phase-1a-ux"],
     "children": [
       {
         "id": "phase-1a-migrations",
@@ -29,6 +29,14 @@
         "href": "testing.html",
         "sections": ["postgres-marker", "suites", "acceptance"],
         "crosslinks": ["phase-1a-enforcement"],
+        "children": []
+      },
+      {
+        "id": "phase-1a-ux",
+        "label": "UI/UX & E2E",
+        "href": "ux.html",
+        "sections": ["ui-ux", "e2e"],
+        "crosslinks": [],
         "children": []
       }
     ]
