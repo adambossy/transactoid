@@ -29,6 +29,22 @@ dist/
 *.sqlite
 *.sqlite3
 
+# Git worktrees
+.worktrees/
+.claude/worktrees/
+
+# Local Penny workspace clone (versioned separately in transactoid-workspace)
+.transactoid/
+
+# Plaid Link localhost HTTPS certs
+.certs/
+
+# Playwright MCP session logs/screenshots
+.playwright-mcp/
+
+# Python packaging metadata
+*.egg-info/
+
 # OS / editor
 .DS_Store
 *.log
