@@ -21,7 +21,7 @@
 | 1a | [Multi-tenant data model (tenancy + RLS + encryption)](2026-06-27-phase-1a-multi-tenant-data-model.md) | — | **Designed**; plan complete |
 | 1b | [Workspace hybrid (R2 + Postgres manifests)](2026-06-27-phase-1b-workspace-hybrid.md) | 1a | **Planned** ([plan](2026-07-02-phase-1b-workspace-hybrid.md)) |
 | 2 | [Auth / social login](2026-06-27-phase-2-auth-social-login.md) | 1a | **Planned** ([spec](../specs/2026-07-01-phase-2-auth-social-login-design.md) · [plan](2026-07-02-phase-2-auth-social-login.md)) |
-| 3 | [Provision + test the two accounts](2026-06-27-phase-3-provision-and-test.md) | 1a, 1b, 2 | **Planned** ([spec](../specs/2026-07-01-phase-3-provision-and-test-design.md) · [plan](2026-07-01-phase-3-provision-and-test.md)) |
+| 3 | Production cutover & legacy-data migration *(repurposed from "Provision + test")* | 1a, 1b, 2, 4 | **Re-spec pending** — see [note](2026-06-27-phase-3-provision-and-test.md); old [provision+test spec](../specs/2026-07-01-phase-3-provision-and-test-design.md)/[plan](2026-07-01-phase-3-provision-and-test.md) superseded (provisioning→4, validation→6) |
 | 4 | [Signup / account-creation UI](2026-06-27-phase-4-signup-ui.md) | 2 | **Planned** ([spec](../specs/2026-07-02-phase-4-signup-ui-design.md) · [plan](2026-07-02-phase-4-signup-ui.md)) |
 | 5 | [Onboarding](2026-06-27-phase-5-onboarding.md) | 2, 4 | **Planned** ([spec](../specs/2026-07-03-phase-5-onboarding-design.md) · [plan](2026-07-03-phase-5-onboarding.md)) |
 | 6 | [Security audit](2026-06-27-phase-6-security-audit.md) | 1a–5 | Roadmap — needs brainstorming |

@@ -1,8 +1,38 @@
-# Phase 3 — Provision the Two Accounts + Test (Plan Stub)
+# Phase 3 — Production Cutover & Legacy-Data Migration (Re-spec pending)
 
-> **Status: Planned** — see the [Phase 3 spec](../specs/2026-07-01-phase-3-provision-and-test-design.md) and the [detailed plan](2026-07-01-phase-3-provision-and-test.md).
+> **Status: Being repurposed.** Phase 3 was "Provision + test"; that scope is now
+> absorbed elsewhere (self-serve provisioning → [Phase 4](2026-06-27-phase-4-signup-ui.md);
+> real-data validation → [Phase 6](2026-06-27-phase-6-security-audit.md); the
+> household/user admin CLI becomes a minor utility, folded into Phase 4). What
+> remains — and needs its own brainstorm + spec + plan — is the **one-time
+> production cutover and legacy-data migration**.
+>
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
-> Spec: [Phase 3 design](../specs/2026-07-01-phase-3-provision-and-test-design.md) · foundation: [phase 1a design](../specs/2026-06-27-multi-account-foundation-design.md).
+> **Superseded docs** (kept for reference): old
+> [provision+test spec](../specs/2026-07-01-phase-3-provision-and-test-design.md) ·
+> [plan](2026-07-01-phase-3-provision-and-test.md).
+
+## New scope (to be specced)
+
+A fully **programmatic, account-aware** cutover:
+
+1. Apply the multi-tenant migration chain to the real prod DB safely (prod is
+   `create_all`-managed with multi-head alembic history — see the
+   `project_prod_alembic_create_all` note).
+2. Create the household + **pending** user rows (you + wife;
+   `external_auth_id` NULL) so Phase-4 first-login linking claims them.
+3. **Enumerate the linked accounts** in the legacy single-user data; per account,
+   assign **owner** (you vs wife) and **visibility** (private/shared) from a
+   mapping you supply.
+4. Re-parent every transaction/item to the household, deriving `owner_user_id`
+   and `visibility` from each row's account assignment.
+5. Handoff: you sign up → claim pending-you; wife signs up → claim pending-her;
+   shared accounts visible to both.
+
+**Amendment to Phase 1a:** its generic backfill (migration 009) stays the simple
+dev/test default (all rows → one owner, private); the real prod backfill is this
+account-aware cutover, and the seeded users are **pending** (no
+`external_auth_id`) so signup claims them.
 > **Prev:** [Phase 2 — Auth / social login](2026-06-27-phase-2-auth-social-login.md) ·
 > **Next:** [Phase 6 — Security audit](2026-06-27-phase-6-security-audit.md)
 
