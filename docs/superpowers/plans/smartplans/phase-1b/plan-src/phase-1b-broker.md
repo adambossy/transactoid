@@ -12,7 +12,7 @@ Postgres + RLS decides *where* a household's files live and *which* a given sess
 
 ## layout — Layout & pointers
 
-R2 directories are addressed by **opaque, high-entropy tokens** — never `household_id`, never sequential — so another tenant's prefix cannot be guessed. Layout partitions by visibility: **one shared prefix per household** and **one private prefix per user**. Postgres holds pointer rows (R2 token, `owner_user_id`, `household_id`, `visibility`) under the same RLS policy as the financial tables.
+R2 directories are addressed by **opaque, high-entropy tokens** (`secrets.token_urlsafe`) — never `household_id`, never sequential — so another tenant's prefix cannot be guessed. Layout partitions by visibility: **one shared prefix per household** and **one private prefix per user**, each tagged with a `kind` and `visibility`. Postgres holds pointer rows (R2 token, `owner_user_id`, `household_id`, `visibility`) under the same RLS policy as the financial tables, with partial unique indexes enforcing the one-shared-per-household and one-private-per-user shape. Prefixes are minted **lazily** the first time a principal needs them, so no provisioning step precedes a run.
 
 ## read-flow — Read flow
 
@@ -21,7 +21,7 @@ The app derives an R2 key **only** from an RLS-gated Postgres lookup — never f
 - **Individual session** → the user's private prefix + the household shared prefix.
 - **Joint session** → the shared prefix **only**; private prefixes are never resolved, so those bytes never reach the temp dir.
 
-Allowed blobs are synced into a per-run temp dir, torn down after the run and excluded from logs.
+The readable set is resolved **shared first, private overlaying**, so a private file wins a path collision with a shared one. Allowed blobs are synced into a per-run temp dir, torn down after the run and excluded from logs.
 
 ## security — Security posture
 

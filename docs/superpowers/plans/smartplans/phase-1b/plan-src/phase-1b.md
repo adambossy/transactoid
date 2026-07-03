@@ -3,7 +3,7 @@ id: phase-1b
 label: Phase 1b — Workspace hybrid
 parent: ""
 sections: [goal, pipeline, deliverables]
-crosslinks: [phase-1b-broker, phase-1b-versioning]
+crosslinks: [phase-1b-broker, phase-1b-versioning, phase-1b-build]
 ---
 
 # Phase 1b — Workspace hybrid
@@ -25,18 +25,18 @@ Replace the single-user filesystem workspace with a durable, isolated, versioned
 
 ## pipeline — The pipeline at a glance
 
-Reads resolve an RLS-gated pointer, sync the allowed blobs into a per-run temp dir, and let the agent work locally. Writes reverse it at the run boundary: upload changed blobs, then a single atomic compare-and-set on the workspace head. The [capability broker](broker.html) covers the read side; [versioning and CAS](versioning.html) covers the write side.
+Reads resolve an RLS-gated pointer, sync the allowed blobs into a per-run temp dir, and let the agent work locally. Writes reverse it at the run boundary: upload changed blobs, then one atomic compare-and-set per touched prefix head. The [capability broker](broker.html) covers the read side; [versioning and CAS](versioning.html) covers the write side; the [build sequence](build.html) shows how the eight tasks stack up.
 
 ```mermaid
 flowchart LR
   look[RLS-gated lookup] --> mat[Materialize temp dir]
   mat --> run[Agent edits]
   run --> up[Upload blobs to R2]
-  up --> cas{CAS on head}
+  up --> cas{CAS per prefix head}
   cas -- ok --> done[Committed]
   cas -- moved --> mat
 ```
 
 ## deliverables — What gets built
 
-Extend the R2 adapter (today only put and get) with list-by-prefix, delete, and object-version handling; add the pointer and append-only manifest tables under the same RLS policy; build the broker lookup, the materialize step, and the flush-with-CAS; wire the memory loader to read the materialized temp dir per session mode; and cover it with the workspace test suite. Detail is split across the two sub-pages.
+A new `workspace_store` package: a `BlobStore` seam over the existing R2 adapter (an in-memory fake keeps tests off the network); three RLS-protected pointer/manifest/head tables shipped in migration 015; the capability broker that lazily mints opaque prefixes and resolves the readable set per session mode; a materialize step that pulls head manifests into a per-run checkout; and a flush that uploads content-addressed blobs then advances each touched prefix head with a compare-and-set and retry. Around it: the memory loader reads the checkout instead of the local filesystem, every agent run (chat and cron) is wrapped in materialize-run-flush, an `import-workspace` admin command migrates the old `~/.transactoid` tree, and a Postgres RLS battery proves the isolation. Detail is split across the three sub-pages.

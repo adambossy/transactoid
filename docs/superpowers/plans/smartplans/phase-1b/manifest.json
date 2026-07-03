@@ -5,7 +5,7 @@
     "label": "Phase 1b — Workspace hybrid",
     "href": "index.html",
     "sections": ["goal", "pipeline", "deliverables"],
-    "crosslinks": ["phase-1b-broker", "phase-1b-versioning"],
+    "crosslinks": ["phase-1b-broker", "phase-1b-versioning", "phase-1b-build"],
     "children": [
       {
         "id": "phase-1b-broker",
@@ -20,7 +20,15 @@
         "label": "Versioning & CAS",
         "href": "versioning.html",
         "sections": ["manifests", "commit-cas", "write-back", "tests"],
-        "crosslinks": ["phase-1b-broker"],
+        "crosslinks": ["phase-1b-broker", "phase-1b-build"],
+        "children": []
+      },
+      {
+        "id": "phase-1b-build",
+        "label": "Build sequence",
+        "href": "build.html",
+        "sections": ["sequence", "tasks"],
+        "crosslinks": ["phase-1b-broker", "phase-1b-versioning"],
         "children": []
       }
     ]
