@@ -15,6 +15,49 @@ top of two external packages by the same author:
   components (`Message`, `Composer`) speaking the Vercel AI SDK UI
   message-stream protocol.
 
+## Canonical vs. non-canonical artifacts
+
+Everything checked in is one of two kinds, and reading the repo correctly means
+knowing which you're looking at:
+
+- **Canonical** — the current source of truth: what defines how Penny runs in
+  production *today*. Backend/frontend code, `deploy/`, the prompts in
+  `.prompts/`, the taxonomy seed, `REQUIREMENTS.txt`, and these agent docs are
+  canonical. Keep it correct and current; if canonical says something false,
+  that is a bug.
+- **Non-canonical** — point-in-time records kept for **history, not truth**.
+  Often accurate at inception, they drift as the system moves on. We keep them
+  deliberately: to reconstruct *what happened and why* when debugging, doing
+  archaeology, or tracing the lineage of a design. They are **not** a reliable
+  account of how the code works now.
+
+Examples of non-canonical artifacts:
+
+- **Plans** (`plans/`) — a plan captures intent at a moment. Once the work lands
+  or changes course, the plan is a historical record, not a spec: don't read it
+  as the current design, and don't rewrite old plans to match reality.
+- **Migration / cut-over scripts** — one-off code written to *execute* a
+  transition (especially non-database ones: reorganizing files, re-pointing
+  infra, backfilling a workspace). Their worth is the record of the exact steps
+  taken, not how production runs day to day. (Numbered schema migrations under
+  `backend/db/migrations/` are a distinct, tracked mechanism — not the one-off
+  cut-over scripts meant here.)
+
+Directives:
+
+- **Canonical wins.** When a non-canonical artifact disagrees with canonical
+  code, the code is right and the artifact is stale by default.
+- **Keep the history; don't delete it.** A superseded plan or a spent cut-over
+  script stays as a record — removing it erases the lineage we keep it for.
+- **Segregate; never intermingle.** Non-canonical artifacts live in clearly
+  non-canonical locations: plans in `plans/`, and spent one-off / cut-over
+  scripts archived *out of* the canonical packages and apart from the recurring
+  dev tooling in `backend/scripts/`. A spent one-off must not sit in a canonical
+  package as if it still runs.
+- **Don't maintain non-canonical code.** It is frozen: we don't refactor it, fix
+  its lint, or keep it building, and it stays out of the canonical verification
+  gate.
+
 ## Layout
 
 ```
