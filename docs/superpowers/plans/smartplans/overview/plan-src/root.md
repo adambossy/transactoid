@@ -38,13 +38,14 @@ This is the hub. Each phase is a **separate SmartPlan** under `docs/superpowers/
 | Phase | Open | State |
 | --- | --- | --- |
 | Foundation & shared design | this plan | shared design |
+| Phase 0 — Design system | awaiting templates | roadmap |
 | Phase 1a — Multi-tenant data model | [open](/p/phase-1a/) | designed + planned |
 | Phase 1b — Workspace hybrid | [open](/p/phase-1b/) | designed + planned |
 | Phase 2 — Auth / social login | [open](/p/phase-2/) | designed + planned |
-| Phase 3 — Provision + test | [open](/p/phase-3/) | designed + planned |
+| Phase 3 — Cutover & migration | [open](/p/phase-3/) | designed |
 | Phase 4 — Signup UI | [open](/p/phase-4/) | designed + planned |
 | Phase 5 — Onboarding | [open](/p/phase-5/) | designed + planned |
-| Phase 6 — Security audit | [open](/p/phase-6/) | roadmap, slim |
+| Phase 6 — Security audit | [open](/p/phase-6/) | designed + planned |
 
 Serve the whole series together with `serve smartplans/overview smartplans/phase-1a … smartplans/phase-6` (one server hosts all of them, each at `/p/<phase>/`, with an index listing every plan). Phases stay slim until we brainstorm them, then each is fleshed out in place.
 
