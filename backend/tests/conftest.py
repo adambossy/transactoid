@@ -111,6 +111,7 @@ def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _reset_singletons() -> None:
     penny.db._db = None
+    penny.db._readonly_db = None
     penny.services._taxonomy = None
     penny.services._rules_loader = None
     penny.services._persister = None

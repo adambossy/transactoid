@@ -1,10 +1,11 @@
 """Analytics — direct SQL access for the agent.
 
-Mirrors the original ``run_sql`` MCP tool: arbitrary SQL against the
-shared DB, dates/datetimes ISO-stringified for JSON safety. Per the
-explicit project decision, the tool stays **unrestricted** in this MVP
-(read AND write SQL both pass through). Tightening this is a
-productionization item, not a port-time concern.
+Mirrors the original ``run_sql`` MCP tool: arbitrary SQL, dates/datetimes
+ISO-stringified for JSON safety. As of phase 2 the free-form SQL path runs on a
+**read-only** DB role (``get_readonly_db``) under the request's tenant context
+(``session_for``), so RLS still fences reads and the database itself rejects any
+prompt-injected write. Curated ``@tool`` writes keep a normal read-write
+connection.
 """
 
 from __future__ import annotations
@@ -14,8 +15,10 @@ from decimal import Decimal
 from typing import Any
 
 from agent_harness import tool
+from sqlalchemy import text
 
-from penny.db import get_db
+from penny.db import get_readonly_db
+from penny.tenancy.context import require_request_context
 from penny.tools._services.chart import GenerateChartTool
 
 
@@ -37,11 +40,11 @@ def _serialize_row(row: Any) -> dict[str, Any]:
 
 @tool
 async def run_sql(query: str) -> dict[str, Any]:
-    """Execute a SQL query against the Penny transaction database.
+    """Execute a read-only SQL query against the Penny transaction database.
 
-    Use ``SELECT`` for analytics; the database also accepts mutations but
-    prefer the dedicated tools (recategorize, tag, migrate-taxonomy) when
-    they exist for what you want to do.
+    Use ``SELECT`` for analytics. This path runs on a read-only role, so writes
+    are rejected — use the dedicated tools (recategorize, tag, migrate-taxonomy)
+    to change data.
 
     Args:
         query: SQL statement to execute.
@@ -54,11 +57,15 @@ async def run_sql(query: str) -> dict[str, Any]:
 
     def _run() -> dict[str, Any]:
         try:
-            result = get_db().execute_raw_sql(query)
-            if result.returns_rows:
-                rows = [_serialize_row(row) for row in result.fetchall()]
-                return {"status": "success", "rows": rows, "count": len(rows)}
-            return {"status": "success", "rows": [], "count": result.rowcount}
+            # session_for pins the tenant GUCs so RLS scopes the read; the
+            # read-only role blocks any DML at the database level.
+            ctx = require_request_context()
+            with get_readonly_db().session_for(ctx) as session:
+                result = session.execute(text(query))
+                if result.returns_rows:
+                    rows = [_serialize_row(row) for row in result.fetchall()]
+                    return {"status": "success", "rows": rows, "count": len(rows)}
+                return {"status": "success", "rows": [], "count": result.rowcount}
         except Exception as exc:
             return {"status": "error", "rows": [], "count": 0, "error": str(exc)}
 
