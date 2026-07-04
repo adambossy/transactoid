@@ -2,7 +2,12 @@ from cryptography.fernet import Fernet
 import pytest
 
 from penny.security import token_cipher
-from penny.security.token_cipher import decrypt_token, encrypt_token, is_encrypted
+from penny.security.token_cipher import (
+    decrypt_token,
+    encrypt_token,
+    encrypt_token_at_rest,
+    is_encrypted,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -72,3 +77,27 @@ def test_prior_version_key_still_decrypts_after_rotation(monkeypatch):
     assert decrypt_token(ct_v2) == "access-2"
     # And the v2 ciphertext is genuinely under k2, not k1.
     assert Fernet(k2.encode()).decrypt(ct_v2.split(":", 1)[1].encode()) == b"access-2"
+
+
+def test_encrypt_token_at_rest_encrypts_when_key_present():
+    # The autouse _key fixture provides PENNY_PLAID_TOKEN_KEY.
+    ct = encrypt_token_at_rest("tok")
+    assert is_encrypted(ct)
+    assert decrypt_token(ct) == "tok"
+
+
+def test_encrypt_token_at_rest_dev_allows_plaintext(monkeypatch):
+    monkeypatch.delenv("PENNY_PLAID_TOKEN_KEY", raising=False)
+    monkeypatch.setenv("PENNY_AUTH_MODE", "dev")
+    assert encrypt_token_at_rest("tok") == "tok"
+
+
+def test_encrypt_token_at_rest_clerk_fails_closed(monkeypatch):
+    # F07: clerk (prod) mode with no key must raise, not store plaintext.
+    monkeypatch.delenv("PENNY_PLAID_TOKEN_KEY", raising=False)
+    monkeypatch.setenv("PENNY_AUTH_MODE", "clerk")
+    monkeypatch.setenv("PENNY_CLERK_ISSUER", "https://x.clerk.accounts.dev")
+    monkeypatch.setenv("PENNY_CLERK_JWKS_URL", "https://x.clerk.accounts.dev/jwks")
+    monkeypatch.setenv("PENNY_FRONTEND_ORIGIN", "https://penny.example.com")
+    with pytest.raises(RuntimeError, match="PENNY_PLAID_TOKEN_KEY"):
+        encrypt_token_at_rest("tok")

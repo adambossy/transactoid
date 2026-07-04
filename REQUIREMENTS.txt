@@ -156,7 +156,9 @@ T8. Multi-tenant data isolation
     cannot enumerate every email/Clerk-id and household UUID (F04) — and is
     confined to the finance schema, never the website's web.* app schema.
     Plaid access tokens are encrypted at rest (key-versioned, so rotation is
-    a config change). In production, identity is a Clerk-verified JWT resolved to
+    a config change); in clerk (prod) mode, storing a token with no key set
+    fails closed rather than persisting plaintext (F07). In production, identity
+    is a Clerk-verified JWT resolved to
     the household/user principal per request (dev keeps an env-pinned principal);
     an authenticated identity with a verified email but no row is auto-provisioned
     a household (P10), while an unverified/absent email is rejected. The same

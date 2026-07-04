@@ -93,6 +93,32 @@ def decrypt_token(ciphertext: str) -> str:
     return _fernet_for_version(1).decrypt(ciphertext.encode()).decode()
 
 
+def encrypt_token_at_rest(plaintext: str) -> str:
+    """Encrypt a token for at-rest storage, failing closed in clerk (prod) mode.
+
+    Returns ciphertext when a key is configured. When no key is set: dev mode
+    (``PENNY_AUTH_MODE=dev``) keeps the documented plaintext-allowed path, while
+    clerk mode RAISES — so a prod deploy that forgets ``PENNY_PLAID_TOKEN_KEY``
+    never silently persists a Plaid access token in cleartext (finding F07).
+
+    This is the storage-site entry point; ``encrypt_token`` itself always
+    requires a key (it is the outbound-vault path). Callers must still skip
+    already-encrypted values (``is_encrypted``) so re-saves don't double-encrypt.
+    """
+    if _key_env_for_version(_ACTIVE_VERSION) is not None:
+        return encrypt_token(plaintext)
+    # Import here to avoid a module-load dependency from the crypto primitive on
+    # the auth config; the mode is only consulted on the no-key path.
+    from penny.auth.settings import load_auth_settings
+
+    if load_auth_settings().mode == "clerk":
+        raise RuntimeError(
+            "PENNY_PLAID_TOKEN_KEY is required in clerk mode; "
+            "refusing to store a token in plaintext"
+        )
+    return plaintext
+
+
 def encrypt_secret(plaintext: str) -> str:
     """Encrypt an arbitrary secret at rest — generic alias of ``encrypt_token``.
 

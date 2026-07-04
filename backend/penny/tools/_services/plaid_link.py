@@ -27,7 +27,7 @@ from loguru import logger
 from penny.adapters.clients.plaid import PlaidClient
 from penny.adapters.db.models import PlaidAccount, PlaidItem
 from penny.reminders import DbReminderQueue
-from penny.security.token_cipher import encrypt_token
+from penny.security.token_cipher import encrypt_token_at_rest
 from penny.tenancy.context import RequestContext
 
 
@@ -96,13 +96,10 @@ async def exchange_public_token(
         "institution_name"
     ) or "Your bank"
 
-    # Encrypt only when a key is configured, mirroring the facade's at-rest rule
-    # (dev without a key stores plaintext; prod always encrypts).
-    stored_token = (
-        encrypt_token(access_token)
-        if os.environ.get("PENNY_PLAID_TOKEN_KEY", "").strip()
-        else access_token
-    )
+    # At-rest encryption, mirroring the facade's rule: dev without a key stores
+    # plaintext, but clerk (prod) mode fails closed if the key is missing rather
+    # than silently persisting a bank access token in cleartext (F07).
+    stored_token = encrypt_token_at_rest(access_token)
     session.add(
         PlaidItem(
             item_id=item_id,

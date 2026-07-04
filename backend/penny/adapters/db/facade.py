@@ -211,20 +211,17 @@ def _tenant_values() -> dict[str, Any]:
 def _stored_token(access_token: str) -> str:
     """Plaid access tokens are encrypted at rest when the key is configured.
 
-    Unconfigured dev (no PENNY_PLAID_TOKEN_KEY) keeps plaintext; migration 017
-    encrypts the backlog once the key exists. Already-encrypted values pass
-    through, so re-saving never double-encrypts. Decryption happens only at
-    the Plaid wire seam (PlaidClient._with_decrypted_token).
+    Fails closed in clerk (prod) mode when no key is set (F07); unconfigured dev
+    keeps plaintext, and migration 017 encrypts the backlog once the key exists.
+    Already-encrypted values pass through, so re-saving never double-encrypts.
+    Decryption happens only at the Plaid wire seam
+    (PlaidClient._with_decrypted_token).
     """
-    import os
-
-    from penny.security.token_cipher import encrypt_token, is_encrypted
+    from penny.security.token_cipher import encrypt_token_at_rest, is_encrypted
 
     if is_encrypted(access_token):
         return access_token
-    if not os.environ.get("PENNY_PLAID_TOKEN_KEY", "").strip():
-        return access_token
-    return encrypt_token(access_token)
+    return encrypt_token_at_rest(access_token)
 
 
 def visible_filter(model: Any, ctx: RequestContext) -> Any:
