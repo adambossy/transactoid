@@ -27,6 +27,7 @@ from penny.api.persistence.engine import reset_web_engine
 import penny.db
 import penny.observability.otel as _otel
 import penny.services
+import penny.taxonomy.loader
 from penny.tenancy.context import (
     RequestContext,
     reset_request_context,
@@ -117,10 +118,11 @@ def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
 def _reset_singletons() -> None:
     penny.db._db = None
     penny.db._readonly_db = None
-    penny.services._taxonomy = None
-    penny.services._rules_loader = None
-    penny.services._persister = None
-    penny.services._migrator = None
+    penny.services._taxonomy.clear()
+    penny.services._rules_loader.clear()
+    penny.services._persister.clear()
+    penny.services._migrator.clear()
+    penny.taxonomy.loader._category_id_cache.clear()
     penny.api.main._conversation_store = None
     # Auth settings/verifier are lru_cached; drop them so a test that repoints
     # the DB or env sees a fresh resolution. Guard cache_clear because a test
