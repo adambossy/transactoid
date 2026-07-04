@@ -17,6 +17,10 @@ from penny.tenancy.context import (
     set_request_context,
 )
 
+# Re-exported so the @pytest.mark.postgres suites find it; pytest only
+# auto-imports files named exactly conftest.py.
+from tests.conftest_postgres import pg_db  # noqa: F401
+
 # The well-known principal every test runs as (mirroring production, where
 # every request carries a RequestContext — see the autouse fixture below).
 # FK-enforcing DB tests materialize these rows with seed_test_identity().

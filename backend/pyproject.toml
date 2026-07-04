@@ -61,3 +61,6 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "postgres: requires a Postgres database (set POSTGRES_TEST_URL); skipped otherwise",
+]
