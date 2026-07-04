@@ -1,0 +1,46 @@
+# Example account -> owner/visibility mapping record (phase-3 cutover).
+#
+# `assign-accounts` writes this file interactively (one entry per answer, so an
+# interrupted run resumes). `reparent` reads it. You can also hand-author or
+# hand-edit it. owner_user_id must be one of the two pending users bootstrap
+# created (see .cutover-state.json artifacts.users). visibility is
+# private | shared.
+
+household_id: 00000000-0000-0000-0000-000000000000  # from bootstrap (state file)
+
+accounts:
+  - account_id: "aBc123...plaid-account-id"
+    item_id: "item-abc"            # the Plaid Item the account belongs to
+    institution: "Chase"
+    owner_email: "you@example.com"
+    owner_user_id: "11111111-1111-1111-1111-111111111111"
+    visibility: "private"          # only you see it
+  - account_id: "dEf456...plaid-account-id"
+    item_id: "item-def"
+    institution: "Ally (joint savings)"
+    owner_email: "you@example.com"
+    owner_user_id: "11111111-1111-1111-1111-111111111111"
+    visibility: "shared"           # both of you see it
+  - account_id: "gHi789...plaid-account-id"
+    item_id: "item-ghi"
+    institution: "Amex (spouse)"
+    owner_email: "spouse@example.com"
+    owner_user_id: "22222222-2222-2222-2222-222222222222"
+    visibility: "private"
+
+# Optional — only present if amazon_login_profiles has rows. A separate
+# ownership axis from Plaid accounts.
+amazon_profiles:
+  - profile_id: 1
+    display_name: "you@amazon"
+    owner_email: "you@example.com"
+    owner_user_id: "11111111-1111-1111-1111-111111111111"
+    visibility: "private"
+
+# Optional — how the legacy chat threads (web.conversations) are assigned. They
+# were all created single-user; finalize applies this once migration 019 adds
+# the tenant columns. session_mode: individual (owner-only) | joint (shared).
+conversations:
+  owner_email: "you@example.com"
+  owner_user_id: "11111111-1111-1111-1111-111111111111"
+  session_mode: "individual"

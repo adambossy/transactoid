@@ -42,6 +42,13 @@ Examples of non-canonical artifacts:
   taken, not how production runs day to day. (Numbered schema migrations under
   `backend/db/migrations/` are a distinct, tracked mechanism — not the one-off
   cut-over scripts meant here.)
+- **Transient one-off tooling** (`backend/transient/**`) — self-contained
+  one-shot tools such as the phase-3 account cutover (`backend/transient/
+  account-cutover/`). This tree is **non-canonical**: excluded from the
+  ruff/pytest gates (ruff `extend-exclude`; pytest `testpaths` never reaches
+  it), exempt from the "follow existing patterns" expectations, and **deletable**
+  once spent. It may import canonical app models/façade/cipher **read-only**; no
+  app code imports it. Treat it as scratch held to its own rehearsal/verify bar.
 
 Directives:
 
