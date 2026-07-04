@@ -185,6 +185,12 @@ class PlaidTransaction(Base):
     counterparties: Mapped[list | None] = mapped_column(JSON, nullable=True)
     personal_finance_category: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     institution: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Tenant columns, denormalized from plaid_accounts so RLS stays join-free.
+    # Nullable during the expand phase (migration 012); the contract migration
+    # (014) tightens them to NOT NULL + FKs.
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -293,6 +299,9 @@ class DerivedTransaction(Base):
         Boolean, nullable=False, server_default=text("FALSE")
     )
     reporting_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -390,6 +399,7 @@ class TransactionCategoryEvent(Base):
     # Why the agent originally CHOSE this category — the LLM's rationale on an
     # llm-method categorization decision.
     categorization_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -414,6 +424,7 @@ class Tag(Base):
     tag_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -440,6 +451,9 @@ class TransactionTag(Base):
     tag_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("tags.tag_id"), primary_key=True
     )
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class PlaidItem(Base):
@@ -453,6 +467,10 @@ class PlaidItem(Base):
     institution_name: Mapped[str | None] = mapped_column(String, nullable=True)
     sync_cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
     investments_synced_through: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # No visibility column here — an item's visibility is per-account
+    # (see plaid_accounts.visibility).
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -556,6 +574,9 @@ class AmazonOrderDB(Base):
     shipping_cents: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -584,6 +605,9 @@ class AmazonItemDB(Base):
     quantity: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -627,6 +651,9 @@ class AmazonLoginProfileDB(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class TransactionItem(Base):
@@ -658,6 +685,9 @@ class TransactionItem(Base):
     )
     itemization_source: Mapped[str] = mapped_column(Text, nullable=False)
     source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -702,6 +732,9 @@ class EmailReceipt(Base):
         # is sender-controlled and unreliable). Used by the matcher to compute
         # `date_lag_days` against `derived_transactions.posted_at`.
     )
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -753,6 +786,9 @@ class AccountSignConvention(Base):
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class PendingReceiptMatch(Base):
@@ -820,6 +856,9 @@ class PendingReceiptMatch(Base):
         Text, nullable=False, server_default=text("'pending'")
     )
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
