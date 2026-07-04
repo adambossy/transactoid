@@ -7,30 +7,30 @@ for all UI/UX across the epic. Tailwind-utility based.
 
 ## Color tokens (from `:root`)
 
-| Token | Hex | Role |
-|---|---|---|
-| `--paper` | `#FAF4E7` | page background (warm cream) |
-| `--cream` | `#ECE0C0` | section bands / muted surfaces |
-| `--cream-soft` | `#F3E9CF` | soft surface / hover |
-| `--ink` | `#1C3E3A` | darkest text / deep green |
-| `--navy` | `#1E4846` | primary brand green (filled buttons, eyebrow pills) |
-| `--navy-700` | `#2A625D` | secondary green |
-| `--steel` | `#3C7A72` | tertiary green / muted accent |
-| `--orange` | `#D69E3D` | primary gold accent (underlines, accent circle) |
-| `--orange-soft` | `#E3B255` | soft gold |
+| Token           | Hex       | Role                                                |
+| --------------- | --------- | --------------------------------------------------- |
+| `--paper`       | `#FAF4E7` | page background (warm cream)                        |
+| `--cream`       | `#ECE0C0` | section bands / muted surfaces                      |
+| `--cream-soft`  | `#F3E9CF` | soft surface / hover                                |
+| `--ink`         | `#1C3E3A` | darkest text / deep green                           |
+| `--navy`        | `#1E4846` | primary brand green (filled buttons, eyebrow pills) |
+| `--navy-700`    | `#2A625D` | secondary green                                     |
+| `--steel`       | `#3C7A72` | tertiary green / muted accent                       |
+| `--orange`      | `#D69E3D` | primary gold accent (underlines, accent circle)     |
+| `--orange-soft` | `#E3B255` | soft gold                                           |
 
 Additional accents seen: `#5C2B2E` / `#2A1215` (deep plum/maroon),
 `#FF8A80` (coral). Ground = warm cream; ink = deep teal-green; accent = gold.
 
 ## Typography (Google Fonts)
 
-- **Fraunces** — display headlines (e.g. "Meet Penny, your finance savant."),
+- **Libre Baskeville** — display headlines (e.g. "Meet Penny, your finance savant."),
   large serif, often with a gold underline swash.
 - **Cormorant Garamond** — elegant serif for section labels / feature words
   ("Root-cause", "Scenario", "Forward", "Goal-based") and the `PENNY` wordmark.
 - **Work Sans** — body copy, nav, buttons, chips, tables (UI sans).
-- Fallbacks in file: `'Fraunces',Georgia,serif`;
-  `'Cormorant Garamond','Fraunces',Georgia,serif`;
+- Fallbacks in file: `'Libre Baskeville',Georgia,serif`;
+  `'Cormorant Garamond','Libre Baskeville',Georgia,serif`;
   `'Work Sans',system-ui,sans-serif`.
 
 ## Logos
@@ -68,7 +68,7 @@ export, or parse the bundle) into `@penny/ui` assets as `logo-avatar.png` and
 ## Notes for the app (vs. the landing page)
 
 The template is a **marketing landing page**; the product is a chat app. Phase 0
-extracts the *system* (tokens, fonts, logo, shell chrome, button/pill/card
+extracts the _system_ (tokens, fonts, logo, shell chrome, button/pill/card
 primitives, the chat-card styling) — not the marketing sections. The chat
 surface styling (bordered rounded card, Penny bubble, data tables) is the most
 directly reusable for the actual app.
