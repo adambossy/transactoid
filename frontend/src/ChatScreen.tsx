@@ -176,7 +176,8 @@ function Chat({
         </button>
       </div>
       <div ref={transcriptRef} className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-3 pt-2 pb-2 sm:px-4">
+        {/* data-testid/data-role: stable hooks for the Playwright specs. */}
+        <div data-testid="transcript" className="mx-auto max-w-3xl px-3 pt-2 pb-2 sm:px-4">
           {showEmpty ? (
             <div className="flex h-[70vh] flex-col items-center justify-center text-center">
               <h1 className="text-2xl font-semibold sm:text-3xl">What can I help with?</h1>
@@ -186,11 +187,12 @@ function Chat({
             </div>
           ) : (
             messages.map((m, i) => (
-              <Message
-                key={m.id ?? i}
-                message={m as unknown as UIMessage}
-                isStreaming={isStreaming && i === messages.length - 1}
-              />
+              <div key={m.id ?? i} data-role={m.role}>
+                <Message
+                  message={m as unknown as UIMessage}
+                  isStreaming={isStreaming && i === messages.length - 1}
+                />
+              </div>
             ))
           )}
           {awaitingResponse && <PendingThinking />}

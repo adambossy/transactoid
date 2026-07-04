@@ -19,7 +19,6 @@ from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
-    reset_request_context,
     set_request_context,
 )
 from penny.tenancy.principal import resolve_dev_principal  # noqa: E402
@@ -159,12 +158,12 @@ async def chat(request: Request) -> StreamingResponse:
     # Resolve the requesting principal (dev stub: headers, then PENNY_DEV_*
     # env; replaced by real auth in phase 2) and pin it on the ContextVar so
     # every DB session in this request — including the agent's tools — is
-    # tenant-scoped. Reset when the stream finishes, below.
+    # tenant-scoped. Cleared when the stream finishes, below.
     try:
         principal = resolve_dev_principal(dict(request.headers))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    context_token = set_request_context(principal)
+    set_request_context(principal)
 
     store = _get_conversation_store()
     store.ensure_conversation(chat_id)
@@ -189,13 +188,17 @@ async def chat(request: Request) -> StreamingResponse:
     )
 
     async def _scoped_stream() -> AsyncIterator[str]:
+        # The response body is iterated in a different task context than the
+        # handler that set the ContextVar (which the streaming task inherits
+        # as a copy), so token-based reset would raise "created in a different
+        # Context" — clear the principal instead.
         try:
             async for frame in stream_and_persist(
                 agent, prompt, store=store, conversation_id=chat_id
             ):
                 yield frame
         finally:
-            reset_request_context(context_token)
+            set_request_context(None)
 
     return StreamingResponse(
         _scoped_stream(),
