@@ -23,6 +23,7 @@ from functools import lru_cache
 
 from fastapi import HTTPException, Request
 
+from penny.adapters.clerk import fetch_user_identity
 from penny.auth.identity import UnknownUserError, link_or_resolve_user
 from penny.auth.jwt_verifier import ClerkJwtVerifier, TokenError
 from penny.auth.settings import AuthSettings, load_auth_settings
@@ -67,16 +68,28 @@ def _authenticate(request: Request) -> RequestContext:
                 s, sub=sub, email=email, email_verified=email_verified
             )
         except UnknownUserError:
+            # First login (subject not yet linked) with no matching row. Clerk's
+            # default session token omits email claims, so resolve the verified
+            # email from Clerk's Backend API before linking/provisioning — a
+            # one-time call at link time (returning users hit the by-sub fast
+            # path above and never reach here).
+            if not email:
+                email, email_verified = fetch_user_identity(sub)
             # Phase 4 open signup: a verified identity with no row is provisioned
-            # (or claims a pending invite) instead of being rejected. An
-            # unverified email fails closed — never provision an unproven email.
+            # (or claims a pending invite). An unverified email fails closed —
+            # never provision/claim on an unproven email.
             if not (email and email_verified):
                 raise HTTPException(
                     status_code=403, detail="unverified identity"
                 ) from None
-            household_id, user_id = resolve_or_provision_identity(
-                s, email=email, external_auth_id=sub
-            )
+            try:
+                household_id, user_id = link_or_resolve_user(
+                    s, sub=sub, email=email, email_verified=email_verified
+                )
+            except UnknownUserError:
+                household_id, user_id = resolve_or_provision_identity(
+                    s, email=email, external_auth_id=sub
+                )
     return RequestContext(user_id=user_id, household_id=household_id)
 
 

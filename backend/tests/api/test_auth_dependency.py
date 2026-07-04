@@ -79,6 +79,42 @@ def test_unverified_unknown_user_is_403(monkeypatch, isolated_db):
     assert r.status_code == 403
 
 
+def test_token_without_email_resolves_via_clerk_api(monkeypatch, isolated_db):
+    # Clerk's default session token omits email claims. On first login the
+    # dependency resolves the verified email from Clerk's Backend API, then
+    # links/provisions. Returning users (by-sub) never trigger the lookup.
+    from penny.db import get_db
+
+    get_db().create_schema()
+    calls: list[str] = []
+
+    def _fake_fetch(sub, *, secret_key=None):
+        calls.append(sub)
+        return "resolved@x.com", True
+
+    monkeypatch.setattr(api_auth, "fetch_user_identity", _fake_fetch)
+    verifier = FakeVerifier(claims={"sub": "no_email_sub"})  # no email/email_verified
+    client = TestClient(_app(monkeypatch, verifier))
+    r = client.get("/whoami", headers={"Authorization": "Bearer t"})
+    assert r.status_code == 200
+    assert r.json()["user_id"]
+    assert calls == ["no_email_sub"]  # the API was consulted exactly once
+
+
+def test_token_without_email_unverified_via_api_is_403(monkeypatch, isolated_db):
+    # Fail closed: if the Clerk-resolved email is unverified, no account is made.
+    from penny.db import get_db
+
+    get_db().create_schema()
+    monkeypatch.setattr(
+        api_auth, "fetch_user_identity", lambda sub, **_: ("x@x.com", False)
+    )
+    verifier = FakeVerifier(claims={"sub": "no_email_unverified"})
+    client = TestClient(_app(monkeypatch, verifier))
+    r = client.get("/whoami", headers={"Authorization": "Bearer t"})
+    assert r.status_code == 403
+
+
 def test_clerk_mode_ignores_spoofed_dev_headers(monkeypatch, isolated_db):
     client = TestClient(_app(monkeypatch, FakeVerifier(claims=None)))
     r = client.get(

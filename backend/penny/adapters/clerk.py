@@ -102,6 +102,42 @@ class ClerkInvites:
         return None
 
 
+def fetch_user_identity(
+    sub: str, *, secret_key: str | None = None
+) -> tuple[str | None, bool]:
+    """Resolve ``(primary_email, email_verified)`` for a Clerk user via the API.
+
+    Clerk's default session token omits email claims, so the auth dependency
+    falls back to this on **first login** (when the subject is not yet linked to
+    a ``users`` row). One call per user at link time; returning users resolve by
+    ``external_auth_id`` and never reach here. ``GET /v1/users/{id}`` returns the
+    user's ``email_addresses`` with per-address ``verification.status`` and the
+    ``primary_email_address_id`` selecting the primary one.
+    """
+    key = (secret_key or os.environ.get("CLERK_SECRET_KEY", "")).strip()
+    if not key:
+        raise ClerkError("CLERK_SECRET_KEY is not set")
+    req = urllib.request.Request(  # noqa: S310 - fixed HTTPS Clerk endpoint
+        f"{_API_BASE}/users/{urllib.parse.quote(sub, safe='')}",
+        method="GET",
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
+            user = json.loads(resp.read() or b"null")
+    except urllib.error.HTTPError as exc:
+        raise ClerkError(f"fetch_user_identity failed ({exc.code})") from None
+    if not isinstance(user, dict):
+        return None, False
+    primary_id = user.get("primary_email_address_id")
+    for addr in user.get("email_addresses") or []:
+        if isinstance(addr, dict) and addr.get("id") == primary_id:
+            email = addr.get("email_address")
+            verified = (addr.get("verification") or {}).get("status") == "verified"
+            return (str(email) if email else None, bool(verified))
+    return None, False
+
+
 def _is_duplicate(payload: object) -> bool:
     """True when a Clerk error payload signals an already-existing invitation."""
     if not isinstance(payload, dict):
