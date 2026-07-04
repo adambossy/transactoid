@@ -69,6 +69,9 @@ def test_bootstrap_creates_all_on_sqlite(monkeypatch):
 
     class FakeDB:
         dialect = "sqlite"
+        # Empty in-memory engine: the pre-tenancy fail-fast check
+        # (_ensure_tenant_schema) inspects it and passes a fresh database.
+        _engine = create_engine("sqlite://")
 
         def create_schema(self) -> None:
             calls.append("finance")
