@@ -15,14 +15,40 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from penny.auth.settings import load_auth_settings
-from penny.billing import oauth, vault
+from penny.billing import metering, oauth as oauth_flow, vault
 from penny.billing.oauth import OAuthError
+from penny.billing.prices import ACTIVE_PROVIDER
 from penny.billing.session import BillingSession
 from penny.tenancy.context import RequestContext
 
 from .auth import request_context
 
 router = APIRouter()
+
+
+@router.get("/api/me/billing")
+def get_billing(
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, object]:
+    """The user's runway + connected providers — **never** any secret.
+
+    Returns ``{remaining_cents, subsidy_granted_cents, provider, credentials}``
+    where ``credentials`` is the masked list (hint only) and ``provider`` is the
+    connected BYO provider for the active runtime, else ``"subsidy"``.
+    """
+    with BillingSession().begin(ctx) as s:
+        creds = vault.masked(s, ctx)
+        granted = metering.granted_cents(s, ctx)
+        remaining = metering.remaining_cents(s, ctx)
+        has_active_byo = (
+            vault.get_credential(s, ctx, provider=ACTIVE_PROVIDER) is not None
+        )
+    return {
+        "remaining_cents": remaining,
+        "subsidy_granted_cents": granted,
+        "provider": ACTIVE_PROVIDER if has_active_byo else "subsidy",
+        "credentials": creds,
+    }
 
 
 class ApiKeyBody(BaseModel):
@@ -66,7 +92,7 @@ def oauth_start(
     """Begin a sanctioned OAuth flow — returns the provider ``authorize_url``."""
     try:
         with BillingSession().begin(ctx) as s:
-            return oauth.start(s, ctx, provider=provider)
+            return oauth_flow.start(s, ctx, provider=provider)
     except OAuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -85,7 +111,7 @@ def oauth_callback(
     """
     try:
         with BillingSession().begin(ctx) as s:
-            oauth.callback(s, ctx, provider=provider, code=code, state=state)
+            oauth_flow.callback(s, ctx, provider=provider, code=code, state=state)
     except OAuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     origin = load_auth_settings().frontend_origin or ""
