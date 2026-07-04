@@ -1,12 +1,17 @@
-"""Per-process service singletons.
+"""Per-process, per-household service singletons.
 
 The ported services (Taxonomy, MerchantRulesLoader, PersistTool, Categorizer,
 MigrationTool) each load some state on construction; building them once per
-process keeps the agent's tool calls cheap. None of these are user-scoped —
-multi-tenancy is the productionization plan's problem.
+process keeps the agent's tool calls cheap. The taxonomy — and everything
+constructed around it — is per-HOUSEHOLD (category keys are only unique per
+household), so the caches are keyed by the current RequestContext's
+household: one household's chat must never see or resolve another's
+categories.
 """
 
 from __future__ import annotations
+
+import uuid
 
 from penny.db import get_db
 from penny.rules.loader import MerchantRulesLoader, TaxonomyRulesLoader
@@ -17,30 +22,38 @@ from penny.tools._services.migrator import MigrationTool
 from penny.tools._services.persister import PersistTool
 from penny.workspace import resolve_memory_dir
 
-_taxonomy: Taxonomy | None = None
-_rules_loader: MerchantRulesLoader | None = None
+_taxonomy: dict[uuid.UUID | None, Taxonomy] = {}
+_rules_loader: dict[uuid.UUID | None, MerchantRulesLoader] = {}
 _taxonomy_rules_loader: TaxonomyRulesLoader | None = None
-_persister: PersistTool | None = None
-_migrator: MigrationTool | None = None
+_persister: dict[uuid.UUID | None, PersistTool] = {}
+_migrator: dict[uuid.UUID | None, MigrationTool] = {}
+
+
+def _household_key() -> uuid.UUID | None:
+    """The cache key: the requesting household (None for context-less use)."""
+    from penny.tenancy.context import get_request_context
+
+    ctx = get_request_context()
+    return ctx.household_id if ctx is not None else None
 
 
 def get_taxonomy() -> Taxonomy:
-    global _taxonomy
-    if _taxonomy is None:
-        _taxonomy = load_taxonomy_from_db(get_db())
-    return _taxonomy
+    key = _household_key()
+    if key not in _taxonomy:
+        _taxonomy[key] = load_taxonomy_from_db(get_db())
+    return _taxonomy[key]
 
 
 def get_rules_loader() -> MerchantRulesLoader:
-    global _rules_loader
-    if _rules_loader is None:
+    key = _household_key()
+    if key not in _rules_loader:
         memory_dir = resolve_memory_dir()
         memory_dir.mkdir(parents=True, exist_ok=True)
-        _rules_loader = MerchantRulesLoader(
+        _rules_loader[key] = MerchantRulesLoader(
             memory_dir / "merchant-rules.md",
             taxonomy=get_taxonomy(),
         )
-    return _rules_loader
+    return _rules_loader[key]
 
 
 def get_taxonomy_rules_loader() -> TaxonomyRulesLoader:
@@ -53,10 +66,10 @@ def get_taxonomy_rules_loader() -> TaxonomyRulesLoader:
 
 
 def get_persister() -> PersistTool:
-    global _persister
-    if _persister is None:
-        _persister = PersistTool(get_db(), get_taxonomy())
-    return _persister
+    key = _household_key()
+    if key not in _persister:
+        _persister[key] = PersistTool(get_db(), get_taxonomy())
+    return _persister[key]
 
 
 def build_categorizer() -> Categorizer:
@@ -74,7 +87,7 @@ def get_migrator() -> MigrationTool:
     Construction needs a ``Categorizer`` for split's constrained
     recategorization; ``merge`` no longer consults it.
     """
-    global _migrator
-    if _migrator is None:
-        _migrator = MigrationTool(get_db(), get_taxonomy(), build_categorizer())
-    return _migrator
+    key = _household_key()
+    if key not in _migrator:
+        _migrator[key] = MigrationTool(get_db(), get_taxonomy(), build_categorizer())
+    return _migrator[key]

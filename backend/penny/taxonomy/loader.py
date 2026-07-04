@@ -39,14 +39,15 @@ def load_taxonomy_from_db(db: DB) -> Taxonomy:
     return Taxonomy.from_nodes(nodes)
 
 
-_category_id_cache: dict[str, int | None] = {}
+_category_id_cache: dict[tuple[object, str], int | None] = {}
 
 
 def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
     """Get category ID for a key, with in-process caching.
 
-    Category keys are stable for the process lifetime, so each key is
-    looked up at most once per process.
+    Category keys are stable for the process lifetime but only unique PER
+    HOUSEHOLD, so the cache is keyed by (requesting household, key) — a
+    cached id must never leak into another household's categorization.
 
     Args:
         db: Database facade instance
@@ -56,10 +57,15 @@ def get_category_id(db: DB, taxonomy: Taxonomy, key: str) -> int | None:
     Returns:
         Category ID or None if not found
     """
-    if key in _category_id_cache:
-        return _category_id_cache[key]
+    from penny.tenancy.context import get_request_context
+
+    ctx = get_request_context()
+    household = ctx.household_id if ctx is not None else None
+    cache_key = (household, key)
+    if cache_key in _category_id_cache:
+        return _category_id_cache[cache_key]
     category_id = db.get_category_id_by_key(key)
-    _category_id_cache[key] = category_id
+    _category_id_cache[cache_key] = category_id
     return category_id
 
 
