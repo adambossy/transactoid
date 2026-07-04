@@ -8,7 +8,7 @@ from typing import Any
 from agent_harness.providers.google import GeminiModel
 from agent_harness.sessions.inmemory import InMemorySession
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -17,12 +17,14 @@ load_dotenv(override=False)
 # downstream emits its first log line.
 from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
+from penny.auth.settings import load_auth_settings  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
+    RequestContext,
     set_request_context,
 )
-from penny.tenancy.principal import resolve_dev_principal  # noqa: E402
 
+from .auth import request_context  # noqa: E402
 from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
@@ -37,11 +39,18 @@ async def _on_startup() -> None:
     bootstrap()
 
 
+# Fail closed at import: clerk mode requires issuer/JWKS/frontend-origin (the
+# origin also feeds CORS). Never `*` with credentials.
+_auth_settings = load_auth_settings()
+_origins = ["http://localhost:5173"]
+if _auth_settings.frontend_origin:
+    _origins.append(_auth_settings.frontend_origin)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 _model: GeminiModel | None = None
@@ -135,7 +144,10 @@ async def health() -> dict[str, bool]:
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str) -> dict[str, Any]:
+async def get_session(
+    session_id: str,
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, Any]:
     """Hydrate a conversation from the website store (the faithful path).
 
     Reads the captured ``conversation_messages`` rows — not the lossy harness
@@ -149,21 +161,20 @@ async def get_session(session_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/chat")
-async def chat(request: Request) -> StreamingResponse:
+async def chat(
+    request: Request,
+    ctx: RequestContext = Depends(request_context),
+) -> StreamingResponse:
     body: dict[str, Any] = await request.json()
     chat_id = str(body.get("id") or "default")
     prompt = _extract_prompt(body)
     user_message_id = _extract_user_message_id(body)
 
-    # Resolve the requesting principal (dev stub: headers, then PENNY_DEV_*
-    # env; replaced by real auth in phase 2) and pin it on the ContextVar so
-    # every DB session in this request — including the agent's tools — is
-    # tenant-scoped. Cleared when the stream finishes, below.
-    try:
-        principal = resolve_dev_principal(dict(request.headers))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    set_request_context(principal)
+    # The auth dependency verified the bearer token and set the ContextVar for
+    # this request. Re-pin it here so the streaming task (which runs in a COPY
+    # of this context) also sees the principal; every DB session — including
+    # the agent's tools — is thus tenant-scoped. Cleared when the stream ends.
+    set_request_context(ctx)
 
     store = _get_conversation_store()
     store.ensure_conversation(chat_id)
@@ -184,7 +195,7 @@ async def chat(request: Request) -> StreamingResponse:
     # store (above + the bridge) is the single persistence layer. The seeded
     # session provides read-only continuity.
     agent = build_agent(
-        model=_get_model(), session=session, persist_session=False, ctx=principal
+        model=_get_model(), session=session, persist_session=False, ctx=ctx
     )
 
     async def _scoped_stream() -> AsyncIterator[str]:

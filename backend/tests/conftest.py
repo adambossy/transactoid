@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import os
 from pathlib import Path
 import uuid
 
 import pytest
 
+# Run the suite in dev auth mode with an env-pinned principal that matches the
+# autouse RequestContext below, so importing the FastAPI app (which validates
+# auth config at import) does not fail closed, and the auth dependency resolves
+# to the same principal the tests already run as. Clerk-mode tests override the
+# settings/verifier explicitly (see tests/api/test_auth_dependency.py).
+os.environ.setdefault("PENNY_AUTH_MODE", "dev")
+os.environ.setdefault("PENNY_DEV_USER_ID", "11111111-1111-1111-1111-111111111111")
+os.environ.setdefault("PENNY_DEV_HOUSEHOLD_ID", "22222222-2222-2222-2222-222222222222")
+
+import penny.api.auth as _api_auth
 import penny.api.main
 from penny.api.persistence.engine import reset_web_engine
 import penny.db
@@ -105,6 +116,12 @@ def _reset_singletons() -> None:
     penny.services._persister = None
     penny.services._migrator = None
     penny.api.main._conversation_store = None
+    # Auth settings/verifier are lru_cached; drop them so a test that repoints
+    # the DB or env sees a fresh resolution. Guard cache_clear because a test
+    # may have monkeypatched these with a plain callable.
+    for fn in (_api_auth.get_auth_settings, _api_auth.get_verifier):
+        if hasattr(fn, "cache_clear"):
+            fn.cache_clear()
     reset_web_engine()
 
 
