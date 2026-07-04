@@ -78,3 +78,32 @@ prod with the frozen snapshot:
 ```bash
 neonctl branches restore <prod-branch> <frozen-branch> [--project-id <id>]
 ```
+
+## Pending-user signup handoff (needs Phase 4)
+
+`bootstrap` seeds the household + two **pending** `users` (your email, your
+spouse's; `external_auth_id NULL`) — no Clerk objects, no passwords. Claiming a
+pending row needs each spouse to *create* a Clerk identity and sign in, which is
+the **Phase-4 `<SignUp>` surface** (Phase 2 only wires `<SignIn>`). So Phase 4
+must ship before this step. The handoff, once the data-migration stages are
+done and Phase 4 is live:
+
+1. You sign up via the Phase-4 flow with your invited email. Phase-2 first-login
+   linking matches your **verified** email to your pending `users` row and
+   claims it (sets `external_auth_id`). You land in the migrated household with
+   your assigned accounts already owned correctly.
+2. Your spouse signs up with their invited email; same linking. They land in the
+   **same** household, seeing their accounts + shared accounts, and **never**
+   your private accounts (the `verify` RLS battery proves this held).
+
+No merge, no special-casing — it reuses the invite/link mechanism exactly.
+
+## `verify` gates the backup release
+
+`verify` runs three batteries against the migrated data — zero unassigned tenant
+columns, all Plaid tokens ciphertext, and the RLS isolation proof (a private
+account owned by one spouse returns zero rows in the other's tenant context).
+**Run it as the non-superuser app role** (`--app-db-url`): a superuser/BYPASSRLS
+role sees everything and would give a false pass — verify refuses to claim an RLS
+pass from a bypassing role. Only when `verify` exits 0 is the frozen step-0
+backup branch releasable.
