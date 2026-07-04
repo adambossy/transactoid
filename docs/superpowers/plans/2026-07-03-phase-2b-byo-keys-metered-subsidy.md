@@ -5,6 +5,10 @@
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
 > Spec: [Phase 2b design](../specs/2026-07-03-phase-2b-byo-keys-metered-subsidy-design.md).
 > **Depends on:** Phase 2 (auth / `RequestContext`, web-DB RLS plumbing). **Prerequisite for:** Phase 4 open signup.
+> **⚠ Tasks 1 & 2 (agent-harness) are already BUILT** on branch
+> `feat/usage-credential-resolver` (worktree `~/code/agent-harness-2b`) — do not
+> rebuild. Consume per the [harness dependency contract](../decisions/phase-2b-harness-dependency.md)
+> (breaking change: global env-key fallback removed; build the Agent per request).
 
 **Goal:** Give each user a small subsidized token runway; once spent, require a
 BYO provider API key (or sanctioned OAuth). Credentials are per-user, encrypted,
