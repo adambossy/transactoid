@@ -66,6 +66,18 @@ P9. BYO keys & metered subsidy
     subsidy key configured) chat runs on the default key with no metering, so
     dev/self-host is unaffected.
 
+P10. Open signup, households, and invites
+    Signup is fully open: any visitor can sign up (Clerk social login) and is
+    auto-provisioned an isolated one-person household with its own seeded
+    taxonomy on first authenticated request. A household member can invite NEW
+    (accountless) people by email; the invitee signs up straight into the
+    inviter's household. One individual = one household — there is no household
+    merge and no multi-household membership; an email that already belongs to an
+    active account cannot be invited (they are told to start fresh), and someone
+    who wants into another household starts over and re-links their bank. Members
+    see their household's name (renamable) and manage pending invites (list /
+    revoke). Cost/abuse of open signup is bounded by the P9 per-user subsidy cap.
+
 
 TECHNICAL INVARIANTS / CONSTRAINTS
 ----------------------------------
@@ -114,8 +126,11 @@ T8. Multi-tenant data isolation
     app-level query filtering (the only layer on SQLite dev). A joint session
     sees shared rows only; no row may be owned by the joint-session sentinel.
     Plaid access tokens are encrypted at rest (key-versioned, so rotation is
-    a config change). Authentication is still stubbed (dev principal via
-    headers/env) until phase 2. The same RLS/visibility rules govern the
+    a config change). In production, identity is a Clerk-verified JWT resolved to
+    the household/user principal per request (dev keeps an env-pinned principal);
+    an authenticated identity with a verified email but no row is auto-provisioned
+    a household (P10), while an unverified/absent email is rejected. The same
+    RLS/visibility rules govern the
     workspace store tables (prefixes/manifests/heads): R2 keys derive only from
     RLS-gated rows via opaque unguessable prefix tokens, and only the workspace
     shim touches R2 — the agent never gets a direct R2 capability.
@@ -152,3 +167,18 @@ T11. Credential security & no-ambient-key gate
      BYO credential and no remaining subsidy the turn is blocked, never silently
      run on the platform key. Enforced by backend/tests/billing/ (test_vault.py,
      test_gate.py, test_billing_rls.py — the last requires POSTGRES_TEST_URL).
+
+T12. Signup & invite integrity
+     Provisioning and joining are fail-closed: a solo signup yields a fully
+     isolated household (T8 RLS), and provision-or-join is idempotent so a signup
+     race or retry produces exactly one household/user (email is unique, lowercased
+     and matched lowercased). An invite is realized as a pending users row
+     (external_auth_id NULL) in the INVITER's household only — the target
+     household is always the caller's principal, never a request-body value — and
+     a first login atomically claims it. An invite can never target an email that
+     already has an active account (no takeover), and revoking an invite only ever
+     deletes an unclaimed pending row, never an active user. Auto-provision
+     requires a verified email. Enforced by backend/tests/test_signup.py,
+     tests/api/test_invites.py, tests/api/test_me.py, tests/api/test_auth_*.py,
+     and tests/adapters/db/test_signup_isolation.py (the last requires
+     POSTGRES_TEST_URL).
