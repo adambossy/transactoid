@@ -38,6 +38,10 @@ export default defineConfig({
       env: {
         DATABASE_URL: `sqlite:///${E2E_DB_DIR}/penny-e2e.db`,
         PENNY_WEB_DATABASE_URL: `sqlite:///${E2E_DB_DIR}/penny-e2e-web.db`,
+        // The backend defaults to fail-closed clerk mode (phase 2); the default
+        // harness runs dev-principal. Overridable so the gated Clerk auth specs
+        // (PENNY_E2E_CLERK=1) can force clerk mode with real Clerk env.
+        PENNY_AUTH_MODE: process.env.PENNY_AUTH_MODE ?? "dev",
         PENNY_DEV_USER_ID: DEV_USER_ID,
         PENNY_DEV_HOUSEHOLD_ID: DEV_HOUSEHOLD_ID,
         PENNY_DEV_SESSION_MODE: "individual",
