@@ -100,9 +100,20 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
 
     from penny import observability
     from penny.agent_factory import build_agent, build_model
+    from penny.tenancy.context import set_request_context
+    from penny.tenancy.principal import resolve_dev_principal
+
+    # Headless runs have no request headers; the principal comes from the
+    # PENNY_DEV_* env (cron injects it via config.env). A missing principal is
+    # a genuine misconfiguration — the ValueError propagates to a non-zero
+    # exit. Process-scoped, so no reset needed.
+    principal = resolve_dev_principal({})
+    set_request_context(principal)
 
     session = InMemorySession(session_id=f"cli-{datetime.now(UTC):%Y%m%d%H%M%S}")
-    agent = build_agent(model=build_model(), session=session, persist_session=False)
+    agent = build_agent(
+        model=build_model(), session=session, persist_session=False, ctx=principal
+    )
     # max_turns is accepted for parity with the legacy CLI surface and the
     # cron command line; the harness loop is currently bounded by the model
     # producing a final output. Logged so the value is visible in cron logs.

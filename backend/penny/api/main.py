@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from agent_harness.providers.google import GeminiModel
 from agent_harness.sessions.inmemory import InMemorySession
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -17,6 +18,11 @@ load_dotenv(override=False)
 from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
+from penny.tenancy.context import (  # noqa: E402
+    reset_request_context,
+    set_request_context,
+)
+from penny.tenancy.principal import resolve_dev_principal  # noqa: E402
 
 from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
@@ -150,6 +156,16 @@ async def chat(request: Request) -> StreamingResponse:
     prompt = _extract_prompt(body)
     user_message_id = _extract_user_message_id(body)
 
+    # Resolve the requesting principal (dev stub: headers, then PENNY_DEV_*
+    # env; replaced by real auth in phase 2) and pin it on the ContextVar so
+    # every DB session in this request — including the agent's tools — is
+    # tenant-scoped. Reset when the stream finishes, below.
+    try:
+        principal = resolve_dev_principal(dict(request.headers))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    context_token = set_request_context(principal)
+
     store = _get_conversation_store()
     store.ensure_conversation(chat_id)
 
@@ -168,10 +184,21 @@ async def chat(request: Request) -> StreamingResponse:
     # persist_session=False: the harness never writes to sessions.db; the app
     # store (above + the bridge) is the single persistence layer. The seeded
     # session provides read-only continuity.
-    agent = build_agent(model=_get_model(), session=session, persist_session=False)
+    agent = build_agent(
+        model=_get_model(), session=session, persist_session=False, ctx=principal
+    )
+
+    async def _scoped_stream() -> AsyncIterator[str]:
+        try:
+            async for frame in stream_and_persist(
+                agent, prompt, store=store, conversation_id=chat_id
+            ):
+                yield frame
+        finally:
+            reset_request_context(context_token)
 
     return StreamingResponse(
-        stream_and_persist(agent, prompt, store=store, conversation_id=chat_id),
+        _scoped_stream(),
         media_type="text/event-stream",
         headers={
             "x-vercel-ai-ui-message-stream": "v1",
