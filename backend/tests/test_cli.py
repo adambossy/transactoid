@@ -142,6 +142,20 @@ def _patch_run_and_exit_seams(
     monkeypatch.setenv("PENNY_DEV_HOUSEHOLD_ID", "22222222-2222-2222-2222-222222222222")
     monkeypatch.setattr(factory, "build_model", lambda: object())
     monkeypatch.setattr(factory, "build_agent", _fake_build_agent)
+
+    # _drive_agent wraps the run in run_with_workspace (materialize -> run ->
+    # flush against Postgres+R2). That store lifecycle is exercised in
+    # tests/workspace_store/test_agent_wiring.py; here we stub it to just hand
+    # the run a temp checkout dir so this smoke test stays hermetic (no DB/R2).
+    import penny.workspace_store.sync as ws_sync
+
+    async def _fake_run_with_workspace(ctx: Any, run_fn: Any, **_: Any) -> Any:
+        from pathlib import Path
+        import tempfile
+
+        return await run_fn(Path(tempfile.mkdtemp(prefix="penny-ws-test-")))
+
+    monkeypatch.setattr(ws_sync, "run_with_workspace", _fake_run_with_workspace)
     # bootstrap is imported lazily inside _run_and_exit from penny.bootstrap.
     import penny.bootstrap as bootstrap_mod
 

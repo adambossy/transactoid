@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
+import shutil
+import tempfile
 from typing import Any
 
 from agent_harness.providers.google import GeminiModel
@@ -18,10 +21,14 @@ load_dotenv(override=False)
 from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
+from penny.db import get_db  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
     set_request_context,
 )
 from penny.tenancy.principal import resolve_dev_principal  # noqa: E402
+from penny.workspace_store.blobs import R2BlobStore  # noqa: E402
+from penny.workspace_store.broker import ensure_prefixes  # noqa: E402
+from penny.workspace_store.sync import flush, materialize  # noqa: E402
 
 from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
@@ -180,24 +187,44 @@ async def chat(request: Request) -> StreamingResponse:
     # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
 
-    # persist_session=False: the harness never writes to sessions.db; the app
-    # store (above + the bridge) is the single persistence layer. The seeded
-    # session provides read-only continuity.
-    agent = build_agent(
-        model=_get_model(), session=session, persist_session=False, ctx=principal
-    )
-
     async def _scoped_stream() -> AsyncIterator[str]:
         # The response body is iterated in a different task context than the
         # handler that set the ContextVar (which the streaming task inherits
         # as a copy), so token-based reset would raise "created in a different
         # Context" — clear the principal instead.
+        #
+        # Phase 1b workspace lifecycle: materialize the principal's readable
+        # prefixes into a per-run temp checkout, build the agent rooted there
+        # (so its memory/reports edits are local-FS fast), stream the turn,
+        # then flush changed blobs + advance each prefix head on success. A
+        # streaming SSE generator can't be expressed as run_with_workspace's
+        # ``await run_fn(root)`` shape, so the same materialize/flush primitives
+        # are composed inline here; an aborted stream never reaches flush.
+        blob_store = R2BlobStore()
+        root = Path(tempfile.mkdtemp(prefix="penny-ws-"))
+        db = get_db()
         try:
+            with db.session_for(principal) as s:
+                ensure_prefixes(s, principal)
+                checkout = materialize(s, principal, blob_store=blob_store, root=root)
+            # persist_session=False: the harness never writes to sessions.db;
+            # the app store (above + the bridge) is the single persistence
+            # layer. The seeded session provides read-only continuity.
+            agent = build_agent(
+                model=_get_model(),
+                session=session,
+                persist_session=False,
+                ctx=principal,
+                workspace_dir=checkout.root,
+            )
             async for frame in stream_and_persist(
                 agent, prompt, store=store, conversation_id=chat_id
             ):
                 yield frame
+            with db.session_for(principal) as s:
+                flush(s, principal, checkout, blob_store=blob_store)
         finally:
+            shutil.rmtree(root, ignore_errors=True)
             set_request_context(None)
 
     return StreamingResponse(

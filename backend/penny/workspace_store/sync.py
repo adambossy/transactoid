@@ -11,9 +11,12 @@ flush, so nothing is committed.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path
+import shutil
+import tempfile
 import uuid
 
 from sqlalchemy import update
@@ -202,3 +205,37 @@ def flush(
         else:
             raise FlushConflictError(f"prefix {token} kept moving")
     return new_heads
+
+
+async def run_with_workspace[T](
+    ctx: RequestContext,
+    run_fn: Callable[[Path], Awaitable[T]],
+    *,
+    blob_store: BlobStore | None = None,
+) -> T:
+    """materialize → ``await run_fn(checkout_root)`` → flush; abort → no flush.
+
+    The lifecycle wrapper every front door drives an agent through: a per-run
+    temp checkout under the scratch area is materialized from the store, handed
+    to ``run_fn`` to edit freely at local-FS speed, then flushed back on
+    success. The temp dir is always removed. An exception from ``run_fn``
+    propagates before flush, so an aborted run commits nothing. ``blob_store``
+    defaults to R2 in production; tests inject the in-memory fake.
+    """
+    from penny.db import get_db
+    from penny.workspace_store.blobs import R2BlobStore
+    from penny.workspace_store.broker import ensure_prefixes
+
+    store: BlobStore = blob_store if blob_store is not None else R2BlobStore()
+    root = Path(tempfile.mkdtemp(prefix="penny-ws-"))
+    db = get_db()
+    try:
+        with db.session_for(ctx) as s:
+            ensure_prefixes(s, ctx)
+            checkout = materialize(s, ctx, blob_store=store, root=root)
+        result = await run_fn(checkout.root)
+        with db.session_for(ctx) as s:
+            flush(s, ctx, checkout, blob_store=store)
+        return result
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

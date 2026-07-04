@@ -21,6 +21,7 @@ from agent_harness.core.filesystem import FilesystemTools
 from agent_harness.core.models import ModelSettings
 from agent_harness.core.skills import SkillRegistry, build_skill_tool
 from agent_harness.providers.google import GeminiModel, GoogleProvider
+from agent_harness.sandboxes.inprocess import InProcessSandbox
 from agent_harness.sessions.inmemory import InMemorySession
 
 from .plugins.amazon import build_amazon_toolset
@@ -41,16 +42,20 @@ def _sql_dialect_from_env() -> str:
 _CORE_MEMORY_FILES = ("index.md", "merchant-rules.md")
 
 
-def _assemble_agent_memory() -> str:
+def _assemble_agent_memory(workspace_dir: Path | None = None) -> str:
     """Concatenate the core memory files from the workspace.
 
-    Mirrors main's behavior: read ``index.md`` then ``merchant-rules.md``
-    from ``~/.transactoid/memory/`` (joined with blank lines). Empty string
-    if neither exists.
+    Reads ``index.md`` then ``merchant-rules.md`` (joined with blank lines);
+    empty string if neither exists. With ``workspace_dir`` (the per-run hybrid
+    checkout, phase 1b) it reads ``<workspace_dir>/memory``; without it, the
+    legacy ``~/.transactoid/memory`` — kept so scripts/tests with no checkout
+    still resolve memory.
     """
     from .workspace import resolve_memory_dir
 
-    memory_dir = resolve_memory_dir()
+    memory_dir = (
+        workspace_dir / "memory" if workspace_dir is not None else resolve_memory_dir()
+    )
     if not memory_dir.exists() or not memory_dir.is_dir():
         return ""
     parts: list[str] = []
@@ -61,13 +66,16 @@ def _assemble_agent_memory() -> str:
     return "\n\n".join(parts)
 
 
-def _render_system_prompt(ctx: RequestContext) -> str:
+def _render_system_prompt(
+    ctx: RequestContext, workspace_dir: Path | None = None
+) -> str:
     """Render the penny-system-prompt prompt with full runtime context.
 
     Fills: today's date + ISO week, DB dialect + dialect directives, schema
     snapshot, taxonomy snapshot, and agent memory. (taxonomy-rules is NOT
     injected here — that 35 KB block belongs to the categorizer prompt;
-    main never put it in the agent loop either.)
+    main never put it in the agent loop either.) ``workspace_dir`` scopes
+    ``{{AGENT_MEMORY}}`` to the per-run hybrid checkout when present.
     """
     import yaml  # local import — keeps top-level import cost light
 
@@ -107,9 +115,10 @@ def _render_system_prompt(ctx: RequestContext) -> str:
         "{{SQL_DIALECT_DIRECTIVES}}": sql_directives,
         "{{DATABASE_SCHEMA}}": schema_yaml,
         "{{CATEGORY_TAXONOMY}}": taxonomy_yaml,
-        # ctx will scope memory once phase 1b moves it to the per-household
-        # hybrid store; today the workspace memory dir is single-household.
-        "{{AGENT_MEMORY}}": _assemble_agent_memory() or "(no memory files yet)",
+        # Phase 1b: memory comes from the per-run hybrid checkout when the
+        # front door materialized one; else the legacy workspace dir.
+        "{{AGENT_MEMORY}}": _assemble_agent_memory(workspace_dir)
+        or "(no memory files yet)",
     }
     rendered = load_prompt("penny-system-prompt")
     for placeholder, value in replacements.items():
@@ -150,6 +159,7 @@ def build_agent(
     session: InMemorySession,
     persist_session: bool = True,
     ctx: RequestContext,
+    workspace_dir: Path | None = None,
 ) -> Agent:
     """Build the per-request Agent, scoped to the requesting principal.
 
@@ -157,8 +167,17 @@ def build_agent(
     session is tenant-scoped by the RequestContext (front doors set the
     ContextVar; this keyword makes the dependency explicit and threads the
     principal into prompt rendering).
+
+    ``workspace_dir`` (phase 1b) roots the agent's filesystem sandbox at the
+    per-run hybrid checkout so its memory/reports edits land where flush picks
+    them up. Without it, the process-wide legacy ``~/.transactoid`` sandbox is
+    used (scripts/tests with no checkout).
     """
-    sandbox = get_sandbox()
+    sandbox = (
+        InProcessSandbox(root=str(workspace_dir))
+        if workspace_dir is not None
+        else get_sandbox()
+    )
 
     skill_registry = SkillRegistry.load(project_root=_PROJECT_ROOT, user_root=None)
     skill_tool = build_skill_tool(skill_registry)
@@ -171,7 +190,7 @@ def build_agent(
     return Agent(
         name="penny",
         model=model,
-        instructions=_render_system_prompt(ctx),
+        instructions=_render_system_prompt(ctx, workspace_dir),
         session=session,
         persist_session=persist_session,
         sandbox=sandbox,

@@ -94,6 +94,7 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
     side effects happen inside the agent's tool calls.
     """
     import contextlib
+    from pathlib import Path
 
     from agent_harness.core.events import InMemoryEventBus
     from agent_harness.sessions.inmemory import InMemorySession
@@ -102,6 +103,7 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
     from penny.agent_factory import build_agent, build_model
     from penny.tenancy.context import set_request_context
     from penny.tenancy.principal import resolve_dev_principal
+    from penny.workspace_store.sync import run_with_workspace
 
     # Headless runs have no request headers; the principal comes from the
     # PENNY_DEV_* env (cron injects it via config.env). A missing principal is
@@ -111,9 +113,6 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
     set_request_context(principal)
 
     session = InMemorySession(session_id=f"cli-{datetime.now(UTC):%Y%m%d%H%M%S}")
-    agent = build_agent(
-        model=build_model(), session=session, persist_session=False, ctx=principal
-    )
     # max_turns is accepted for parity with the legacy CLI surface and the
     # cron command line; the harness loop is currently bounded by the model
     # producing a final output. Logged so the value is visible in cron logs.
@@ -125,8 +124,22 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
     trace_task = observability.start_run_trace_task(
         bus, source="cron", session_id=session.session_id, prompt=prompt_text
     )
+
+    async def _run(workspace_dir: Path) -> object:
+        # Build the agent rooted at the per-run hybrid checkout so its
+        # memory/reports edits land where flush picks them up.
+        agent = build_agent(
+            model=build_model(),
+            session=session,
+            persist_session=False,
+            ctx=principal,
+            workspace_dir=workspace_dir,
+        )
+        return await agent.run(prompt_text, event_bus=bus)
+
     try:
-        result = await agent.run(prompt_text, event_bus=bus)
+        # materialize the workspace -> run -> flush (aborted run commits nothing).
+        result = await run_with_workspace(principal, _run)
     finally:
         if bus is not None:
             await bus.close()
