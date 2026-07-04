@@ -24,6 +24,9 @@ import urllib.request
 
 _API_BASE = "https://api.clerk.com/v1"
 _TIMEOUT = 30
+# api.clerk.com sits behind Cloudflare, which bans the default `Python-urllib`
+# User-Agent with error 1010. A named UA gets us through.
+_USER_AGENT = "Penny-backend/1.0 (+https://github.com/adambossy/transactoid)"
 
 
 class ClerkError(RuntimeError):
@@ -54,6 +57,7 @@ class ClerkInvites:
             headers={
                 "Authorization": f"Bearer {self._require_key()}",
                 "Content-Type": "application/json",
+                "User-Agent": _USER_AGENT,
             },
         )
         try:
@@ -120,13 +124,21 @@ def fetch_user_identity(
     req = urllib.request.Request(  # noqa: S310 - fixed HTTPS Clerk endpoint
         f"{_API_BASE}/users/{urllib.parse.quote(sub, safe='')}",
         method="GET",
-        headers={"Authorization": f"Bearer {key}"},
+        headers={"Authorization": f"Bearer {key}", "User-Agent": _USER_AGENT},
     )
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
             user = json.loads(resp.read() or b"null")
     except urllib.error.HTTPError as exc:
-        raise ClerkError(f"fetch_user_identity failed ({exc.code})") from None
+        body = exc.read() or b""
+        from loguru import logger
+
+        logger.bind(
+            sub=sub, status=exc.code, body=body[:400].decode("utf-8", "replace")
+        ).error("Clerk fetch_user_identity failed")
+        raise ClerkError(
+            f"fetch_user_identity failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
+        ) from None
     if not isinstance(user, dict):
         return None, False
     primary_id = user.get("primary_email_address_id")
