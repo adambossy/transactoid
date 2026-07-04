@@ -55,6 +55,10 @@ export default defineConfig({
         BACKEND_URL: "http://127.0.0.1:8100",
         // CI has no ~/code/agent-ui checkout; use the vendored tarball.
         AGENT_UI_USE_VENDOR: process.env.CI ? "1" : (process.env.AGENT_UI_USE_VENDOR ?? "0"),
+        // Clerk publishable key for the auth e2e specs. Empty in the default
+        // dev-principal harness (the app then sends no bearer token); set it
+        // (with PENNY_E2E_CLERK=1 + a clerk-mode backend) to run auth.spec.ts.
+        VITE_CLERK_PUBLISHABLE_KEY: process.env.VITE_CLERK_PUBLISHABLE_KEY ?? "",
       },
     },
   ],
