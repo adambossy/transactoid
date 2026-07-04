@@ -19,6 +19,8 @@ dependencies = [
     "resend>=0.9",
     "alembic>=1.18.4",
     "typer>=0.12",
+    # Fernet encryption of Plaid access tokens at rest (penny.security).
+    "cryptography>=43.0",
     # Vendor-neutral OTEL tracing exported to Langfuse over OTLP (see
     # penny.observability). agent-harness[otel] provides the API+SDK used by
     # its OTELSubscriber; the exporter ships spans to Langfuse's OTLP endpoint.
