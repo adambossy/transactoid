@@ -97,3 +97,66 @@ def test_write_into_foreign_household_is_rejected(pg_db):
         with pg_db.session_for(_ctx_a()) as s:
             s.add(_txn("evil", "aa", "ia", HB, UB))
             s.flush()
+
+
+def test_write_of_shared_row_for_another_member_is_allowed(pg_db):
+    # The WITH CHECK fence is the household, and Postgres additionally
+    # requires INSERT..RETURNING rows to be readable by the writer. Net
+    # semantics: a member may create rows owned by another member as long as
+    # they're shared (e.g. syncing a spouse's shared account)...
+    _seed(pg_db)
+    other = uuid.uuid4()
+    with pg_db.session() as s:  # identity tables carry no RLS
+        s.add(User(user_id=other, household_id=HA, email=f"{other}@x.com"))
+    with pg_db.session_for(_ctx_a()) as s:
+        s.add(_txn("spouse-shared", "aa", "ia", HA, other, "shared"))
+        s.flush()
+    with pg_db.session_for(_ctx_a()) as s:
+        rows = s.execute(sa.text("SELECT external_id FROM plaid_transactions")).all()
+    assert "spouse-shared" in {r[0] for r in rows}
+
+
+def test_write_of_private_row_for_another_member_is_rejected(pg_db):
+    # ...but NOT rows they could not read back: another member's private row
+    # fails loudly rather than materializing data invisible to its writer.
+    _seed(pg_db)
+    other = uuid.uuid4()
+    with pg_db.session() as s:
+        s.add(User(user_id=other, household_id=HA, email=f"{other}@x.com"))
+    with pytest.raises(sa.exc.DBAPIError):
+        with pg_db.session_for(_ctx_a()) as s:
+            s.add(_txn("spouse-private", "aa", "ia", HA, other, "private"))
+            s.flush()
+
+
+def test_contextless_session_on_pooled_connection_returns_empty(pg_db):
+    # set_config(..., true) reverts the GUC to '' (not unset) when the
+    # transaction ends; the policy must treat '' as NULL so a later
+    # context-less session on the same pooled connection reads nothing
+    # instead of erroring on ''::uuid.
+    from penny.tenancy.context import reset_request_context, set_request_context
+
+    _seed(pg_db)
+    with pg_db.session_for(_ctx_a()) as s:
+        s.execute(sa.text("SELECT external_id FROM plaid_transactions")).all()
+    token = set_request_context(None)
+    try:
+        with pg_db.session() as s:
+            rows = s.execute(
+                sa.text("SELECT external_id FROM plaid_transactions")
+            ).all()
+        assert rows == []
+    finally:
+        reset_request_context(token)
+
+
+def test_gucs_survive_commit_within_a_session(pg_db):
+    # The GUCs are transaction-local; a commit mid-session starts a new
+    # transaction which must be re-stamped, or post-commit reads (e.g.
+    # session.refresh after commit) see nothing.
+    _seed(pg_db)
+    with pg_db.session_for(_ctx_a()) as s:
+        s.add(_txn("post-commit", "aa", "ia", HA, UA, "private"))
+        s.commit()
+        rows = s.execute(sa.text("SELECT external_id FROM plaid_transactions")).all()
+    assert "post-commit" in {r[0] for r in rows}

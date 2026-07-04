@@ -26,6 +26,7 @@ from sqlalchemy import (
     func,
     inspect,
     or_,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -48,6 +49,7 @@ from penny.adapters.db.models import (
     Household,
     Merchant,
     PendingReceiptMatch,
+    PlaidAccount,
     PlaidItem,
     PlaidTransaction,
     SaveOutcome,
@@ -189,6 +191,69 @@ def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
 # Identity rows ARE the tenant boundary — never stamp them with one.
 _TENANT_STAMP_EXEMPT = (Household, User)
 
+_TENANT_COLUMNS = ("household_id", "owner_user_id", "visibility")
+
+
+def _account_tenant_lookup(
+    session: Session, account_id: str, cache: dict[str, dict[str, Any] | None]
+) -> dict[str, Any] | None:
+    """The owning plaid_account's tenant triple, or None if no account row.
+
+    plaid_accounts is the source of truth for (household, owner, visibility):
+    account-linked rows must inherit the ACCOUNT's values, never the
+    requesting session's — a joint session syncing a private account would
+    otherwise stamp its rows 'shared' and leak them to the household.
+    """
+    if account_id not in cache:
+        row = session.execute(
+            select(
+                PlaidAccount.household_id,
+                PlaidAccount.owner_user_id,
+                PlaidAccount.visibility,
+            ).where(PlaidAccount.account_id == account_id)
+        ).first()
+        cache[account_id] = (
+            None
+            if row is None
+            else {
+                "household_id": row[0],
+                "owner_user_id": row[1],
+                "visibility": row[2],
+            }
+        )
+    return cache[account_id]
+
+
+def _tenant_source_for(
+    obj: Any, session: Session, account_cache: dict[str, dict[str, Any] | None]
+) -> dict[str, Any] | None:
+    """The denorm source for an object's tenant columns, or None.
+
+    Account-linked rows inherit the owning plaid_account's triple; derived
+    transactions mirror their plaid row (which itself inherited from the
+    account). Rows with neither fall back to the RequestContext.
+    """
+    if isinstance(obj, PlaidAccount):
+        return None  # the account row IS the source; its values come from the caller
+    account_id = getattr(obj, "account_id", None)
+    if account_id is not None:
+        return _account_tenant_lookup(session, account_id, account_cache)
+    if isinstance(obj, DerivedTransaction):
+        parent = obj.plaid_transaction
+        if parent is None and obj.plaid_transaction_id is not None:
+            parent = session.get(PlaidTransaction, obj.plaid_transaction_id)
+        if parent is not None:
+            if parent.household_id is not None:
+                return {
+                    "household_id": parent.household_id,
+                    "owner_user_id": parent.owner_user_id,
+                    "visibility": parent.visibility,
+                }
+            # Parent is new in this same flush and not yet stamped — resolve
+            # through its account instead.
+            return _account_tenant_lookup(session, parent.account_id, account_cache)
+    return None
+
 
 def _tenant_values() -> dict[str, Any]:
     """The current principal's tenant column values; ``{}`` when no context.
@@ -247,12 +312,14 @@ def visible_filter(model: Any, ctx: RequestContext) -> Any:
 def apply_tenant_guc(session: Session, ctx: RequestContext) -> None:
     """Pin the transaction-local tenant GUCs for ``ctx`` on ``session``.
 
-    The direct ``set_config`` path shared by session open
-    (``_apply_rls_settings``) and provisioning, which must set
+    The direct ``set_config`` path for provisioning, which must set
     ``app.current_household`` *mid-transaction* so the taxonomy INSERTs pass the
-    ``categories`` RLS ``WITH CHECK``. Transaction-local (the ``true`` third arg
-    is the ``SET LOCAL`` form), so it lasts the rest of the current transaction
-    and resets on commit/rollback. No-op off Postgres (SQLite dev has no RLS).
+    ``categories`` RLS ``WITH CHECK``. (Per-transaction stamping at begin time
+    is ``DB._apply_rls_settings``, which executes on the connection — the
+    ``after_begin`` hook must not re-enter the session.) Transaction-local (the
+    ``true`` third arg is the ``SET LOCAL`` form), so it lasts the rest of the
+    current transaction and resets on commit/rollback. No-op off Postgres
+    (SQLite dev has no RLS).
     """
     if session.get_bind().dialect.name != "postgresql":
         return
@@ -270,23 +337,33 @@ def apply_tenant_guc(session: Session, ctx: RequestContext) -> None:
 def _stamp_tenant_columns(
     session: Session, _flush_context: Any, _instances: Any
 ) -> None:
-    """Fill tenant columns on new rows from the current RequestContext.
+    """Fill tenant columns on new rows at flush time.
 
-    Write-time half of tenant scoping: any financial row inserted without an
-    explicit household/owner inherits the requesting principal's. Rows that
-    pre-set these columns (e.g. denormalized copies from plaid_accounts) are
-    left untouched. No-op when no context is set — the NOT NULL contract then
-    surfaces the missing principal as an IntegrityError.
+    Write-time half of tenant scoping. Account-linked rows (and derived
+    transactions, via their plaid row) inherit the owning plaid_account's
+    (household, owner, visibility); other financial rows inherit the
+    requesting principal's. Rows that pre-set these columns are left
+    untouched. With neither an account row nor a context, columns stay None —
+    the NOT NULL contract then surfaces the missing principal as an
+    IntegrityError.
     """
-    values = _tenant_values()
-    if not values:
-        return
-    for obj in session.new:
-        if isinstance(obj, _TENANT_STAMP_EXEMPT):
-            continue
-        for column, value in values.items():
-            if hasattr(obj, column) and getattr(obj, column) is None:
-                setattr(obj, column, value)
+    fallback = _tenant_values()
+    account_cache: dict[str, dict[str, Any] | None] = {}
+    with session.no_autoflush:
+        for obj in session.new:
+            if isinstance(obj, _TENANT_STAMP_EXEMPT):
+                continue
+            unset = [
+                column
+                for column in _TENANT_COLUMNS
+                if hasattr(obj, column) and getattr(obj, column) is None
+            ]
+            if not unset:
+                continue
+            source = _tenant_source_for(obj, session, account_cache) or fallback
+            for column in unset:
+                if column in source:
+                    setattr(obj, column, source[column])
 
 
 class DB:
@@ -329,6 +406,7 @@ class DB:
             event.listen(self._engine, "connect", _enable_sqlite_foreign_keys)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
         event.listen(self._session_factory, "before_flush", _stamp_tenant_columns)
+        event.listen(self._session_factory, "after_begin", self._apply_rls_settings)
 
     @property
     def dialect(self) -> str:
@@ -354,13 +432,14 @@ class DB:
     def session(self) -> Iterator[Session]:
         """Context manager for database sessions.
 
-        On Postgres, stamps the transaction with the current RequestContext's
-        household/user GUCs so RLS policies filter every statement — including
-        raw SQL from the agent's run_sql tool.
+        On Postgres, every transaction the session opens is stamped with the
+        current RequestContext's household/user GUCs (the ``after_begin``
+        listener) so RLS policies filter every statement — including raw SQL
+        from the agent's run_sql tool, and reads issued after a mid-session
+        commit.
         """
         session = self._session_factory()
         try:
-            self._apply_rls_settings(session)
             yield session
             session.commit()
         except Exception:
@@ -369,26 +448,60 @@ class DB:
         finally:
             session.close()
 
-    def _apply_rls_settings(self, session: Session) -> None:
-        if self._engine.dialect.name != "postgresql":
+    def _apply_rls_settings(
+        self, _session: Session, _transaction: Any, connection: Any
+    ) -> None:
+        """Stamp each new Postgres transaction with the tenant GUCs.
+
+        Runs on the Session ``after_begin`` event — i.e. once per transaction,
+        not once per session — because both stamping forms are
+        transaction-local: a mid-session commit starts a fresh transaction
+        that must be re-stamped or RLS would hide everything from post-commit
+        reads. In joint mode the effective user is the nil sentinel, so RLS
+        shows shared rows only. No-op without a RequestContext: the GUCs stay
+        unset/empty and the policies (which read them via NULLIF) return no
+        tenant rows.
+        """
+        if connection.dialect.name != "postgresql":
             return
         from penny.tenancy.context import effective_user_id, get_request_context
 
         ctx = get_request_context()
         if ctx is None:
             return
+        params = {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))}
         if self._use_tenant_guc_wrapper:
             # Read-only run_sql connection: pin the tenant through the set-once
             # SECURITY DEFINER wrapper. EXECUTE on set_config is revoked from this
             # role, so untrusted SQL can neither call set_config directly nor
             # re-invoke the wrapper to flip the household mid-transaction
-            # (findings F02/F05).
-            params = {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))}
-            session.execute(text("SELECT penny_set_tenant(:h, :u)"), params)
+            # (findings F02/F05). The wrapper's set-once guard reads the
+            # transaction-local GUC, so re-stamping each new transaction is safe.
+            connection.execute(text("SELECT penny_set_tenant(:h, :u)"), params)
             return
-        # In joint mode the effective user is the nil sentinel, so RLS shows
-        # shared rows only (apply_tenant_guc resolves it from the ctx).
-        apply_tenant_guc(session, ctx)
+        connection.execute(
+            text(
+                "SELECT set_config('app.current_household', :h, true), "
+                "set_config('app.current_user', :u, true)"
+            ),
+            params,
+        )
+
+    def _household_scoped(self, query: Any, model: Any) -> Any:
+        """household_id filter for household-term tables (categories, tags…).
+
+        These carry no owner/visibility, so the household is the whole fence.
+        Since category KEYS are only unique per household now, every by-key
+        lookup must scope or it may resolve another household's row.
+        Unscoped when no context is set (non-request tooling; RLS still
+        applies on Postgres).
+        """
+        from penny.tenancy.context import get_request_context
+
+        ctx = get_request_context()
+        if ctx is None:
+            return query
+        return query.filter(model.household_id == ctx.household_id)
 
     def _scope_visible(self, query: Any, model: Any) -> Any:
         """Apply app-level visibility filtering when a RequestContext is set.
@@ -552,7 +665,7 @@ class DB:
         """
         with self.session() as session:  # type: Session
             category = (
-                session.query(Category)
+                self._household_scoped(session.query(Category), Category)
                 .filter(Category.key == key, Category.deprecated_at.is_(None))
                 .first()
             )
@@ -575,7 +688,7 @@ class DB:
 
         with self.session() as session:  # type: Session
             categories = (
-                session.query(Category)
+                self._household_scoped(session.query(Category), Category)
                 .filter(Category.key.in_(keys), Category.deprecated_at.is_(None))
                 .all()
             )
@@ -973,14 +1086,18 @@ class DB:
         """Insert or update a tag.
 
         Args:
-            name: Tag name (unique)
+            name: Tag name (unique within the household)
             description: Tag description
 
         Returns:
             Tag instance
         """
         with self.session() as session:  # type: Session
-            tag = session.query(Tag).filter(Tag.name == name).first()
+            tag = (
+                self._household_scoped(session.query(Tag), Tag)
+                .filter(Tag.name == name)
+                .first()
+            )
             if tag is None:
                 tag = Tag(name=name, description=description)
                 session.add(tag)
@@ -1329,7 +1446,7 @@ class DB:
             List of CategoryRow dictionaries
         """
         with self.session() as session:  # type: Session
-            query = session.query(Category)
+            query = self._household_scoped(session.query(Category), Category)
             if not include_deprecated:
                 query = query.filter(Category.deprecated_at.is_(None))
             categories = query.all()
@@ -1364,8 +1481,8 @@ class DB:
             rows: Sequence of CategoryRow dictionaries with resolved IDs
         """
         with self.session() as session:  # type: Session
-            # Delete all existing categories
-            session.query(Category).delete()
+            # Delete the context household's existing categories
+            self._household_scoped(session.query(Category), Category).delete()
 
             # Insert new categories
             for row in rows:
@@ -1789,12 +1906,26 @@ class DB:
         if not transactions:
             return []
 
-        # Core insert bypasses the ORM flush hook — stamp the dicts directly.
-        tenant = _tenant_values()
-        if tenant:
-            transactions = [{**tenant, **t} for t in transactions]
-
         with self.session() as session:  # type: Session
+            # Core insert bypasses the ORM flush hook — stamp the dicts here,
+            # denormalizing from each row's plaid_account (falling back to the
+            # RequestContext for accounts with no plaid_accounts row).
+            fallback = _tenant_values()
+            account_cache: dict[str, dict[str, Any] | None] = {}
+            stamped: list[dict[str, Any]] = []
+            for txn in transactions:
+                if all(column in txn for column in _TENANT_COLUMNS):
+                    stamped.append(txn)
+                    continue
+                account_id = txn.get("account_id")
+                source = (
+                    _account_tenant_lookup(session, account_id, account_cache)
+                    if account_id
+                    else None
+                )
+                stamped.append({**(source or fallback), **txn})
+            transactions = stamped
+
             insert_stmt = pg_insert(PlaidTransaction).values(transactions)
             stmt = insert_stmt.on_conflict_do_update(
                 index_elements=["external_id", "source"],
@@ -2875,7 +3006,7 @@ class DB:
         """
         with self.session() as session:  # type: Session
             old_category = (
-                session.query(Category)
+                self._household_scoped(session.query(Category), Category)
                 .filter(Category.key == old_key, Category.deprecated_at.is_(None))
                 .first()
             )
@@ -2884,7 +3015,7 @@ class DB:
                 raise ValueError(msg)
 
             new_category = (
-                session.query(Category)
+                self._household_scoped(session.query(Category), Category)
                 .filter(Category.key == new_key, Category.deprecated_at.is_(None))
                 .first()
             )
@@ -2920,7 +3051,7 @@ class DB:
             # Validate category exists and is active. Deprecated categories
             # cannot accept new transaction assignments.
             category = (
-                session.query(Category)
+                self._household_scoped(session.query(Category), Category)
                 .filter(
                     Category.category_id == new_category_id,
                     Category.deprecated_at.is_(None),
@@ -2959,7 +3090,10 @@ class DB:
         now = datetime.now()
         with self.session() as session:  # type: Session
             # Load all rows (active + deprecated) so we can resurrect on key reuse.
-            existing_by_key = {c.key: c for c in session.query(Category).all()}
+            existing_by_key = {
+                c.key: c
+                for c in self._household_scoped(session.query(Category), Category)
+            }
             existing_active = {
                 key: cat
                 for key, cat in existing_by_key.items()
