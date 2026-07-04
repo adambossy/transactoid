@@ -1,6 +1,6 @@
 # Phase 3 — Production Cutover & Legacy-Data Migration
 
-> **Status: Designed** — see the [Phase 3 cutover spec](../specs/2026-07-03-phase-3-cutover-design.md); needs a detailed plan.
+> **Status: Planned** — see the [Phase 3 cutover spec](../specs/2026-07-03-phase-3-cutover-design.md) and the [detailed plan](2026-07-03-phase-3-cutover.md).
 > Repurposed from "Provision + test": provisioning → [Phase 4](2026-06-27-phase-4-signup-ui.md);
 > real-data validation → [Phase 6](2026-06-27-phase-6-security-audit.md); the
 > household/user admin CLI becomes a minor Phase-4 utility. What remains is the
