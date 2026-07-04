@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { Gallery } from "@penny/ui";
 import { AuthGate } from "./AuthGate";
 import { ChatScreen } from "./ChatScreen";
+import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
 import "./index.css";
 
 // Clerk is active iff a publishable key is configured — the frontend mirror of
@@ -17,6 +18,9 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefine
 // is intentionally auth-free (no ClerkProvider) so the design system stands alone.
 const showGallery = import.meta.env.DEV && window.location.pathname.startsWith("/ui");
 
+// The Providers & billing settings screen (phase 2b). Same auth model as chat.
+const showBilling = window.location.pathname.startsWith("/settings/providers");
+
 // Dev-principal mode: no token (the backend uses the env-pinned principal).
 const noToken = async () => null;
 
@@ -27,18 +31,25 @@ function AuthedChat() {
   return <ChatScreen getToken={() => getToken()} />;
 }
 
+function AuthedBilling() {
+  const { getToken } = useAuth();
+  return <ProvidersBillingScreen getToken={() => getToken()} />;
+}
+
 function Root() {
   if (showGallery) return <Gallery />;
   if (clerkKey) {
     return (
       <ClerkProvider publishableKey={clerkKey}>
-        <AuthGate>
-          <AuthedChat />
-        </AuthGate>
+        <AuthGate>{showBilling ? <AuthedBilling /> : <AuthedChat />}</AuthGate>
       </ClerkProvider>
     );
   }
-  return <ChatScreen getToken={noToken} />;
+  return showBilling ? (
+    <ProvidersBillingScreen getToken={noToken} />
+  ) : (
+    <ChatScreen getToken={noToken} />
+  );
 }
 
 createRoot(document.getElementById("root")!).render(
