@@ -40,7 +40,13 @@ P6. Conversation persistence
 
 P7. Agent workspace
     Maintain a persistent per-user workspace (memory/, reports/) that carries
-    user state (e.g. budget notes) across chat and scheduled runs.
+    user state (e.g. budget notes) across chat and scheduled runs. State lives
+    in a hybrid store (Postgres capability broker + R2 blobs, manifest-
+    versioned) partitioned by visibility: a shared workspace per household and
+    a private one per user. Each run materializes the readable workspace into a
+    temp checkout and flushes changes back atomically; a joint session sees the
+    shared workspace only. A one-time `penny admin import-workspace` lifts an
+    existing local ~/.transactoid into the store.
 
 P8. Output language
     Reports and chat responses are written in English (US) with $ currency,
@@ -102,9 +108,13 @@ T8. Multi-tenant data isolation
     sees shared rows only; no row may be owned by the joint-session sentinel.
     Plaid access tokens are encrypted at rest (key-versioned, so rotation is
     a config change). Authentication is still stubbed (dev principal via
-    headers/env) until phase 2.
-    Enforced by backend/tests/adapters/db/test_rls_isolation.py and
-    test_multitenant_acceptance.py (require POSTGRES_TEST_URL).
+    headers/env) until phase 2. The same RLS/visibility rules govern the
+    workspace store tables (prefixes/manifests/heads): R2 keys derive only from
+    RLS-gated rows via opaque unguessable prefix tokens, and only the workspace
+    shim touches R2 — the agent never gets a direct R2 capability.
+    Enforced by backend/tests/adapters/db/test_rls_isolation.py,
+    test_multitenant_acceptance.py, and test_workspace_rls.py (require
+    POSTGRES_TEST_URL).
 
 T9. Verification gate
     `ruff check`, `ruff format --check`, and `pytest` pass before any unit of

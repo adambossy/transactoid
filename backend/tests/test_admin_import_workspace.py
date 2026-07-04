@@ -8,9 +8,7 @@ from penny.workspace_store.blobs import InMemoryBlobStore
 from penny.workspace_store.sync import materialize
 
 
-def test_import_lands_in_private_prefix_and_is_idempotent(
-    isolated_db, tmp_path: Path
-):
+def test_import_lands_in_private_prefix_and_is_idempotent(isolated_db, tmp_path: Path):
     db = get_db()
     db.create_schema()
     with db.session() as s:
