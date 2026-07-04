@@ -18,11 +18,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from penny.adapters.clerk import ClerkInvites
+from penny.adapters.db.models import Household, User
 from penny.db import get_db
 from penny.signup import (
     InviteError,
     create_invite,
     list_pending_invites,
+    rename_household,
     revoke_invite,
 )
 from penny.tenancy.context import RequestContext
@@ -40,6 +42,44 @@ def get_clerk_invites() -> ClerkInvites:
 
 class InviteBody(BaseModel):
     email: str = Field(min_length=3)
+
+
+class HouseholdPatch(BaseModel):
+    name: str = Field(min_length=1)
+
+
+@router.get("/api/me")
+def get_me(
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, str]:
+    """Bootstrap: the caller's identity + household.
+
+    The auth dependency has already run ``resolve_or_provision_identity``, so by
+    the time this route executes the household exists (a first call after signup
+    triggers provisioning inside the dependency).
+    """
+    with get_db().session_for(ctx) as s:
+        user = s.query(User).filter(User.user_id == ctx.user_id).one()
+        household = (
+            s.query(Household).filter(Household.household_id == ctx.household_id).one()
+        )
+        return {
+            "user_id": str(user.user_id),
+            "email": user.email,
+            "household_id": str(household.household_id),
+            "household_name": household.name,
+        }
+
+
+@router.patch("/api/household")
+def patch_household(
+    body: HouseholdPatch,
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, str]:
+    """Rename the caller's own household."""
+    with get_db().session_for(ctx) as s:
+        rename_household(s, ctx, name=body.name)
+    return {"status": "renamed", "name": body.name}
 
 
 @router.post("/api/invites", status_code=201)

@@ -175,3 +175,14 @@ def revoke_invite(
     session.delete(row)
     session.flush()
     clerk.revoke_invitation(normalized)
+
+
+def rename_household(session: Session, ctx: RequestContext, *, name: str) -> None:
+    """Rename the caller's own household (tenant taken from ``ctx``)."""
+    hh = (
+        session.query(Household)
+        .filter(Household.household_id == ctx.household_id)
+        .one()
+    )
+    hh.name = name
+    session.flush()
