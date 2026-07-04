@@ -39,6 +39,13 @@ OWNER_VIS_TABLES = [
     "amazon_login_profiles",
     "amazon_orders",
     "amazon_items",
+    # Phase 1b workspace store — same household/owner/visibility triple, same
+    # policy. Migration 018 enables these on prod; this list backs the pg_db
+    # test fixture (migration 015 snapshots its own frozen list, so appending
+    # here does not retroactively change 015).
+    "workspace_prefixes",
+    "workspace_manifests",
+    "workspace_heads",
 ]
 # Tables scoped by household only. In the migration chain, categories'
 # policy lands in 016 (with its household_id column), after 015 creates the

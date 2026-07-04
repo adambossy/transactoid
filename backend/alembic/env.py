@@ -28,6 +28,9 @@ from penny.adapters.db.models import (  # noqa: F401, E402
     TransactionItem,
     TransactionTag,
     User,
+    WorkspaceHead,
+    WorkspaceManifest,
+    WorkspacePrefix,
 )
 
 # this is the Alembic Config object, which provides

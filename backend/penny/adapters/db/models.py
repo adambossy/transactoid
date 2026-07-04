@@ -1060,3 +1060,121 @@ class EvalItem(Base):
     )
 
     run: Mapped[EvalRun] = relationship("EvalRun", back_populates="items")
+
+
+# --- Workspace store (phase 1b) ----------------------------------------------
+#
+# The Postgres side of the hybrid workspace: these rows are the capability
+# broker + version graph; R2 holds the bytes. All three tables carry the same
+# household/owner/visibility triple as the financial tables and live under the
+# identical RLS ``tenant_isolation`` policy (migration 018 / ``rls.py``), so a
+# joint session resolves shared prefixes only and a spouse's private prefix is
+# invisible. ``prefix_token`` is an opaque ``secrets.token_urlsafe`` value —
+# never derived from tenant ids — so R2 keys can only be reached via an
+# RLS-gated Postgres lookup.
+
+
+class WorkspacePrefix(Base):
+    """An R2 directory (opaque token) owned by a household, at one visibility.
+
+    Exactly one ``kind='shared'`` prefix per household and one ``kind='private'``
+    prefix per user (partial unique indexes below). ``visibility`` mirrors
+    ``kind`` and drives RLS/read-routing just as it does on financial rows.
+    """
+
+    __tablename__ = "workspace_prefixes"
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IN ('private', 'shared')",
+            name="ck_workspace_prefixes_visibility",
+        ),
+        CheckConstraint(
+            "kind IN ('private', 'shared')",
+            name="ck_workspace_prefixes_kind",
+        ),
+        Index(
+            "uq_workspace_prefix_shared_per_household",
+            "household_id",
+            unique=True,
+            sqlite_where=text("kind = 'shared'"),
+            postgresql_where=text("kind = 'shared'"),
+        ),
+        Index(
+            "uq_workspace_prefix_private_per_owner",
+            "owner_user_id",
+            unique=True,
+            sqlite_where=text("kind = 'private'"),
+            postgresql_where=text("kind = 'private'"),
+        ),
+    )
+
+    prefix_token: Mapped[str] = mapped_column(String, primary_key=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class WorkspaceManifest(Base):
+    """One immutable snapshot of a prefix: a list of ``{path, sha256, size}``.
+
+    Append-only version graph — each manifest names its ``parent_manifest_id``,
+    forming a per-prefix chain. The tenant triple is denormalized onto the row
+    so RLS fences manifests without a join to ``workspace_prefixes``.
+    """
+
+    __tablename__ = "workspace_manifests"
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IN ('private', 'shared')",
+            name="ck_workspace_manifests_visibility",
+        ),
+        Index("ix_workspace_manifests_prefix", "prefix_token"),
+    )
+
+    manifest_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    prefix_token: Mapped[str] = mapped_column(
+        String, ForeignKey("workspace_prefixes.prefix_token"), nullable=False
+    )
+    parent_manifest_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    entries: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    household_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class WorkspaceHead(Base):
+    """The current manifest for a prefix — the CAS target on flush.
+
+    One row per prefix (``prefix_token`` PK). ``head_manifest_id`` is NULL for
+    an empty prefix; flush advances it with a compare-and-set against the
+    parent it materialized from.
+    """
+
+    __tablename__ = "workspace_heads"
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IN ('private', 'shared')",
+            name="ck_workspace_heads_visibility",
+        ),
+    )
+
+    prefix_token: Mapped[str] = mapped_column(
+        String, ForeignKey("workspace_prefixes.prefix_token"), primary_key=True
+    )
+    head_manifest_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
