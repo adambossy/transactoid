@@ -148,11 +148,12 @@ def reparent_cmd(
 @app.command("finalize-schema")
 def finalize_cmd(
     db_url: str = typer.Option(None, "--db-url", envvar="DATABASE_URL"),
+    mapping: str = typer.Option(DEFAULT_MAPPING, "--mapping"),
     state_file: str = typer.Option(DEFAULT_STATE, "--state-file"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
     """Apply the CONTRACT half (014-head) now that every row is assigned."""
-    finalize.run(db_url=db_url, state_file=state_file, dry_run=dry_run)
+    finalize.run(db_url=db_url, mapping_file=mapping, state_file=state_file, dry_run=dry_run)
 
 
 @app.command("verify")
