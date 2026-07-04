@@ -83,4 +83,39 @@ Phase 5 (reminder subsystem, `onboarding.py`, generative-UI tool-renderer) is no
 built. Per the orchestrator instruction, Task 9 implements a minimal standalone
 connect-prompt (the `connect_provider` `@tool` returning structured provider
 options + a lightweight in-memory reminder record) instead of reusing phase-5
-machinery. Reuse of the phase-5 reminder/card is a follow-up.
+machinery. Reuse of the phase-5 reminder/card is a follow-up. The Blocked chat
+turn also streams a self-contained friendly connect message directly (no phase-5
+card needed to deliver the prompt to the user).
+
+## D9 — OAuth pending-state store is process-local (server-side)
+The CSRF `state → {user, provider, code_verifier}` map is a process-local dict
+with a TTL — server-side and correct for a single machine, but not shared across
+processes. A multi-process/multi-machine deploy needs a shared store (Redis/DB).
+Deferred: no provider is actually registered in v1 (Claude Pro/Max excluded), so
+the OAuth flow is a tested scaffold, not a live path. The token exchange is
+injectable (`TokenExchanger`) so tests fake the provider; the default uses stdlib
+`urllib` (no new dependency) and scrubs errors.
+
+## D10 — Billing UI is implemented but not compiled/Playwright-verified here
+`frontend/` has no `node_modules` in this environment, so `ProvidersBillingScreen`
+/ `ConnectProviderCard` and the Playwright spec were written to match the existing
+frontend patterns (`ChatScreen` getToken/authHeaders, `@penny/ui` primitives) but
+not type-checked or run. The subsidy-exhaustion and cross-user E2E arms are gated
+behind `PENNY_E2E_BILLING` / `PENNY_E2E_CLERK`; only the connect-and-mask arm runs
+on the default dev-principal harness. Registering `ConnectProviderCard` with a
+real in-chat tool-renderer is a phase-5-reuse follow-up (the component is ready).
+
+## D11 — Task 12 cross-plan edits: canonical REQUIREMENTS.txt only
+The orchestrator forbids editing plan/spec/decision `.md` files. Task 12's
+intent — record phase-2b in the cross-plan docs + the phase-6 audit matrix — is
+satisfied on the **canonical** side by updating `REQUIREMENTS.txt` (new P9 "BYO
+keys & metered subsidy" + T11 "Credential security & no-ambient-key gate"). The
+edits to the non-canonical phase-4/5/6 plan/spec `.md` and the epic index are
+intentionally **deferred** (not made) to respect that instruction; the BYO
+security dimension for the phase-6 coverage matrix is captured in T11 instead.
+
+## Harness dependency integration
+Bumped `backend/pyproject.toml`'s prod agent-harness git pin from the pre-2b ref
+to merged main `f32b2403b0a250179fa7fe5f33a4fa8508e6cef6` (the editable
+`[tool.uv.sources]` path already resolved to local main, which is why the
+baseline suite was green before any change). No harness code was modified.
