@@ -9,6 +9,10 @@ import type { UIMessage } from "@adambossy/agent-ui";
 const MODEL = "gemini-3.5-flash";
 const SESSION_KEY = "penny:sessionId";
 
+/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
+type GetToken = () => Promise<string | null>;
+type SessionMode = "individual" | "joint";
+
 function loadOrCreateSessionId(): string {
   const existing = localStorage.getItem(SESSION_KEY);
   if (existing) return existing;
@@ -17,17 +21,29 @@ function loadOrCreateSessionId(): string {
   return fresh;
 }
 
-// Reshape the AI SDK send body to the `{ id, message, selectedChatModel,
-// selectedVisibilityType }` shape the backend's /api/chat expects.
-function makeTransport(): ChatTransport<AiUIMessage> {
+/** Build an Authorization header from the injected token source, if any. */
+async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
+  const token = await getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Reshape the AI SDK send body to the shape the backend's /api/chat expects,
+// attaching a fresh bearer token per request and the (creation-only) session
+// mode. The backend ignores sessionMode on an existing conversation.
+function makeTransport(
+  getToken: GetToken,
+  getSessionMode: () => SessionMode,
+): ChatTransport<AiUIMessage> {
   return new DefaultChatTransport<AiUIMessage>({
     api: "/api/chat",
-    prepareSendMessagesRequest: ({ id, messages }) => {
+    prepareSendMessagesRequest: async ({ id, messages }) => {
       const latest = messages[messages.length - 1];
       return {
+        headers: await authHeaders(getToken),
         body: {
           id,
           message: { id: latest.id, role: "user", parts: latest.parts },
+          sessionMode: getSessionMode(),
           selectedChatModel: MODEL,
           selectedVisibilityType: "private",
         },
@@ -89,15 +105,17 @@ function PendingThinking() {
   );
 }
 
-export function ChatScreen() {
+export function ChatScreen({ getToken }: { getToken: GetToken }) {
   const sessionId = useMemo(loadOrCreateSessionId, []);
   const [history, setHistory] = useState<AiUIMessage[] | null>(null);
 
   // Hydrate persisted history before mounting the chat so refreshes and
-  // backend restarts don't blank the transcript.
+  // backend restarts don't blank the transcript. A conversation the principal
+  // cannot access (or that does not exist) 404s → treated as empty.
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/sessions/${sessionId}`)
+    authHeaders(getToken)
+      .then((headers) => fetch(`/api/sessions/${sessionId}`, { headers }))
       .then((res) => (res.ok ? res.json() : { messages: [] }))
       .then((data) => {
         if (!cancelled) setHistory((data.messages ?? []) as AiUIMessage[]);
@@ -108,7 +126,7 @@ export function ChatScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, getToken]);
 
   if (history === null) {
     return (
@@ -118,17 +136,28 @@ export function ChatScreen() {
     );
   }
 
-  return <Chat sessionId={sessionId} initialMessages={history} />;
+  return <Chat sessionId={sessionId} initialMessages={history} getToken={getToken} />;
 }
 
 function Chat({
   sessionId,
   initialMessages,
+  getToken,
 }: {
   sessionId: string;
   initialMessages: AiUIMessage[];
+  getToken: GetToken;
 }) {
-  const transport = useMemo(() => makeTransport(), []);
+  // Session mode is chosen before the first message and fixed thereafter
+  // (immutable server-side). A ref feeds the transport without rebuilding it.
+  const [sessionMode, setSessionMode] = useState<SessionMode>("individual");
+  const sessionModeRef = useRef<SessionMode>("individual");
+  sessionModeRef.current = sessionMode;
+
+  const transport = useMemo(
+    () => makeTransport(getToken, () => sessionModeRef.current),
+    [getToken],
+  );
 
   const { messages, sendMessage, status, error } = useChat({
     id: sessionId,
@@ -184,16 +213,49 @@ function Chat({
               <p className="mt-2 text-sm text-muted-foreground">
                 Ask me anything — try <em>"What did I spend this week?"</em>
               </p>
+              {/* New-chat mode picker — offered only before the first message,
+                  since the mode is immutable once the conversation exists. */}
+              <fieldset
+                className="mt-6 flex items-center gap-4 text-sm"
+                aria-label="Conversation mode"
+              >
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="session-mode"
+                    aria-label="Individual"
+                    checked={sessionMode === "individual"}
+                    onChange={() => setSessionMode("individual")}
+                  />
+                  Individual
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="session-mode"
+                    aria-label="Joint (household)"
+                    checked={sessionMode === "joint"}
+                    onChange={() => setSessionMode("joint")}
+                  />
+                  Joint (household)
+                </label>
+              </fieldset>
             </div>
           ) : (
             messages.map((m, i) => (
-              <div key={m.id ?? i} data-role={m.role}>
+              <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
                 <Message
                   message={m as unknown as UIMessage}
                   isStreaming={isStreaming && i === messages.length - 1}
                 />
               </div>
             ))
+          )}
+          {!showEmpty && (
+            // Once created, the thread's fixed mode is shown (no picker).
+            <div className="sr-only" data-testid="session-mode">
+              {sessionMode === "joint" ? "Joint (household)" : "Individual"}
+            </div>
           )}
           {awaitingResponse && <PendingThinking />}
           {surfacedError && (

@@ -14,6 +14,7 @@ import sqlalchemy as sa
 
 from penny.adapters.db.models import Household, PlaidItem, PlaidTransaction, User
 from penny.tenancy.context import (
+    NIL_USER_UUID,
     RequestContext,
     SessionMode,
     reset_request_context,
@@ -122,4 +123,16 @@ def test_write_cannot_set_foreign_household_id(pg_db):
     with pytest.raises(sa.exc.DBAPIError):  # RLS WITH CHECK rejects it
         with pg_db.session_for(CTX_U1) as s:
             s.add(_txn("evil", "ia", HB, UB, "private"))
+            s.flush()
+
+
+def test_joint_sentinel_never_matches_a_real_row(pg_db):
+    # The nil-UUID is the joint-session sentinel for app.current_user; a real row
+    # must never carry it as owner (else a joint session would "own" it). The
+    # ck_*_owner_not_nil CHECK enforces that. Use visibility='shared' so RLS
+    # WITH CHECK passes and the CHECK constraint is what fires.
+    _seed(pg_db)
+    with pytest.raises(sa.exc.IntegrityError):  # ck_plaid_transactions_owner_not_nil
+        with pg_db.session_for(CTX_U1) as s:
+            s.add(_txn("niluser", "ia", HA, NIL_USER_UUID, "shared"))
             s.flush()

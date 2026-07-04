@@ -19,11 +19,16 @@ env contract that ``config.py``/``os.environ`` read.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
+import os
+import uuid as _uuid
 
 from dotenv import load_dotenv
 from loguru import logger
 import typer
+
+from penny.tenancy.context import RequestContext, SessionMode
 
 # Load env once at the entrypoint (project convention), without clobbering
 # anything deploy already injected into the environment.
@@ -41,6 +46,49 @@ from penny.admin import app as _admin_app  # noqa: E402
 app.add_typer(_admin_app, name="admin")
 
 _DEFAULT_MAX_TURNS = 50
+
+
+@dataclass(frozen=True, slots=True)
+class CronJob:
+    """One scheduled agent run with its explicit tenant principal."""
+
+    ctx: RequestContext
+    kind: str  # "individual" | "household"
+
+
+def load_cron_jobs() -> list[CronJob]:
+    """Build the scheduled-report jobs from the cron principal env.
+
+    Fails loudly (``RuntimeError``) when either env var is unset — cron never
+    runs RLS-unscoped. Yields one ``individual`` job per user id (each scoped to
+    that user) plus one ``household`` (joint) job scoped to the whole household.
+    """
+    hh_raw = os.environ.get("PENNY_CRON_HOUSEHOLD_ID", "").strip()
+    users_raw = os.environ.get("PENNY_CRON_USER_IDS", "").strip()
+    if not hh_raw or not users_raw:
+        raise RuntimeError(
+            "cron requires PENNY_CRON_HOUSEHOLD_ID and PENNY_CRON_USER_IDS — "
+            "refusing to run without a tenant principal"
+        )
+    household = _uuid.UUID(hh_raw)
+    user_ids = [_uuid.UUID(u.strip()) for u in users_raw.split(",") if u.strip()]
+    jobs = [
+        CronJob(
+            ctx=RequestContext(user_id=u, household_id=household), kind="individual"
+        )
+        for u in user_ids
+    ]
+    jobs.append(
+        CronJob(
+            ctx=RequestContext(
+                user_id=user_ids[0],
+                household_id=household,
+                session_mode=SessionMode.JOINT,
+            ),
+            kind="household",
+        )
+    )
+    return jobs
 
 
 def _render_template_vars(text: str) -> str:
@@ -61,43 +109,37 @@ def _render_template_vars(text: str) -> str:
     return text
 
 
-def _build_prompt(
-    *, prompt: str | None, prompt_key: str | None, email: list[str]
-) -> str:
+def _build_prompt(*, prompt: str | None, prompt_key: str | None) -> str:
     """Resolve the prompt text to drive the agent with.
 
     Exactly one of ``prompt`` / ``prompt_key`` is set. A ``prompt_key`` is
     loaded through the shared prompt loader and has its date placeholders
-    filled. When ``--email`` recipients are supplied, a delivery instruction
-    is appended so the agent emails the finished report itself (delivery stays
-    agent-driven — the CLI never touches the email/R2 services directly).
+    filled. Recipients are **not** embedded in the prompt: ``send_email_report``
+    derives them from the run's ``RequestContext`` (removing the injection
+    surface), so the CLI never names an address.
     """
     if prompt_key is not None:
         from penny.prompts import load_prompt
 
-        body = _render_template_vars(load_prompt(prompt_key))
-    elif prompt is not None:
-        body = prompt
-    else:  # callers guarantee exactly one is set; belt-and-suspenders
-        raise ValueError("either prompt or prompt_key must be provided")
-
-    if email:
-        recipients = ", ".join(email)
-        body = (
-            f"{body}\n\nWhen the report is complete, email it to the following "
-            f"recipient(s): {recipients}."
-        )
-    return body
+        return _render_template_vars(load_prompt(prompt_key))
+    if prompt is not None:
+        return prompt
+    # callers guarantee exactly one is set; belt-and-suspenders
+    raise ValueError("either prompt or prompt_key must be provided")
 
 
-async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
+async def _drive_agent(
+    *, prompt_text: str, max_turns: int, ctx: RequestContext
+) -> bool:
     """Construct the agent and run it once headlessly. Returns success.
 
     Uses the identical construction path the web bridge uses
     (``build_agent`` with a fresh ``InMemorySession`` and
     ``persist_session=False``) so cron and chat run the same tools, skills,
     system prompt, and model. No event bus / SSE bridge is needed; the run's
-    side effects happen inside the agent's tool calls.
+    side effects happen inside the agent's tool calls. The caller supplies an
+    explicit ``ctx`` — cron never runs unscoped — which is pinned on the
+    ContextVar for the duration of the run and reset after.
     """
     import contextlib
     from pathlib import Path
@@ -107,17 +149,10 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
 
     from penny import observability
     from penny.agent_factory import build_agent, build_model
-    from penny.tenancy.context import set_request_context
-    from penny.tenancy.principal import resolve_dev_principal
+    from penny.tenancy.context import reset_request_context, set_request_context
     from penny.workspace_store.sync import run_with_workspace
 
-    # Headless runs have no request headers; the principal comes from the
-    # PENNY_DEV_* env (cron injects it via config.env). A missing principal is
-    # a genuine misconfiguration — the ValueError propagates to a non-zero
-    # exit. Process-scoped, so no reset needed.
-    principal = resolve_dev_principal({})
-    set_request_context(principal)
-
+    token = set_request_context(ctx)
     session = InMemorySession(session_id=f"cli-{datetime.now(UTC):%Y%m%d%H%M%S}")
     # max_turns is accepted for parity with the legacy CLI surface and the
     # cron command line; the harness loop is currently bounded by the model
@@ -138,15 +173,16 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
             model=build_model(),
             session=session,
             persist_session=False,
-            ctx=principal,
+            ctx=ctx,
             workspace_dir=workspace_dir,
         )
         return await agent.run(prompt_text, event_bus=bus)
 
     try:
         # materialize the workspace -> run -> flush (aborted run commits nothing).
-        result = await run_with_workspace(principal, _run)
+        result = await run_with_workspace(ctx, _run)
     finally:
+        reset_request_context(token)
         if bus is not None:
             await bus.close()
         if trace_task is not None:
@@ -158,11 +194,20 @@ async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
 
 
 def _run_and_exit(*, prompt_text: str, max_turns: int) -> None:
-    """Bootstrap, drive the agent, and map the outcome to an exit code."""
+    """Bootstrap, drive the agent (dev principal), and map outcome to exit code.
+
+    For the manual ``run``/``run-scheduled-report`` (single-prompt) front doors,
+    the principal comes from the ``PENNY_DEV_*`` env — a missing principal is a
+    genuine misconfiguration whose ``ValueError`` propagates to a non-zero exit.
+    """
     from penny.bootstrap import bootstrap
+    from penny.tenancy.principal import resolve_dev_principal
 
     bootstrap()
-    success = asyncio.run(_drive_agent(prompt_text=prompt_text, max_turns=max_turns))
+    ctx = resolve_dev_principal({})
+    success = asyncio.run(
+        _drive_agent(prompt_text=prompt_text, max_turns=max_turns, ctx=ctx)
+    )
     if not success:
         typer.echo("Agent run produced no final output", err=True)
         raise typer.Exit(1)
@@ -171,21 +216,20 @@ def _run_and_exit(*, prompt_text: str, max_turns: int) -> None:
 
 @app.command("run-scheduled-report")
 def run_scheduled_report(
-    email: list[str] = typer.Option(
-        None,
-        "--email",
-        help="Email recipient(s) for the report (repeatable).",
-    ),
     max_turns: int = typer.Option(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
     ),
 ) -> None:
-    """Run today's scheduled report (New-York-time precedence).
+    """Run today's scheduled reports (New-York-time precedence).
 
-    Drives the period-parameterized ``spending-report`` skill — there are no
-    ``report-*`` prompt keys; the period is turned into a skill-triggering
-    request via ``report_prompt``.
+    One report per cron job (``load_cron_jobs``): a personal report scoped to
+    each user, plus one household (joint) report. Each runs under its own
+    explicit ``RequestContext`` — recipients and data scope both follow from it
+    (``send_email_report`` needs no address). Fails loudly if the cron principal
+    is unset. Drives the period-parameterized ``spending-report`` skill — there
+    are no ``report-*`` prompt keys.
     """
+    from penny.bootstrap import bootstrap
     from penny.services.scheduled_reports import (
         NEW_YORK_TZ,
         report_prompt,
@@ -198,10 +242,27 @@ def run_scheduled_report(
     typer.echo(
         f"Selected scheduled report period: {period} ({now_ny:%Y-%m-%d %H:%M:%S %Z})"
     )
-    prompt_text = _build_prompt(
-        prompt=report_prompt(period), prompt_key=None, email=email or []
-    )
-    _run_and_exit(prompt_text=prompt_text, max_turns=max_turns)
+
+    jobs = load_cron_jobs()  # fails loudly if the cron principal is unset
+    bootstrap()
+    personal = _build_prompt(prompt=report_prompt(period), prompt_key=None)
+    # No dedicated shared-report prompt exists; the household job's JOINT context
+    # does the real work (shared-only data + all-member recipients). Reword the
+    # possessive so the copy reads as a household report.
+    household = personal.replace("my ", "our household's ", 1)
+
+    failures = 0
+    for job in jobs:
+        prompt_text = household if job.kind == "household" else personal
+        ok = asyncio.run(
+            _drive_agent(prompt_text=prompt_text, max_turns=max_turns, ctx=job.ctx)
+        )
+        if not ok:
+            failures += 1
+            typer.echo(f"Report job failed: {job.kind} {job.ctx.user_id}", err=True)
+    if failures:
+        raise typer.Exit(1)
+    typer.echo(f"Completed {len(jobs)} scheduled report job(s)")
 
 
 @app.command("run")
@@ -213,9 +274,6 @@ def run(
         None,
         "--prompt-key",
         help="Promptorium key to load (e.g. 'report-weekly-jenny').",
-    ),
-    email: list[str] = typer.Option(
-        None, "--email", help="Email recipient(s) for the report (repeatable)."
     ),
     max_turns: int = typer.Option(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
@@ -229,7 +287,7 @@ def run(
         typer.echo("Only one of --prompt or --prompt-key may be provided", err=True)
         raise typer.Exit(1)
 
-    prompt_text = _build_prompt(prompt=prompt, prompt_key=prompt_key, email=email or [])
+    prompt_text = _build_prompt(prompt=prompt, prompt_key=prompt_key)
     _run_and_exit(prompt_text=prompt_text, max_turns=max_turns)
 
 

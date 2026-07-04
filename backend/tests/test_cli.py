@@ -81,34 +81,19 @@ def test_report_prompt_triggers_skill_for_period(period: str) -> None:
     assert output == expected_output
 
 
-def test_build_prompt_renders_date_and_appends_email() -> None:
-    # input: a raw prompt with an email recipient
-    input_data = {
-        "prompt": "Summarize spending.",
-        "prompt_key": None,
-        "email": ["a@example.com", "b@example.com"],
-    }
-
-    # act
-    output = cli._build_prompt(**input_data)
-
-    # expected: the email instruction is appended verbatim
-    expected_output = (
-        "Summarize spending.\n\nWhen the report is complete, email it to the "
-        "following recipient(s): a@example.com, b@example.com."
-    )
+def test_build_prompt_does_not_embed_recipients() -> None:
+    # Recipients are derived from the run's RequestContext by send_email_report,
+    # never embedded in the prompt — so the prompt passes through untouched.
+    output = cli._build_prompt(prompt="Summarize spending.", prompt_key=None)
 
     # assert
-    assert output == expected_output
+    assert output == "Summarize spending."
 
 
 def test_build_prompt_requires_a_source() -> None:
-    # input: neither prompt nor prompt_key
-    input_data = {"prompt": None, "prompt_key": None, "email": []}
-
     # act / assert: belt-and-suspenders guard raises
     with pytest.raises(ValueError):
-        cli._build_prompt(**input_data)
+        cli._build_prompt(prompt=None, prompt_key=None)
 
 
 def _patch_run_and_exit_seams(

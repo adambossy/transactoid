@@ -22,10 +22,12 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/**" = ["S101", "S106"]  # S101: assert, S106: hardcoded passwords (test data)
+"tests/**" = ["S101", "S106", "B008"]  # S101: assert, S106: test passwords, B008: FastAPI Depends()
 # B008: typer.Option() in defaults is the idiomatic Typer parameter pattern.
 "penny/cli.py" = ["B008"]
 "penny/admin.py" = ["B008"]
+# B008: FastAPI Depends()/Query() in defaults is the idiomatic parameter pattern.
+"penny/api/main.py" = ["B008"]
 
 [lint.isort]
 known-first-party = ["penny"]
