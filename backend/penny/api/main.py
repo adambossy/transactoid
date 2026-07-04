@@ -42,6 +42,7 @@ from penny.workspace_store.broker import ensure_prefixes  # noqa: E402
 from penny.workspace_store.sync import flush, materialize  # noqa: E402
 
 from .auth import request_context  # noqa: E402
+from .billing_routes import router as billing_router  # noqa: E402
 from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
@@ -69,6 +70,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# BYO-credential / billing / provider-OAuth routes (website domain).
+app.include_router(billing_router)
 
 _conversation_store: ConversationStore | None = None
 
