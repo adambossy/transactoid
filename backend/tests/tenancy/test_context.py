@@ -27,15 +27,27 @@ def test_effective_user_is_nil_in_joint_mode():
     assert effective_user_id(ctx) == NIL_USER_UUID
 
 
+# The suite-wide autouse fixture (tests/conftest.py) installs a default
+# context; these tests pin the no-context baseline explicitly first.
+
+
 def test_contextvar_roundtrip_and_reset():
-    assert get_request_context() is None
-    ctx = RequestContext(user_id=U, household_id=H)
-    token = set_request_context(ctx)
-    assert require_request_context() is ctx
-    reset_request_context(token)
-    assert get_request_context() is None
+    base = set_request_context(None)
+    try:
+        assert get_request_context() is None
+        ctx = RequestContext(user_id=U, household_id=H)
+        token = set_request_context(ctx)
+        assert require_request_context() is ctx
+        reset_request_context(token)
+        assert get_request_context() is None
+    finally:
+        reset_request_context(base)
 
 
 def test_require_raises_when_unset():
-    with pytest.raises(LookupError):
-        require_request_context()
+    base = set_request_context(None)
+    try:
+        with pytest.raises(LookupError):
+            require_request_context()
+    finally:
+        reset_request_context(base)

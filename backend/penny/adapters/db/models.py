@@ -37,6 +37,38 @@ class Base(DeclarativeBase):
     pass
 
 
+# The joint-session sentinel, dashless: SQLAlchemy's Uuid stores CHAR(32) hex
+# on SQLite, and Postgres accepts the dashless form for uuid input, so one
+# literal serves both dialects inside CHECK constraints.
+_NIL_UUID_HEX = uuid.UUID(int=0).hex
+
+
+def _tenant_constraints(table: str, *, visibility: bool = True) -> tuple:
+    """The CHECK + index set every owner/visibility table shares.
+
+    The nil-UUID guard keeps the joint-session sentinel out of owner_user_id:
+    RLS compares owner to app.current_user, which IS the nil UUID in a joint
+    session — a row "owned" by the sentinel would leak into every joint view.
+    NOTE: mirrored by migration 014's PostgreSQL constraints; keep in sync.
+    """
+    args: tuple = (
+        CheckConstraint(
+            f"owner_user_id != '{_NIL_UUID_HEX}'",
+            name=f"ck_{table}_owner_not_nil",
+        ),
+        Index(f"ix_{table}_household_owner", "household_id", "owner_user_id"),
+    )
+    if visibility:
+        args = (
+            CheckConstraint(
+                "visibility IN ('private', 'shared')",
+                name=f"ck_{table}_visibility",
+            ),
+            *args,
+        )
+    return args
+
+
 class Household(Base):
     """A tenant boundary: every financial row belongs to exactly one household."""
 
@@ -55,6 +87,11 @@ class User(Base):
     """A member of a household. ``external_auth_id`` is populated in phase 2."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            f"user_id != '{_NIL_UUID_HEX}'", name="ck_users_user_id_not_nil"
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4
@@ -152,6 +189,7 @@ class PlaidTransaction(Base):
         UniqueConstraint(
             "external_id", "source", name="uq_plaid_transactions_external_source"
         ),
+        *_tenant_constraints("plaid_transactions"),
     )
 
     plaid_transaction_id: Mapped[int] = mapped_column(
@@ -186,11 +224,15 @@ class PlaidTransaction(Base):
     personal_finance_category: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     institution: Mapped[str | None] = mapped_column(String, nullable=True)
     # Tenant columns, denormalized from plaid_accounts so RLS stays join-free.
-    # Nullable during the expand phase (migration 012); the contract migration
-    # (014) tightens them to NOT NULL + FKs.
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Added nullable by migration 012, tightened to NOT NULL + FKs by 014;
+    # stamped at flush time from the current RequestContext (see DB facade).
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -262,6 +304,7 @@ class DerivedTransaction(Base):
             postgresql_where=text("refund_of_transaction_id IS NOT NULL"),
             sqlite_where=text("refund_of_transaction_id IS NOT NULL"),
         ),
+        *_tenant_constraints("derived_transactions"),
     )
 
     transaction_id: Mapped[int] = mapped_column(
@@ -299,9 +342,13 @@ class DerivedTransaction(Base):
         Boolean, nullable=False, server_default=text("FALSE")
     )
     reporting_mode: Mapped[str | None] = mapped_column(String, nullable=True)
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -375,6 +422,7 @@ class TransactionCategoryEvent(Base):
             "method IN ('llm', 'manual', 'taxonomy_migration')",
             name="ck_transaction_category_events_method",
         ),
+        Index("ix_transaction_category_events_household", "household_id"),
     )
 
     event_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -399,7 +447,9 @@ class TransactionCategoryEvent(Base):
     # Why the agent originally CHOSE this category — the LLM's rationale on an
     # llm-method categorization decision.
     categorization_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -420,11 +470,14 @@ class Tag(Base):
     """Tag model."""
 
     __tablename__ = "tags"
+    __table_args__ = (Index("ix_tags_household", "household_id"),)
 
     tag_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -442,6 +495,7 @@ class TransactionTag(Base):
     """Transaction-Tag junction table."""
 
     __tablename__ = "transaction_tags"
+    __table_args__ = _tenant_constraints("transaction_tags")
 
     transaction_id: Mapped[int] = mapped_column(
         Integer,
@@ -451,15 +505,20 @@ class TransactionTag(Base):
     tag_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("tags.tag_id"), primary_key=True
     )
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class PlaidItem(Base):
     """Plaid Item model for storing access tokens and item information."""
 
     __tablename__ = "plaid_items"
+    __table_args__ = _tenant_constraints("plaid_items", visibility=False)
 
     item_id: Mapped[str] = mapped_column(String, primary_key=True)
     access_token: Mapped[str] = mapped_column(Text, nullable=False)
@@ -469,8 +528,12 @@ class PlaidItem(Base):
     investments_synced_through: Mapped[date | None] = mapped_column(Date, nullable=True)
     # No visibility column here — an item's visibility is per-account
     # (see plaid_accounts.visibility).
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -492,6 +555,7 @@ class PlaidAccount(Base):
     """
 
     __tablename__ = "plaid_accounts"
+    __table_args__ = _tenant_constraints("plaid_accounts")
 
     account_id: Mapped[str] = mapped_column(String, primary_key=True)
     item_id: Mapped[str] = mapped_column(
@@ -558,6 +622,7 @@ class AmazonOrderDB(Base):
     """Amazon order scraped from order history."""
 
     __tablename__ = "amazon_orders"
+    __table_args__ = _tenant_constraints("amazon_orders")
 
     order_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     profile_id: Mapped[int] = mapped_column(
@@ -574,9 +639,13 @@ class AmazonOrderDB(Base):
     shipping_cents: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -605,9 +674,13 @@ class AmazonItemDB(Base):
     quantity: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -620,6 +693,7 @@ class AmazonItemDB(Base):
 
     __table_args__ = (
         UniqueConstraint("order_id", "asin", name="uq_amazon_item_order_asin"),
+        *_tenant_constraints("amazon_items"),
     )
 
 
@@ -627,6 +701,7 @@ class AmazonLoginProfileDB(Base):
     """Amazon login profile for multi-account scraping."""
 
     __tablename__ = "amazon_login_profiles"
+    __table_args__ = _tenant_constraints("amazon_login_profiles")
 
     profile_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
@@ -651,9 +726,13 @@ class AmazonLoginProfileDB(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class TransactionItem(Base):
@@ -670,6 +749,7 @@ class TransactionItem(Base):
         ),
         # Mirrors migration 001 (idx_transaction_items_transaction_id).
         Index("idx_transaction_items_transaction_id", "transaction_id"),
+        *_tenant_constraints("transaction_items"),
     )
 
     item_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -685,9 +765,13 @@ class TransactionItem(Base):
     )
     itemization_source: Mapped[str] = mapped_column(Text, nullable=False)
     source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -716,6 +800,7 @@ class EmailReceipt(Base):
     __table_args__ = (
         UniqueConstraint("message_id", name="uq_email_receipts_message_id"),
         Index("idx_email_receipts_received_at", "received_at"),
+        *_tenant_constraints("email_receipts"),
     )
 
     receipt_id: Mapped[int] = mapped_column(
@@ -732,9 +817,13 @@ class EmailReceipt(Base):
         # is sender-controlled and unreliable). Used by the matcher to compute
         # `date_lag_days` against `derived_transactions.posted_at`.
     )
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
@@ -774,6 +863,7 @@ class AccountSignConvention(Base):
             "provenance IN ('seeded', 'manual')",
             name="ck_account_sign_conventions_provenance",
         ),
+        *_tenant_constraints("account_sign_conventions"),
     )
 
     account_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -786,9 +876,13 @@ class AccountSignConvention(Base):
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class PendingReceiptMatch(Base):
@@ -826,6 +920,7 @@ class PendingReceiptMatch(Base):
         # Mirror migration 002 indexes.
         Index("idx_pending_receipt_matches_status_created_at", "status", "created_at"),
         Index("idx_pending_receipt_matches_candidate_txn_id", "candidate_txn_id"),
+        *_tenant_constraints("pending_receipt_matches"),
     )
 
     pending_id: Mapped[int] = mapped_column(
@@ -856,9 +951,13 @@ class PendingReceiptMatch(Base):
         Text, nullable=False, server_default=text("'pending'")
     )
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
-    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    visibility: Mapped[str | None] = mapped_column(String, nullable=True)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id"), nullable=False
+    )
+    visibility: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )

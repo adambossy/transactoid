@@ -41,6 +41,7 @@ from penny.adapters.db.models import (
     EmailReceipt,
     EvalItem,
     EvalRun,
+    Household,
     Merchant,
     PendingReceiptMatch,
     PlaidItem,
@@ -51,6 +52,7 @@ from penny.adapters.db.models import (
     TransactionCategoryEvent,
     TransactionItem,
     TransactionTag,
+    User,
     normalize_merchant_name,
 )
 
@@ -183,6 +185,51 @@ def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
     cursor.close()
 
 
+# Identity rows ARE the tenant boundary — never stamp them with one.
+_TENANT_STAMP_EXEMPT = (Household, User)
+
+
+def _tenant_values() -> dict[str, Any]:
+    """The current principal's tenant column values; ``{}`` when no context.
+
+    Visibility defaults to ``'private'`` (``'shared'`` in a joint session,
+    since a joint write must satisfy the RLS WITH CHECK where
+    app.current_user is the nil sentinel).
+    """
+    from penny.tenancy.context import SessionMode, get_request_context
+
+    ctx = get_request_context()
+    if ctx is None:
+        return {}
+    return {
+        "household_id": ctx.household_id,
+        "owner_user_id": ctx.user_id,
+        "visibility": "shared" if ctx.session_mode is SessionMode.JOINT else "private",
+    }
+
+
+def _stamp_tenant_columns(
+    session: Session, _flush_context: Any, _instances: Any
+) -> None:
+    """Fill tenant columns on new rows from the current RequestContext.
+
+    Write-time half of tenant scoping: any financial row inserted without an
+    explicit household/owner inherits the requesting principal's. Rows that
+    pre-set these columns (e.g. denormalized copies from plaid_accounts) are
+    left untouched. No-op when no context is set — the NOT NULL contract then
+    surfaces the missing principal as an IntegrityError.
+    """
+    values = _tenant_values()
+    if not values:
+        return
+    for obj in session.new:
+        if isinstance(obj, _TENANT_STAMP_EXEMPT):
+            continue
+        for column, value in values.items():
+            if hasattr(obj, column) and getattr(obj, column) is None:
+                setattr(obj, column, value)
+
+
 class DB:
     """Database service layer providing ORM models and helper methods."""
 
@@ -209,6 +256,7 @@ class DB:
         if url.startswith("sqlite") and enforce_sqlite_fks:
             event.listen(self._engine, "connect", _enable_sqlite_foreign_keys)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
+        event.listen(self._session_factory, "before_flush", _stamp_tenant_columns)
 
     def create_schema(self) -> None:
         """Create database tables if they do not already exist."""
@@ -1531,6 +1579,11 @@ class DB:
         """
         if not transactions:
             return []
+
+        # Core insert bypasses the ORM flush hook — stamp the dicts directly.
+        tenant = _tenant_values()
+        if tenant:
+            transactions = [{**tenant, **t} for t in transactions]
 
         with self.session() as session:  # type: Session
             insert_stmt = pg_insert(PlaidTransaction).values(transactions)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+import uuid
 
 import pytest
 
@@ -10,6 +11,71 @@ from penny.api.persistence.engine import reset_web_engine
 import penny.db
 import penny.observability.otel as _otel
 import penny.services
+from penny.tenancy.context import (
+    RequestContext,
+    reset_request_context,
+    set_request_context,
+)
+
+# The well-known principal every test runs as (mirroring production, where
+# every request carries a RequestContext — see the autouse fixture below).
+# FK-enforcing DB tests materialize these rows with seed_test_identity().
+TEST_USER_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+TEST_HOUSEHOLD_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+
+@pytest.fixture(autouse=True)
+def _request_context() -> Iterator[RequestContext]:
+    """Run every test under a dev RequestContext.
+
+    Tenant columns are NOT NULL and stamped at flush from the current context,
+    so DB writes need a principal exactly as production requests do. Tests
+    exercising the no-context path set ``set_request_context(None)`` locally.
+    """
+    ctx = RequestContext(user_id=TEST_USER_ID, household_id=TEST_HOUSEHOLD_ID)
+    token = set_request_context(ctx)
+    yield ctx
+    reset_request_context(token)
+
+
+def seed_test_identity(db) -> None:  # noqa: ANN001 - avoids a facade import cycle here
+    """Insert the household/user rows the autouse RequestContext points at.
+
+    Needed wherever SQLite FKs are enforced: stamped tenant columns reference
+    households/users, which must then actually exist. Idempotent.
+    """
+    from penny.adapters.db.models import Household, User
+
+    with db.session() as s:
+        if s.get(Household, TEST_HOUSEHOLD_ID) is None:
+            s.add(Household(household_id=TEST_HOUSEHOLD_ID, name="Test Household"))
+            s.flush()
+        if s.get(User, TEST_USER_ID) is None:
+            s.add(
+                User(
+                    user_id=TEST_USER_ID,
+                    household_id=TEST_HOUSEHOLD_ID,
+                    email="test@example.com",
+                )
+            )
+
+
+@pytest.fixture(autouse=True)
+def _seed_identity_with_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every schema a test creates also gets the test identity rows.
+
+    Mirrors production, where bootstrap guarantees the requesting principal
+    exists before any financial write.
+    """
+    from penny.adapters.db.facade import DB
+
+    original = DB.create_schema
+
+    def create_schema_and_seed(self: DB) -> None:
+        original(self)
+        seed_test_identity(self)
+
+    monkeypatch.setattr(DB, "create_schema", create_schema_and_seed)
 
 
 @pytest.fixture(autouse=True)
