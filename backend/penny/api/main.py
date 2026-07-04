@@ -32,6 +32,7 @@ from penny.billing.session import BillingSession  # noqa: E402
 from penny.billing.usage_subscriber import start_usage_subscriber_task  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.db import get_db  # noqa: E402
+from penny.reminders import DbReminderQueue  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
     RequestContext,
     SessionMode,
@@ -359,6 +360,10 @@ async def chat(
                 ctx=turn_ctx,
                 workspace_dir=checkout.root,
                 usage_pricer=usage_pricer,
+                # Website injects the DB-backed queue so backend-enqueued
+                # reminders (onboarding nudges, Plaid-link success) flush into
+                # this turn's user message.
+                reminders=DbReminderQueue(turn_ctx),
             )
             async for frame in stream_and_persist(
                 agent,

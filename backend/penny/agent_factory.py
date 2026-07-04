@@ -21,6 +21,7 @@ from agent_harness.core.credentials import ApiKeyCredential, Credential
 from agent_harness.core.filesystem import FilesystemTools
 from agent_harness.core.models import ModelSettings, UsagePricer
 from agent_harness.core.skills import SkillRegistry, build_skill_tool
+from agent_harness.extras.reminders import ReminderQueue
 from agent_harness.providers.google import GeminiModel, GoogleProvider
 from agent_harness.sandboxes.inprocess import InProcessSandbox
 from agent_harness.sessions.inmemory import InMemorySession
@@ -177,6 +178,7 @@ def build_agent(
     ctx: RequestContext,
     workspace_dir: Path | None = None,
     usage_pricer: UsagePricer | None = None,
+    reminders: ReminderQueue | None = None,
 ) -> Agent:
     """Build the per-request Agent, scoped to the requesting principal.
 
@@ -215,6 +217,11 @@ def build_agent(
         # A subsidized run carries a pricer so the loop emits ModelUsage events
         # the billing subscriber accrues; a BYO run passes None (no metering).
         usage_pricer=usage_pricer,
+        # Injected by the website (phase 5): a DB-backed ReminderQueue whose
+        # pending reminders the run loop drains into the next user message. The
+        # factory only sees the harness Protocol — the web-backed implementation
+        # is constructed by the caller, keeping agent/website segregation intact.
+        reminders=reminders,
         toolsets=[
             build_toolset(),
             build_amazon_toolset(),

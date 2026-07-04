@@ -23,6 +23,8 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
+    UniqueConstraint,
     Uuid,
     text,
 )
@@ -134,4 +136,42 @@ class ConversationMessage(WebBase):
 
     conversation: Mapped[Conversation] = relationship(
         "Conversation", back_populates="messages"
+    )
+
+
+class QueuedReminder(WebBase):
+    """A backend-enqueued ``<system-reminder>`` awaiting the next agent turn.
+
+    Website/app state (decision D1): the harness drains these into the outgoing
+    user message via the injected ``ReminderQueue``; keeping them in the ``web``
+    schema keeps them out of the agent's ``run_sql`` blast radius.
+
+    Owner-scoped within a household (decision D3): ``household_id`` +
+    ``owner_user_id`` are stamped from the ``RequestContext`` at enqueue and are
+    the tenant terms of the RLS policy (migration 023) and the SQLite app-layer
+    filter. ``(conversation_id, kind)`` is unique so ``override=True`` is an
+    upsert; a non-override enqueue suffixes ``kind`` (``kind#<hex>``) to append
+    without colliding — the queue strips the suffix when building ``Reminder``.
+    """
+
+    __tablename__ = "queued_reminders"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "kind", name="uq_queued_reminders_conv_kind"
+        ),
+        Index("ix_queued_reminders_conversation_id", "conversation_id"),
+        {"schema": WEB_SCHEMA},
+    )
+
+    # Autoincrement integer PK so ``ORDER BY id`` is exact insertion order —
+    # reliable FIFO drain even when several reminders land in the same clock
+    # second (decision D9); mirrors the sibling web tables' surrogate keys.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    household_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
