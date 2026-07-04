@@ -1,6 +1,7 @@
 from cryptography.fernet import Fernet
 import pytest
 
+from penny.security import token_cipher
 from penny.security.token_cipher import decrypt_token, encrypt_token, is_encrypted
 
 
@@ -45,3 +46,29 @@ def test_missing_key_raises(monkeypatch):
 def test_unknown_key_version_raises():
     with pytest.raises(ValueError):
         decrypt_token("v9:whatever")
+
+
+def test_prior_version_key_still_decrypts_after_rotation(monkeypatch):
+    # F03 regression: bumping the active version must NOT orphan existing
+    # ciphertext. Encrypt at v1, then rotate to v2 keeping the v1 key configured.
+    k1 = Fernet.generate_key().decode()
+    monkeypatch.setenv("PENNY_PLAID_TOKEN_KEY", k1)  # v1 key
+    ct_v1 = encrypt_token("access-1")
+    assert ct_v1.startswith("v1:")
+
+    # Rotation: introduce a v2 key and make v2 the active version. The v1 key
+    # stays set (retained for decrypt of the backlog).
+    k2 = Fernet.generate_key().decode()
+    assert k2 != k1
+    monkeypatch.setenv("PENNY_PLAID_TOKEN_KEY_V2", k2)
+    monkeypatch.setattr(token_cipher, "_ACTIVE_VERSION", 2)
+
+    # The pre-rotation ciphertext still decrypts with the retained v1 key.
+    assert decrypt_token(ct_v1) == "access-1"
+
+    # New writes use the v2 key and stamp.
+    ct_v2 = encrypt_token("access-2")
+    assert ct_v2.startswith("v2:")
+    assert decrypt_token(ct_v2) == "access-2"
+    # And the v2 ciphertext is genuinely under k2, not k1.
+    assert Fernet(k2.encode()).decrypt(ct_v2.split(":", 1)[1].encode()) == b"access-2"
