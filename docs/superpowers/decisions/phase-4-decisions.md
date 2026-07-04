@@ -52,6 +52,18 @@ email match, so revoking an invite can never delete a user who has already
 claimed it (become active). If the row is already claimed/absent it is a no-op
 (idempotent, error defined out of existence).
 
+## D7 — Auto-provision requires a **verified** email; unverified fails closed
+
+The spec amends phase-2's unknown-user branch from 403 → auto-provision. The
+implementation keeps phase-2's `link_or_resolve_user` as the primary resolver
+(it does the by-sub lookup and the `email_verified`-guarded, row-locked pending
+claim), and only on `UnknownUserError` calls `resolve_or_provision_identity` —
+**and only when the token's email is verified**. An unverified/absent email
+still returns 403 ("unverified identity"), so an account is never provisioned on
+an email the caller has not proven they own. Phase-2's `test_auth_e2e` /
+`test_auth_dependency` 403 cases were updated: verified-unknown now provisions
+(200), and a new unverified-unknown case asserts the 403.
+
 ## D6 — Idempotency under a signup race is DB-backed
 
 `provision_solo_household` checks for an existing user by email first (fast

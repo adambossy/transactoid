@@ -51,12 +51,28 @@ def test_invalid_token_is_401(monkeypatch, isolated_db):
     assert r.status_code == 401
 
 
-def test_unknown_user_is_403(monkeypatch, isolated_db):
+def test_verified_unknown_user_is_provisioned(monkeypatch, isolated_db):
+    # Phase 4 open signup: a verified identity with no row is auto-provisioned a
+    # solo household rather than rejected with 403 (the phase-2 behaviour).
     from penny.db import get_db
 
     get_db().create_schema()
     verifier = FakeVerifier(
         claims={"sub": "stranger", "email": "s@x.com", "email_verified": True}
+    )
+    client = TestClient(_app(monkeypatch, verifier))
+    r = client.get("/whoami", headers={"Authorization": "Bearer t"})
+    assert r.status_code == 200
+    assert r.json()["user_id"]
+
+
+def test_unverified_unknown_user_is_403(monkeypatch, isolated_db):
+    # Fail closed: an unverified email is never provisioned an account.
+    from penny.db import get_db
+
+    get_db().create_schema()
+    verifier = FakeVerifier(
+        claims={"sub": "stranger2", "email": "s2@x.com", "email_verified": False}
     )
     client = TestClient(_app(monkeypatch, verifier))
     r = client.get("/whoami", headers={"Authorization": "Bearer t"})

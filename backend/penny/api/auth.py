@@ -4,9 +4,13 @@ This is the website→agent seam for identity. In ``clerk`` mode it verifies the
 ``Authorization: Bearer`` JWT (config-pinned issuer/JWKS), links it to a
 ``users`` row, and yields the phase-1a ``RequestContext`` — setting the
 tenancy ContextVar for the request and resetting it after. Missing/invalid
-token → 401; authenticated-but-unknown user → 403. In ``dev`` mode it resolves
-an **env-pinned** principal only (``PENNY_DEV_*``); arbitrary ``X-Penny-*``
-headers are never honored, so a spoofed header cannot forge identity.
+token → 401. Phase 4 opens self-serve signup: a **verified** identity with no
+row is auto-provisioned a solo household (or claims a pending invite) rather
+than rejected; an identity whose email is **unverified** still fails closed →
+403, so an account is never provisioned on an email the caller hasn't proven
+they own. In ``dev`` mode it resolves an **env-pinned** principal only
+(``PENNY_DEV_*``); arbitrary ``X-Penny-*`` headers are never honored, so a
+spoofed header cannot forge identity.
 
 ``get_auth_settings`` / ``get_verifier`` are module-level indirections so tests
 can override them via ``app.dependency_overrides`` or monkeypatch.
@@ -23,6 +27,7 @@ from penny.auth.identity import UnknownUserError, link_or_resolve_user
 from penny.auth.jwt_verifier import ClerkJwtVerifier, TokenError
 from penny.auth.settings import AuthSettings, load_auth_settings
 from penny.db import get_db
+from penny.signup import resolve_or_provision_identity
 from penny.tenancy.context import (
     RequestContext,
     reset_request_context,
@@ -53,16 +58,25 @@ def _authenticate(request: Request) -> RequestContext:
         claims = get_verifier().verify(auth.split(" ", 1)[1])
     except TokenError:
         raise HTTPException(status_code=401, detail="invalid token") from None
+    sub = str(claims.get("sub", ""))
+    email = claims.get("email")
+    email_verified = bool(claims.get("email_verified", False))
     with get_db().session() as s:
         try:
             household_id, user_id = link_or_resolve_user(
-                s,
-                sub=str(claims.get("sub", "")),
-                email=claims.get("email"),
-                email_verified=bool(claims.get("email_verified", False)),
+                s, sub=sub, email=email, email_verified=email_verified
             )
         except UnknownUserError:
-            raise HTTPException(status_code=403, detail="unknown user") from None
+            # Phase 4 open signup: a verified identity with no row is provisioned
+            # (or claims a pending invite) instead of being rejected. An
+            # unverified email fails closed — never provision an unproven email.
+            if not (email and email_verified):
+                raise HTTPException(
+                    status_code=403, detail="unverified identity"
+                ) from None
+            household_id, user_id = resolve_or_provision_identity(
+                s, email=email, external_auth_id=sub
+            )
     return RequestContext(user_id=user_id, household_id=household_id)
 
 
