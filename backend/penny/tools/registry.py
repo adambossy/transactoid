@@ -11,7 +11,6 @@ from .audit import (
     find_similar_tagged_transactions,
     transaction_tags,
 )
-from .bash import bash
 from .connect_provider import connect_provider
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
@@ -76,7 +75,11 @@ def build_toolset() -> Toolset:
             resolve_onboarding_item,
             # Memory
             generate_memory_index,
-            # Sandbox
-            bash,
+            # NOTE: the `bash` shell-exec tool was intentionally removed
+            # (Phase 6 security finding F01/F06). InProcessSandbox.exec spawns a
+            # subprocess with the full server os.environ, so any open-signup user
+            # could exfiltrate every secret via `bash(["env"])`. A properly
+            # sandboxed (env-stripped, network-isolated) shell tool may return
+            # later; until then the agent has no subprocess-spawning surface.
         ],
     )

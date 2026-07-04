@@ -211,20 +211,17 @@ def _tenant_values() -> dict[str, Any]:
 def _stored_token(access_token: str) -> str:
     """Plaid access tokens are encrypted at rest when the key is configured.
 
-    Unconfigured dev (no PENNY_PLAID_TOKEN_KEY) keeps plaintext; migration 017
-    encrypts the backlog once the key exists. Already-encrypted values pass
-    through, so re-saving never double-encrypts. Decryption happens only at
-    the Plaid wire seam (PlaidClient._with_decrypted_token).
+    Fails closed in clerk (prod) mode when no key is set (F07); unconfigured dev
+    keeps plaintext, and migration 017 encrypts the backlog once the key exists.
+    Already-encrypted values pass through, so re-saving never double-encrypts.
+    Decryption happens only at the Plaid wire seam
+    (PlaidClient._with_decrypted_token).
     """
-    import os
-
-    from penny.security.token_cipher import encrypt_token, is_encrypted
+    from penny.security.token_cipher import encrypt_token_at_rest, is_encrypted
 
     if is_encrypted(access_token):
         return access_token
-    if not os.environ.get("PENNY_PLAID_TOKEN_KEY", "").strip():
-        return access_token
-    return encrypt_token(access_token)
+    return encrypt_token_at_rest(access_token)
 
 
 def visible_filter(model: Any, ctx: RequestContext) -> Any:
@@ -271,7 +268,13 @@ def _stamp_tenant_columns(
 class DB:
     """Database service layer providing ORM models and helper methods."""
 
-    def __init__(self, url: str, *, enforce_sqlite_fks: bool = False) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        enforce_sqlite_fks: bool = False,
+        use_tenant_guc_wrapper: bool = False,
+    ) -> None:
         """Initialize database connection.
 
         Args:
@@ -280,7 +283,14 @@ class DB:
                 ``PRAGMA foreign_keys=ON`` so RESTRICT/CASCADE behave like
                 Postgres. Off by default — pre-existing tests rely on the
                 permissive default.
+            use_tenant_guc_wrapper: When True, pin the per-transaction tenant
+                GUCs on Postgres through the set-once ``penny_set_tenant``
+                SECURITY DEFINER wrapper instead of a direct ``set_config``.
+                Used for the read-only ``run_sql`` connection, whose role has
+                EXECUTE on ``set_config`` revoked so untrusted SQL cannot flip
+                the tenant mid-transaction (findings F02/F05).
         """
+        self._use_tenant_guc_wrapper = use_tenant_guc_wrapper
         engine_kwargs: dict[str, Any] = {"echo": False}
         if not url.startswith("sqlite"):
             # Keep long-lived CLI/ACP sessions resilient to dropped DB connections.
@@ -327,6 +337,15 @@ class DB:
         ctx = get_request_context()
         if ctx is None:
             return
+        params = {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))}
+        if self._use_tenant_guc_wrapper:
+            # Read-only run_sql connection: pin the tenant through the set-once
+            # SECURITY DEFINER wrapper. EXECUTE on set_config is revoked from this
+            # role, so untrusted SQL can neither call set_config directly nor
+            # re-invoke the wrapper to flip the household mid-transaction
+            # (findings F02/F05).
+            session.execute(text("SELECT penny_set_tenant(:h, :u)"), params)
+            return
         # set_config(..., true) is the transaction-local form of SET LOCAL and,
         # unlike SET LOCAL, accepts bound parameters. In joint mode the
         # effective user is the nil sentinel, so RLS shows shared rows only.
@@ -335,7 +354,7 @@ class DB:
                 "SELECT set_config('app.current_household', :h, true), "
                 "set_config('app.current_user', :u, true)"
             ),
-            {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))},
+            params,
         )
 
     def _scope_visible(self, query: Any, model: Any) -> Any:

@@ -78,8 +78,100 @@ def household_policy_ddl(table: str, *, owner_vis: bool) -> list[str]:
     ]
 
 
+# The read-only agent connection pins its transaction-local tenant binding
+# through this SECURITY DEFINER wrapper — never via a direct ``set_config`` that
+# the agent's own (untrusted) run_sql SQL could also issue. The wrapper is
+# *set-once*: ``_apply_rls_settings`` pins the household at session open, and any
+# later call in the same transaction is rejected. So an injected single-statement
+# override such as
+#     WITH c AS (SELECT penny_set_tenant('<victim>', '<victim>')) SELECT * FROM …
+# raises instead of flipping the household before RLS evaluates the scan. Paired
+# with revoking EXECUTE on ``set_config`` from the agent role (see
+# ``revoke_guc_override``), this closes the GUC-override RLS bypass (findings
+# F02/F05). Owned by the privileged role that runs it (the app/migration owner),
+# so the definer retains EXECUTE on ``set_config`` after the PUBLIC revoke.
+_TENANT_GUC_WRAPPER_FN = """
+CREATE OR REPLACE FUNCTION penny_set_tenant(p_household text, p_user text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF coalesce(current_setting('app.current_household', true), '') <> '' THEN
+        RAISE EXCEPTION 'tenant context is already set for this transaction';
+    END IF;
+    PERFORM set_config('app.current_household', p_household, true);
+    PERFORM set_config('app.current_user', p_user, true);
+END;
+$$
+"""
+
+
+def install_tenant_guc_wrapper(conn: Connection) -> None:
+    """Create the set-once ``penny_set_tenant`` wrapper (idempotent).
+
+    Installed alongside RLS so every Postgres deployment the app talks to — prod
+    (migration) and the ``pg_db`` test fixture — carries it; the read-only
+    ``run_sql`` connection calls it in place of ``set_config``.
+    """
+    conn.execute(text(_TENANT_GUC_WRAPPER_FN))
+    conn.execute(
+        text("REVOKE ALL ON FUNCTION penny_set_tenant(text, text) FROM PUBLIC")
+    )
+
+
+def revoke_guc_override(conn: Connection, *, agent_role: str, owner_role: str) -> None:
+    """Deny the agent role the ability to flip the tenant GUC mid-transaction.
+
+    ``set_config`` EXECUTE is granted to PUBLIC by default, so a per-role REVOKE
+    is a no-op; the grant must be revoked from PUBLIC and re-granted to the
+    privileged ``owner_role`` (which runs curated code and owns/defines the
+    wrapper). The agent role instead gets EXECUTE on the set-once
+    ``penny_set_tenant`` wrapper — its only legitimate way to pin a context.
+    Closes findings F02/F05.
+    """
+    conn.execute(
+        text(
+            "REVOKE EXECUTE ON FUNCTION "
+            "pg_catalog.set_config(text, text, boolean) FROM PUBLIC"
+        )
+    )
+    conn.execute(
+        text(
+            "GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text, text, boolean) "
+            f'TO "{owner_role}"'
+        )
+    )
+    conn.execute(
+        text(
+            f'GRANT EXECUTE ON FUNCTION penny_set_tenant(text, text) TO "{agent_role}"'
+        )
+    )
+
+
+# Identity tables carry no RLS policy (a principal is resolved before any tenant
+# context exists), so a blanket ``GRANT SELECT ON ALL TABLES`` to the agent role
+# would let run_sql read every row of them regardless of household.
+_IDENTITY_TABLES = ("users", "households")
+
+
+def revoke_identity_table_reads(conn: Connection, *, agent_role: str) -> None:
+    """Keep the RLS-exempt identity tables out of the agent role's reach (F04).
+
+    Without this, run_sql on the read-only role can ``SELECT email,
+    external_auth_id FROM users`` / ``SELECT household_id FROM households`` and
+    enumerate every user's email + Clerk id and every household UUID across all
+    tenants — the latter also being the pre-condition for the F02 override.
+    The app's own (privileged) access to these tables is unaffected.
+    """
+    tables = ", ".join(_IDENTITY_TABLES)  # fixed identifiers, not user input
+    conn.execute(text(f'REVOKE SELECT ON {tables} FROM "{agent_role}"'))  # noqa: S608
+
+
 def enable_rls(conn: Connection) -> None:
     """Enable RLS + create tenant_isolation policies on every tenant table."""
+    install_tenant_guc_wrapper(conn)
     for table in OWNER_VIS_TABLES:
         for ddl in household_policy_ddl(table, owner_vis=True):
             conn.execute(text(ddl))
