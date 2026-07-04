@@ -86,9 +86,18 @@ T7. Single source of truth
     backend/configs/taxonomy.yaml; runtime/deploy config in the PENNY_*
     contract. No value is duplicated across homes.
 
-T8. Single-user
-    No authentication or multi-tenancy yet. Multi-user productionization is
-    tracked separately (see plans/).
+T8. Multi-tenant data isolation
+    Every financial row belongs to exactly one household and one owning user,
+    with 'private'/'shared' visibility. Isolation is enforced in two layers:
+    Postgres row-level security (USING and WITH CHECK, so neither reads nor
+    writes cross households — including the agent's unrestricted run_sql) and
+    app-level query filtering (the only layer on SQLite dev). A joint session
+    sees shared rows only; no row may be owned by the joint-session sentinel.
+    Plaid access tokens are encrypted at rest (key-versioned, so rotation is
+    a config change). Authentication is still stubbed (dev principal via
+    headers/env) until phase 2.
+    Enforced by backend/tests/adapters/db/test_rls_isolation.py and
+    test_multitenant_acceptance.py (require POSTGRES_TEST_URL).
 
 T9. Verification gate
     `ruff check`, `ruff format --check`, and `pytest` pass before any unit of

@@ -1,0 +1,102 @@
+# Standing regression gate (stood up in phase 1a, the first phase that touches
+# RLS; later phases append suites, phase 6 hardens with policy-lint/dep-scan/
+# drift checks). Mark the `test` job a required status check on main so no
+# phase can silently regress an isolation guarantee.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: penny_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install backend deps
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        working-directory: backend
+        run: uv run ruff format --check .
+
+      - name: Backend tests (SQLite)
+        working-directory: backend
+        run: uv run pytest -q
+
+      # RLS is bypassed by superusers, so the isolation suites must run as a
+      # dedicated NON-superuser role (mirrors Neon's neondb_owner).
+      - name: Create non-superuser RLS role
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d penny_ci -c \
+            "CREATE ROLE penny_rls LOGIN PASSWORD 'penny_rls' NOSUPERUSER;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d penny_ci -c \
+            "GRANT ALL ON DATABASE penny_ci TO penny_rls; GRANT CREATE ON SCHEMA public TO penny_rls;"
+
+      - name: Multi-tenant isolation suites (Postgres RLS)
+        working-directory: backend
+        env:
+          POSTGRES_TEST_URL: postgresql://penny_rls:penny_rls@127.0.0.1:5432/penny_ci
+        run: uv run pytest -q -m postgres
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # Boots the real backend (dev principal, throwaway SQLite) + vite and
+      # drives headless chromium. The chat-smoke spec self-skips unless
+      # PENNY_E2E_MODEL (+ a model key) is provided.
+      - name: Playwright E2E
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

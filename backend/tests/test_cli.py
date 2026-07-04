@@ -137,6 +137,9 @@ def _patch_run_and_exit_seams(
     # penny.agent_factory, so patch them on that module.
     import penny.agent_factory as factory
 
+    # Headless runs resolve the dev principal from env.
+    monkeypatch.setenv("PENNY_DEV_USER_ID", "11111111-1111-1111-1111-111111111111")
+    monkeypatch.setenv("PENNY_DEV_HOUSEHOLD_ID", "22222222-2222-2222-2222-222222222222")
     monkeypatch.setattr(factory, "build_model", lambda: object())
     monkeypatch.setattr(factory, "build_agent", _fake_build_agent)
     # bootstrap is imported lazily inside _run_and_exit from penny.bootstrap.

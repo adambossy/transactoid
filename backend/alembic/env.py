@@ -17,14 +17,17 @@ from penny.adapters.db.models import (  # noqa: F401, E402
     Category,
     DerivedTransaction,
     EmailReceipt,
+    Household,
     Merchant,
     PendingReceiptMatch,
+    PlaidAccount,
     PlaidItem,
     PlaidTransaction,
     Tag,
     TransactionCategoryEvent,
     TransactionItem,
     TransactionTag,
+    User,
 )
 
 # this is the Alembic Config object, which provides

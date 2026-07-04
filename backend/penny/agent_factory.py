@@ -26,6 +26,7 @@ from agent_harness.sessions.inmemory import InMemorySession
 from .plugins.amazon import build_amazon_toolset
 from .prompts import load_prompt
 from .sandbox import get_sandbox
+from .tenancy.context import RequestContext
 from .tools.registry import build_toolset
 
 
@@ -60,7 +61,7 @@ def _assemble_agent_memory() -> str:
     return "\n\n".join(parts)
 
 
-def _render_system_prompt() -> str:
+def _render_system_prompt(ctx: RequestContext) -> str:
     """Render the penny-system-prompt prompt with full runtime context.
 
     Fills: today's date + ISO week, DB dialect + dialect directives, schema
@@ -106,6 +107,8 @@ def _render_system_prompt() -> str:
         "{{SQL_DIALECT_DIRECTIVES}}": sql_directives,
         "{{DATABASE_SCHEMA}}": schema_yaml,
         "{{CATEGORY_TAXONOMY}}": taxonomy_yaml,
+        # ctx will scope memory once phase 1b moves it to the per-household
+        # hybrid store; today the workspace memory dir is single-household.
         "{{AGENT_MEMORY}}": _assemble_agent_memory() or "(no memory files yet)",
     }
     rendered = load_prompt("penny-system-prompt")
@@ -146,7 +149,15 @@ def build_agent(
     model: GeminiModel,
     session: InMemorySession,
     persist_session: bool = True,
+    ctx: RequestContext,
 ) -> Agent:
+    """Build the per-request Agent, scoped to the requesting principal.
+
+    ``ctx`` is required: the agent's tools hit the finance DB, and every DB
+    session is tenant-scoped by the RequestContext (front doors set the
+    ContextVar; this keyword makes the dependency explicit and threads the
+    principal into prompt rendering).
+    """
     sandbox = get_sandbox()
 
     skill_registry = SkillRegistry.load(project_root=_PROJECT_ROOT, user_root=None)
@@ -160,7 +171,7 @@ def build_agent(
     return Agent(
         name="penny",
         model=model,
-        instructions=_render_system_prompt(),
+        instructions=_render_system_prompt(ctx),
         session=session,
         persist_session=persist_session,
         sandbox=sandbox,
