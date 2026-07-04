@@ -102,13 +102,15 @@ def client(monkeypatch, isolated_db):
         )
     ConversationStore().create_schema()
 
-    # Stub the model/agent/stream so a valid POST /api/chat needs no LLM.
-    async def _fake_stream(agent, prompt, *, store, conversation_id, ctx):
+    # Stub the model/agent/stream so a valid POST /api/chat needs no LLM. The
+    # billing gate returns UseDefault here (no PENNY_SUBSIDY_PROVIDER_KEY set),
+    # so the turn proceeds through the stubbed build/stream.
+    async def _fake_stream(agent, prompt, *, store, conversation_id, ctx, **_):
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr(main, "stream_and_persist", _fake_stream)
     monkeypatch.setattr(main, "build_agent", lambda **k: object())
-    monkeypatch.setattr(main, "_get_model", lambda: object())
+    monkeypatch.setattr(main, "build_model", lambda **k: object())
     return TestClient(main.app)
 
 

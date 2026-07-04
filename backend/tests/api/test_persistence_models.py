@@ -27,8 +27,10 @@ def test_web_metadata_includes_conversation_tables():
     # input: the website base's table registry
     web_tables = set(WebBase.metadata.tables)
 
-    # expected: both conversation tables live on the website Base
-    assert {"web.conversations", "web.conversation_messages"} == web_tables
+    # expected: both conversation tables live on the website Base. (The billing
+    # vault/ledger tables — phase 2b — also register on WebBase, so this is a
+    # subset check, not exact equality.)
+    assert {"web.conversations", "web.conversation_messages"} <= web_tables
 
 
 def test_create_web_schema_builds_tables_on_sqlite(tmp_path: Path):

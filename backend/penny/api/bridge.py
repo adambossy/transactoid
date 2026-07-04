@@ -14,7 +14,7 @@ Frame sequence per turn:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 import contextlib
 import json
 from typing import TYPE_CHECKING, Any
@@ -195,6 +195,8 @@ async def stream_and_persist(
     store: ConversationStore,
     conversation_id: str,
     ctx: RequestContext,
+    subscribe_bus: Callable[[InMemoryEventBus], asyncio.Task[None] | None]
+    | None = None,
 ) -> AsyncIterator[str]:
     """Stream the agent like :func:`stream_agent`, persisting the assistant turn.
 
@@ -206,6 +208,11 @@ async def stream_and_persist(
 
     Persistence is best-effort: a store failure is logged and never raises into
     the (possibly already-closed) response.
+
+    ``subscribe_bus`` is an optional hook the caller uses to attach an extra bus
+    subscriber (the billing usage subscriber, on a subsidized run) before the
+    run publishes; its returned task is awaited after the bus closes. Kept as an
+    injected hook so the bridge stays billing-agnostic.
     """
     # Local import keeps the accumulator<->bridge cycle out of module init.
     from .accumulator import MessageAccumulator
@@ -217,6 +224,8 @@ async def stream_and_persist(
     trace_task = observability.start_run_trace_task(
         bus, source="chat", session_id=conversation_id, prompt=prompt
     )
+    # Optional third subscriber (billing usage ledger on a subsidized run).
+    extra_task = subscribe_bus(bus) if subscribe_bus is not None else None
 
     async def _run() -> None:
         try:
@@ -256,6 +265,9 @@ async def stream_and_persist(
         if trace_task is not None:
             with contextlib.suppress(Exception):
                 await trace_task
+        if extra_task is not None:
+            with contextlib.suppress(Exception):
+                await extra_task
     yield "data: [DONE]\n\n"
 
 

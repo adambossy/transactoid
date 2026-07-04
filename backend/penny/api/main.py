@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import contextlib
 from dataclasses import replace
+import json
 from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
+import uuid
 
-from agent_harness.providers.google import GeminiModel
+from agent_harness.core.credentials import ApiKeyCredential
 from agent_harness.sessions.inmemory import InMemorySession
+from agent_harness.usage.counting import price_table_pricer
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +26,10 @@ load_dotenv(override=False)
 from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
 from penny.auth.settings import load_auth_settings  # noqa: E402
+from penny.billing import gate as billing_gate  # noqa: E402
+from penny.billing.prices import load_price_table  # noqa: E402
+from penny.billing.session import BillingSession  # noqa: E402
+from penny.billing.usage_subscriber import start_usage_subscriber_task  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.db import get_db  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
@@ -62,15 +70,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-_model: GeminiModel | None = None
 _conversation_store: ConversationStore | None = None
-
-
-def _get_model() -> GeminiModel:
-    global _model
-    if _model is None:
-        _model = build_model()
-    return _model
 
 
 def _get_conversation_store() -> ConversationStore:
@@ -157,6 +157,67 @@ def _turn_context(ctx: RequestContext, *, conversation_mode: str) -> RequestCont
     return replace(ctx, session_mode=SessionMode(conversation_mode))
 
 
+_SSE_HEADERS = {
+    "x-vercel-ai-ui-message-stream": "v1",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+}
+
+# What the user sees when the subsidy runway is exhausted and no BYO credential
+# is connected. The Connect-a-provider card (Task 10) renders alongside this.
+_BLOCKED_MESSAGE = (
+    "You've used up your free Penny credits. To keep going, connect your own "
+    "AI provider API key (or subscription) in Settings → Providers & billing. "
+    "Your key is stored encrypted and never shown again."
+)
+
+
+def _resolve_gate(ctx: RequestContext) -> billing_gate.GateDecision:
+    """Resolve the pre-dispatch billing gate for this turn (owner-scoped read)."""
+    with BillingSession().begin(ctx) as s:
+        return billing_gate.resolve_for_run(s, ctx)
+
+
+async def _blocked_stream(
+    store: ConversationStore,
+    conversation_id: str,
+    ctx: RequestContext,
+    reason: str,
+) -> AsyncIterator[str]:
+    """Stream a friendly 'runway exhausted' assistant turn without any model.
+
+    Emits the AI SDK frame sequence for a single static text message and
+    persists it as a normal assistant turn, so the block is durable and shows on
+    reload. The context is cleared when the stream ends.
+    """
+    run_id = f"blocked_{uuid.uuid4().hex}"
+    text_id = f"t_{run_id}"
+
+    def _f(frame: dict[str, Any]) -> str:
+        return f"data: {json.dumps(frame)}\n\n"
+
+    try:
+        yield _f({"type": "start", "messageId": run_id})
+        yield _f({"type": "start-step"})
+        yield _f({"type": "text-start", "id": text_id})
+        yield _f({"type": "text-delta", "id": text_id, "delta": _BLOCKED_MESSAGE})
+        yield _f({"type": "text-end", "id": text_id})
+        yield _f({"type": "finish-step"})
+        yield _f({"type": "finish"})
+        # Best-effort persist; a store failure must never kill the response.
+        with contextlib.suppress(Exception):
+            store.upsert_assistant_message(
+                conversation_id,
+                ctx,
+                ai_sdk_message_id=run_id,
+                parts=[{"type": "text", "text": _BLOCKED_MESSAGE}],
+                status="complete",
+            )
+        yield "data: [DONE]\n\n"
+    finally:
+        set_request_context(None)
+
+
 @app.get("/api/health")
 async def health() -> dict[str, bool]:
     return {"ok": True}
@@ -227,6 +288,32 @@ async def chat(
     # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
 
+    # Pre-dispatch billing gate: decide how this turn is credentialed BEFORE any
+    # model work. Blocked → no model runs; stream the connect prompt instead.
+    decision = _resolve_gate(turn_ctx)
+    if isinstance(decision, billing_gate.Blocked):
+        return StreamingResponse(
+            _blocked_stream(store, chat_id, turn_ctx, decision.reason),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
+
+    # Translate the decision into the per-request credential + metering wiring.
+    # UseDefault → default env key, no metering; UseByo → the user's key, no
+    # metering; UseSubsidy → the platform key, with the usage subscriber + pricer
+    # so completions accrue to the ledger.
+    run_credential = None
+    usage_pricer = None
+    subscribe_hook = None
+    if isinstance(decision, billing_gate.UseByo):
+        run_credential = decision.credential
+    elif isinstance(decision, billing_gate.UseSubsidy):
+        run_credential = ApiKeyCredential(provider="google", key=decision.platform_key)
+        usage_pricer = price_table_pricer(load_price_table())
+
+        def subscribe_hook(bus: Any) -> Any:
+            return start_usage_subscriber_task(bus, turn_ctx)
+
     async def _scoped_stream() -> AsyncIterator[str]:
         # The response body is iterated in a different task context than the
         # handler that set the ContextVar (which the streaming task inherits
@@ -253,14 +340,20 @@ async def chat(
             # the app store (above + the bridge) is the single persistence
             # layer. The seeded session provides read-only continuity.
             agent = build_agent(
-                model=_get_model(),
+                model=build_model(credential=run_credential),
                 session=session,
                 persist_session=False,
                 ctx=turn_ctx,
                 workspace_dir=checkout.root,
+                usage_pricer=usage_pricer,
             )
             async for frame in stream_and_persist(
-                agent, prompt, store=store, conversation_id=chat_id, ctx=turn_ctx
+                agent,
+                prompt,
+                store=store,
+                conversation_id=chat_id,
+                ctx=turn_ctx,
+                subscribe_bus=subscribe_hook,
             ):
                 yield frame
             with db.session_for(turn_ctx) as s:
@@ -272,9 +365,5 @@ async def chat(
     return StreamingResponse(
         _scoped_stream(),
         media_type="text/event-stream",
-        headers={
-            "x-vercel-ai-ui-message-stream": "v1",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-        },
+        headers=_SSE_HEADERS,
     )

@@ -17,8 +17,9 @@ import os
 from pathlib import Path
 
 from agent_harness import Agent
+from agent_harness.core.credentials import ApiKeyCredential, Credential
 from agent_harness.core.filesystem import FilesystemTools
-from agent_harness.core.models import ModelSettings
+from agent_harness.core.models import ModelSettings, UsagePricer
 from agent_harness.core.skills import SkillRegistry, build_skill_tool
 from agent_harness.providers.google import GeminiModel, GoogleProvider
 from agent_harness.sandboxes.inprocess import InProcessSandbox
@@ -129,14 +130,29 @@ def _render_system_prompt(
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # .../backend/
 
 
-def build_model() -> GeminiModel:
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is not set")
-    # Pin to the model the user picked (defaults to GEMINI_3_5_FLASH inside
-    # agent-harness, but be explicit so it's visible in code review).
+def build_model(*, credential: Credential | None = None) -> GeminiModel:
+    """Build a FRESH Gemini model — one provider per request, never shared.
+
+    The harness resolves a run's credential by mutating the provider client
+    (``use_credential``); a provider shared across concurrent users would race
+    (phase-2b decision D2). So every request builds its own provider here.
+
+    Credentialing (the harness removed the ambient env-key fallback):
+    - explicit ``credential`` — the per-user gate decision (BYO key or the
+      platform subsidy key) — builds the provider client directly;
+    - no ``credential`` — the dev/default path reads the platform key from
+      ``GOOGLE_API_KEY`` and passes it as an explicit ``ApiKeyCredential`` so
+      dev chat/cron still work.
+    """
+    if credential is None:
+        api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY is not set")
+        credential = ApiKeyCredential(provider="google", key=api_key)
+    # Pin the model name explicitly (harness default is GEMINI_3_5_FLASH) so it
+    # is visible in review.
     return GeminiModel(
-        provider=GoogleProvider(api_key=api_key), name="gemini-3.5-flash"
+        provider=GoogleProvider(credential=credential), name="gemini-3.5-flash"
     )
 
 
@@ -160,6 +176,7 @@ def build_agent(
     persist_session: bool = True,
     ctx: RequestContext,
     workspace_dir: Path | None = None,
+    usage_pricer: UsagePricer | None = None,
 ) -> Agent:
     """Build the per-request Agent, scoped to the requesting principal.
 
@@ -195,6 +212,9 @@ def build_agent(
         persist_session=persist_session,
         sandbox=sandbox,
         model_settings=ModelSettings(thinking_budget=_thinking_budget_from_env()),
+        # A subsidized run carries a pricer so the loop emits ModelUsage events
+        # the billing subscriber accrues; a BYO run passes None (no metering).
+        usage_pricer=usage_pricer,
         toolsets=[
             build_toolset(),
             build_amazon_toolset(),
