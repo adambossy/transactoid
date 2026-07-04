@@ -72,4 +72,11 @@ def request_context(request: Request) -> Iterator[RequestContext]:
     try:
         yield ctx
     finally:
-        reset_request_context(token)
+        try:
+            reset_request_context(token)
+        except ValueError:
+            # A streaming response / threaded ASGI test client can finalize the
+            # dependency in a different context than the one that set the token
+            # (token.reset then raises). Clear instead, so no principal leaks
+            # past the request.
+            set_request_context(None)
