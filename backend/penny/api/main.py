@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import Any
 
 from agent_harness.providers.google import GeminiModel
@@ -21,6 +22,7 @@ from penny.auth.settings import load_auth_settings  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
     RequestContext,
+    SessionMode,
     set_request_context,
 )
 
@@ -138,6 +140,16 @@ def _extract_prompt(body: dict[str, Any]) -> str:
     return ""
 
 
+def _turn_context(ctx: RequestContext, *, conversation_mode: str) -> RequestContext:
+    """Adopt the conversation's stored session mode for this turn.
+
+    Identity (user/household) still comes only from the verified principal; the
+    mode comes from the immutable conversation row. A ``joint`` turn runs RLS
+    with the nil-user sentinel (shared-only) via ``effective_user_id``.
+    """
+    return replace(ctx, session_mode=SessionMode(conversation_mode))
+
+
 @app.get("/api/health")
 async def health() -> dict[str, bool]:
     return {"ok": True}
@@ -175,25 +187,35 @@ async def chat(
     prompt = _extract_prompt(body)
     user_message_id = _extract_user_message_id(body)
 
-    # The auth dependency verified the bearer token and set the ContextVar for
-    # this request. Re-pin it here so the streaming task (which runs in a COPY
-    # of this context) also sees the principal; every DB session — including
-    # the agent's tools — is thus tenant-scoped. Cleared when the stream ends.
-    set_request_context(ctx)
-
     store = _get_conversation_store()
-    store.ensure_conversation(chat_id, ctx)
+    # ``sessionMode`` from the body is honored ONLY when creating a new
+    # conversation; on an existing one the store ignores it (mode is immutable).
+    requested = str(body.get("sessionMode") or "individual")
+    try:
+        conv = store.ensure_conversation(chat_id, ctx, session_mode=requested)
+    except ConversationAccessError:
+        raise HTTPException(status_code=404, detail="not found") from None
+    except ValueError as exc:  # invalid sessionMode from the client
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Rebuild the turn's context from the conversation's STORED mode (not the
+    # request), so a joint thread always runs shared-only regardless of the
+    # body. Re-pin it here so the streaming task (which runs in a COPY of this
+    # context) also sees it; every DB session — including the agent's tools —
+    # is thus tenant-scoped. Cleared when the stream ends.
+    turn_ctx = _turn_context(ctx, conversation_mode=conv.session_mode)
+    set_request_context(turn_ctx)
 
     # Seed the agent with PRIOR-turn context from the app store BEFORE the
     # current user turn is appended, so the seed excludes this turn (the loop
     # appends the new prompt itself). This is what makes persist_session=False
     # safe: the model still sees earlier turns.
-    session = await _seed_session(store, chat_id, ctx)
+    session = await _seed_session(store, chat_id, turn_ctx)
 
     # Persist the user turn up front (before any assistant frame) so it is
     # durable even if the client disconnects mid-stream. Creation is lazy.
     store.append_user_message(
-        chat_id, ctx, ai_sdk_message_id=user_message_id, text=prompt
+        chat_id, turn_ctx, ai_sdk_message_id=user_message_id, text=prompt
     )
     # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
@@ -202,7 +224,7 @@ async def chat(
     # store (above + the bridge) is the single persistence layer. The seeded
     # session provides read-only continuity.
     agent = build_agent(
-        model=_get_model(), session=session, persist_session=False, ctx=ctx
+        model=_get_model(), session=session, persist_session=False, ctx=turn_ctx
     )
 
     async def _scoped_stream() -> AsyncIterator[str]:
@@ -212,7 +234,7 @@ async def chat(
         # Context" — clear the principal instead.
         try:
             async for frame in stream_and_persist(
-                agent, prompt, store=store, conversation_id=chat_id, ctx=ctx
+                agent, prompt, store=store, conversation_id=chat_id, ctx=turn_ctx
             ):
                 yield frame
         finally:
