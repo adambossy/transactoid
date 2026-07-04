@@ -30,6 +30,7 @@ def bootstrap() -> None:
     """
     db = get_db()
     if db.dialect == "sqlite":
+        _ensure_tenant_schema(db)
         db.create_schema()
         # Website-owned conversation store: a SEPARATE engine + schema/DB from
         # the finance tables above (see api/persistence/engine.py). On Postgres
@@ -38,6 +39,31 @@ def bootstrap() -> None:
 
         create_web_schema()
     _seed_dev_household()
+
+
+def _ensure_tenant_schema(db) -> None:  # noqa: ANN001 - facade type, avoids import noise
+    """Fail fast — and clearly — on a database that predates phase 1a.
+
+    ``create_all`` only creates missing tables; it can never ALTER the tenant
+    columns into pre-existing ones, so a stale dev SQLite file would otherwise
+    limp into obscure 'no such column: categories.household_id' errors on the
+    first query. Name the problem and the ways out instead.
+    """
+    import sqlalchemy as sa
+
+    inspector = sa.inspect(db._engine)
+    if "categories" not in inspector.get_table_names():
+        return  # fresh database; create_all builds the current schema
+    columns = {c["name"] for c in inspector.get_columns("categories")}
+    if "household_id" in columns:
+        return
+    raise RuntimeError(
+        "This database predates the multi-tenant schema (phase 1a): "
+        "'categories' has no household_id column, and startup schema creation "
+        "cannot add columns to existing tables. Either delete the dev SQLite "
+        "file and let bootstrap re-create it (then re-sync), or run the "
+        "alembic migrations (backend/db/migrations) against this database."
+    )
 
 
 def _seed_dev_household() -> None:
