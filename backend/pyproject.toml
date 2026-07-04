@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-dotenv>=1.0",
-    "agent-harness[anthropic,openai,google,otel] @ git+https://github.com/adambossy/agent-harness.git@47228dd085202424157f0ffb65c2114c250b7d48",
+    "agent-harness[anthropic,openai,google,otel] @ git+https://github.com/adambossy/agent-harness.git@f32b2403b0a250179fa7fe5f33a4fa8508e6cef6",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
     "pyyaml>=6.0",

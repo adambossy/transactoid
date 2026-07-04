@@ -1,12 +1,19 @@
-"""Fernet encryption for Plaid access tokens at rest.
+"""Fernet encryption for secrets at rest (Plaid access tokens, BYO credentials).
 
 Stored ciphertext is stamped with a key version — ``v1:<fernet-token>`` — so
 key rotation later means adding a key and bumping the active version, not a
 re-encrypt-everything migration. ``decrypt_token`` selects the key by prefix
 (bare ``gAAAAA…`` Fernet values from before the stamp decrypt with v1).
 
-The token is decrypted only at the Plaid call site; it must never appear in
-logs or prompts.
+The plaintext is decrypted only at the outbound call site (the Plaid API, or
+the outbound-LLM provider client for a BYO credential); it must never appear in
+logs, prompts, or the browser.
+
+``encrypt_token``/``decrypt_token`` are the original Plaid-token surface;
+``encrypt_secret``/``decrypt_secret`` (phase 2b) are the generic aliases the
+billing credential vault uses. Both share the same versioned envelope and the
+same at-rest Fernet key (``PENNY_PLAID_TOKEN_KEY``) — one platform key for all
+secrets, splittable later via the key-version mechanism without a re-encrypt.
 """
 
 from __future__ import annotations
@@ -45,6 +52,19 @@ def decrypt_token(ciphertext: str) -> str:
         return _key_for_version(int(version[1:])).decrypt(body.encode()).decode()
     # Legacy: bare Fernet value written before the version stamp existed.
     return _key_for_version(_ACTIVE_VERSION).decrypt(ciphertext.encode()).decode()
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt an arbitrary secret at rest — generic alias of ``encrypt_token``.
+
+    Used by the billing credential vault for BYO provider keys / OAuth tokens.
+    """
+    return encrypt_token(plaintext)
+
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Decrypt a secret written by ``encrypt_secret`` — alias of ``decrypt_token``."""
+    return decrypt_token(ciphertext)
 
 
 def is_encrypted(value: str) -> bool:
