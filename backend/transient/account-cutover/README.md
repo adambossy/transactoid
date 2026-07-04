@@ -107,3 +107,83 @@ account owned by one spouse returns zero rows in the other's tenant context).
 role sees everything and would give a false pass — verify refuses to claim an RLS
 pass from a bypassing role. Only when `verify` exits 0 is the frozen step-0
 backup branch releasable.
+
+## Operator runbook (rehearse → execute)
+
+Everything runs from `backend/`. Substitute your Neon project id, branch names,
+household name, and emails. `PENNY_PLAID_TOKEN_KEY` must be exported (017 needs
+it; reparent uses it to encrypt tokens). Keep `.cutover-state.json` and the
+mapping file for the whole run — they make every stage resumable.
+
+### Phase A — Frozen backup (step 0)
+
+```bash
+uv run python transient/account-cutover/cli.py backup \
+    --project-id "$NEON_PROJECT_ID" --parent-branch production
+# records the frozen branch in .cutover-state.json and prints the restore command.
+# DO NOT touch that branch again until verify passes.
+```
+
+### Phase B — Rehearse on a SEPARATE clone
+
+1. Create a throwaway rehearsal branch off prod (distinct from the frozen one):
+
+   ```bash
+   neonctl branches create --name cutover-rehearsal --parent production \
+       --project-id "$NEON_PROJECT_ID"
+   REHEARSE_URL="postgresql://…rehearsal-branch…"   # build from the branch's own endpoint
+   ```
+
+2. Run every stage against the rehearsal branch (dry-run first, then for real):
+
+   ```bash
+   export PENNY_PLAID_TOKEN_KEY="…"
+   RUN="uv run python transient/account-cutover/cli.py"
+   $RUN reconcile-expand --db-url "$REHEARSE_URL" --dry-run   # inspect, then:
+   $RUN reconcile-expand --db-url "$REHEARSE_URL"
+   $RUN bootstrap        --db-url "$REHEARSE_URL" \
+       --household-name "Bossy Household" --email you@x.com --email spouse@x.com
+   $RUN assign-accounts  --db-url "$REHEARSE_URL"             # interactive
+   $RUN reparent         --db-url "$REHEARSE_URL" --dry-run   # review counts, then:
+   $RUN reparent         --db-url "$REHEARSE_URL"
+   $RUN finalize-schema  --db-url "$REHEARSE_URL"
+   $RUN verify           --db-url "$REHEARSE_URL" --app-db-url "$REHEARSE_APP_URL"
+   ```
+
+3. Confirm `verify` exits 0 and the Phase-3 browser E2E is green against the
+   rehearsal branch (sign in as each spouse, see the right accounts, private
+   hidden). Fix anything and re-rehearse from a fresh clone until clean.
+
+### Phase C — Prod apply
+
+1. **Pre-apply snapshot** (belt-and-suspenders beside the step-0 frozen branch):
+
+   ```bash
+   neonctl branches create --name cutover-preapply --parent production \
+       --project-id "$NEON_PROJECT_ID"
+   ```
+
+2. Run the same stage sequence as Phase B, but with `--db-url "$PROD_URL"`. Use
+   a **fresh** `.cutover-state.json` + mapping file for the prod run (the
+   rehearsal ids/branch are not prod's).
+
+3. `verify --app-db-url "$PROD_APP_URL"` must exit 0.
+
+### Phase D — Handoff, confirm, restore-if-needed
+
+- You + your spouse complete the [Phase-4 signup handoff](#pending-user-signup-handoff-needs-phase-4).
+- Run the Phase-6 isolation suites against prod. If all green, the cutover is
+  complete and the frozen branch may be released.
+- **If anything is wrong at any point:** restore prod from the step-0 frozen
+  branch with the command `backup` printed:
+
+  ```bash
+  neonctl branches restore production <frozen-branch> --project-id "$NEON_PROJECT_ID"
+  ```
+
+### After success
+
+The cutover is spent. Per `AGENTS.md`, this transient directory may be archived
+or removed (keep the record; don't maintain it). `bootstrap()` on prod now runs
+`alembic upgrade head` only — `create_all` no longer governs prod, and the
+Phase-6 CI drift guard keeps it that way.
