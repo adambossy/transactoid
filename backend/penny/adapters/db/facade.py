@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from loguru import logger
 
 if TYPE_CHECKING:
+    from penny.tenancy.context import RequestContext
     from penny.tools._services.categorizer import CategorizedTransaction
     from penny.tools._services.mutation_plugin import (
         DerivedTransactionPayload,
@@ -264,9 +265,15 @@ class DB:
 
     @contextmanager
     def session(self) -> Iterator[Session]:
-        """Context manager for database sessions."""
+        """Context manager for database sessions.
+
+        On Postgres, stamps the transaction with the current RequestContext's
+        household/user GUCs so RLS policies filter every statement — including
+        raw SQL from the agent's run_sql tool.
+        """
         session = self._session_factory()
         try:
+            self._apply_rls_settings(session)
             yield session
             session.commit()
         except Exception:
@@ -274,6 +281,42 @@ class DB:
             raise
         finally:
             session.close()
+
+    def _apply_rls_settings(self, session: Session) -> None:
+        if self._engine.dialect.name != "postgresql":
+            return
+        from penny.tenancy.context import effective_user_id, get_request_context
+
+        ctx = get_request_context()
+        if ctx is None:
+            return
+        # set_config(..., true) is the transaction-local form of SET LOCAL and,
+        # unlike SET LOCAL, accepts bound parameters. In joint mode the
+        # effective user is the nil sentinel, so RLS shows shared rows only.
+        session.execute(
+            text(
+                "SELECT set_config('app.current_household', :h, true), "
+                "set_config('app.current_user', :u, true)"
+            ),
+            {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))},
+        )
+
+    @contextmanager
+    def session_for(self, ctx: RequestContext) -> Iterator[Session]:
+        """A session bound to an explicit RequestContext.
+
+        For non-request callers (cron, scripts, tests) with no ambient
+        context; sets the ContextVar for the duration so both the RLS GUCs
+        and write-time tenant stamping see it.
+        """
+        from penny.tenancy.context import reset_request_context, set_request_context
+
+        token = set_request_context(ctx)
+        try:
+            with self.session() as s:
+                yield s
+        finally:
+            reset_request_context(token)
 
     def execute_raw_sql(self, query: str) -> CursorResult[Any]:
         """Execute raw SQL query and return cursor result.
