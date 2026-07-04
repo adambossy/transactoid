@@ -175,3 +175,44 @@ class QueuedReminder(WebBase):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
+
+
+class OnboardingItem(WebBase):
+    """One progressive-onboarding step's state for one user.
+
+    Website/app state (decision D1) in the ``web`` schema, owner-scoped within a
+    household (decision D3): a spouse never sees the other's items. ``status`` is
+    the only stored state (``pending`` → ``accepted``/``dismissed``); activation
+    is *computed* per turn by the trigger engine, never stored (spec §4).
+    ``trigger_state`` holds the deterministic per-item counters/bookkeeping the
+    engine reads (categorized-turn count, corrections, once-per-session stamp).
+    """
+
+    __tablename__ = "onboarding_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id", "item_key", name="uq_onboarding_items_owner_item"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'dismissed')",
+            name="ck_onboarding_items_status",
+        ),
+        {"schema": WEB_SCHEMA},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    household_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    item_key: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'pending'")
+    )
+    trigger_state: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
