@@ -4,6 +4,15 @@ Self-contained SQLAlchemy over the website store's *own* engine/session
 (``engine.py``). It imports neither the finance ``DB`` facade nor any agent
 module — that isolation is what the segregation guardrail test enforces.
 
+Every access is tenant-scoped: a conversation belongs to one household and one
+owner, and its ``session_mode`` decides visibility (``individual`` → owner-only,
+``joint`` → household-shared). The store filters every read/write with that
+predicate (app-layer, the only tenant layer on SQLite dev); on Postgres the
+session also emits the phase-1a ``SET LOCAL`` GUCs so the ``tenant_isolation``
+RLS policy (migration 019) binds on the web-DB connection too. ``owner_user_id``
+and ``household_id`` are stamped from the ``RequestContext`` on creation and are
+immutable — never taken from the client.
+
 Conventions mirror the finance facade: a ``session()`` context manager that
 commits on success and rolls back on error, and ``expunge`` before returning
 ORM rows so callers can read them after the session closes.
@@ -16,14 +25,30 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from penny.tenancy.context import RequestContext
+
 from .engine import get_web_session_factory
-from .models import Conversation, ConversationMessage
+from .models import WEB_SCHEMA, Conversation, ConversationMessage, WebBase
 
 # Title is derived from the first user message, truncated to this many chars.
 _TITLE_MAX_LEN = 80
+
+# The only valid session modes; ``session_mode`` is immutable after creation.
+_VALID_MODES = ("individual", "joint")
+
+
+class ConversationAccessError(Exception):
+    """Conversation exists but is not visible to this principal (route → 404)."""
+
+
+def _can_access(conv: Conversation, ctx: RequestContext) -> bool:
+    """Visibility predicate: same household, and owner-match or joint thread."""
+    return conv.household_id == ctx.household_id and (
+        conv.owner_user_id == ctx.user_id or conv.session_mode == "joint"
+    )
 
 
 class ConversationStore:
@@ -37,6 +62,7 @@ class ConversationStore:
     def session(self) -> Iterator[Session]:
         session = self._session_factory()
         try:
+            self._apply_rls_settings(session)
             yield session
             session.commit()
         except Exception:
@@ -45,14 +71,96 @@ class ConversationStore:
         finally:
             session.close()
 
+    def _apply_rls_settings(self, session: Session) -> None:
+        """Bind the phase-1a tenant GUCs on Postgres so web-schema RLS applies.
+
+        Mirrors ``penny.adapters.db.facade.DB._apply_rls_settings``: joint mode
+        resolves ``app.current_user`` to the nil sentinel, so RLS returns
+        shared-only. No-op on SQLite (no RLS there) and when no context is set.
+        """
+        bind = session.get_bind()
+        if bind.dialect.name != "postgresql":
+            return
+        from penny.tenancy.context import effective_user_id, get_request_context
+
+        ctx = get_request_context()
+        if ctx is None:
+            return
+        session.execute(
+            text(
+                "SELECT set_config('app.current_household', :h, true), "
+                "set_config('app.current_user', :u, true)"
+            ),
+            {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))},
+        )
+
+    def create_schema(self) -> None:
+        """Create the website store's tables (and the ``web`` schema on PG).
+
+        Idempotent. Mirrors ``engine.create_web_schema`` but honors an injected
+        session factory's bind so tests can point it at a throwaway engine.
+        """
+        bind = self._session_factory.kw.get("bind")
+        if bind is None:  # pragma: no cover - default factory always has a bind
+            from .engine import create_web_schema
+
+            create_web_schema()
+            return
+        if bind.dialect.name != "sqlite":
+            with bind.begin() as conn:
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {WEB_SCHEMA}"))
+        WebBase.metadata.create_all(bind)
+
     # ----- conversations ---------------------------------------------------
 
-    def ensure_conversation(self, conversation_id: str) -> None:
-        """Create the conversation row if it does not already exist."""
+    def ensure_conversation(
+        self,
+        conversation_id: str,
+        ctx: RequestContext,
+        *,
+        session_mode: str = "individual",
+    ) -> Conversation:
+        """Return the conversation, creating it (tenant-stamped) if absent.
+
+        On create, ``household_id``/``owner_user_id`` come from ``ctx`` and
+        ``session_mode`` is fixed for the thread's life. On an existing row the
+        client-supplied ``session_mode`` is **ignored** (immutable) and access
+        is verified (else ``ConversationAccessError``).
+        """
+        if session_mode not in _VALID_MODES:
+            raise ValueError(
+                f"session_mode must be one of {_VALID_MODES}, got {session_mode!r}"
+            )
         with self.session() as session:
             existing = session.get(Conversation, conversation_id)
-            if existing is None:
-                session.add(Conversation(conversation_id=conversation_id))
+            if existing is not None:
+                if not _can_access(existing, ctx):
+                    raise ConversationAccessError(conversation_id)
+                session.expunge(existing)
+                return existing
+            conv = Conversation(
+                conversation_id=conversation_id,
+                household_id=ctx.household_id,
+                owner_user_id=ctx.user_id,
+                session_mode=session_mode,
+            )
+            session.add(conv)
+            session.flush()
+            session.expunge(conv)
+            return conv
+
+    def get_conversation(
+        self, conversation_id: str, ctx: RequestContext
+    ) -> Conversation:
+        """Return the conversation if the principal may see it, else raise.
+
+        A missing row and an inaccessible row both raise
+        ``ConversationAccessError`` so a 404 cannot reveal existence.
+        """
+        with self.session() as session:
+            conv = self._require_access(session, conversation_id, ctx)
+            session.expunge(conv)
+            return conv
 
     def set_title(self, conversation_id: str, title: str) -> None:
         """Set the conversation title (overwrites any existing title)."""
@@ -92,6 +200,7 @@ class ConversationStore:
     def append_user_message(
         self,
         conversation_id: str,
+        ctx: RequestContext,
         *,
         ai_sdk_message_id: str | None,
         text: str,
@@ -102,6 +211,7 @@ class ConversationStore:
         mirrors what the bridge / hydration expects for user text.
         """
         with self.session() as session:
+            self._require_access(session, conversation_id, ctx)
             seq = self._next_seq(session, conversation_id)
             session.add(
                 ConversationMessage(
@@ -119,6 +229,7 @@ class ConversationStore:
     def upsert_assistant_message(
         self,
         conversation_id: str,
+        ctx: RequestContext,
         *,
         ai_sdk_message_id: str | None,
         parts: list[dict[str, Any]],
@@ -132,6 +243,7 @@ class ConversationStore:
         the row's ``seq``.
         """
         with self.session() as session:
+            self._require_access(session, conversation_id, ctx)
             existing = self._find_by_ai_sdk_id(
                 session, conversation_id, ai_sdk_message_id
             )
@@ -156,10 +268,15 @@ class ConversationStore:
             return seq
 
     def get_conversation_messages(
-        self, conversation_id: str
+        self, conversation_id: str, ctx: RequestContext
     ) -> list[ConversationMessage]:
-        """Return all messages for a conversation, ordered by ``seq``."""
+        """Return all messages for an accessible conversation, ordered by seq.
+
+        Raises ``ConversationAccessError`` if the principal cannot see the
+        conversation (or it does not exist).
+        """
         with self.session() as session:
+            self._require_access(session, conversation_id, ctx)
             rows = (
                 session.query(ConversationMessage)
                 .filter(ConversationMessage.conversation_id == conversation_id)
@@ -171,6 +288,19 @@ class ConversationStore:
             return rows
 
     # ----- internals -------------------------------------------------------
+
+    def _require_access(
+        self, session: Session, conversation_id: str, ctx: RequestContext
+    ) -> Conversation:
+        """Load the conversation and assert the principal may access it.
+
+        A missing row and an inaccessible row both raise
+        ``ConversationAccessError`` (so the route's 404 hides existence).
+        """
+        conv = session.get(Conversation, conversation_id)
+        if conv is None or not _can_access(conv, ctx):
+            raise ConversationAccessError(conversation_id)
+        return conv
 
     def _find_by_ai_sdk_id(
         self,

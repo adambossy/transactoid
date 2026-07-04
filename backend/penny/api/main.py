@@ -8,7 +8,7 @@ from typing import Any
 from agent_harness.providers.google import GeminiModel
 from agent_harness.sessions.inmemory import InMemorySession
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -28,7 +28,7 @@ from .auth import request_context  # noqa: E402
 from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
-from .persistence.store import ConversationStore  # noqa: E402
+from .persistence.store import ConversationAccessError, ConversationStore  # noqa: E402
 
 app = FastAPI(title="Penny backend")
 
@@ -72,7 +72,7 @@ def _get_conversation_store() -> ConversationStore:
 
 
 async def _seed_session(
-    store: ConversationStore, conversation_id: str
+    store: ConversationStore, conversation_id: str, ctx: RequestContext
 ) -> InMemorySession:
     """Build an in-memory session seeded with prior-turn context.
 
@@ -83,7 +83,7 @@ async def _seed_session(
     ``persist_session=False`` the agent reads this seed but writes nothing back
     — the app store is the single source of continuity.
     """
-    rows = store.get_conversation_messages(conversation_id)
+    rows = store.get_conversation_messages(conversation_id, ctx)
     prior_messages = parts_to_messages(rows)
     session = InMemorySession(session_id=conversation_id)
     if prior_messages:
@@ -156,7 +156,12 @@ async def get_session(
     conversation store.)
     """
     store = _get_conversation_store()
-    rows = store.get_conversation_messages(session_id)
+    # Ownership is checked before any content is returned (closes the IDOR):
+    # a conversation the principal cannot see (or that does not exist) is a 404.
+    try:
+        rows = store.get_conversation_messages(session_id, ctx)
+    except ConversationAccessError:
+        raise HTTPException(status_code=404, detail="not found") from None
     return {"sessionId": session_id, "messages": conversation_to_ui(rows)}
 
 
@@ -177,17 +182,19 @@ async def chat(
     set_request_context(ctx)
 
     store = _get_conversation_store()
-    store.ensure_conversation(chat_id)
+    store.ensure_conversation(chat_id, ctx)
 
     # Seed the agent with PRIOR-turn context from the app store BEFORE the
     # current user turn is appended, so the seed excludes this turn (the loop
     # appends the new prompt itself). This is what makes persist_session=False
     # safe: the model still sees earlier turns.
-    session = await _seed_session(store, chat_id)
+    session = await _seed_session(store, chat_id, ctx)
 
     # Persist the user turn up front (before any assistant frame) so it is
     # durable even if the client disconnects mid-stream. Creation is lazy.
-    store.append_user_message(chat_id, ai_sdk_message_id=user_message_id, text=prompt)
+    store.append_user_message(
+        chat_id, ctx, ai_sdk_message_id=user_message_id, text=prompt
+    )
     # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
 
@@ -205,7 +212,7 @@ async def chat(
         # Context" — clear the principal instead.
         try:
             async for frame in stream_and_persist(
-                agent, prompt, store=store, conversation_id=chat_id
+                agent, prompt, store=store, conversation_id=chat_id, ctx=ctx
             ):
                 yield frame
         finally:

@@ -13,6 +13,7 @@ individual parts. See the plan (§1) for the JSON-column rationale.
 from __future__ import annotations
 
 from datetime import datetime
+import uuid
 
 from sqlalchemy import (
     JSON,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Uuid,
     text,
 )
 from sqlalchemy.orm import (
@@ -56,6 +58,16 @@ class Conversation(WebBase):
 
     conversation_id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Tenant scoping (set at creation, immutable). ``session_mode`` derives
+    # visibility: ``individual`` → owner-only, ``joint`` → household-shared.
+    # On Postgres these are also fenced by the ``tenant_isolation`` RLS policy
+    # (migration 019); on SQLite dev the store's app-layer filter is the only
+    # tenant layer.
+    household_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    session_mode: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'individual'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )

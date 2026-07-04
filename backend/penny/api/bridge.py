@@ -39,6 +39,8 @@ from loguru import logger
 from penny import observability
 
 if TYPE_CHECKING:
+    from penny.tenancy.context import RequestContext
+
     from .accumulator import MessageAccumulator
     from .persistence.store import ConversationStore
 
@@ -192,6 +194,7 @@ async def stream_and_persist(
     *,
     store: ConversationStore,
     conversation_id: str,
+    ctx: RequestContext,
 ) -> AsyncIterator[str]:
     """Stream the agent like :func:`stream_agent`, persisting the assistant turn.
 
@@ -229,7 +232,7 @@ async def stream_and_persist(
         async for event in subscription:
             acc.consume(event)
             if isinstance(event, RunStart):
-                _safe_persist(store, conversation_id, acc, "streaming")
+                _safe_persist(store, conversation_id, ctx, acc, "streaming")
             try:
                 frames = _translate(event, open_text)
             except Exception as exc:
@@ -239,7 +242,7 @@ async def stream_and_persist(
             for frame in frames:
                 yield _sse(frame)
             if isinstance(event, RunEnd):
-                _safe_persist(store, conversation_id, acc, acc.status)
+                _safe_persist(store, conversation_id, ctx, acc, acc.status)
                 finalized = True
     finally:
         try:
@@ -249,7 +252,7 @@ async def stream_and_persist(
             yield _sse({"type": "error", "errorText": str(exc)})
         if not finalized:
             # Aborted / errored before RunEnd — flush partial parts as error.
-            _safe_persist(store, conversation_id, acc, "error")
+            _safe_persist(store, conversation_id, ctx, acc, "error")
         if trace_task is not None:
             with contextlib.suppress(Exception):
                 await trace_task
@@ -259,6 +262,7 @@ async def stream_and_persist(
 def _safe_persist(
     store: ConversationStore,
     conversation_id: str,
+    ctx: RequestContext,
     acc: MessageAccumulator,
     status: str,
 ) -> None:
@@ -268,6 +272,7 @@ def _safe_persist(
     try:
         store.upsert_assistant_message(
             conversation_id,
+            ctx,
             ai_sdk_message_id=acc.run_id,
             parts=acc.parts(),
             status=status,
