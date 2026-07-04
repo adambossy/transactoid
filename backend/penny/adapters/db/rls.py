@@ -40,9 +40,15 @@ OWNER_VIS_TABLES = [
     "amazon_orders",
     "amazon_items",
 ]
-# Tables scoped by household only. categories joins via migration 016, which
-# adds its household_id column and policy together.
-HOUSEHOLD_ONLY_TABLES = ["plaid_items", "tags", "transaction_category_events"]
+# Tables scoped by household only. In the migration chain, categories'
+# policy lands in 016 (with its household_id column), after 015 creates the
+# rest — 015 snapshots its own table lists for that reason.
+HOUSEHOLD_ONLY_TABLES = [
+    "plaid_items",
+    "tags",
+    "transaction_category_events",
+    "categories",
+]
 
 _OWNER_VIS_PREDICATE = """
     household_id = current_setting('app.current_household', true)::uuid

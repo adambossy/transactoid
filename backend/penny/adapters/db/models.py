@@ -142,8 +142,11 @@ class Category(Base):
 
     __tablename__ = "categories"
     __table_args__ = (
+        # Active keys are unique per household — each household owns an
+        # independent taxonomy (kept in sync with migration 016).
         Index(
-            "uq_categories_key_active",
+            "uq_categories_household_key_active",
+            "household_id",
             "key",
             unique=True,
             postgresql_where=text("deprecated_at IS NULL"),
@@ -153,6 +156,9 @@ class Category(Base):
 
     category_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
+    )
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("households.household_id"), nullable=False
     )
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("categories.category_id"), nullable=True
