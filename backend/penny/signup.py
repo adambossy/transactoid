@@ -50,3 +50,38 @@ def provision_solo_household(
     session.flush()
     seed_taxonomy_for_household(session, hh.household_id)
     return hh.household_id, user.user_id
+
+
+def resolve_or_provision_identity(
+    session: Session, *, email: str, external_auth_id: str
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Resolve a verified identity to ``(household_id, user_id)``, provisioning
+    a solo household on first sight of an un-invited user.
+
+    Precedence:
+      1. existing user by ``external_auth_id`` (survives email changes);
+      2. a **pending** invite row by email (``external_auth_id IS NULL``) → claim
+         it (stamp ``external_auth_id``) and join that household;
+      3. otherwise auto-provision a fresh solo household.
+    """
+    normalized = email.strip().lower()
+    by_sub = (
+        session.query(User)
+        .filter(User.external_auth_id == external_auth_id)
+        .one_or_none()
+    )
+    if by_sub is not None:
+        return by_sub.household_id, by_sub.user_id
+    # Claim a pending invite atomically (phase-2 first-login linking).
+    claimed = (
+        session.query(User)
+        .filter(User.email == normalized, User.external_auth_id.is_(None))
+        .one_or_none()
+    )
+    if claimed is not None:
+        claimed.external_auth_id = external_auth_id
+        session.flush()
+        return claimed.household_id, claimed.user_id
+    return provision_solo_household(
+        session, email=normalized, external_auth_id=external_auth_id
+    )
