@@ -295,6 +295,66 @@ and respect the one-directional deps first.
   irreversible data/infra op without a snapshot or escape hatch. Reversibility
   is what lets you refactor strategically without fear.
 
+## Architecture: layered domains
+
+The target architecture — where the code is heading — is the layered-domain
+model from OpenAI's harness-engineering work: within a domain, code lives in a
+fixed stack of layers whose dependencies flow in **one direction only**.
+
+    Types → Config → Repo → Service → Runtime → UI
+
+A layer may depend only on layers to its **left** — never rightward, never
+sideways into a peer's internals.
+
+- **Types** — pure domain data shapes (models, enums, DTOs, schemas). No
+  behaviour, no I/O; depends on nothing.
+- **Config** — static configuration and constants, typed by Types (Penny's
+  `PENNY_*` contract read through `config.py`).
+- **Repo** — data access / persistence: reads and writes the store behind a
+  repository interface, hiding SQL and schema (Penny's `penny.adapters.db`
+  façade).
+- **Service** — business logic and orchestration over repos (`tools/_services/`:
+  categorizer, sync, persister, …). No HTTP, no framework, no I/O primitives.
+- **Runtime** — the surfaces that drive services: the FastAPI app (`api/`), the
+  Typer CLI (`cli.py`), the cron entrypoints. Wires a request/job to a service.
+- **UI** — presentation (`frontend/`), consuming Runtime outputs.
+
+**Providers — the single seam for cross-cutting concerns.** Auth, external
+connectors (Plaid, R2, Amazon), telemetry (Langfuse), and feature flags enter
+through explicit provider interfaces, injected into the layer that needs them.
+A layer *takes* a provider; it never reaches sideways to import one ad hoc.
+
+This axis is orthogonal to the domain-segregation HARD CONSTRAINTS in
+`AGENTS.local.md`: segregation says which *domain* code belongs to (agent /
+website / deploy); this says which *layer* within a domain. It also makes the
+Design-rules "different layer, different abstraction" bullet concrete. OpenAI
+enforces the dependency direction with custom linters + structural tests; Penny
+has no such guardrail yet, so for now it rests on you and review. Source:
+[Harness engineering](https://openai.com/index/harness-engineering/).
+
+### The campfire rule — leave it better than you found it
+
+**Penny does not yet adhere to this architecture.** The layers exist only
+informally and are crossed in places — e.g. the `penny.adapters.db` façade
+blends Types (models) and Repo (data access), and cross-cutting connectors
+(Plaid, R2, Langfuse) are imported where they're used rather than injected
+through a Providers seam. We converge on the target the way the source does:
+continuous small refactors, not a big rewrite.
+
+- **When you touch out-of-alignment code, nudge it toward the target** — move a
+  misplaced responsibility into its layer, thread a cross-cutting dependency
+  through a provider, split a blended module. Leave the campground cleaner than
+  you found it.
+- **Flag misalignments you notice but don't fix** (a short comment, or a note in
+  the PR) so the drift is visible and can be scheduled.
+- **Stay in scope — this is a hard limit, not a suggestion.** Refactor only what
+  your task already touches, and only as far as the task needs. Do **not** open
+  unrelated files to "fix the architecture," chase a refactor across the tree,
+  or let alignment work balloon the diff or the risk of the change. If a
+  worthwhile refactor is bigger than the task, flag it and leave it for its own
+  change — a small in-scope improvement beats a sprawling one that derails the
+  work.
+
 ## Requirements (`REQUIREMENTS.txt`)
 
 `REQUIREMENTS.txt` (repo root) is the living spec: **what Penny must do**

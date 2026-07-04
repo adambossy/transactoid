@@ -51,8 +51,10 @@ try to recreate existing tables and fail.
 | 004 | Add account_sign_conventions table |
 | 005 | Seed account_sign_conventions from the institution mapping (data migration) |
 
-After upgrading through 005, run `scripts/backfill_sign_conventions.py`
-once to normalize historical derived rows for expense_negative accounts.
-The migration seeds conventions but does not rewrite existing rows — the
-backfill calls the LLM categorizer, which has no business running inside
-`alembic upgrade`.
+After upgrading through 005, historical derived rows for expense_negative
+accounts were normalized by a one-time backfill (migration 005 seeds
+conventions but does not rewrite existing rows, and the backfill calls the LLM
+categorizer, which has no business running inside `alembic upgrade`). That
+backfill has been applied to production and going-forward rows are normalized
+at ingest by the sync path, so the script is spent; it is archived at
+`history/backfill_sign_conventions.py`.
