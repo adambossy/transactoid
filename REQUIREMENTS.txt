@@ -93,3 +93,12 @@ T8. Single-user
 T9. Verification gate
     `ruff check`, `ruff format --check`, and `pytest` pass before any unit of
     work is considered complete.
+
+T10. Layered domain architecture (target)
+     Within a domain, code follows the layered stack
+     Types -> Config -> Repo -> Service -> Runtime -> UI with forward-only
+     dependencies; cross-cutting concerns (auth, connectors, telemetry, feature
+     flags) enter via Providers. The codebase is not yet fully aligned: new code
+     adheres, and code a change touches is migrated toward it under the campfire
+     rule with strict scope limits. See AGENTS.md ("Architecture: layered
+     domains").
