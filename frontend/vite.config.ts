@@ -26,15 +26,22 @@ export default defineConfig({
     // SECOND React copy (separate from Penny's `frontend/node_modules/react`),
     // and hooks fire against a null dispatcher → blank screen.
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
-    alias: useVendor
-      ? []
-      : [
-          {
-            find: "@adambossy/agent-ui/styles.css",
-            replacement: path.join(AGENT_UI_SRC, "styles.css"),
-          },
-          { find: "@adambossy/agent-ui", replacement: path.join(AGENT_UI_SRC, "index.ts") },
-        ],
+    alias: [
+      {
+        find: "@penny/ui/styles.css",
+        replacement: path.resolve(__dirname, "packages/ui/src/theme.css"),
+      },
+      { find: "@penny/ui", replacement: path.resolve(__dirname, "packages/ui/src/index.ts") },
+      ...(useVendor
+        ? []
+        : [
+            {
+              find: "@adambossy/agent-ui/styles.css",
+              replacement: path.join(AGENT_UI_SRC, "styles.css"),
+            },
+            { find: "@adambossy/agent-ui", replacement: path.join(AGENT_UI_SRC, "index.ts") },
+          ]),
+    ],
   },
   server: {
     // Pinned: every doc/bookmark in this project says 5174 (historically vite
