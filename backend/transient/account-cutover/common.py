@@ -297,14 +297,21 @@ def alembic_stamp(db_url: str, revision: str, *, dry_run: bool) -> None:
     already matches the models at ``BASELINE_REVISION``, so we stamp it before
     upgrading rather than trying to re-run migrations 000-009 against an
     already-populated schema.
+
+    Uses ``--purge`` to unconditionally erase ``alembic_version`` before
+    stamping. Prod's live ``create_all``-managed app records a *legacy* head
+    (e.g. ``013_partial_unique_category_key``) that does not exist in this
+    branch's script directory; a plain ``stamp`` would abort trying to locate
+    that current revision. ``--purge`` ignores it and writes the baseline
+    cleanly — the same fresh start a forked clone gets.
     """
     env = {**os.environ, "DATABASE_URL": db_url}
     base = ["alembic", "-c", str(ALEMBIC_INI)]
     if dry_run:
-        echo(f"[dry-run] would `alembic stamp {revision}`")
+        echo(f"[dry-run] would `alembic stamp --purge {revision}`")
         return
-    echo(f"Running: alembic stamp {revision}")
-    subprocess.run([*base, "stamp", revision], env=env, check=True)
+    echo(f"Running: alembic stamp --purge {revision}")
+    subprocess.run([*base, "stamp", "--purge", revision], env=env, check=True)
 
 
 def alembic_heads(db_url: str) -> str:
