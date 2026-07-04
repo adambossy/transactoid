@@ -14,5 +14,5 @@
     "check:tokens": "vitest run tokens.drift.test.ts"
   },
   "peerDependencies": { "react": "^19", "react-dom": "^19" },
-  "devDependencies": { "vitest": "^3.0.0" }
+  "devDependencies": { "@types/node": "^22.0.0", "vitest": "^3.0.0" }
 }
