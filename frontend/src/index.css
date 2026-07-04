@@ -1,4 +1,14 @@
 @import "tailwindcss";
+
+/* Force light mode app-wide (Penny is light by construction: cream palette,
+   light-only raster logos). Retarget Tailwind's `dark:` variant from its default
+   `@media (prefers-color-scheme: dark)` strategy to an opt-in `.dark` class that
+   Penny never sets, so agent-ui's `dark:` utilities (e.g. `dark:prose-invert` in
+   its Markdown, the subagent badge) stay inert under an OS dark setting. This
+   compiles globally for every `dark:` utility Tailwind scans, including
+   agent-ui's. Must sit after `@import "tailwindcss"`. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @import "@adambossy/agent-ui/styles.css";
 /* @penny/ui design-system preset: @theme tokens (palette + font families) and
    @font-face rules. Imported after tailwindcss so its @theme extends the single
@@ -28,4 +38,34 @@ body,
   color: var(--color-foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Force-light token overrides. agent-ui ships a `@media (prefers-color-scheme:
+   dark)` block that flips its --color-* tokens; ChatScreen/AuthGate consume them
+   via bg-background/text-foreground, so under an OS dark setting the chat painted
+   black-on-white. This block is imported last, so it wins source order over
+   agent-ui's dark media block (both are unlayered → later declaration wins) and
+   re-asserts the light values regardless of the OS setting. The app canvas maps
+   to Penny's cream `--color-paper` / teal-ink `--color-ink` so the chat matches
+   frontend/design-reference; the remaining tokens keep agent-ui's light neutrals
+   (light-grey chat furniture reads correctly on cream). `color-scheme: light`
+   also opts the browser chrome (scrollbars, form controls, default canvas) out of
+   dark. The `@custom-variant dark` above disarms the `dark:` utilities; together
+   the OS dark preference no longer affects the Penny UI. */
+:root {
+  color-scheme: light;
+
+  --color-background: var(--color-paper);
+  --color-foreground: var(--color-ink);
+  --color-muted: #f5f5f5;
+  --color-muted-foreground: #71717a;
+  --color-border: #e5e5e5;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-primary: #0a0a0a;
+  --color-primary-foreground: #fafafa;
+  --color-secondary: #f5f5f5;
+  --color-secondary-foreground: #0a0a0a;
+  --color-accent: #ededed;
+  --color-accent-foreground: #0a0a0a;
 }
