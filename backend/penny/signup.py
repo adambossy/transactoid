@@ -135,3 +135,43 @@ def create_invite(
         session.flush()
     clerk.create_invitation(normalized)
     return normalized
+
+
+def list_pending_invites(session: Session, ctx: RequestContext) -> list[str]:
+    """Emails of this household's un-claimed invites (``external_auth_id IS NULL``)."""
+    rows = (
+        session.query(User)
+        .filter(
+            User.household_id == ctx.household_id,
+            User.external_auth_id.is_(None),
+        )
+        .all()
+    )
+    return [r.email for r in rows]
+
+
+def revoke_invite(
+    session: Session, ctx: RequestContext, *, email: str, clerk: ClerkInvites
+) -> None:
+    """Revoke a pending invite in the caller's household (no-op if none).
+
+    Filters ``external_auth_id IS NULL`` in addition to the household + email
+    match, so a *claimed* (active) user is never deleted — revoke can only remove
+    an unclaimed invitation. Absent/claimed → no-op (error defined out of
+    existence).
+    """
+    normalized = email.strip().lower()
+    row = (
+        session.query(User)
+        .filter(
+            User.household_id == ctx.household_id,
+            User.email == normalized,
+            User.external_auth_id.is_(None),
+        )
+        .one_or_none()
+    )
+    if row is None:
+        return
+    session.delete(row)
+    session.flush()
+    clerk.revoke_invitation(normalized)

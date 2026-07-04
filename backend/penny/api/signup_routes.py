@@ -19,7 +19,12 @@ from pydantic import BaseModel, Field
 
 from penny.adapters.clerk import ClerkInvites
 from penny.db import get_db
-from penny.signup import InviteError, create_invite
+from penny.signup import (
+    InviteError,
+    create_invite,
+    list_pending_invites,
+    revoke_invite,
+)
 from penny.tenancy.context import RequestContext
 
 from .auth import request_context
@@ -53,3 +58,24 @@ def post_invite(
     except InviteError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"status": "invited", "email": email}
+
+
+@router.get("/api/invites")
+def get_invites(
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, list[str]]:
+    """List this household's pending (un-claimed) invite emails."""
+    with get_db().session_for(ctx) as s:
+        return {"invites": list_pending_invites(s, ctx)}
+
+
+@router.delete("/api/invites/{email}")
+def delete_invite(
+    email: str,
+    ctx: RequestContext = Depends(request_context),
+    clerk: ClerkInvites = Depends(get_clerk_invites),
+) -> dict[str, str]:
+    """Revoke a pending invite in the caller's household (idempotent)."""
+    with get_db().session_for(ctx) as s:
+        revoke_invite(s, ctx, email=email, clerk=clerk)
+    return {"status": "revoked", "email": email.strip().lower()}

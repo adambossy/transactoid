@@ -6,7 +6,12 @@ import pytest
 
 from penny.adapters.db.models import Household, User
 from penny.db import get_db
-from penny.signup import InviteError, create_invite
+from penny.signup import (
+    InviteError,
+    create_invite,
+    list_pending_invites,
+    revoke_invite,
+)
 from penny.tenancy.context import RequestContext, SessionMode
 
 
@@ -124,3 +129,51 @@ def test_post_invites_route_409_on_active_email(isolated_db):
         "/api/invites", json={"email": "taken@x.com"}
     )
     assert r.status_code == 409
+
+
+def test_list_and_revoke(isolated_db):
+    db = get_db()
+    db.create_schema()
+    ctx = _seed_member(db)
+    clerk = FakeClerkInvites()
+    with db.session_for(ctx) as s:
+        create_invite(s, ctx, email="g@x.com", clerk=clerk)
+    with db.session_for(ctx) as s:
+        assert list_pending_invites(s, ctx) == ["g@x.com"]
+    with db.session_for(ctx) as s:
+        revoke_invite(s, ctx, email="g@x.com", clerk=clerk)
+    with db.session_for(ctx) as s:
+        assert list_pending_invites(s, ctx) == []
+
+
+def test_revoke_never_deletes_an_active_user(isolated_db):
+    # Revoking an email that has already been claimed (active) is a no-op — the
+    # active user is never deleted.
+    db = get_db()
+    db.create_schema()
+    ctx = _seed_member(db)
+    with db.session_for(ctx) as s:
+        s.add(
+            User(
+                household_id=ctx.household_id,
+                email="active@x.com",
+                external_auth_id="c7",
+            )
+        )
+    with db.session_for(ctx) as s:
+        revoke_invite(s, ctx, email="active@x.com", clerk=FakeClerkInvites())
+    with db.session() as s:
+        assert s.query(User).filter(User.email == "active@x.com").count() == 1
+
+
+def test_get_and_delete_invite_routes(isolated_db):
+    db = get_db()
+    db.create_schema()
+    ctx = _seed_member(db)
+    clerk = FakeClerkInvites()
+    client = _client(ctx, clerk)
+    assert client.post("/api/invites", json={"email": "g@x.com"}).status_code == 201
+    r = client.get("/api/invites")
+    assert r.status_code == 200 and r.json()["invites"] == ["g@x.com"]
+    assert client.delete("/api/invites/G@X.com").status_code == 200
+    assert client.get("/api/invites").json()["invites"] == []
