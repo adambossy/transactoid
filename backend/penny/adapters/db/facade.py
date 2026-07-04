@@ -18,11 +18,13 @@ if TYPE_CHECKING:
 from sqlalchemy import (
     Table,
     UniqueConstraint,
+    and_,
     case,
     create_engine,
     event,
     func,
     inspect,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -209,6 +211,25 @@ def _tenant_values() -> dict[str, Any]:
     }
 
 
+def visible_filter(model: Any, ctx: RequestContext) -> Any:
+    """SQLAlchemy predicate for the rows ``ctx`` may see.
+
+    Individual mode: same household AND (own row OR shared).
+    Joint mode: same household AND shared only.
+    Works for any model carrying the tenant column triple; mirrors the RLS
+    ``tenant_isolation`` policy (migration 015).
+    """
+    from penny.tenancy.context import SessionMode
+
+    base = model.household_id == ctx.household_id
+    if ctx.session_mode is SessionMode.JOINT:
+        return and_(base, model.visibility == "shared")
+    return and_(
+        base,
+        or_(model.owner_user_id == ctx.user_id, model.visibility == "shared"),
+    )
+
+
 def _stamp_tenant_columns(
     session: Session, _flush_context: Any, _instances: Any
 ) -> None:
@@ -300,6 +321,37 @@ class DB:
             ),
             {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))},
         )
+
+    def _scope_visible(self, query: Any, model: Any) -> Any:
+        """Apply app-level visibility filtering when a RequestContext is set.
+
+        The belt to RLS's suspenders — and the only tenant filter on SQLite
+        dev, where RLS does not exist. Left unscoped when no context is set:
+        non-request tooling (scripts, evals) reads everything there, while on
+        Postgres RLS still applies.
+        """
+        from penny.tenancy.context import get_request_context
+
+        ctx = get_request_context()
+        if ctx is None:
+            return query
+        return query.filter(visible_filter(model, ctx))
+
+    def list_visible_plaid_transactions(
+        self, session: Session
+    ) -> list[PlaidTransaction]:
+        """All Plaid transactions the current RequestContext may see."""
+        from penny.tenancy.context import require_request_context
+
+        ctx = require_request_context()
+        rows = (
+            session.query(PlaidTransaction)
+            .filter(visible_filter(PlaidTransaction, ctx))
+            .all()
+        )
+        for r in rows:
+            session.expunge(r)
+        return rows
 
     @contextmanager
     def session_for(self, ctx: RequestContext) -> Iterator[Session]:
@@ -403,7 +455,9 @@ class DB:
                 value=DerivedTransaction.transaction_id,
             )
             transactions = (
-                session.query(DerivedTransaction)
+                self._scope_visible(
+                    session.query(DerivedTransaction), DerivedTransaction
+                )
                 .filter(DerivedTransaction.transaction_id.in_(ids))
                 .order_by(order_case)
                 .all()
@@ -1514,7 +1568,7 @@ class DB:
         """
         with self.session() as session:  # type: Session
             txns = (
-                session.query(PlaidTransaction)
+                self._scope_visible(session.query(PlaidTransaction), PlaidTransaction)
                 .filter(
                     PlaidTransaction.posted_at >= start,
                     PlaidTransaction.posted_at <= end,
@@ -2159,7 +2213,9 @@ class DB:
             investment trades, which are recorded but never categorized).
         """
         with self.session() as session:  # type: Session
-            query = session.query(DerivedTransaction.transaction_id).filter(
+            query = self._scope_visible(
+                session.query(DerivedTransaction.transaction_id), DerivedTransaction
+            ).filter(
                 DerivedTransaction.category_id.is_(None),
                 _needs_categorization_clause(),
             )
@@ -2376,7 +2432,9 @@ class DB:
 
         with self.session() as session:  # type: Session
             derived_txns = (
-                session.query(DerivedTransaction)
+                self._scope_visible(
+                    session.query(DerivedTransaction), DerivedTransaction
+                )
                 .options(
                     joinedload(DerivedTransaction.plaid_transaction).load_only(
                         PlaidTransaction.raw_name
