@@ -46,13 +46,6 @@ P8. Output language
     Reports and chat responses are written in English (US) with $ currency,
     regardless of the language of transaction descriptors or memory notes.
 
-P9. Shared design system
-    Penny's UI is built from a shared, portable design system (@penny/ui)
-    carrying the color/type tokens, self-hosted fonts, logos, app shell, and
-    core controls. The UI-bearing phases compose screens from these primitives
-    rather than inventing bespoke styling, and the tokens have a single source
-    of truth consumable as Tailwind utilities, CSS vars, and typed constants.
-
 
 TECHNICAL INVARIANTS / CONSTRAINTS
 ----------------------------------
