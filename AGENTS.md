@@ -113,6 +113,15 @@ uv run pytest -q
 
 Run these before completing any unit of work. There is no mypy gate yet.
 
+The multi-tenant RLS suites (`@pytest.mark.postgres`) skip unless
+`POSTGRES_TEST_URL` is set — point it at the Neon `penny-test` branch or a
+local Postgres with a **non-superuser** role (superusers bypass RLS; see
+`tests/conftest_postgres.py`):
+
+```bash
+POSTGRES_TEST_URL=postgresql://... uv run pytest -q -m postgres
+```
+
 ## Databases
 
 - Default: SQLite at `backend/penny.db` (gitignored), schema via
@@ -162,8 +171,13 @@ Run these before completing any unit of work. There is no mypy gate yet.
   red banner in ChatScreen; tool failures as `tool-output-error` frames.
 - **Workspace**: `~/.transactoid` (memory/, reports/, logs/) — path kept from
   the old product so user state carries over.
-- **Single-user**: no auth, no multi-tenancy. That work is tracked in
-  `plans/20260524-224025-productionize-transactoid.md`.
+- **Tenancy**: every financial row carries `household_id` / `owner_user_id` /
+  `visibility`, enforced by Postgres RLS (USING + WITH CHECK, incl. the agent's
+  `run_sql`) plus app-level filtering (the only layer on SQLite dev). The
+  per-request principal is a `RequestContext` (`penny/tenancy/`), resolved by
+  a dev stub (`X-Penny-*` headers / `PENNY_DEV_*` env) until real auth lands
+  in phase 2. Plaid access tokens are encrypted at rest
+  (`PENNY_PLAID_TOKEN_KEY`).
 - **Branching**: `main` is the single long-lived branch. Cut feature
   branches off `main` (`<type>/<description>`, in a `.worktrees/<branch>`
   worktree) and merge them back into `main` — there is **no** `develop` /
