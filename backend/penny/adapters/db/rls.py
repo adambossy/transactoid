@@ -5,15 +5,26 @@ Single source of the ``tenant_isolation`` policy shape, executed by migration
 schemas. SQLite has no RLS — there, app-level filtering
 (``facade.visible_filter``) is the only tenant layer.
 
-Policy semantics (both USING and WITH CHECK, so reads AND writes are fenced):
+Policy semantics — the READ and WRITE fences differ deliberately:
 
-- owner/visibility tables: row belongs to the session's household AND is
-  either owned by the session's user or shared. In a joint session
-  ``app.current_user`` is the nil-UUID sentinel, which matches no real owner
-  (rows can't be nil-owned — see migration 014's CHECK), so only shared rows
-  pass.
+- USING (reads), owner/visibility tables: row belongs to the session's
+  household AND is either owned by the session's user or shared. In a joint
+  session ``app.current_user`` is the nil-UUID sentinel, which matches no
+  real owner (rows can't be nil-owned — see migration 014's CHECK), so only
+  shared rows pass.
+- WITH CHECK (writes), all tables: row belongs to the session's household.
+  Postgres additionally applies the USING half to INSERT..RETURNING rows
+  (SQLAlchemy always RETURNINGs), so the effective write rule is: within
+  your household, you may create rows you could read back — your own, or
+  shared rows owned by another member (e.g. syncing a spouse's shared
+  account). Another member's *private* rows are rejected loudly.
 - household-only tables (incl. plaid_items, whose privacy lives per-account):
-  row belongs to the session's household.
+  both halves are the household predicate.
+
+The GUC reads go through NULLIF(..., ''): ``set_config(..., true)`` reverts a
+previously-unset GUC to the empty string (not NULL) when the transaction
+ends, and a bare ''::uuid cast would make any later context-less session on
+the same pooled connection error instead of safely reading nothing.
 
 ``FORCE`` applies the policy to the table owner too — the app role that
 created the tables gets no bypass. Identity tables (households/users) carry
@@ -58,23 +69,23 @@ HOUSEHOLD_ONLY_TABLES = [
 ]
 
 _OWNER_VIS_PREDICATE = """
-    household_id = current_setting('app.current_household', true)::uuid
-    AND (owner_user_id = current_setting('app.current_user', true)::uuid
+    household_id = NULLIF(current_setting('app.current_household', true), '')::uuid
+    AND (owner_user_id = NULLIF(current_setting('app.current_user', true), '')::uuid
          OR visibility = 'shared')
 """
 _HOUSEHOLD_PREDICATE = """
-    household_id = current_setting('app.current_household', true)::uuid
+    household_id = NULLIF(current_setting('app.current_household', true), '')::uuid
 """
 
 
 def household_policy_ddl(table: str, *, owner_vis: bool) -> list[str]:
     """The DDL statements enabling the tenant_isolation policy on ``table``."""
-    predicate = _OWNER_VIS_PREDICATE if owner_vis else _HOUSEHOLD_PREDICATE
+    using = _OWNER_VIS_PREDICATE if owner_vis else _HOUSEHOLD_PREDICATE
     return [
         f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY",
         f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY",
         f"CREATE POLICY tenant_isolation ON {table} "
-        f"USING ({predicate}) WITH CHECK ({predicate})",
+        f"USING ({using}) WITH CHECK ({_HOUSEHOLD_PREDICATE})",
     ]
 
 
