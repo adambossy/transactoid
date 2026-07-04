@@ -25,6 +25,7 @@ ignore = [
 "tests/**" = ["S101", "S106"]  # S101: assert, S106: hardcoded passwords (test data)
 # B008: typer.Option() in defaults is the idiomatic Typer parameter pattern.
 "penny/cli.py" = ["B008"]
+"penny/admin.py" = ["B008"]
 
 [lint.isort]
 known-first-party = ["penny"]

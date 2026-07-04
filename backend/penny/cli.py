@@ -34,6 +34,12 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Operator commands live in their own front-door module; mount them under
+# ``penny admin`` (e.g. ``penny admin import-workspace``).
+from penny.admin import app as _admin_app  # noqa: E402
+
+app.add_typer(_admin_app, name="admin")
+
 _DEFAULT_MAX_TURNS = 50
 
 
