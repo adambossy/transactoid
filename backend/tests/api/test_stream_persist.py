@@ -76,7 +76,9 @@ async def test_stream_and_persist_finalizes_complete_turn(tmp_path: Path):
 
     # act
     await _drain(
-        stream_and_persist(agent, "q", store=store, conversation_id=conversation_id, ctx=_CTX)
+        stream_and_persist(
+            agent, "q", store=store, conversation_id=conversation_id, ctx=_CTX
+        )
     )
     rows = store.get_conversation_messages(conversation_id, _CTX)
     output = {"count": len(rows), "status": rows[0].status, "parts": rows[0].parts}
@@ -103,7 +105,9 @@ async def test_stream_and_persist_flushes_aborted_turn_as_error(tmp_path: Path):
 
     # act
     frames = await _drain(
-        stream_and_persist(agent, "q", store=store, conversation_id=conversation_id, ctx=_CTX)
+        stream_and_persist(
+            agent, "q", store=store, conversation_id=conversation_id, ctx=_CTX
+        )
     )
     rows = store.get_conversation_messages(conversation_id, _CTX)
     output = {

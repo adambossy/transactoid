@@ -186,7 +186,8 @@ async def test_turn2_model_sees_turn1_tool_call_with_persist_session_off(
             agent2,
             "what did you echo?",
             store=store,
-            conversation_id=conversation_id, ctx=_CTX,
+            conversation_id=conversation_id,
+            ctx=_CTX,
         )
     )
 

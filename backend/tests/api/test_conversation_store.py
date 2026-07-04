@@ -49,7 +49,9 @@ def test_seq_is_monotonic_across_user_and_assistant(tmp_path: Path):
         parts=[{"type": "text", "text": "hello", "state": "done"}],
         status="complete",
     )
-    store.append_user_message(conversation_id, _CTX, ai_sdk_message_id="u2", text="again")
+    store.append_user_message(
+        conversation_id, _CTX, ai_sdk_message_id="u2", text="again"
+    )
     output = _seqs_and_roles(store, conversation_id)
 
     # expected
