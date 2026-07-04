@@ -68,3 +68,47 @@ general env registry; the plan (authoritative) puts auth config in a dedicated
 followed the plan — auth settings module is the config surface — and documented
 every new `PENNY_*`/`CLERK_*`/`VITE_*` var in `.env.example` (the concrete
 env-contract deliverable).
+
+## D7 — Frontend gates Clerk on VITE_CLERK_PUBLISHABLE_KEY (dev-safe)
+
+The plan wraps the root unconditionally in `<ClerkProvider>` and has `ChatScreen`
+call `useAuth()` directly. But the phase-1a e2e harness (and local dev) runs the
+backend in **dev-principal mode** with no Clerk keys; an unconditional
+`ClerkProvider` throws without a publishable key, and `useAuth()` throws outside
+a provider — which would break the existing passing e2e (`harness.spec.ts`,
+`chat-smoke.spec.ts`). **Decision:** the frontend mirrors the backend's
+`PENNY_AUTH_MODE` dev/clerk split — it activates Clerk (ClerkProvider + AuthGate
++ bearer tokens) **iff** `VITE_CLERK_PUBLISHABLE_KEY` is set; otherwise it renders
+the chat directly and sends no Authorization header (dev-principal mode).
+`ChatScreen` takes a `getToken` prop rather than calling `useAuth()` internally,
+so it is provider-agnostic and the token source is injected (Clerk in prod, a
+null no-op in dev). This preserves the existing e2e and is the frontend half of
+the same config seam.
+
+## D8 — send_email_report signature check uses the tool schema, not inspect.signature
+
+The plan's Task 8 test asserts `"to" not in inspect.signature(send_email_report)`.
+But `@tool` returns a non-callable `Tool` wrapper, so `inspect.signature` raises
+`TypeError`. **Decision:** assert against the agent-facing contract instead —
+`"to" not in send_email_report.schema["properties"]` — which is a stronger check
+(it is the exact JSON schema the model sees).
+
+## D9 — Frontend (Task 10) and Playwright e2e (Tasks 13-15) are UNVERIFIED in-sandbox
+
+This environment has no `frontend/node_modules`, no network to `npm install`
+`@clerk/clerk-react`/`@clerk/testing`, no browser, and no Clerk test keys. The
+frontend code and Playwright specs are written faithfully to the plan but could
+NOT be typechecked, built, or run here. They require the user to
+`npm install` the Clerk deps and supply `VITE_CLERK_PUBLISHABLE_KEY` (+ Clerk
+test keys for e2e). The e2e specs additionally need the harness pointed at a
+clerk-test-mode backend. The backend verification gate (ruff + pytest) is the
+only gate that passed here.
+
+## D10 — request_context dependency resets defensively across contexts
+
+The e2e battery (Task 12) surfaced that the auth dependency's token-based
+`reset_request_context` raises "created in a different Context" under a streaming
+response / threaded ASGI test client. **Decision:** the dependency's `finally`
+resets the token but falls back to `set_request_context(None)` on `ValueError`,
+so no principal leaks past the request. This mirrors the pattern the chat handler
+already uses for the streaming task.
