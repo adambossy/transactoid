@@ -83,6 +83,26 @@ single linear head; each plan's `down_revision` must match this ledger (plans
 that hardcoded provisional numbers defer to this table). New migrations append
 here in build order.
 
+## Cross-repo version pins (single source of truth)
+
+Some phases land code in the sibling repos (`~/code/agent-harness`,
+`~/code/agent-ui`) that Penny consumes. **Dev** resolves them via the editable
+path (`pyproject` `tool.uv.sources`) and the vite alias — do **not** change that.
+**Prod** cannot install `~/code/...`, so a prod build must pin the specific
+commit/tag that carries the feature. Pins recorded here:
+
+| Feature | Repo | Commit (main) | Consumed by |
+|---|---|---|---|
+| System-reminder subsystem (`ReminderQueue` + run-loop flush) | agent-harness | `654c6bc` | Phase 5 |
+| First-class reminder hiding (`stripSystemReminders`) | agent-ui | `118ffcd` | Phase 5 |
+
+Prod install path: replace the editable `tool.uv.sources` entry for
+`agent-harness` with a versioned dependency pinned to `654c6bc` (a tag on that
+commit) for the prod image build, and build the frontend against an
+`@adambossy/agent-ui` package published from `118ffcd` (the vite alias is a
+dev-only convenience). A fresh prod build must resolve a harness/UI that *has*
+the reminder subsystem, or the flush path fails at runtime.
+
 ## Explicit out-of-scope (cross-cutting, decided)
 
 - **Account/household deletion, data retention, R2 GC** — no deletion path or

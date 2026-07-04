@@ -34,9 +34,7 @@ class DbReminderQueue:
     async def enqueue(
         self, session_id: str, kind: str, content: str, *, override: bool = True
     ) -> None:
-        await asyncio.to_thread(
-            self._enqueue_sync, session_id, kind, content, override
-        )
+        await asyncio.to_thread(self._enqueue_sync, session_id, kind, content, override)
 
     def _enqueue_sync(
         self, session_id: str, kind: str, content: str, override: bool
