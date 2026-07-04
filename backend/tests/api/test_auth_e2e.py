@@ -33,13 +33,15 @@ CLERK = AuthSettings(
 H1, H2 = uuid.uuid4(), uuid.uuid4()
 A, B, S = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
-# Bearer token string -> verified claims. "U" is a valid token for a subject
-# with no users row (→ 403); "bad" is not a known token (→ 401).
+# Bearer token string -> verified claims. "U" is a verified subject with no
+# users row — phase-4 open signup auto-provisions it (→ 200). "UNV" is an
+# UNVERIFIED subject with no row — it fails closed (→ 403). "bad" → 401.
 _CLAIMS = {
     "A": {"sub": "sub_a", "email": "a@x.com", "email_verified": True},
     "B": {"sub": "sub_b", "email": "b@x.com", "email_verified": True},
     "S": {"sub": "sub_s", "email": "s@x.com", "email_verified": True},
     "U": {"sub": "sub_unknown", "email": "u@x.com", "email_verified": True},
+    "UNV": {"sub": "sub_unverified", "email": "unv@x.com", "email_verified": False},
 }
 
 
@@ -135,9 +137,16 @@ def test_chat_with_invalid_token_401(client):
     assert r.status_code == 401
 
 
-def test_chat_unknown_user_403(client):
-    r = client.post("/api/chat", headers=_bearer("U"), json=_chat_body("c"))
+def test_chat_unverified_user_403(client):
+    # Fail closed: an unverified identity is never provisioned an account.
+    r = client.post("/api/chat", headers=_bearer("UNV"), json=_chat_body("c"))
     assert r.status_code == 403
+
+
+def test_chat_verified_unknown_user_is_provisioned(client):
+    # Phase-4 open signup: a verified stranger is auto-provisioned and can chat.
+    r = client.post("/api/chat", headers=_bearer("U"), json=_chat_body("c"))
+    assert r.status_code == 200
 
 
 def test_sessions_endpoint_requires_auth_401(client):

@@ -30,6 +30,7 @@ ignore = [
 # B008: FastAPI Depends()/Query() in defaults is the idiomatic parameter pattern.
 "penny/api/main.py" = ["B008"]
 "penny/api/billing_routes.py" = ["B008"]
+"penny/api/signup_routes.py" = ["B008"]
 
 [lint.isort]
 known-first-party = ["penny"]
