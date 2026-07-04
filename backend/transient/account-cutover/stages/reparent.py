@@ -9,10 +9,12 @@ the anchor*:
 2. Set ``amazon_login_profiles`` from the mapping's amazon section.
 3. Copy the tenant columns *down* the FK graph with ``UPDATE ... FROM`` — each
    child copies from its parent (``SCOPED_TABLES`` is ordered so every parent is
-   assigned before its children): plaid_transactions/plaid_items/email_receipts/
+   assigned before its children): plaid_transactions/plaid_items/
    account_sign_conventions from plaid_accounts; derived_transactions from its
    plaid_transaction; transaction_items/tags/pending_receipt_matches from their
-   derived_transaction; amazon_orders/items from their profile/order.
+   derived_transaction; email_receipts from transaction_items (its only tenant
+   linkage — message_id = source_ref of the item it itemized; no account_id
+   column exists); amazon_orders/items from their profile/order.
 4. Assign the household-only tables (``tags``, ``transaction_category_events``)
    to the single household.
 5. Encrypt any plaintext ``plaid_items.access_token`` (idempotent; 017 also does

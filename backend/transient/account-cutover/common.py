@@ -98,11 +98,6 @@ SCOPED_TABLES: tuple[ScopedTable, ...] = (
         ("plaid_accounts", "plaid_transactions.account_id = src.account_id"),
     ),
     ScopedTable(
-        "email_receipts",
-        _OWNER_VIS,
-        ("plaid_accounts", "email_receipts.account_id = src.account_id"),
-    ),
-    ScopedTable(
         "account_sign_conventions",
         _OWNER_VIS,
         ("plaid_accounts", "account_sign_conventions.account_id = src.account_id"),
@@ -121,6 +116,23 @@ SCOPED_TABLES: tuple[ScopedTable, ...] = (
         "transaction_items",
         _OWNER_VIS,
         ("derived_transactions", "transaction_items.transaction_id = src.transaction_id"),
+    ),
+    # email_receipts has NO account_id column. A receipt reaches its owning
+    # account only through the itemization it produced: transaction_items with
+    # itemization_source='email_receipt' carry source_ref=message_id (see the
+    # EmailReceipt/TransactionItem models). So it copies tenant columns down from
+    # transaction_items on message_id = source_ref — which is why it is ordered
+    # AFTER transaction_items (its parent must be assigned first). message_id is
+    # unique per receipt and every matching item shares one transaction/account,
+    # so the owner is unambiguous.
+    ScopedTable(
+        "email_receipts",
+        _OWNER_VIS,
+        (
+            "transaction_items",
+            "email_receipts.message_id = src.source_ref "
+            "AND src.itemization_source = 'email_receipt'",
+        ),
     ),
     ScopedTable(
         "transaction_tags",
