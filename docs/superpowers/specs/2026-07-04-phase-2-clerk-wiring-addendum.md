@@ -19,7 +19,7 @@ The vendor instructions assume Next.js. **Ignore every Next.js-specific rule**
 (the `@clerk/nextjs` package, `proxy.ts`/`middleware.ts` matcher, async `auth()`,
 `ClerkProvider` inside `<body>`). Penny's frontend is Vite + React 19, so:
 
-- Use **`@clerk/clerk-react`** (the JS-frontend / React SDK), not `@clerk/nextjs`.
+- Use **`@clerk/react`** (the JS-frontend / React SDK), not `@clerk/nextjs`.
 - `clerk init` full-scaffolds Vite/React; if it defers, follow the JS-frontend
   quickstart: https://clerk.com/docs/js-frontend/getting-started/quickstart
 - Components: wrap the app in `<ClerkProvider publishableKey={…}>`; use
@@ -48,7 +48,7 @@ Run from `frontend/`:
 2. **`clerk auth login`** — interactive; the *user* completes it in the browser.
    In this session, run it with the `!` prefix: `!clerk auth login`.
 3. `clerk init --app app_3G2cQDuqoV52tBPluDb1S0oaBQs` — detects Vite/React,
-   installs `@clerk/clerk-react`, writes the publishable key into the frontend
+   installs `@clerk/react`, writes the publishable key into the frontend
    env, and scaffolds the provider + sign-in controls. It also surfaces the
    secret key + JWKS/issuer for the backend `.env`.
 4. `clerk doctor`, then start the app and verify the `<SignIn>` control renders
@@ -58,7 +58,7 @@ Run from `frontend/`:
 
 - The executor's `<SignIn>`-less backend verifies RS256 JWTs against a
   configurable JWKS. This follow-up sets `PENNY_*`/`CLERK_*` config to the real
-  Clerk JWKS/issuer, adds `VITE_CLERK_PUBLISHABLE_KEY` + `@clerk/clerk-react`
+  Clerk JWKS/issuer, adds `VITE_CLERK_PUBLISHABLE_KEY` + `@clerk/react`
   provider/controls in the app, and keeps `<SignUp>` for Phase 4.
 - Fail-closed stays: outside dev, missing/invalid Clerk config must refuse
   requests, never fall back to the dev-stub principal.
