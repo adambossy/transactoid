@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * E2E harness: boots the real backend on dedicated ports (backend :8100,
- * vite :5175) so it never collides with a developer's own servers. Runs in dev-principal mode with throwaway SQLite
+ * E2E harness: boots the real backend on dedicated ports (backend :8183,
+ * vite :5183) so it never collides with a developer's own servers. Runs in dev-principal mode with throwaway SQLite
  * finance + web DBs under test-results/, then drives
  * a headless chromium against the SPA. Phase 1a owns this bootstrap; later
  * phases only add feature specs on top of e2e/fixtures/app.ts.
@@ -25,14 +25,14 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   use: {
-    baseURL: "http://127.0.0.1:5175",
+    baseURL: "http://127.0.0.1:5183",
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: [
     {
-      command: `sh -c 'mkdir -p "${E2E_DB_DIR}" && uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8100'`,
+      command: `sh -c 'mkdir -p "${E2E_DB_DIR}" && uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8183'`,
       cwd: BACKEND_DIR,
-      url: "http://127.0.0.1:8100/api/health",
+      url: "http://127.0.0.1:8183/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
       env: {
@@ -55,14 +55,14 @@ export default defineConfig({
       },
     },
     {
-      command: "npm run dev -- --port 5175",
-      url: "http://127.0.0.1:5175",
+      command: "npm run dev -- --port 5183",
+      url: "http://127.0.0.1:5183",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
       env: {
         // Point the E2E vite proxy at the E2E backend (dev setups often
         // have their own server on :8000).
-        BACKEND_URL: "http://127.0.0.1:8100",
+        BACKEND_URL: "http://127.0.0.1:8183",
         // CI has no ~/code/agent-ui checkout; resolve the published npm package
         // instead of the source alias (matches vite.config's AGENT_UI_USE_PUBLISHED).
         AGENT_UI_USE_PUBLISHED: process.env.CI

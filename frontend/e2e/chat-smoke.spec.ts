@@ -6,12 +6,11 @@ import { expect, test } from "./fixtures/app";
  * real agent response), so it is gated: set PENNY_E2E_MODEL=1 (with the
  * model API key exported) to run it; skipped otherwise.
  */
-test.skip(
-  !process.env.PENNY_E2E_MODEL,
-  "set PENNY_E2E_MODEL=1 (with a model API key in the env) to run the chat smoke test",
-);
-
 test("user sends a chat message and an assistant response streams in", async ({ page }) => {
+  test.skip(
+    !process.env.PENNY_E2E_MODEL,
+    "set PENNY_E2E_MODEL=1 (with a model API key in the env) to run the chat smoke test",
+  );
   await page.goto("/");
   const composer = page.getByRole("textbox");
   await composer.fill("Hello Penny, are you there?");
