@@ -46,5 +46,13 @@ def get_readonly_db() -> DB:
                     "PENNY_AGENT_READONLY_DATABASE_URL is required in clerk mode"
                 )
             return get_db()  # dev/SQLite fallback
-        _readonly_db = DB(url, enforce_sqlite_fks=url.startswith("sqlite"))
+        # On Postgres the read-only role has EXECUTE on set_config revoked (F02/
+        # F05), so pin the tenant GUCs through the set-once penny_set_tenant
+        # wrapper rather than a direct set_config the untrusted SQL could re-issue.
+        is_sqlite = url.startswith("sqlite")
+        _readonly_db = DB(
+            url,
+            enforce_sqlite_fks=is_sqlite,
+            use_tenant_guc_wrapper=not is_sqlite,
+        )
     return _readonly_db

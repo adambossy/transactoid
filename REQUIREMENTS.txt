@@ -147,6 +147,11 @@ T8. Multi-tenant data isolation
     writes cross households — including the agent's unrestricted run_sql) and
     app-level query filtering (the only layer on SQLite dev). A joint session
     sees shared rows only; no row may be owned by the joint-session sentinel.
+    The agent's free-form run_sql runs on a dedicated read-only Postgres role
+    that cannot mutate the tenant GUC to escape its household: EXECUTE on
+    set_config is revoked and the context is pinned through a set-once
+    SECURITY DEFINER helper, so an injected CTE cannot flip app.current_household
+    before RLS evaluates (F02/F05).
     Plaid access tokens are encrypted at rest (key-versioned, so rotation is
     a config change). In production, identity is a Clerk-verified JWT resolved to
     the household/user principal per request (dev keeps an env-pinned principal);
