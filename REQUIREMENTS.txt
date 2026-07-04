@@ -78,6 +78,13 @@ P10. Open signup, households, and invites
     see their household's name (renamable) and manage pending invites (list /
     revoke). Cost/abuse of open signup is bounded by the P9 per-user subsidy cap.
 
+P11. Light-only appearance
+    The web app renders exclusively in the light "cream" design system (warm
+    paper ground, deep teal-green ink, gold accents, light-only logos) on every
+    screen — chat, auth/signup, providers & billing, invites, and the design-
+    system gallery. It never follows the OS `prefers-color-scheme: dark`
+    preference and exposes no light/dark toggle.
+
 
 TECHNICAL INVARIANTS / CONSTRAINTS
 ----------------------------------
