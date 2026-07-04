@@ -99,7 +99,13 @@ def _backfill_conversations(url: str, mapping_file: str, state: CutoverState) ->
     if not is_postgres(engine):
         echo("web.conversations backfill skipped (SQLite dev uses app-layer tenancy).")
         return
-    with engine.connect() as conn:
+    # One transaction for the whole backfill: on the SQLAlchemy 2.0 future engine
+    # the first ``conn.execute`` autobegins, so a nested ``conn.begin()`` would
+    # raise InvalidRequestError. ``engine.begin()`` gives a single explicit txn
+    # that the COUNT, the RLS toggles, and the UPDATE all share and that commits
+    # atomically (Postgres DDL is transactional, so the DISABLE/ENABLE pair is
+    # rolled back with everything else if the UPDATE fails).
+    with engine.begin() as conn:
         if not table_exists(conn, "web.conversations"):
             echo("web.conversations not present — skipping conversation backfill.")
             return
@@ -114,18 +120,17 @@ def _backfill_conversations(url: str, mapping_file: str, state: CutoverState) ->
         echo(f"web.conversations: assigning {pending} legacy thread(s) to household {household_id}.")
         # 019 FORCEs RLS; the still-NULL rows are invisible to a normal UPDATE.
         # Briefly drop the policy as the table owner to reach them, then restore.
-        with conn.begin():
-            conn.execute(sa.text("ALTER TABLE web.conversations DISABLE ROW LEVEL SECURITY"))
-            conn.execute(
-                sa.text(
-                    "UPDATE web.conversations SET household_id = :h, owner_user_id = :u, "
-                    "session_mode = COALESCE(session_mode, :m) WHERE household_id IS NULL"
-                ).bindparams(
-                    sa.bindparam("h", type_=sa.Uuid()),
-                    sa.bindparam("u", type_=sa.Uuid()),
-                ),
-                {"h": uuid.UUID(str(household_id)), "u": uuid.UUID(str(owner)), "m": mode},
-            )
-            conn.execute(sa.text("ALTER TABLE web.conversations ENABLE ROW LEVEL SECURITY"))
-            conn.execute(sa.text("ALTER TABLE web.conversations FORCE ROW LEVEL SECURITY"))
+        conn.execute(sa.text("ALTER TABLE web.conversations DISABLE ROW LEVEL SECURITY"))
+        conn.execute(
+            sa.text(
+                "UPDATE web.conversations SET household_id = :h, owner_user_id = :u, "
+                "session_mode = COALESCE(session_mode, :m) WHERE household_id IS NULL"
+            ).bindparams(
+                sa.bindparam("h", type_=sa.Uuid()),
+                sa.bindparam("u", type_=sa.Uuid()),
+            ),
+            {"h": uuid.UUID(str(household_id)), "u": uuid.UUID(str(owner)), "m": mode},
+        )
+        conn.execute(sa.text("ALTER TABLE web.conversations ENABLE ROW LEVEL SECURITY"))
+        conn.execute(sa.text("ALTER TABLE web.conversations FORCE ROW LEVEL SECURITY"))
         echo("web.conversations backfill complete; RLS re-enabled + FORCEd.")
