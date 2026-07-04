@@ -150,6 +150,25 @@ def revoke_guc_override(conn: Connection, *, agent_role: str, owner_role: str) -
     )
 
 
+# Identity tables carry no RLS policy (a principal is resolved before any tenant
+# context exists), so a blanket ``GRANT SELECT ON ALL TABLES`` to the agent role
+# would let run_sql read every row of them regardless of household.
+_IDENTITY_TABLES = ("users", "households")
+
+
+def revoke_identity_table_reads(conn: Connection, *, agent_role: str) -> None:
+    """Keep the RLS-exempt identity tables out of the agent role's reach (F04).
+
+    Without this, run_sql on the read-only role can ``SELECT email,
+    external_auth_id FROM users`` / ``SELECT household_id FROM households`` and
+    enumerate every user's email + Clerk id and every household UUID across all
+    tenants — the latter also being the pre-condition for the F02 override.
+    The app's own (privileged) access to these tables is unaffected.
+    """
+    tables = ", ".join(_IDENTITY_TABLES)  # fixed identifiers, not user input
+    conn.execute(text(f'REVOKE SELECT ON {tables} FROM "{agent_role}"'))  # noqa: S608
+
+
 def enable_rls(conn: Connection) -> None:
     """Enable RLS + create tenant_isolation policies on every tenant table."""
     install_tenant_guc_wrapper(conn)
