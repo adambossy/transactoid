@@ -47,6 +47,7 @@ from .bridge import stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
 from .persistence.store import ConversationAccessError, ConversationStore  # noqa: E402
+from .signup_routes import router as signup_router  # noqa: E402
 
 app = FastAPI(title="Penny backend")
 
@@ -73,6 +74,8 @@ app.add_middleware(
 
 # BYO-credential / billing / provider-OAuth routes (website domain).
 app.include_router(billing_router)
+# Account bootstrap / household / invite routes (website domain).
+app.include_router(signup_router)
 
 _conversation_store: ConversationStore | None = None
 

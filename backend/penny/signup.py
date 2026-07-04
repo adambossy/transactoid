@@ -16,12 +16,33 @@ boundary holds.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Protocol
 import uuid
 
 from sqlalchemy.orm import Session
 
 from penny.adapters.db.models import Household, User
 from penny.bootstrap import seed_taxonomy_for_household
+
+if TYPE_CHECKING:
+    from penny.tenancy.context import RequestContext
+
+
+class InviteError(Exception):
+    """Raised when an email cannot be invited (already an active account)."""
+
+
+class ClerkInvites(Protocol):
+    """The external invite provider seam (see ``penny.adapters.clerk``).
+
+    A ``FakeClerkInvites`` stands in for it in tests; the real adapter calls the
+    Clerk Invitations REST API. Injecting it keeps the signup service free of any
+    Clerk specifics.
+    """
+
+    def create_invitation(self, email: str) -> None: ...
+
+    def revoke_invitation(self, email: str) -> None: ...
 
 
 def provision_solo_household(
@@ -85,3 +106,32 @@ def resolve_or_provision_identity(
     return provision_solo_household(
         session, email=normalized, external_auth_id=external_auth_id
     )
+
+
+def create_invite(
+    session: Session, ctx: RequestContext, *, email: str, clerk: ClerkInvites
+) -> str:
+    """Invite a **new** email into the caller's household.
+
+    Rejects (``InviteError`` → HTTP 409) when an *active* account already owns the
+    email — an invite may never target an already-linked identity. Otherwise
+    creates a pending ``users`` row in ``ctx.household_id`` (idempotent on an
+    already-pending email) and issues the Clerk invitation. The tenant is always
+    ``ctx.household_id``; the caller can only ever invite into their own
+    household.
+    """
+    normalized = email.strip().lower()
+    existing = session.query(User).filter(User.email == normalized).one_or_none()
+    if existing is not None and existing.external_auth_id is not None:
+        raise InviteError(f"{normalized} already has an account")
+    if existing is None:
+        session.add(
+            User(
+                household_id=ctx.household_id,
+                email=normalized,
+                external_auth_id=None,
+            )
+        )
+        session.flush()
+    clerk.create_invitation(normalized)
+    return normalized
