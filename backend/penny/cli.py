@@ -55,33 +55,23 @@ def _render_template_vars(text: str) -> str:
     return text
 
 
-def _build_prompt(
-    *, prompt: str | None, prompt_key: str | None, email: list[str]
-) -> str:
+def _build_prompt(*, prompt: str | None, prompt_key: str | None) -> str:
     """Resolve the prompt text to drive the agent with.
 
     Exactly one of ``prompt`` / ``prompt_key`` is set. A ``prompt_key`` is
     loaded through the shared prompt loader and has its date placeholders
-    filled. When ``--email`` recipients are supplied, a delivery instruction
-    is appended so the agent emails the finished report itself (delivery stays
-    agent-driven — the CLI never touches the email/R2 services directly).
+    filled. Recipients are **not** embedded in the prompt: ``send_email_report``
+    derives them from the run's ``RequestContext`` (removing the injection
+    surface), so the CLI never names an address.
     """
     if prompt_key is not None:
         from penny.prompts import load_prompt
 
-        body = _render_template_vars(load_prompt(prompt_key))
-    elif prompt is not None:
-        body = prompt
-    else:  # callers guarantee exactly one is set; belt-and-suspenders
-        raise ValueError("either prompt or prompt_key must be provided")
-
-    if email:
-        recipients = ", ".join(email)
-        body = (
-            f"{body}\n\nWhen the report is complete, email it to the following "
-            f"recipient(s): {recipients}."
-        )
-    return body
+        return _render_template_vars(load_prompt(prompt_key))
+    if prompt is not None:
+        return prompt
+    # callers guarantee exactly one is set; belt-and-suspenders
+    raise ValueError("either prompt or prompt_key must be provided")
 
 
 async def _drive_agent(*, prompt_text: str, max_turns: int) -> bool:
@@ -152,11 +142,6 @@ def _run_and_exit(*, prompt_text: str, max_turns: int) -> None:
 
 @app.command("run-scheduled-report")
 def run_scheduled_report(
-    email: list[str] = typer.Option(
-        None,
-        "--email",
-        help="Email recipient(s) for the report (repeatable).",
-    ),
     max_turns: int = typer.Option(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
     ),
@@ -179,9 +164,7 @@ def run_scheduled_report(
     typer.echo(
         f"Selected scheduled report period: {period} ({now_ny:%Y-%m-%d %H:%M:%S %Z})"
     )
-    prompt_text = _build_prompt(
-        prompt=report_prompt(period), prompt_key=None, email=email or []
-    )
+    prompt_text = _build_prompt(prompt=report_prompt(period), prompt_key=None)
     _run_and_exit(prompt_text=prompt_text, max_turns=max_turns)
 
 
@@ -195,9 +178,6 @@ def run(
         "--prompt-key",
         help="Promptorium key to load (e.g. 'report-weekly-jenny').",
     ),
-    email: list[str] = typer.Option(
-        None, "--email", help="Email recipient(s) for the report (repeatable)."
-    ),
     max_turns: int = typer.Option(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
     ),
@@ -210,7 +190,7 @@ def run(
         typer.echo("Only one of --prompt or --prompt-key may be provided", err=True)
         raise typer.Exit(1)
 
-    prompt_text = _build_prompt(prompt=prompt, prompt_key=prompt_key, email=email or [])
+    prompt_text = _build_prompt(prompt=prompt, prompt_key=prompt_key)
     _run_and_exit(prompt_text=prompt_text, max_turns=max_turns)
 
 
