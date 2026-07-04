@@ -476,10 +476,14 @@ class Tag(Base):
     """Tag model."""
 
     __tablename__ = "tags"
-    __table_args__ = (Index("ix_tags_household", "household_id"),)
+    __table_args__ = (
+        # Tag names are unique per household, not globally (migration 018).
+        UniqueConstraint("household_id", "name", name="uq_tags_household_name"),
+        Index("ix_tags_household", "household_id"),
+    )
 
     tag_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     household_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("households.household_id"), nullable=False
