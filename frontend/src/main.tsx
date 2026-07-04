@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { Gallery } from "@penny/ui";
 import { AuthGate } from "./AuthGate";
 import { ChatScreen } from "./ChatScreen";
+import { InviteScreen } from "./InviteScreen";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
 import "./index.css";
 
@@ -21,6 +22,10 @@ const showGallery = import.meta.env.DEV && window.location.pathname.startsWith("
 // The Providers & billing settings screen (phase 2b). Same auth model as chat.
 const showBilling = window.location.pathname.startsWith("/settings/providers");
 
+// The invite screen (phase 4): a household member invites new people. Same auth
+// model as chat.
+const showInvites = window.location.pathname.startsWith("/invites");
+
 // Dev-principal mode: no token (the backend uses the env-pinned principal).
 const noToken = async () => null;
 
@@ -36,20 +41,34 @@ function AuthedBilling() {
   return <ProvidersBillingScreen getToken={() => getToken()} />;
 }
 
+function AuthedInvites() {
+  const { getToken } = useAuth();
+  return <InviteScreen getToken={() => getToken()} />;
+}
+
+// The signed-in screen selected by pathname (chat is the default landing).
+function authedScreen() {
+  if (showBilling) return <AuthedBilling />;
+  if (showInvites) return <AuthedInvites />;
+  return <AuthedChat />;
+}
+
+function devScreen() {
+  if (showBilling) return <ProvidersBillingScreen getToken={noToken} />;
+  if (showInvites) return <InviteScreen getToken={noToken} />;
+  return <ChatScreen getToken={noToken} />;
+}
+
 function Root() {
   if (showGallery) return <Gallery />;
   if (clerkKey) {
     return (
       <ClerkProvider publishableKey={clerkKey}>
-        <AuthGate>{showBilling ? <AuthedBilling /> : <AuthedChat />}</AuthGate>
+        <AuthGate>{authedScreen()}</AuthGate>
       </ClerkProvider>
     );
   }
-  return showBilling ? (
-    <ProvidersBillingScreen getToken={noToken} />
-  ) : (
-    <ChatScreen getToken={noToken} />
-  );
+  return devScreen();
 }
 
 createRoot(document.getElementById("root")!).render(
