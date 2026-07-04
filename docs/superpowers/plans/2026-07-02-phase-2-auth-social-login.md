@@ -4,6 +4,10 @@
 
 > Part of the [Multi-Account Epic](2026-06-27-multi-account-epic-overview.md).
 > Spec: [Phase 2 design](../specs/2026-07-01-phase-2-auth-social-login-design.md).
+> **Real Clerk wiring (app id, keys, Vite/React SDK, CLI runbook):** see the
+> [Clerk wiring addendum](../specs/2026-07-04-phase-2-clerk-wiring-addendum.md) —
+> the backend is built against a mock JWKS; swapping in the real Clerk instance +
+> frontend SDK is a post-merge follow-up.
 > **Prev:** [Phase 1a plan](2026-06-27-phase-1a-multi-tenant-data-model.md) ·
 > **Next:** [Phase 3 plan](2026-07-01-phase-3-provision-and-test.md), [Phase 4 plan](2026-07-02-phase-4-signup-ui.md)
 

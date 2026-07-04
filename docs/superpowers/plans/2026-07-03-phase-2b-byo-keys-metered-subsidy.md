@@ -37,7 +37,8 @@ React 19 + phase-5 tool-renderer, phase-0 `@penny/ui`.
 - **Owner-scoped, not household:** credentials/usage are private to the user even
   within a household (RLS keys on `owner_user_id == ctx.user`, no shared arm).
 - New env (`PENNY_*`): `PENNY_MODEL_PRICES` (JSON price table),
-  `PENNY_SUBSIDY_CENTS` (default 500), `PENNY_SUBSIDY_PROVIDER_KEY` (platform
+  `PENNY_SUBSIDY_CENTS` (default 200 = $2/user; per-user grant, so a two-spouse
+  household that both connect gets $4), `PENNY_SUBSIDY_PROVIDER_KEY` (platform
   key), provider OAuth client ids/secrets.
 
 ## File structure

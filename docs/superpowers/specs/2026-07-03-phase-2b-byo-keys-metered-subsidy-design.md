@@ -11,7 +11,9 @@ cost/abuse control open signup needs — closes the phase-4 review gap).
 
 ## Goal
 
-Give each new user a small **subsidized token runway** (e.g. $5), and once it's
+Give each new user a small **subsidized token runway** ($2 per user — so a
+two-spouse household where both connect gets $4 total, since the grant is
+per-user on first Plaid link), and once it's
 spent require them to **bring their own credentials** — a provider **API key**
 now, or a **subscription** via sanctioned OAuth — which they can also connect at
 any time. Credentials are stored server-side, encrypted, per-user, and can never
@@ -108,7 +110,7 @@ impersonation):
   from the harness usage event.
 - **`user_billing`** (owner-scoped): `subsidy_granted_cents`, and `spend_cents`
   (or derived by summing the ledger). **Subsidy granted on first Plaid link**
-  (configurable amount via `PENNY_SUBSIDY_CENTS`, default e.g. 500).
+  (configurable amount via `PENNY_SUBSIDY_CENTS`, default 200 = $2/user).
 - **The gate** runs in Penny's agent-invocation path **before each model call**:
   if the user has a connected BYO credential → use it (their provider bills them;
   no subsidy accounting). Else compute `remaining = subsidy_granted - spend`; if
