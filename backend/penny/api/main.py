@@ -194,6 +194,12 @@ async def _blocked_stream(
     persists it as a normal assistant turn, so the block is durable and shows on
     reload. The context is cleared when the stream ends.
     """
+    # Enqueue the (idempotent) connect nudge — minimal standalone stand-in for
+    # the phase-5 reminder subsystem (see phase-2b-decisions D8).
+    from penny.billing import reminders
+
+    reminders.enqueue_byo_credential(ctx.user_id)
+
     run_id = f"blocked_{uuid.uuid4().hex}"
     text_id = f"t_{run_id}"
 

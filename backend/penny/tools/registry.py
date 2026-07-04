@@ -12,6 +12,7 @@ from .audit import (
     transaction_tags,
 )
 from .bash import bash
+from .connect_provider import connect_provider
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
 from .plaid import connect_new_account, list_plaid_accounts
@@ -66,6 +67,8 @@ def build_toolset() -> Toolset:
             # Delivery
             upload_artifact_to_r2,
             send_email_report,
+            # Billing (connect-a-provider card)
+            connect_provider,
             # Memory
             generate_memory_index,
             # Sandbox
