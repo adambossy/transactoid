@@ -315,6 +315,43 @@ async def get_session(
     return {"sessionId": session_id, "messages": conversation_to_ui(rows)}
 
 
+@app.post("/api/plaid/exchange")
+async def plaid_exchange(
+    request: Request,
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, Any]:
+    """Exchange a Plaid ``public_token`` server-side for the authed user.
+
+    Body: ``{public_token, conversation_id}``. Verifies the caller may access the
+    conversation (phase-2 store check → 404 hides existence) before exchanging,
+    persisting the linked item/accounts, and enqueueing the success reminder.
+    """
+    from penny.tools._services.plaid_link import exchange_public_token
+
+    body: dict[str, Any] = await request.json()
+    public_token = body.get("public_token")
+    conversation_id = body.get("conversation_id")
+    if not isinstance(public_token, str) or not isinstance(conversation_id, str):
+        raise HTTPException(
+            status_code=400, detail="public_token and conversation_id are required"
+        )
+
+    store = _get_conversation_store()
+    try:
+        store.get_conversation(conversation_id, ctx)
+    except ConversationAccessError:
+        raise HTTPException(status_code=404, detail="not found") from None
+
+    db = get_db()
+    with db.session_for(ctx) as s:
+        return await exchange_public_token(
+            s,
+            ctx,
+            public_token=public_token,
+            conversation_id=conversation_id,
+        )
+
+
 @app.post("/api/chat")
 async def chat(
     request: Request,
