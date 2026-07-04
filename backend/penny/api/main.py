@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 import contextlib
 from dataclasses import replace
@@ -32,6 +33,8 @@ from penny.billing.session import BillingSession  # noqa: E402
 from penny.billing.usage_subscriber import start_usage_subscriber_task  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.db import get_db  # noqa: E402
+from penny.onboarding import TurnSignals, ensure_items, evaluate  # noqa: E402
+from penny.reminders import DbReminderQueue  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
     RequestContext,
     SessionMode,
@@ -185,6 +188,60 @@ def _resolve_gate(ctx: RequestContext) -> billing_gate.GateDecision:
         return billing_gate.resolve_for_run(s, ctx)
 
 
+def _build_turn_signals(ctx: RequestContext, conversation_id: str) -> TurnSignals:
+    """Gather the deterministic onboarding signals for this turn.
+
+    ``has_linked_items`` / ``household_member_count`` come from the finance DB
+    (tenant-scoped by ``ctx``); the categorized/correction signals are v1
+    placeholders (False) until the bridge stashes prior-turn bookkeeping — a
+    natural follow-on that only *adds* nudges.
+    """
+    from penny.adapters.db.models import PlaidItem, User
+
+    db = get_db()
+    with db.session_for(ctx) as s:
+        has_linked = (
+            s.query(PlaidItem)
+            .filter(PlaidItem.household_id == ctx.household_id)
+            .count()
+            > 0
+        )
+        members = s.query(User).filter(User.household_id == ctx.household_id).count()
+    return TurnSignals(
+        has_linked_items=has_linked,
+        household_member_count=members,
+        response_had_categorized_rows=False,
+        user_corrected_category=False,
+        conversation_id=conversation_id,
+    )
+
+
+def _evaluate_onboarding(ctx: RequestContext, signals: TurnSignals) -> str | None:
+    """Seed items + evaluate the triggers on the web store; return content."""
+    from penny.api.persistence.tenant import owner_web_session
+
+    with owner_web_session(ctx) as s:
+        ensure_items(s, ctx)
+        return evaluate(s, ctx, signals)
+
+
+async def _maybe_enqueue_onboarding(
+    ctx: RequestContext, *, conversation_id: str
+) -> None:
+    """Enqueue the consolidated onboarding reminder for an individual turn.
+
+    Joint conversations skip entirely (personal setup doesn't belong in a shared
+    thread). Called before ``agent.run`` so the harness flush picks the reminder
+    up this same turn.
+    """
+    if ctx.session_mode is SessionMode.JOINT:
+        return
+    signals = await asyncio.to_thread(_build_turn_signals, ctx, conversation_id)
+    content = await asyncio.to_thread(_evaluate_onboarding, ctx, signals)
+    if content:
+        await DbReminderQueue(ctx).enqueue(conversation_id, "onboarding", content)
+
+
 async def _blocked_stream(
     store: ConversationStore,
     conversation_id: str,
@@ -256,6 +313,43 @@ async def get_session(
     except ConversationAccessError:
         raise HTTPException(status_code=404, detail="not found") from None
     return {"sessionId": session_id, "messages": conversation_to_ui(rows)}
+
+
+@app.post("/api/plaid/exchange")
+async def plaid_exchange(
+    request: Request,
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, Any]:
+    """Exchange a Plaid ``public_token`` server-side for the authed user.
+
+    Body: ``{public_token, conversation_id}``. Verifies the caller may access the
+    conversation (phase-2 store check → 404 hides existence) before exchanging,
+    persisting the linked item/accounts, and enqueueing the success reminder.
+    """
+    from penny.tools._services.plaid_link import exchange_public_token
+
+    body: dict[str, Any] = await request.json()
+    public_token = body.get("public_token")
+    conversation_id = body.get("conversation_id")
+    if not isinstance(public_token, str) or not isinstance(conversation_id, str):
+        raise HTTPException(
+            status_code=400, detail="public_token and conversation_id are required"
+        )
+
+    store = _get_conversation_store()
+    try:
+        store.get_conversation(conversation_id, ctx)
+    except ConversationAccessError:
+        raise HTTPException(status_code=404, detail="not found") from None
+
+    db = get_db()
+    with db.session_for(ctx) as s:
+        return await exchange_public_token(
+            s,
+            ctx,
+            public_token=public_token,
+            conversation_id=conversation_id,
+        )
 
 
 @app.post("/api/chat")
@@ -349,6 +443,10 @@ async def chat(
             with db.session_for(turn_ctx) as s:
                 ensure_prefixes(s, turn_ctx)
                 checkout = materialize(s, turn_ctx, blob_store=blob_store, root=root)
+            # Evaluate onboarding triggers and enqueue the consolidated reminder
+            # BEFORE the agent runs, so the harness drains it into this turn's
+            # user message. Individual conversations only; joint threads skip.
+            await _maybe_enqueue_onboarding(turn_ctx, conversation_id=chat_id)
             # persist_session=False: the harness never writes to sessions.db;
             # the app store (above + the bridge) is the single persistence
             # layer. The seeded session provides read-only continuity.
@@ -359,6 +457,10 @@ async def chat(
                 ctx=turn_ctx,
                 workspace_dir=checkout.root,
                 usage_pricer=usage_pricer,
+                # Website injects the DB-backed queue so backend-enqueued
+                # reminders (onboarding nudges, Plaid-link success) flush into
+                # this turn's user message.
+                reminders=DbReminderQueue(turn_ctx),
             )
             async for frame in stream_and_persist(
                 agent,

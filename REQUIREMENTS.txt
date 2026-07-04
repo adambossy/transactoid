@@ -85,6 +85,21 @@ P11. Light-only appearance
     system gallery. It never follows the OS `prefers-color-scheme: dark`
     preference and exposes no light/dark toggle.
 
+P12. Progressive agent-embedded onboarding
+    A new user lands straight in the chat — no wizard, stepper, or setup screen —
+    and the agent nudges toward setup steps (connect a bank, review account
+    visibility, tune the taxonomy, add merchant rules) at deterministic
+    milestones, naturally and at most once per turn, until each step is accepted
+    or dismissed (a dismissed step never nudges again but stays revisitable by
+    just asking). Nudges appear only in individual conversations, never joint
+    threads. To connect a bank the agent offers an inline Plaid Link card
+    rendered in the chat: Plaid runs in the browser and the public token is
+    exchanged server-side, storing the linked item (access token encrypted) and
+    its accounts as private, then kicking off the first sync; the user can
+    connect more accounts anytime by asking. A localhost Link flow stays for dev.
+    The onboarding state driving the nudges is invisible to the user — it never
+    appears in the transcript.
+
 
 TECHNICAL INVARIANTS / CONSTRAINTS
 ----------------------------------
@@ -189,3 +204,21 @@ T12. Signup & invite integrity
      tests/api/test_invites.py, tests/api/test_me.py, tests/api/test_auth_*.py,
      and tests/adapters/db/test_signup_isolation.py (the last requires
      POSTGRES_TEST_URL).
+
+T13. System-reminder subsystem & onboarding state
+     Dynamic onboarding/nudge state never enters the (cache-stable) system
+     prompt: it is delivered as server-generated <system-reminder> text flushed
+     into the next user message by agent-harness's ReminderQueue and drained at
+     run start, and hidden from the UI as a first-class agent-ui guarantee
+     (stripSystemReminders) — so it reaches the model but never the rendered or
+     stored transcript. Reminder content is server-generated only (never
+     interpolated from client input), so the flush path cannot inject attacker
+     text into the turn; only the most recent reminder of a kind reflects current
+     state. Onboarding items and queued reminders are website/app state in the
+     separate web DB/schema (out of the agent run_sql blast radius), owner-scoped
+     within a household by RLS (USING + WITH CHECK). Item status is limited to
+     pending/accepted/dismissed; activation is computed deterministically per
+     turn, never stored. Enforced by backend/tests/test_reminder_e2e.py,
+     tests/test_onboarding.py, tests/test_reminder_queue.py,
+     tests/test_domain_segregation.py, and
+     tests/adapters/db/test_phase5_rls.py (the last requires POSTGRES_TEST_URL).

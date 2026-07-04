@@ -2,11 +2,16 @@ import { ClerkProvider, useAuth } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Gallery } from "@penny/ui";
+import { registerToolRenderer } from "@adambossy/agent-ui";
 import { AuthGate } from "./AuthGate";
 import { ChatScreen } from "./ChatScreen";
 import { InviteScreen } from "./InviteScreen";
+import { PlaidLinkCard } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
 import "./index.css";
+
+// Render the connect_bank_account tool output as the inline Plaid Link card.
+registerToolRenderer("connect_bank_account", PlaidLinkCard);
 
 // Clerk is active iff a publishable key is configured — the frontend mirror of
 // the backend's PENNY_AUTH_MODE clerk/dev split. With no key the app runs in

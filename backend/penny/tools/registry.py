@@ -15,7 +15,9 @@ from .bash import bash
 from .connect_provider import connect_provider
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
+from .onboarding import resolve_onboarding_item
 from .plaid import connect_new_account, list_plaid_accounts
+from .plaid_link import connect_bank_account
 from .recategorize import (
     recategorize_merchant,
     recategorize_transaction,
@@ -43,6 +45,7 @@ def build_toolset() -> Toolset:
             # Plaid + sync
             list_plaid_accounts,
             connect_new_account,
+            connect_bank_account,
             sync_transactions,
             # Mutations
             recategorize_merchant,
@@ -69,6 +72,8 @@ def build_toolset() -> Toolset:
             send_email_report,
             # Billing (connect-a-provider card)
             connect_provider,
+            # Onboarding
+            resolve_onboarding_item,
             # Memory
             generate_memory_index,
             # Sandbox

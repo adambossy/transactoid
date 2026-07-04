@@ -5,6 +5,7 @@ import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
 import { AlertCircle, Brain, SquarePen } from "lucide-react";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
+import { setAuthTokenGetter } from "./authFetch";
 
 const MODEL = "gemini-3.5-flash";
 const SESSION_KEY = "penny:sessionId";
@@ -108,6 +109,12 @@ function PendingThinking() {
 export function ChatScreen({ getToken }: { getToken: GetToken }) {
   const sessionId = useMemo(loadOrCreateSessionId, []);
   const [history, setHistory] = useState<AiUIMessage[] | null>(null);
+
+  // Point the shared authed fetch (used by inline tool cards like the Plaid
+  // connect card) at this screen's token source.
+  useEffect(() => {
+    setAuthTokenGetter(() => getToken());
+  }, [getToken]);
 
   // Hydrate persisted history before mounting the chat so refreshes and
   // backend restarts don't blank the transcript. A conversation the principal
