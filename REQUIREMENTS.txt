@@ -52,6 +52,20 @@ P8. Output language
     Reports and chat responses are written in English (US) with $ currency,
     regardless of the language of transaction descriptors or memory notes.
 
+P9. BYO keys & metered subsidy
+    On a billing-enabled deployment, each user gets a small subsidized token
+    runway granted on their first Plaid link (per-user, so a two-spouse
+    household that both connect gets twice the grant; amount via
+    PENNY_SUBSIDY_CENTS, default $2). Each model call is metered: while runway
+    remains the turn runs on the platform key and accrues exact cost; once the
+    runway is spent the user must bring their own provider credentials — a
+    provider API key now, or a sanctioned OAuth subscription — which they can
+    connect at any time from an in-chat "Connect a provider" card or a
+    Providers & billing settings screen. A connected credential bills the user's
+    own provider (no subsidy accounting). With billing disabled (no platform
+    subsidy key configured) chat runs on the default key with no metering, so
+    dev/self-host is unaffected.
+
 
 TECHNICAL INVARIANTS / CONSTRAINTS
 ----------------------------------
@@ -121,3 +135,20 @@ T10. Layered domain architecture (target)
      adheres, and code a change touches is migrated toward it under the campfire
      rule with strict scope limits. See AGENTS.md ("Architecture: layered
      domains").
+
+T11. Credential security & no-ambient-key gate
+     BYO provider credentials and the usage/subsidy ledgers are website-owned,
+     owner-scoped (private to the user even within a household — no shared arm),
+     and out of the finance run_sql blast radius (their own web schema/db with
+     owner-scoped RLS, USING and WITH CHECK). Secrets are encrypted at rest
+     (key-versioned envelope) and decrypted only at the outbound-LLM call site;
+     reads expose only a masked hint — never to the browser, a URL, or logs
+     (token-exchange errors are scrubbed). OAuth is Authorization-Code + PKCE
+     with an independent CSRF state and refresh-rotation persisted atomically
+     under a per-(user,provider) lock; no CLI-impersonation surface ships. On a
+     billing-enabled shared server there is no ambient/global env-key fallback
+     for a user run: the pre-dispatch gate resolves the per-user credential and
+     cannot be bypassed by a client-supplied model/credential parameter; with no
+     BYO credential and no remaining subsidy the turn is blocked, never silently
+     run on the platform key. Enforced by backend/tests/billing/ (test_vault.py,
+     test_gate.py, test_billing_rls.py — the last requires POSTGRES_TEST_URL).
