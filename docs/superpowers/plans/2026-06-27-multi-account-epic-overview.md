@@ -55,22 +55,28 @@ Two databases, **one logical number space**, numbered strictly by **build
 order**, **one head per database** — so no phase manufactures a multi-head (the
 only multi-head to reconcile is the *legacy* prod one, handled by Phase 3).
 
+> **Base = 010 (rebased 2026-07-03).** `origin/main` already occupies finance
+> migrations **`006`–`009`** (its own features + an `008` merge-heads), so the
+> epic chain begins at **`010`**, chaining off `009`. The Phase-1a executor
+> confirmed this against the real head; the numbers below are the +4 rebase of
+> the original provisional 006→ table.
+
 | # | Migration | DB | Phase |
 |---|---|---|---|
-| 006 | households + users | finance | 1a |
-| 007 | revive plaid_accounts | finance | 1a |
-| 008 | tenant columns (nullable) | finance | 1a |
-| 009 | backfill tenant columns — **dev/opt-in only**; prod identity is handled by Phase 3 cutover, not this migration | finance | 1a |
-| 010 | contract: NOT NULL + FK + `CHECK visibility` + `CHECK owner≠nil-uuid` + indexes | finance | 1a |
-| 011 | RLS policies **USING + WITH CHECK** (the phase-2 "amendment" is folded in here from the start) | finance | 1a |
-| 012 | categories `household_id` | finance | 1a |
-| 013 | encrypt plaid access tokens (key-version-prefixed cipher) | finance | 1a |
-| 014 | workspace prefix/manifest/head tables + RLS | finance | 1b |
-| 015 | conversations tenant columns + `session_mode` + RLS (web DB now Postgres+alembic, not `create_all`) | web | 2 |
-| 016 | `user_credentials` + RLS | web | 2b |
-| 017 | `usage_events` + `user_billing` + RLS | web | 2b |
-| 018 | `onboarding_items` + RLS | web | 5 |
-| 019 | `queued_reminders` + RLS | web | 5 |
+| 010 | households + users | finance | 1a |
+| 011 | revive plaid_accounts | finance | 1a |
+| 012 | tenant columns (nullable) | finance | 1a |
+| 013 | backfill tenant columns — **dev/opt-in only**; prod identity is handled by Phase 3 cutover, not this migration | finance | 1a |
+| 014 | contract: NOT NULL + FK + `CHECK visibility` + `CHECK owner≠nil-uuid` + indexes | finance | 1a |
+| 015 | RLS policies **USING + WITH CHECK** (the phase-2 "amendment" is folded in here from the start) | finance | 1a |
+| 016 | categories `household_id` | finance | 1a |
+| 017 | encrypt plaid access tokens (key-version-prefixed cipher) | finance | 1a |
+| 018 | workspace prefix/manifest/head tables + RLS | finance | 1b |
+| 019 | conversations tenant columns + `session_mode` + RLS (web DB now Postgres+alembic, not `create_all`) | web | 2 |
+| 020 | `user_credentials` + RLS | web | 2b |
+| 021 | `usage_events` + `user_billing` + RLS | web | 2b |
+| 022 | `onboarding_items` + RLS | web | 5 |
+| 023 | `queued_reminders` + RLS | web | 5 |
 
 Rules: the finance chain (`backend/db/migrations/`) and the web chain each keep a
 single linear head; each plan's `down_revision` must match this ledger (plans

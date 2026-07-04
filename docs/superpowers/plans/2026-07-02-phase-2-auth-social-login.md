@@ -771,7 +771,7 @@ In `models.py` add to `Conversation`:
 ```
 
 **Web schema is Postgres, under RLS (series-review decision).** The web DB stops
-being `create_all`-managed: add **migration `015_add_conversation_tenancy`** (the
+being `create_all`-managed: add **migration `019_add_conversation_tenancy`** (the
 web-schema migration set) that adds the three columns **and** enables the same
 `tenant_isolation` policy (USING + WITH CHECK) + `FORCE ROW LEVEL SECURITY` on
 `conversations`/`conversation_messages` (dialect-guarded). The

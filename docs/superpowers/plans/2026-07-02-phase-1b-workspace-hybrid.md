@@ -60,11 +60,10 @@ recorded as a future refinement.
 - **Blobs are immutable** and content-addressed (`{prefix_token}/{sha256hex}`);
   uploads are idempotent and safe before the CAS; orphans from losing races are
   harmless (GC is out of scope for v1).
-- **Migration numbering:** this plan uses revision `014_add_workspace_store`,
-  `down_revision = "013_encrypt_plaid_access_tokens"`. Per the **migration ledger**
+- **Migration numbering:** this plan uses revision `018_add_workspace_store`,
+  `down_revision = "017_encrypt_plaid_access_tokens"`. Per the **migration ledger**
   in the epic index, migrations are numbered strictly by build order
-  (1a `006`–`013` → **1b `014`** → phase-2 conversations `015` → phase-5
-  `016`/`017`), one linear head — no self-inflicted multi-head.
+  (1a `010`–`017` → **1b `018`** → phase-2 conversations `019` → phase-5 `022`/`023`), one linear head — no self-inflicted multi-head.
 - Tests that need R2 use the injectable `BlobStore` fake — no network in tests.
 - New env: none beyond the existing `R2_*` vars (`.env.example` already has
   them); document the workspace layout in `.env.example` comments.
@@ -80,7 +79,7 @@ recorded as a future refinement.
   `WorkspaceCheckout`.
 - Modify: `backend/penny/adapters/db/models.py` — `WorkspacePrefix`,
   `WorkspaceManifest`, `WorkspaceHead`.
-- Create: `backend/db/migrations/014_add_workspace_store.py` (tables + RLS,
+- Create: `backend/db/migrations/018_add_workspace_store.py` (tables + RLS,
   dialect-guarded).
 - Modify: `backend/penny/agent_factory.py` — memory assembly reads a checkout
   dir; `backend/penny/api/main.py` + `backend/penny/cli.py` — materialize →
@@ -210,11 +209,11 @@ git commit -m "feat(workspace): BlobStore seam (R2 impl + in-memory fake, conten
 
 ---
 
-### Task 2: Workspace tables + migration 014 (+ RLS)
+### Task 2: Workspace tables + migration 018 (+ RLS)
 
 **Files:**
 - Modify: `backend/penny/adapters/db/models.py`
-- Create: `backend/db/migrations/014_add_workspace_store.py`
+- Create: `backend/db/migrations/018_add_workspace_store.py`
 - Modify: `backend/alembic/env.py` (import the three models)
 - Test: `backend/tests/workspace_store/test_models.py`
 
@@ -302,7 +301,7 @@ Expected: FAIL — `ImportError: cannot import name 'WorkspacePrefix'`.
 
 Add the three models above to `models.py` (with `JSON` imported from
 `sqlalchemy`), import them in `alembic/env.py`, and write migration
-`014_add_workspace_store.py` (`down_revision` = current chain head at execution
+`018_add_workspace_store.py` (`down_revision` = current chain head at execution
 time): `op.create_table` × 3 mirroring the models, the two partial unique
 indexes, the visibility CHECKs, and — guarded by
 `if op.get_bind().dialect.name == "postgresql":` — `ENABLE`/`FORCE ROW LEVEL
@@ -312,15 +311,15 @@ using the phase-1a predicate. `downgrade()` drops policies then tables.
 - [ ] **Step 4: Run test + migration check**
 
 Run: `cd backend && uv run pytest tests/workspace_store/test_models.py -v` → PASS.
-Run: `cd backend && DATABASE_URL="sqlite:///$(mktemp -u).db" <phase-1a env vars> uv run alembic upgrade head` → ends at `014`.
+Run: `cd backend && DATABASE_URL="sqlite:///$(mktemp -u).db" <phase-1a env vars> uv run alembic upgrade head` → ends at `018`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/penny/adapters/db/models.py backend/alembic/env.py \
-  backend/db/migrations/014_add_workspace_store.py \
+  backend/db/migrations/018_add_workspace_store.py \
   backend/tests/workspace_store/test_models.py
-git commit -m "feat(workspace): prefix/manifest/head tables with RLS (migration 014)"
+git commit -m "feat(workspace): prefix/manifest/head tables with RLS (migration 018)"
 ```
 
 ---
