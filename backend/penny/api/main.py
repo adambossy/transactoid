@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 load_dotenv(override=False)
 # Import _logging first so the file sink is installed before anything
@@ -51,7 +52,7 @@ from penny.workspace_store.sync import flush, materialize  # noqa: E402
 
 from .auth import request_context  # noqa: E402
 from .billing_routes import router as billing_router  # noqa: E402
-from .bridge import stream_and_persist  # noqa: E402
+from .bridge import _sse, stream_and_persist  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
 from .persistence.store import ConversationAccessError, ConversationStore  # noqa: E402
@@ -446,32 +447,46 @@ async def chat(
         root = Path(tempfile.mkdtemp(prefix="penny-ws-"))
         db = get_db()
         try:
-            with db.session_for(turn_ctx) as s:
-                ensure_prefixes(s, turn_ctx)
-                checkout = materialize(s, turn_ctx, blob_store=blob_store, root=root)
-            # Evaluate onboarding triggers and enqueue the consolidated reminder
-            # BEFORE the agent runs, so the harness drains it into this turn's
-            # user message. Individual conversations only; joint threads skip.
-            await _maybe_enqueue_onboarding(turn_ctx, conversation_id=chat_id)
-            # persist_session=False: the harness never writes to sessions.db;
-            # the app store (above + the bridge) is the single persistence
-            # layer. The seeded session provides read-only continuity.
-            agent = build_agent(
-                model=build_model(credential=run_credential),
-                session=session,
-                persist_session=False,
-                ctx=turn_ctx,
-                workspace_dir=checkout.root,
-                usage_pricer=usage_pricer,
-                # Website injects the DB-backed queue so backend-enqueued
-                # reminders (onboarding nudges, Plaid-link success) flush into
-                # this turn's user message.
-                reminders=DbReminderQueue(turn_ctx),
-                # Website injects the web-store-backed onboarding resolver the
-                # resolve_onboarding_item tool needs (kept out of the agent
-                # domain, mirroring reminders above).
-                onboarding_resolver=resolve,
-            )
+            # Pre-stream setup runs BEFORE stream_and_persist emits any frame, so
+            # a failure here (workspace materialize, onboarding enqueue, agent
+            # build) would otherwise tear the SSE connection with nothing for the
+            # UI to render. Surface it as the bridge's error-frame contract
+            # ({type:error} + [DONE]) instead — the ChatScreen red-banner path.
+            try:
+                with db.session_for(turn_ctx) as s:
+                    ensure_prefixes(s, turn_ctx)
+                    checkout = materialize(
+                        s, turn_ctx, blob_store=blob_store, root=root
+                    )
+                # Evaluate onboarding triggers and enqueue the consolidated
+                # reminder BEFORE the agent runs, so the harness drains it into
+                # this turn's user message. Individual conversations only; joint
+                # threads skip.
+                await _maybe_enqueue_onboarding(turn_ctx, conversation_id=chat_id)
+                # persist_session=False: the harness never writes to sessions.db;
+                # the app store (above + the bridge) is the single persistence
+                # layer. The seeded session provides read-only continuity.
+                agent = build_agent(
+                    model=build_model(credential=run_credential),
+                    session=session,
+                    persist_session=False,
+                    ctx=turn_ctx,
+                    workspace_dir=checkout.root,
+                    usage_pricer=usage_pricer,
+                    # Website injects the DB-backed queue so backend-enqueued
+                    # reminders (onboarding nudges, Plaid-link success) flush into
+                    # this turn's user message.
+                    reminders=DbReminderQueue(turn_ctx),
+                    # Website injects the web-store-backed onboarding resolver the
+                    # resolve_onboarding_item tool needs (kept out of the agent
+                    # domain, mirroring reminders above).
+                    onboarding_resolver=resolve,
+                )
+            except Exception as exc:
+                logger.exception("pre-stream setup failed for conversation {}", chat_id)
+                yield _sse({"type": "error", "errorText": str(exc)})
+                yield "data: [DONE]\n\n"
+                return
             async for frame in stream_and_persist(
                 agent,
                 prompt,
