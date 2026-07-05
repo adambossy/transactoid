@@ -387,5 +387,8 @@ Maintain it **in the same change** that alters reality:
 - Gemini rejects JSON schemas containing `additionalProperties` etc.; the
   harness strips them (`providers/google.py`). If a new tool 400s on Gemini,
   check its generated schema first.
-- `run_sql` is intentionally unrestricted (read AND write) per explicit
-  decision; tightening is a productionization item.
+- `run_sql` is read-only. An input-layer parse guard
+  (`security/sql_read_guard.py`) accepts only a single read-only `SELECT` and
+  rejects any write/DDL/session statement before execution; in prod it also runs
+  on a dedicated read-only Postgres role under RLS (see `REQUIREMENTS.txt` T2a /
+  T8). Older notes calling it "unrestricted (read AND write)" are stale.

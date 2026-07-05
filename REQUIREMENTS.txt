@@ -154,7 +154,7 @@ T8. Multi-tenant data isolation
     Every financial row belongs to exactly one household and one owning user,
     with 'private'/'shared' visibility. Isolation is enforced in two layers:
     Postgres row-level security (USING and WITH CHECK, so neither reads nor
-    writes cross households — including the agent's unrestricted run_sql) and
+    writes cross households — including the agent's read-only run_sql) and
     app-level query filtering (the only layer on SQLite dev). A joint session
     sees shared rows only; no row may be owned by the joint-session sentinel.
     The agent's free-form run_sql runs on a dedicated read-only Postgres role
