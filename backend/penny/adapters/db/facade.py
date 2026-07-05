@@ -243,6 +243,29 @@ def visible_filter(model: Any, ctx: RequestContext) -> Any:
     )
 
 
+def apply_tenant_guc(session: Session, ctx: RequestContext) -> None:
+    """Pin the transaction-local tenant GUCs for ``ctx`` on ``session``.
+
+    The direct ``set_config`` path shared by session open
+    (``_apply_rls_settings``) and provisioning, which must set
+    ``app.current_household`` *mid-transaction* so the taxonomy INSERTs pass the
+    ``categories`` RLS ``WITH CHECK``. Transaction-local (the ``true`` third arg
+    is the ``SET LOCAL`` form), so it lasts the rest of the current transaction
+    and resets on commit/rollback. No-op off Postgres (SQLite dev has no RLS).
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    from penny.tenancy.context import effective_user_id
+
+    session.execute(
+        text(
+            "SELECT set_config('app.current_household', :h, true), "
+            "set_config('app.current_user', :u, true)"
+        ),
+        {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))},
+    )
+
+
 def _stamp_tenant_columns(
     session: Session, _flush_context: Any, _instances: Any
 ) -> None:
@@ -337,25 +360,18 @@ class DB:
         ctx = get_request_context()
         if ctx is None:
             return
-        params = {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))}
         if self._use_tenant_guc_wrapper:
             # Read-only run_sql connection: pin the tenant through the set-once
             # SECURITY DEFINER wrapper. EXECUTE on set_config is revoked from this
             # role, so untrusted SQL can neither call set_config directly nor
             # re-invoke the wrapper to flip the household mid-transaction
             # (findings F02/F05).
+            params = {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))}
             session.execute(text("SELECT penny_set_tenant(:h, :u)"), params)
             return
-        # set_config(..., true) is the transaction-local form of SET LOCAL and,
-        # unlike SET LOCAL, accepts bound parameters. In joint mode the
-        # effective user is the nil sentinel, so RLS shows shared rows only.
-        session.execute(
-            text(
-                "SELECT set_config('app.current_household', :h, true), "
-                "set_config('app.current_user', :u, true)"
-            ),
-            params,
-        )
+        # In joint mode the effective user is the nil sentinel, so RLS shows
+        # shared rows only (apply_tenant_guc resolves it from the ctx).
+        apply_tenant_guc(session, ctx)
 
     def _scope_visible(self, query: Any, model: Any) -> Any:
         """Apply app-level visibility filtering when a RequestContext is set.
