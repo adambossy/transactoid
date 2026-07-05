@@ -2,25 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
-import { AlertCircle, Brain, SquarePen } from "lucide-react";
+import { AlertCircle, Brain } from "lucide-react";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
+import { loadOrCreateSessionId } from "./session";
 
 const MODEL = "gemini-3.5-flash";
-const SESSION_KEY = "penny:sessionId";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
 type SessionMode = "individual" | "joint";
-
-function loadOrCreateSessionId(): string {
-  const existing = localStorage.getItem(SESSION_KEY);
-  if (existing) return existing;
-  const fresh = crypto.randomUUID();
-  localStorage.setItem(SESSION_KEY, fresh);
-  return fresh;
-}
 
 // Reshape the AI SDK send body to the shape the backend's /api/chat expects,
 // attaching a fresh bearer token per request and the (creation-only) session
@@ -181,11 +173,6 @@ function Chat({
     lastMessage !== undefined &&
     (lastMessage.role === "user" || !hasVisibleParts(lastMessage as AiUIMessage));
 
-  const startNewChat = () => {
-    localStorage.setItem(SESSION_KEY, crypto.randomUUID());
-    window.location.reload();
-  };
-
   // Top-level errors come from two paths:
   //   1. `useChat` exposes `error` for transport / parse failures.
   //   2. Stream-level `{type: "error", errorText}` frames are appended as a
@@ -194,17 +181,6 @@ function Chat({
 
   return (
     <div className="flex h-full w-full flex-col bg-background text-foreground">
-      <div className="flex items-center justify-end px-3 pt-2">
-        <button
-          type="button"
-          onClick={startNewChat}
-          title="New chat"
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <SquarePen className="h-3.5 w-3.5" />
-          New chat
-        </button>
-      </div>
       <div ref={transcriptRef} className="flex-1 overflow-y-auto">
         {/* data-testid/data-role: stable hooks for the Playwright specs. */}
         <div data-testid="transcript" className="mx-auto max-w-3xl px-3 pt-2 pb-2 sm:px-4">

@@ -121,5 +121,35 @@ def test_set_title_if_unset_keeps_first_user_message(tmp_path: Path):
     assert output == expected_output
 
 
+def test_list_conversations_newest_first_and_tenant_scoped(tmp_path: Path):
+    from datetime import datetime
+
+    from penny.api.persistence.models import Conversation
+
+    # setup: two household members. Alice's solo thread + a joint thread are
+    # visible to Alice; Bob's solo thread is not.
+    store = _make_store(tmp_path)
+    household = uuid.uuid4()
+    alice = RequestContext(user_id=uuid.uuid4(), household_id=household)
+    bob = RequestContext(user_id=uuid.uuid4(), household_id=household)
+
+    store.ensure_conversation("alice-solo", alice)
+    store.ensure_conversation("bob-solo", bob)
+    store.ensure_conversation("shared", bob, session_mode="joint")
+
+    # Stamp distinct updated_at so newest-first ordering is deterministic.
+    with store.session() as session:
+        session.get(Conversation, "alice-solo").updated_at = datetime(2026, 1, 1)
+        session.get(Conversation, "shared").updated_at = datetime(2026, 2, 1)
+
+    # act
+    rows = store.list_conversations(alice)
+    output = [row.conversation_id for row in rows]
+
+    # expected: joint thread (newer) leads, then Alice's solo; Bob's solo hidden
+    expected_output = ["shared", "alice-solo"]
+    assert output == expected_output
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

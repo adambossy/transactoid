@@ -9,6 +9,7 @@ export type { ChipProps } from "./primitives/Chip";
 export { EyebrowPill } from "./primitives/EyebrowPill";
 export type { EyebrowPillProps } from "./primitives/EyebrowPill";
 export { Card } from "./primitives/Card";
+export { IconButton } from "./primitives/IconButton";
 export { Input } from "./primitives/Input";
 export type { InputProps } from "./primitives/Input";
 export { AppShell } from "./shell/AppShell";

@@ -1,6 +1,8 @@
 import { UserButton } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
-import { Header } from "@penny/ui";
+import type { RefObject } from "react";
+import { Menu } from "lucide-react";
+import { Header, IconButton } from "@penny/ui";
 import { authHeaders } from "./authFetch";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
@@ -20,7 +22,17 @@ interface Me {
  * signup is what triggers backend auto-provisioning, so the household name is
  * guaranteed to resolve here.
  */
-export function HouseholdHeader({ getToken }: { getToken: GetToken }) {
+export function HouseholdHeader({
+  getToken,
+  drawerOpen,
+  onToggleDrawer,
+  hamburgerRef,
+}: {
+  getToken: GetToken;
+  drawerOpen: boolean;
+  onToggleDrawer: () => void;
+  hamburgerRef: RefObject<HTMLButtonElement | null>;
+}) {
   const [me, setMe] = useState<Me | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -89,6 +101,16 @@ export function HouseholdHeader({ getToken }: { getToken: GetToken }) {
 
   return (
     <Header
+      leading={
+        <IconButton
+          ref={hamburgerRef}
+          aria-label={drawerOpen ? "Close chat history" : "Open chat history"}
+          aria-expanded={drawerOpen}
+          onClick={onToggleDrawer}
+        >
+          <Menu className="h-5 w-5" />
+        </IconButton>
+      }
       nav={
         <>
           {householdName}
