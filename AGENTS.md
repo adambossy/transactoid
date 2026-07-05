@@ -42,6 +42,13 @@ Examples of non-canonical artifacts:
   taken, not how production runs day to day. (Numbered schema migrations under
   `backend/db/migrations/` are a distinct, tracked mechanism — not the one-off
   cut-over scripts meant here.)
+- **Transient one-off tooling** (`backend/transient/**`) — self-contained
+  one-shot tools such as the phase-3 account cutover (`backend/transient/
+  account-cutover/`). This tree is **non-canonical**: excluded from the
+  ruff/pytest gates (ruff `extend-exclude`; pytest `testpaths` never reaches
+  it), exempt from the "follow existing patterns" expectations, and **deletable**
+  once spent. It may import canonical app models/façade/cipher **read-only**; no
+  app code imports it. Treat it as scratch held to its own rehearsal/verify bar.
 
 Directives:
 
@@ -113,6 +120,15 @@ uv run pytest -q
 
 Run these before completing any unit of work. There is no mypy gate yet.
 
+The multi-tenant RLS suites (`@pytest.mark.postgres`) skip unless
+`POSTGRES_TEST_URL` is set — point it at the Neon `penny-test` branch or a
+local Postgres with a **non-superuser** role (superusers bypass RLS; see
+`tests/conftest_postgres.py`):
+
+```bash
+POSTGRES_TEST_URL=postgresql://... uv run pytest -q -m postgres
+```
+
 ## Databases
 
 - Default: SQLite at `backend/penny.db` (gitignored), schema via
@@ -162,8 +178,13 @@ Run these before completing any unit of work. There is no mypy gate yet.
   red banner in ChatScreen; tool failures as `tool-output-error` frames.
 - **Workspace**: `~/.transactoid` (memory/, reports/, logs/) — path kept from
   the old product so user state carries over.
-- **Single-user**: no auth, no multi-tenancy. That work is tracked in
-  `plans/20260524-224025-productionize-transactoid.md`.
+- **Tenancy**: every financial row carries `household_id` / `owner_user_id` /
+  `visibility`, enforced by Postgres RLS (USING + WITH CHECK, incl. the agent's
+  `run_sql`) plus app-level filtering (the only layer on SQLite dev). The
+  per-request principal is a `RequestContext` (`penny/tenancy/`), resolved by
+  a dev stub (`X-Penny-*` headers / `PENNY_DEV_*` env) until real auth lands
+  in phase 2. Plaid access tokens are encrypted at rest
+  (`PENNY_PLAID_TOKEN_KEY`).
 - **Branching**: `main` is the single long-lived branch. Cut feature
   branches off `main` (`<type>/<description>`, in a `.worktrees/<branch>`
   worktree) and merge them back into `main` — there is **no** `develop` /
@@ -366,5 +387,8 @@ Maintain it **in the same change** that alters reality:
 - Gemini rejects JSON schemas containing `additionalProperties` etc.; the
   harness strips them (`providers/google.py`). If a new tool 400s on Gemini,
   check its generated schema first.
-- `run_sql` is intentionally unrestricted (read AND write) per explicit
-  decision; tightening is a productionization item.
+- `run_sql` is read-only. An input-layer parse guard
+  (`security/sql_read_guard.py`) accepts only a single read-only `SELECT` and
+  rejects any write/DDL/session statement before execution; in prod it also runs
+  on a dedicated read-only Postgres role under RLS (see `REQUIREMENTS.txt` T2a /
+  T8). Older notes calling it "unrestricted (read AND write)" are stale.

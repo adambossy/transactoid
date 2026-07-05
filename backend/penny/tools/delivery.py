@@ -14,8 +14,34 @@ from typing import Any
 
 from agent_harness import tool
 
+from penny.adapters.db.models import User
+from penny.db import get_db
 from penny.services.email import EmailService, SMTPConfig
+from penny.tenancy.context import RequestContext, SessionMode, require_request_context
 from penny.tools._services.uploader import upload_artifact
+
+
+def resolve_report_recipients(session, ctx: RequestContext) -> list[str]:
+    """Recipients for a report, derived ENTIRELY from the authed context.
+
+    Individual context → just that user's verified email. Joint/household
+    context → every household member with a linked identity
+    (``external_auth_id`` set); pending invitees are excluded. The agent cannot
+    name, add, or influence a recipient — the injection surface is removed, not
+    validated. Identity tables carry no RLS, so a plain session works.
+    """
+    if ctx.session_mode is SessionMode.JOINT:
+        rows = (
+            session.query(User)
+            .filter(
+                User.household_id == ctx.household_id,
+                User.external_auth_id.isnot(None),
+            )
+            .all()
+        )
+        return [r.email for r in rows]
+    row = session.query(User).filter(User.user_id == ctx.user_id).one()
+    return [row.email]
 
 
 def _coerce_bool(value: str | None, *, default: bool) -> bool:
@@ -101,15 +127,18 @@ async def upload_artifact_to_r2(
 
 @tool
 async def send_email_report(
-    to: list[str],
     subject: str,
     html_content: str,
     text_content: str,
 ) -> dict[str, Any]:
-    """Email a rendered report via the configured Resend (or SMTP) provider.
+    """Email a rendered report to the authenticated account(s).
+
+    Recipients are derived from the authenticated context — the personal report
+    goes to that user, a household report to all household members — and cannot
+    be named or influenced by the caller. There is deliberately no recipient
+    argument.
 
     Args:
-        to: One or more recipient addresses.
         subject: Email subject line.
         html_content: HTML body.
         text_content: Plain-text fallback body.
@@ -117,9 +146,12 @@ async def send_email_report(
 
     def _run() -> dict[str, Any]:
         try:
+            ctx = require_request_context()
+            with get_db().session() as session:
+                recipients = resolve_report_recipients(session, ctx)
             service = _build_email_service()
             result = service.send_report(
-                to=to,
+                to=recipients,
                 subject=subject,
                 html_content=html_content,
                 text_content=text_content,

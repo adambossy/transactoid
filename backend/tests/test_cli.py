@@ -81,34 +81,19 @@ def test_report_prompt_triggers_skill_for_period(period: str) -> None:
     assert output == expected_output
 
 
-def test_build_prompt_renders_date_and_appends_email() -> None:
-    # input: a raw prompt with an email recipient
-    input_data = {
-        "prompt": "Summarize spending.",
-        "prompt_key": None,
-        "email": ["a@example.com", "b@example.com"],
-    }
-
-    # act
-    output = cli._build_prompt(**input_data)
-
-    # expected: the email instruction is appended verbatim
-    expected_output = (
-        "Summarize spending.\n\nWhen the report is complete, email it to the "
-        "following recipient(s): a@example.com, b@example.com."
-    )
+def test_build_prompt_does_not_embed_recipients() -> None:
+    # Recipients are derived from the run's RequestContext by send_email_report,
+    # never embedded in the prompt — so the prompt passes through untouched.
+    output = cli._build_prompt(prompt="Summarize spending.", prompt_key=None)
 
     # assert
-    assert output == expected_output
+    assert output == "Summarize spending."
 
 
 def test_build_prompt_requires_a_source() -> None:
-    # input: neither prompt nor prompt_key
-    input_data = {"prompt": None, "prompt_key": None, "email": []}
-
     # act / assert: belt-and-suspenders guard raises
     with pytest.raises(ValueError):
-        cli._build_prompt(**input_data)
+        cli._build_prompt(prompt=None, prompt_key=None)
 
 
 def _patch_run_and_exit_seams(
@@ -137,8 +122,25 @@ def _patch_run_and_exit_seams(
     # penny.agent_factory, so patch them on that module.
     import penny.agent_factory as factory
 
+    # Headless runs resolve the dev principal from env.
+    monkeypatch.setenv("PENNY_DEV_USER_ID", "11111111-1111-1111-1111-111111111111")
+    monkeypatch.setenv("PENNY_DEV_HOUSEHOLD_ID", "22222222-2222-2222-2222-222222222222")
     monkeypatch.setattr(factory, "build_model", lambda: object())
     monkeypatch.setattr(factory, "build_agent", _fake_build_agent)
+
+    # _drive_agent wraps the run in run_with_workspace (materialize -> run ->
+    # flush against Postgres+R2). That store lifecycle is exercised in
+    # tests/workspace_store/test_agent_wiring.py; here we stub it to just hand
+    # the run a temp checkout dir so this smoke test stays hermetic (no DB/R2).
+    import penny.workspace_store.sync as ws_sync
+
+    async def _fake_run_with_workspace(ctx: Any, run_fn: Any, **_: Any) -> Any:
+        from pathlib import Path
+        import tempfile
+
+        return await run_fn(Path(tempfile.mkdtemp(prefix="penny-ws-test-")))
+
+    monkeypatch.setattr(ws_sync, "run_with_workspace", _fake_run_with_workspace)
     # bootstrap is imported lazily inside _run_and_exit from penny.bootstrap.
     import penny.bootstrap as bootstrap_mod
 

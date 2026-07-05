@@ -1,6 +1,11 @@
 line-length = 88
 target-version = "py313"
 
+# transient/ holds non-canonical one-off tooling (e.g. the phase-3 account
+# cutover). It is deletable, is not imported by app code, and is deliberately
+# exempt from the lint/format gate — see the repo AGENTS.md.
+extend-exclude = ["transient"]
+
 [lint]
 extend-select = [
     "B",      # flake8-bugbear
@@ -22,9 +27,15 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/**" = ["S101", "S106"]  # S101: assert, S106: hardcoded passwords (test data)
+# S101: assert, S105/S106: test tokens/passwords, B008: FastAPI Depends()
+"tests/**" = ["S101", "S105", "S106", "B008"]
 # B008: typer.Option() in defaults is the idiomatic Typer parameter pattern.
 "penny/cli.py" = ["B008"]
+"penny/admin.py" = ["B008"]
+# B008: FastAPI Depends()/Query() in defaults is the idiomatic parameter pattern.
+"penny/api/main.py" = ["B008"]
+"penny/api/billing_routes.py" = ["B008"]
+"penny/api/signup_routes.py" = ["B008"]
 
 [lint.isort]
 known-first-party = ["penny"]

@@ -5,16 +5,19 @@ from __future__ import annotations
 from agent_harness import StaticToolset
 from agent_harness.core.toolsets import Toolset
 
+from ._services.onboarding import OnboardingResolver
 from .analytics import generate_chart, run_sql
 from .audit import (
     category_history,
     find_similar_tagged_transactions,
     transaction_tags,
 )
-from .bash import bash
+from .connect_provider import connect_provider
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
+from .onboarding import make_resolve_onboarding_item
 from .plaid import connect_new_account, list_plaid_accounts
+from .plaid_link import connect_bank_account
 from .recategorize import (
     recategorize_merchant,
     recategorize_transaction,
@@ -35,13 +38,14 @@ from .transactions import (
 )
 
 
-def build_toolset() -> Toolset:
+def build_toolset(*, onboarding_resolver: OnboardingResolver | None = None) -> Toolset:
     return StaticToolset(
         name="penny",
         tools=[
             # Plaid + sync
             list_plaid_accounts,
             connect_new_account,
+            connect_bank_account,
             sync_transactions,
             # Mutations
             recategorize_merchant,
@@ -66,9 +70,18 @@ def build_toolset() -> Toolset:
             # Delivery
             upload_artifact_to_r2,
             send_email_report,
+            # Billing (connect-a-provider card)
+            connect_provider,
+            # Onboarding (resolver injected by the website; None on front doors
+            # that don't wire onboarding, e.g. the CLI/cron)
+            make_resolve_onboarding_item(onboarding_resolver),
             # Memory
             generate_memory_index,
-            # Sandbox
-            bash,
+            # NOTE: the `bash` shell-exec tool was intentionally removed
+            # (Phase 6 security finding F01/F06). InProcessSandbox.exec spawns a
+            # subprocess with the full server os.environ, so any open-signup user
+            # could exfiltrate every secret via `bash(["env"])`. A properly
+            # sandboxed (env-stripped, network-isolated) shell tool may return
+            # later; until then the agent has no subprocess-spawning surface.
         ],
     )

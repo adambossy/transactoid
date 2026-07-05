@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from loguru import logger
 
 if TYPE_CHECKING:
+    from penny.tenancy.context import RequestContext
     from penny.tools._services.categorizer import CategorizedTransaction
     from penny.tools._services.mutation_plugin import (
         DerivedTransactionPayload,
@@ -17,11 +18,13 @@ if TYPE_CHECKING:
 from sqlalchemy import (
     Table,
     UniqueConstraint,
+    and_,
     case,
     create_engine,
     event,
     func,
     inspect,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -41,6 +44,7 @@ from penny.adapters.db.models import (
     EmailReceipt,
     EvalItem,
     EvalRun,
+    Household,
     Merchant,
     PendingReceiptMatch,
     PlaidItem,
@@ -51,6 +55,7 @@ from penny.adapters.db.models import (
     TransactionCategoryEvent,
     TransactionItem,
     TransactionTag,
+    User,
     normalize_merchant_name,
 )
 
@@ -180,10 +185,119 @@ def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
     cursor.close()
 
 
+# Identity rows ARE the tenant boundary — never stamp them with one.
+_TENANT_STAMP_EXEMPT = (Household, User)
+
+
+def _tenant_values() -> dict[str, Any]:
+    """The current principal's tenant column values; ``{}`` when no context.
+
+    Visibility defaults to ``'private'`` (``'shared'`` in a joint session,
+    since a joint write must satisfy the RLS WITH CHECK where
+    app.current_user is the nil sentinel).
+    """
+    from penny.tenancy.context import SessionMode, get_request_context
+
+    ctx = get_request_context()
+    if ctx is None:
+        return {}
+    return {
+        "household_id": ctx.household_id,
+        "owner_user_id": ctx.user_id,
+        "visibility": "shared" if ctx.session_mode is SessionMode.JOINT else "private",
+    }
+
+
+def _stored_token(access_token: str) -> str:
+    """Plaid access tokens are encrypted at rest when the key is configured.
+
+    Fails closed in clerk (prod) mode when no key is set (F07); unconfigured dev
+    keeps plaintext, and migration 017 encrypts the backlog once the key exists.
+    Already-encrypted values pass through, so re-saving never double-encrypts.
+    Decryption happens only at the Plaid wire seam
+    (PlaidClient._with_decrypted_token).
+    """
+    from penny.security.token_cipher import encrypt_token_at_rest, is_encrypted
+
+    if is_encrypted(access_token):
+        return access_token
+    return encrypt_token_at_rest(access_token)
+
+
+def visible_filter(model: Any, ctx: RequestContext) -> Any:
+    """SQLAlchemy predicate for the rows ``ctx`` may see.
+
+    Individual mode: same household AND (own row OR shared).
+    Joint mode: same household AND shared only.
+    Works for any model carrying the tenant column triple; mirrors the RLS
+    ``tenant_isolation`` policy (migration 015).
+    """
+    from penny.tenancy.context import SessionMode
+
+    base = model.household_id == ctx.household_id
+    if ctx.session_mode is SessionMode.JOINT:
+        return and_(base, model.visibility == "shared")
+    return and_(
+        base,
+        or_(model.owner_user_id == ctx.user_id, model.visibility == "shared"),
+    )
+
+
+def apply_tenant_guc(session: Session, ctx: RequestContext) -> None:
+    """Pin the transaction-local tenant GUCs for ``ctx`` on ``session``.
+
+    The direct ``set_config`` path shared by session open
+    (``_apply_rls_settings``) and provisioning, which must set
+    ``app.current_household`` *mid-transaction* so the taxonomy INSERTs pass the
+    ``categories`` RLS ``WITH CHECK``. Transaction-local (the ``true`` third arg
+    is the ``SET LOCAL`` form), so it lasts the rest of the current transaction
+    and resets on commit/rollback. No-op off Postgres (SQLite dev has no RLS).
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    from penny.tenancy.context import effective_user_id
+
+    session.execute(
+        text(
+            "SELECT set_config('app.current_household', :h, true), "
+            "set_config('app.current_user', :u, true)"
+        ),
+        {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))},
+    )
+
+
+def _stamp_tenant_columns(
+    session: Session, _flush_context: Any, _instances: Any
+) -> None:
+    """Fill tenant columns on new rows from the current RequestContext.
+
+    Write-time half of tenant scoping: any financial row inserted without an
+    explicit household/owner inherits the requesting principal's. Rows that
+    pre-set these columns (e.g. denormalized copies from plaid_accounts) are
+    left untouched. No-op when no context is set — the NOT NULL contract then
+    surfaces the missing principal as an IntegrityError.
+    """
+    values = _tenant_values()
+    if not values:
+        return
+    for obj in session.new:
+        if isinstance(obj, _TENANT_STAMP_EXEMPT):
+            continue
+        for column, value in values.items():
+            if hasattr(obj, column) and getattr(obj, column) is None:
+                setattr(obj, column, value)
+
+
 class DB:
     """Database service layer providing ORM models and helper methods."""
 
-    def __init__(self, url: str, *, enforce_sqlite_fks: bool = False) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        enforce_sqlite_fks: bool = False,
+        use_tenant_guc_wrapper: bool = False,
+    ) -> None:
         """Initialize database connection.
 
         Args:
@@ -192,7 +306,14 @@ class DB:
                 ``PRAGMA foreign_keys=ON`` so RESTRICT/CASCADE behave like
                 Postgres. Off by default — pre-existing tests rely on the
                 permissive default.
+            use_tenant_guc_wrapper: When True, pin the per-transaction tenant
+                GUCs on Postgres through the set-once ``penny_set_tenant``
+                SECURITY DEFINER wrapper instead of a direct ``set_config``.
+                Used for the read-only ``run_sql`` connection, whose role has
+                EXECUTE on ``set_config`` revoked so untrusted SQL cannot flip
+                the tenant mid-transaction (findings F02/F05).
         """
+        self._use_tenant_guc_wrapper = use_tenant_guc_wrapper
         engine_kwargs: dict[str, Any] = {"echo": False}
         if not url.startswith("sqlite"):
             # Keep long-lived CLI/ACP sessions resilient to dropped DB connections.
@@ -206,6 +327,7 @@ class DB:
         if url.startswith("sqlite") and enforce_sqlite_fks:
             event.listen(self._engine, "connect", _enable_sqlite_foreign_keys)
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
+        event.listen(self._session_factory, "before_flush", _stamp_tenant_columns)
 
     def create_schema(self) -> None:
         """Create database tables if they do not already exist."""
@@ -213,9 +335,15 @@ class DB:
 
     @contextmanager
     def session(self) -> Iterator[Session]:
-        """Context manager for database sessions."""
+        """Context manager for database sessions.
+
+        On Postgres, stamps the transaction with the current RequestContext's
+        household/user GUCs so RLS policies filter every statement — including
+        raw SQL from the agent's run_sql tool.
+        """
         session = self._session_factory()
         try:
+            self._apply_rls_settings(session)
             yield session
             session.commit()
         except Exception:
@@ -223,6 +351,75 @@ class DB:
             raise
         finally:
             session.close()
+
+    def _apply_rls_settings(self, session: Session) -> None:
+        if self._engine.dialect.name != "postgresql":
+            return
+        from penny.tenancy.context import effective_user_id, get_request_context
+
+        ctx = get_request_context()
+        if ctx is None:
+            return
+        if self._use_tenant_guc_wrapper:
+            # Read-only run_sql connection: pin the tenant through the set-once
+            # SECURITY DEFINER wrapper. EXECUTE on set_config is revoked from this
+            # role, so untrusted SQL can neither call set_config directly nor
+            # re-invoke the wrapper to flip the household mid-transaction
+            # (findings F02/F05).
+            params = {"h": str(ctx.household_id), "u": str(effective_user_id(ctx))}
+            session.execute(text("SELECT penny_set_tenant(:h, :u)"), params)
+            return
+        # In joint mode the effective user is the nil sentinel, so RLS shows
+        # shared rows only (apply_tenant_guc resolves it from the ctx).
+        apply_tenant_guc(session, ctx)
+
+    def _scope_visible(self, query: Any, model: Any) -> Any:
+        """Apply app-level visibility filtering when a RequestContext is set.
+
+        The belt to RLS's suspenders — and the only tenant filter on SQLite
+        dev, where RLS does not exist. Left unscoped when no context is set:
+        non-request tooling (scripts, evals) reads everything there, while on
+        Postgres RLS still applies.
+        """
+        from penny.tenancy.context import get_request_context
+
+        ctx = get_request_context()
+        if ctx is None:
+            return query
+        return query.filter(visible_filter(model, ctx))
+
+    def list_visible_plaid_transactions(
+        self, session: Session
+    ) -> list[PlaidTransaction]:
+        """All Plaid transactions the current RequestContext may see."""
+        from penny.tenancy.context import require_request_context
+
+        ctx = require_request_context()
+        rows = (
+            session.query(PlaidTransaction)
+            .filter(visible_filter(PlaidTransaction, ctx))
+            .all()
+        )
+        for r in rows:
+            session.expunge(r)
+        return rows
+
+    @contextmanager
+    def session_for(self, ctx: RequestContext) -> Iterator[Session]:
+        """A session bound to an explicit RequestContext.
+
+        For non-request callers (cron, scripts, tests) with no ambient
+        context; sets the ContextVar for the duration so both the RLS GUCs
+        and write-time tenant stamping see it.
+        """
+        from penny.tenancy.context import reset_request_context, set_request_context
+
+        token = set_request_context(ctx)
+        try:
+            with self.session() as s:
+                yield s
+        finally:
+            reset_request_context(token)
 
     def execute_raw_sql(self, query: str) -> CursorResult[Any]:
         """Execute raw SQL query and return cursor result.
@@ -309,7 +506,9 @@ class DB:
                 value=DerivedTransaction.transaction_id,
             )
             transactions = (
-                session.query(DerivedTransaction)
+                self._scope_visible(
+                    session.query(DerivedTransaction), DerivedTransaction
+                )
                 .filter(DerivedTransaction.transaction_id.in_(ids))
                 .order_by(order_case)
                 .all()
@@ -1184,6 +1383,7 @@ class DB:
         Returns:
             Created or updated PlaidItem instance
         """
+        access_token = _stored_token(access_token)
         with self.session() as session:  # type: Session
             item = session.query(PlaidItem).filter_by(item_id=item_id).first()
             if item is None:
@@ -1276,6 +1476,7 @@ class DB:
         Returns:
             Created PlaidItem instance
         """
+        access_token = _stored_token(access_token)
         with self.session() as session:  # type: Session
             plaid_item = PlaidItem(
                 item_id=item_id,
@@ -1331,6 +1532,7 @@ class DB:
         Raises:
             ValueError: If old_item_id does not exist
         """
+        access_token = _stored_token(access_token)
         with self.session() as session:  # type: Session
             old_item = session.query(PlaidItem).filter_by(item_id=old_item_id).first()
             if old_item is None:
@@ -1420,7 +1622,7 @@ class DB:
         """
         with self.session() as session:  # type: Session
             txns = (
-                session.query(PlaidTransaction)
+                self._scope_visible(session.query(PlaidTransaction), PlaidTransaction)
                 .filter(
                     PlaidTransaction.posted_at >= start,
                     PlaidTransaction.posted_at <= end,
@@ -1528,6 +1730,11 @@ class DB:
         """
         if not transactions:
             return []
+
+        # Core insert bypasses the ORM flush hook — stamp the dicts directly.
+        tenant = _tenant_values()
+        if tenant:
+            transactions = [{**tenant, **t} for t in transactions]
 
         with self.session() as session:  # type: Session
             insert_stmt = pg_insert(PlaidTransaction).values(transactions)
@@ -2060,7 +2267,9 @@ class DB:
             investment trades, which are recorded but never categorized).
         """
         with self.session() as session:  # type: Session
-            query = session.query(DerivedTransaction.transaction_id).filter(
+            query = self._scope_visible(
+                session.query(DerivedTransaction.transaction_id), DerivedTransaction
+            ).filter(
                 DerivedTransaction.category_id.is_(None),
                 _needs_categorization_clause(),
             )
@@ -2277,7 +2486,9 @@ class DB:
 
         with self.session() as session:  # type: Session
             derived_txns = (
-                session.query(DerivedTransaction)
+                self._scope_visible(
+                    session.query(DerivedTransaction), DerivedTransaction
+                )
                 .options(
                     joinedload(DerivedTransaction.plaid_transaction).load_only(
                         PlaidTransaction.raw_name

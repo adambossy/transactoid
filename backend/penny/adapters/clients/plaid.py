@@ -329,9 +329,27 @@ class PlaidClient:
                 f"Failed to parse Plaid response as JSON: {e}: {body}"
             ) from e
 
+    @staticmethod
+    def _with_decrypted_token(payload: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt an at-rest-encrypted access_token right before the wire.
+
+        The single decryption point: tokens stay encrypted in the DB and in
+        memory (see the facade's ``_stored_token``); only the outgoing Plaid
+        request carries plaintext. Plaintext tokens (dev without the key)
+        pass through.
+        """
+        token = payload.get("access_token")
+        if not isinstance(token, str):
+            return payload
+        from penny.security.token_cipher import decrypt_token, is_encrypted
+
+        if not is_encrypted(token):
+            return payload
+        return {**payload, "access_token": decrypt_token(token)}
+
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = self._base_url().rstrip("/") + path
-        data = json.dumps(payload).encode("utf-8")
+        data = json.dumps(self._with_decrypted_token(payload)).encode("utf-8")
         req = urllib.request.Request(  # noqa: S310
             url,
             data=data,

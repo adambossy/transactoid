@@ -1,0 +1,44 @@
+{
+  "title": "Phase 5 — Onboarding",
+  "root": {
+    "id": "phase-5",
+    "label": "Phase 5 — Onboarding",
+    "href": "index.html",
+    "sections": ["goal", "shape", "decisions"],
+    "crosslinks": ["phase-5-reminders", "phase-5-engine", "phase-5-plaid", "phase-5-ux"],
+    "children": [
+      {
+        "id": "phase-5-reminders",
+        "label": "System reminders",
+        "href": "reminders.html",
+        "sections": ["mechanism", "cache-safety", "hiding"],
+        "crosslinks": ["phase-5-engine"],
+        "children": []
+      },
+      {
+        "id": "phase-5-engine",
+        "label": "Onboarding engine",
+        "href": "engine.html",
+        "sections": ["state", "triggers", "items"],
+        "crosslinks": ["phase-5-reminders", "phase-5-plaid"],
+        "children": []
+      },
+      {
+        "id": "phase-5-plaid",
+        "label": "Plaid Link generative UI",
+        "href": "plaid.html",
+        "sections": ["inline-flow", "exchange", "security"],
+        "crosslinks": ["phase-5-engine"],
+        "children": []
+      },
+      {
+        "id": "phase-5-ux",
+        "label": "UI/UX & E2E",
+        "href": "ux.html",
+        "sections": ["ui-ux", "e2e"],
+        "crosslinks": [],
+        "children": []
+      }
+    ]
+  }
+}

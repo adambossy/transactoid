@@ -1,0 +1,44 @@
+{
+  "title": "Phase 1b — Workspace Hybrid",
+  "root": {
+    "id": "phase-1b",
+    "label": "Phase 1b — Workspace hybrid",
+    "href": "index.html",
+    "sections": ["goal", "pipeline", "deliverables"],
+    "crosslinks": ["phase-1b-broker", "phase-1b-versioning", "phase-1b-build", "phase-1b-ux"],
+    "children": [
+      {
+        "id": "phase-1b-broker",
+        "label": "Capability broker",
+        "href": "broker.html",
+        "sections": ["layout", "read-flow", "security"],
+        "crosslinks": ["phase-1b-versioning"],
+        "children": []
+      },
+      {
+        "id": "phase-1b-versioning",
+        "label": "Versioning & CAS",
+        "href": "versioning.html",
+        "sections": ["manifests", "commit-cas", "write-back", "tests"],
+        "crosslinks": ["phase-1b-broker", "phase-1b-build"],
+        "children": []
+      },
+      {
+        "id": "phase-1b-build",
+        "label": "Build sequence",
+        "href": "build.html",
+        "sections": ["sequence", "tasks"],
+        "crosslinks": ["phase-1b-broker", "phase-1b-versioning"],
+        "children": []
+      },
+      {
+        "id": "phase-1b-ux",
+        "label": "UI/UX & E2E",
+        "href": "ux.html",
+        "sections": ["ui-ux", "e2e"],
+        "crosslinks": [],
+        "children": []
+      }
+    ]
+  }
+}

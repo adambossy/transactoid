@@ -14,7 +14,7 @@ Frame sequence per turn:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 import contextlib
 import json
 from typing import TYPE_CHECKING, Any
@@ -39,6 +39,8 @@ from loguru import logger
 from penny import observability
 
 if TYPE_CHECKING:
+    from penny.tenancy.context import RequestContext
+
     from .accumulator import MessageAccumulator
     from .persistence.store import ConversationStore
 
@@ -192,6 +194,9 @@ async def stream_and_persist(
     *,
     store: ConversationStore,
     conversation_id: str,
+    ctx: RequestContext,
+    subscribe_bus: Callable[[InMemoryEventBus], asyncio.Task[None] | None]
+    | None = None,
 ) -> AsyncIterator[str]:
     """Stream the agent like :func:`stream_agent`, persisting the assistant turn.
 
@@ -203,6 +208,11 @@ async def stream_and_persist(
 
     Persistence is best-effort: a store failure is logged and never raises into
     the (possibly already-closed) response.
+
+    ``subscribe_bus`` is an optional hook the caller uses to attach an extra bus
+    subscriber (the billing usage subscriber, on a subsidized run) before the
+    run publishes; its returned task is awaited after the bus closes. Kept as an
+    injected hook so the bridge stays billing-agnostic.
     """
     # Local import keeps the accumulator<->bridge cycle out of module init.
     from .accumulator import MessageAccumulator
@@ -214,6 +224,8 @@ async def stream_and_persist(
     trace_task = observability.start_run_trace_task(
         bus, source="chat", session_id=conversation_id, prompt=prompt
     )
+    # Optional third subscriber (billing usage ledger on a subsidized run).
+    extra_task = subscribe_bus(bus) if subscribe_bus is not None else None
 
     async def _run() -> None:
         try:
@@ -229,7 +241,7 @@ async def stream_and_persist(
         async for event in subscription:
             acc.consume(event)
             if isinstance(event, RunStart):
-                _safe_persist(store, conversation_id, acc, "streaming")
+                _safe_persist(store, conversation_id, ctx, acc, "streaming")
             try:
                 frames = _translate(event, open_text)
             except Exception as exc:
@@ -239,7 +251,7 @@ async def stream_and_persist(
             for frame in frames:
                 yield _sse(frame)
             if isinstance(event, RunEnd):
-                _safe_persist(store, conversation_id, acc, acc.status)
+                _safe_persist(store, conversation_id, ctx, acc, acc.status)
                 finalized = True
     finally:
         try:
@@ -249,16 +261,20 @@ async def stream_and_persist(
             yield _sse({"type": "error", "errorText": str(exc)})
         if not finalized:
             # Aborted / errored before RunEnd — flush partial parts as error.
-            _safe_persist(store, conversation_id, acc, "error")
+            _safe_persist(store, conversation_id, ctx, acc, "error")
         if trace_task is not None:
             with contextlib.suppress(Exception):
                 await trace_task
+        if extra_task is not None:
+            with contextlib.suppress(Exception):
+                await extra_task
     yield "data: [DONE]\n\n"
 
 
 def _safe_persist(
     store: ConversationStore,
     conversation_id: str,
+    ctx: RequestContext,
     acc: MessageAccumulator,
     status: str,
 ) -> None:
@@ -268,6 +284,7 @@ def _safe_persist(
     try:
         store.upsert_assistant_message(
             conversation_id,
+            ctx,
             ai_sdk_message_id=acc.run_id,
             parts=acc.parts(),
             status=status,

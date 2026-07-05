@@ -1,0 +1,36 @@
+{
+  "title": "Phase 3 — Production Cutover & Legacy-Data Migration",
+  "root": {
+    "id": "phase-3",
+    "label": "Phase 3 — Cutover & migration",
+    "href": "index.html",
+    "sections": ["goal", "stages", "decisions"],
+    "crosslinks": ["phase-3-schema", "phase-3-assign", "phase-3-safety"],
+    "children": [
+      {
+        "id": "phase-3-schema",
+        "label": "Schema reconciliation",
+        "href": "schema.html",
+        "sections": ["reconcile", "create-all-fix"],
+        "crosslinks": ["phase-3-assign"],
+        "children": []
+      },
+      {
+        "id": "phase-3-assign",
+        "label": "Assignment & handoff",
+        "href": "assign.html",
+        "sections": ["interactive", "reparent", "handoff"],
+        "crosslinks": ["phase-3-schema", "phase-3-safety"],
+        "children": []
+      },
+      {
+        "id": "phase-3-safety",
+        "label": "Safety & validation",
+        "href": "safety.html",
+        "sections": ["backup", "rehearse", "validate"],
+        "crosslinks": ["phase-3-assign"],
+        "children": []
+      }
+    ]
+  }
+}
