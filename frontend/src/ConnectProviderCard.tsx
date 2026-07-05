@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Card } from "@penny/ui";
+import { authHeaders } from "./authFetch";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -15,11 +16,6 @@ export interface ConnectProviderData {
   type: "connect_provider";
   providers: ProviderOption[];
   settings_url: string;
-}
-
-async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
-  const token = await getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 /**

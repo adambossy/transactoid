@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppShell, Button, Card } from "@penny/ui";
+import { authHeaders } from "./authFetch";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -23,11 +24,6 @@ const PROVIDERS = [
   { id: "openai", label: "OpenAI" },
   { id: "anthropic", label: "Anthropic" },
 ];
-
-async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
-  const token = await getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function formatDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;

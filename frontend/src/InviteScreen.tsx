@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppShell, Button, Card } from "@penny/ui";
+import { authHeaders } from "./authFetch";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -7,11 +8,6 @@ type GetToken = () => Promise<string | null>;
 const ACTIVE_ACCOUNT_MESSAGE =
   "That email already has a Penny account. To join this household they'll need " +
   "to sign up with a new account.";
-
-async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
-  const token = await getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 /**
  * Invite screen: a household member invites a NEW email into their household.

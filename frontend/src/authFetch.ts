@@ -18,16 +18,27 @@ export function setAuthTokenGetter(getter: TokenGetter): void {
   currentGetter = getter;
 }
 
+/**
+ * Bearer `Authorization` header from an injected token source, or `{}` when no
+ * token is available (dev-principal mode). Screens thread their prop `getToken`
+ * here; the module-level `authedFetch` uses the once-wired getter.
+ */
+export async function authHeaders(
+  getToken: TokenGetter,
+): Promise<Record<string, string>> {
+  const token = await getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 /** `fetch` with a JSON content type and a bearer token when one is available. */
 export async function authedFetch(
   url: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const token = await currentGetter();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...((init.headers as Record<string, string>) ?? {}),
+    ...(await authHeaders(currentGetter)),
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
   return fetch(url, { ...init, headers });
 }

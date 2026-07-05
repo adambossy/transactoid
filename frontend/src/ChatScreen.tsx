@@ -5,7 +5,7 @@ import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
 import { AlertCircle, Brain, SquarePen } from "lucide-react";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
-import { setAuthTokenGetter } from "./authFetch";
+import { authHeaders, setAuthTokenGetter } from "./authFetch";
 
 const MODEL = "gemini-3.5-flash";
 const SESSION_KEY = "penny:sessionId";
@@ -20,12 +20,6 @@ function loadOrCreateSessionId(): string {
   const fresh = crypto.randomUUID();
   localStorage.setItem(SESSION_KEY, fresh);
   return fresh;
-}
-
-/** Build an Authorization header from the injected token source, if any. */
-async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
-  const token = await getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // Reshape the AI SDK send body to the shape the backend's /api/chat expects,

@@ -1,6 +1,7 @@
 import { UserButton } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
 import { Header } from "@penny/ui";
+import { authHeaders } from "./authFetch";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -10,11 +11,6 @@ interface Me {
   email: string;
   household_id: string;
   household_name: string;
-}
-
-async function authHeaders(getToken: GetToken): Promise<Record<string, string>> {
-  const token = await getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 /**
