@@ -17,10 +17,10 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Manifest + the vendored agent-ui tarball first (npm ci needs the file: dep
-# present to resolve), for layer caching.
+# Manifest first, for layer caching. @adambossy/agent-ui is a normal published
+# registry dependency, so npm ci resolves it from the lockfile — no vendored
+# tarball to copy.
 COPY frontend/package.json frontend/package-lock.json ./
-COPY frontend/vendor ./vendor
 RUN npm ci
 
 # App source.
@@ -34,10 +34,10 @@ COPY frontend/ ./
 ARG VITE_CLERK_PUBLISHABLE_KEY
 ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 
-# AGENT_UI_USE_VENDOR=1: consume the vendored @adambossy/agent-ui tarball
-# under node_modules instead of the ~/code/agent-ui source alias, which does
-# not exist in a container. (resolve.dedupe still applies — do not remove it.)
-ENV AGENT_UI_USE_VENDOR=1
+# AGENT_UI_USE_PUBLISHED=1: resolve the published @adambossy/agent-ui from
+# node_modules instead of the ~/code/agent-ui source alias, which does not
+# exist in a container. (resolve.dedupe still applies — do not remove it.)
+ENV AGENT_UI_USE_PUBLISHED=1
 RUN npm run build
 
 # =============================================================================
