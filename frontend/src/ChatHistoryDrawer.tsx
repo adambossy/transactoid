@@ -82,7 +82,9 @@ export function ChatHistoryDrawer({
     <aside
       aria-hidden={!open}
       aria-label="Chat history"
-      className={`h-full shrink-0 overflow-hidden border-r border-cream bg-paper transition-[width] duration-300 ease-in-out ${
+      // Desktop (md+): in-flow, animates width to push the content column.
+      // Mobile: fixed overlay (above the backdrop) so it never squishes the chat.
+      className={`h-full shrink-0 overflow-hidden border-r border-cream bg-paper transition-[width] duration-300 ease-in-out max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 ${
         open ? "w-72" : "w-0"
       }`}
     >

@@ -1,6 +1,5 @@
-import { UserButton } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Menu } from "lucide-react";
 import { Header, IconButton } from "@penny/ui";
 import { authHeaders } from "./authFetch";
@@ -27,11 +26,14 @@ export function HouseholdHeader({
   drawerOpen,
   onToggleDrawer,
   hamburgerRef,
+  actions,
 }: {
   getToken: GetToken;
   drawerOpen: boolean;
   onToggleDrawer: () => void;
   hamburgerRef: RefObject<HTMLButtonElement | null>;
+  // Right-side actions — Clerk's <UserButton> in clerk mode, omitted in dev.
+  actions?: ReactNode;
 }) {
   const [me, setMe] = useState<Me | null>(null);
   const [editing, setEditing] = useState(false);
@@ -122,7 +124,7 @@ export function HouseholdHeader({
           </a>
         </>
       }
-      actions={<UserButton />}
+      actions={actions}
     />
   );
 }

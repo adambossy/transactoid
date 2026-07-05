@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Gallery } from "@penny/ui";
 import { registerToolRenderer } from "@adambossy/agent-ui";
+import { AppShell } from "./AppShell";
 import { AuthGate } from "./AuthGate";
 import { ChatScreen } from "./ChatScreen";
 import { InviteScreen } from "./InviteScreen";
@@ -61,9 +62,16 @@ function authedScreen() {
 }
 
 function devScreen() {
-  if (showBilling) return <ProvidersBillingScreen getToken={noToken} />;
-  if (showInvites) return <InviteScreen getToken={noToken} />;
-  return <ChatScreen getToken={noToken} />;
+  // Dev-principal mode renders the same app chrome (drawer + header) as the
+  // authed path, minus Clerk's <UserButton>, so chat history + nav are present.
+  const screen = showBilling ? (
+    <ProvidersBillingScreen getToken={noToken} />
+  ) : showInvites ? (
+    <InviteScreen getToken={noToken} />
+  ) : (
+    <ChatScreen getToken={noToken} />
+  );
+  return <AppShell getToken={noToken}>{screen}</AppShell>;
 }
 
 function Root() {
