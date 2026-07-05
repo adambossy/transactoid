@@ -10,6 +10,9 @@ dependencies = [
     "agent-harness[anthropic,openai,google,otel] @ git+https://github.com/adambossy/agent-harness.git@47228dd085202424157f0ffb65c2114c250b7d48",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
+    # libpg_query (Postgres's real parser) bindings — powers the read-only
+    # SQL guard that gates the agent's run_sql tool (penny.security).
+    "pglast>=6.0",
     "pyyaml>=6.0",
     "loguru>=0.7.3",
     "promptorium-python @ git+https://github.com/adambossy/promptorium-python@main",
