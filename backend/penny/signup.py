@@ -16,16 +16,15 @@ boundary holds.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 import uuid
 
 from sqlalchemy.orm import Session
 
+from penny.adapters.db.facade import apply_tenant_guc
 from penny.adapters.db.models import Household, User
 from penny.bootstrap import seed_taxonomy_for_household
-
-if TYPE_CHECKING:
-    from penny.tenancy.context import RequestContext
+from penny.tenancy.context import RequestContext
 
 
 class InviteError(Exception):
@@ -69,6 +68,15 @@ def provision_solo_household(
     )
     session.add(user)
     session.flush()
+    # `categories` has an RLS WITH CHECK on app.current_household, but
+    # provisioning runs with no ambient tenant context (the auth dependency
+    # doesn't know the household until it's created here, and the identity
+    # tables above are RLS-exempt). Pin the new household on this transaction
+    # before seeding, or the taxonomy INSERTs are RLS-denied on Postgres.
+    # Mirrors bootstrap's session_for pinning; no-op on SQLite dev.
+    apply_tenant_guc(
+        session, RequestContext(user_id=user.user_id, household_id=hh.household_id)
+    )
     seed_taxonomy_for_household(session, hh.household_id)
     return hh.household_id, user.user_id
 
