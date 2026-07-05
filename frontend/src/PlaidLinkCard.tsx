@@ -26,16 +26,26 @@ function conversationId(): string {
 export function PlaidLinkCard({ part }: { part: ToolPart }) {
   const output = part.output as Output | undefined;
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // `fetch` only rejects on a network error, so a 4xx/5xx would otherwise flip
+  // the card to "Bank linked" falsely — gate success on `res.ok` and surface a
+  // failure state instead (mirrors ConnectProviderCard's try/catch + error card).
   async function exchange(publicToken: string): Promise<void> {
-    await authedFetch("/api/plaid/exchange", {
-      method: "POST",
-      body: JSON.stringify({
-        public_token: publicToken,
-        conversation_id: conversationId(),
-      }),
-    });
-    setDone(true);
+    setError(null);
+    try {
+      const res = await authedFetch("/api/plaid/exchange", {
+        method: "POST",
+        body: JSON.stringify({
+          public_token: publicToken,
+          conversation_id: conversationId(),
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed to link bank (${res.status})`);
+      setDone(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   const { open, ready } = usePlaidLink({
@@ -50,7 +60,10 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
 
   // E2E hook: drive the success path without the hosted Plaid popup (which can't
   // be automated headlessly — the real sandbox link-through is a manual step).
+  // Dev-only (like main.tsx's `/ui` gallery), so the fake-token hook against the
+  // real endpoint never ships in a production build.
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     const w = window as unknown as {
       __pennyPlaidExchange?: (pt?: string) => void;
     };
@@ -58,7 +71,7 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
     return () => {
       delete w.__pennyPlaidExchange;
     };
-  });
+  }, []);
 
   if (part.state !== "output-available" || output?.mode !== "hosted") return null;
   if (done) {
@@ -74,6 +87,7 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
       <p className="mt-1 text-sm text-steel">
         Securely connect a bank account via Plaid, without leaving the chat.
       </p>
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       <div className="mt-3">
         <Button
           variant="filled"
