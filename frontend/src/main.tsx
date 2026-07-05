@@ -36,19 +36,21 @@ const noToken = async () => null;
 
 function AuthedChat() {
   // Clerk keeps the session token in memory and refreshes it; fetch a fresh one
-  // per request. Only mounted inside <ClerkProvider>.
+  // per request. Only mounted inside <ClerkProvider>. getToken is a stable
+  // reference — pass it through directly so the screens' useCallback/useMemo/
+  // useEffect deps on it don't churn every render.
   const { getToken } = useAuth();
-  return <ChatScreen getToken={() => getToken()} />;
+  return <ChatScreen getToken={getToken} />;
 }
 
 function AuthedBilling() {
   const { getToken } = useAuth();
-  return <ProvidersBillingScreen getToken={() => getToken()} />;
+  return <ProvidersBillingScreen getToken={getToken} />;
 }
 
 function AuthedInvites() {
   const { getToken } = useAuth();
-  return <InviteScreen getToken={() => getToken()} />;
+  return <InviteScreen getToken={getToken} />;
 }
 
 // The signed-in screen selected by pathname (chat is the default landing).

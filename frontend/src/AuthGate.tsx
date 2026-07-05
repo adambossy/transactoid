@@ -30,7 +30,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       </Show>
       <Show when="signed-in">
         <div className="flex h-full w-full flex-col bg-background">
-          <HouseholdHeader getToken={() => getToken()} />
+          <HouseholdHeader getToken={getToken} />
           <div className="min-h-0 flex-1">{children}</div>
         </div>
       </Show>
