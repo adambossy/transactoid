@@ -1,4 +1,4 @@
-"""Deterministic onboarding trigger engine (``penny.onboarding``).
+"""Deterministic onboarding trigger engine (``penny.api.persistence.onboarding``).
 
 Onboarding items are website/app state in the ``web`` schema (decision D1), so
 ``ensure_items`` / ``evaluate`` take a web session (``owner_web_session``) rather
@@ -13,9 +13,9 @@ import uuid
 
 from penny.api.persistence.engine import create_web_schema
 from penny.api.persistence.models import OnboardingItem
+from penny.api.persistence.onboarding import TurnSignals, ensure_items, evaluate
 from penny.api.persistence.tenant import owner_web_session
 from penny.db import get_db
-from penny.onboarding import TurnSignals, ensure_items, evaluate
 from penny.tenancy.context import RequestContext
 
 

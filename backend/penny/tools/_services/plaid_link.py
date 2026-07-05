@@ -26,7 +26,6 @@ from loguru import logger
 
 from penny.adapters.clients.plaid import PlaidClient
 from penny.adapters.db.models import PlaidAccount, PlaidItem
-from penny.reminders import DbReminderQueue
 from penny.security.token_cipher import encrypt_token_at_rest
 from penny.tenancy.context import RequestContext
 
@@ -74,9 +73,9 @@ async def exchange_public_token(
     *,
     public_token: str,
     conversation_id: str,
+    queue: _ReminderQueue,
     client: Any = None,
     sync: Callable[[str], None] | None = None,
-    queue: _ReminderQueue | None = None,
 ) -> dict[str, Any]:
     """Exchange a ``public_token`` and persist the linked item + accounts.
 
@@ -84,6 +83,10 @@ async def exchange_public_token(
     ``PlaidAccount`` rows (owner = ``ctx.user``, visibility ``private``), fires
     the first sync (fire-and-forget), and enqueues a ``plaid_link`` reminder so
     the next turn relays the success. Returns ``{item_id, accounts}``.
+
+    ``queue`` is injected by the website runtime (the concrete web-backed
+    ``DbReminderQueue`` lives in the website persistence package) — the agent
+    domain never imports it, keeping agent/website segregation intact.
     """
     client = client or PlaidClient.from_env()
     exch = await asyncio.to_thread(client.item_public_token_exchange, public_token)
@@ -128,13 +131,12 @@ async def exchange_public_token(
     # First sync: fire-and-forget so the exchange returns immediately.
     (sync or _default_sync(ctx))(item_id)
 
-    reminder_queue = queue or DbReminderQueue(ctx)
     content = (
         f"{institution} linked ({len(accounts)} accounts; first sync started). "
         "Tell the user, and mention they can connect more accounts anytime just "
         "by asking."
     )
-    await reminder_queue.enqueue(conversation_id, "plaid_link", content)
+    await queue.enqueue(conversation_id, "plaid_link", content)
     return {"item_id": item_id, "accounts": len(accounts)}
 
 

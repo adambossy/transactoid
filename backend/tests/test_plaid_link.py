@@ -8,8 +8,8 @@ Asserts the item is stored encrypted, accounts are private + owner-scoped, and a
 from __future__ import annotations
 
 from penny.adapters.db.models import PlaidAccount, PlaidItem
+from penny.api.persistence.reminders import DbReminderQueue
 from penny.db import get_db
-from penny.reminders import DbReminderQueue
 from penny.security.token_cipher import is_encrypted
 from penny.tools._services.plaid_link import exchange_public_token
 from tests.test_onboarding import _ctx
@@ -43,6 +43,7 @@ async def test_exchange_creates_encrypted_item_private_accounts_and_reminder(
             ctx,
             public_token="public-x",
             conversation_id="conv-1",
+            queue=DbReminderQueue(ctx),
             client=FakePlaidClient(),
             sync=lambda item_id: None,
         )

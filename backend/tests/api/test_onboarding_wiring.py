@@ -7,7 +7,7 @@ setup doesn't belong in a shared thread, spec decision).
 from __future__ import annotations
 
 from penny.api.main import _maybe_enqueue_onboarding
-from penny.reminders import DbReminderQueue
+from penny.api.persistence.reminders import DbReminderQueue
 from penny.tenancy.context import RequestContext, SessionMode
 from tests.test_onboarding import _ctx  # reuse seeding
 

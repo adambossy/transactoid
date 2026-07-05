@@ -30,6 +30,7 @@ from .plugins.amazon import build_amazon_toolset
 from .prompts import load_prompt
 from .sandbox import get_sandbox
 from .tenancy.context import RequestContext
+from .tools._services.onboarding import OnboardingResolver
 from .tools.registry import build_toolset
 
 
@@ -179,6 +180,7 @@ def build_agent(
     workspace_dir: Path | None = None,
     usage_pricer: UsagePricer | None = None,
     reminders: ReminderQueue | None = None,
+    onboarding_resolver: OnboardingResolver | None = None,
 ) -> Agent:
     """Build the per-request Agent, scoped to the requesting principal.
 
@@ -223,7 +225,10 @@ def build_agent(
         # is constructed by the caller, keeping agent/website segregation intact.
         reminders=reminders,
         toolsets=[
-            build_toolset(),
+            # The onboarding-resolve op is website-owned persistence; the website
+            # constructs it and passes it here (like reminders/usage_pricer) so
+            # the factory only sees the OnboardingResolver Protocol.
+            build_toolset(onboarding_resolver=onboarding_resolver),
             build_amazon_toolset(),
             filesystem_tools,
             skills_toolset,

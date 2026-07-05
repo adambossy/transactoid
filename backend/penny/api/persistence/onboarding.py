@@ -10,6 +10,10 @@ The engine is deterministic (spec §4): given the same stored state and signals 
 returns the same activation set, so a reminder's content is a pure function of
 state — never model- or client-derived text. Activation is *computed* here, never
 stored; only ``status`` (``pending``/``accepted``/``dismissed``) persists.
+
+:func:`resolve` is the website-owned op the agent's ``resolve_onboarding_item``
+tool needs; the website passes it to ``build_agent`` (matching
+``OnboardingResolver``) so the agent domain never imports this package.
 """
 
 from __future__ import annotations
@@ -19,9 +23,10 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from penny.api.persistence.models import OnboardingItem
-from penny.api.persistence.tenant import owner_web_session
 from penny.tenancy.context import RequestContext
+
+from .models import OnboardingItem
+from .tenant import owner_web_session
 
 # The v1 onboarding steps, in the fixed order they appear in a consolidated
 # reminder. Kept concrete here (not injected) — the reusable trigger core is the

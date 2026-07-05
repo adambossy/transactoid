@@ -35,7 +35,7 @@ from agent_harness.core.models import (
 )
 from agent_harness.sessions.inmemory import InMemorySession
 
-from penny.reminders import DbReminderQueue
+from penny.api.persistence.reminders import DbReminderQueue
 from tests.conftest import TEST_HOUSEHOLD_ID, TEST_USER_ID
 from tests.test_onboarding import _ctx
 

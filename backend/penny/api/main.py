@@ -26,6 +26,13 @@ load_dotenv(override=False)
 # downstream emits its first log line.
 from penny import _logging  # noqa: E402, F401  side-effect: install file sink
 from penny.agent_factory import build_agent, build_model  # noqa: E402
+from penny.api.persistence.onboarding import (  # noqa: E402
+    TurnSignals,
+    ensure_items,
+    evaluate,
+    resolve,
+)
+from penny.api.persistence.reminders import DbReminderQueue  # noqa: E402
 from penny.auth.settings import load_auth_settings  # noqa: E402
 from penny.billing import gate as billing_gate  # noqa: E402
 from penny.billing.prices import load_price_table  # noqa: E402
@@ -33,8 +40,6 @@ from penny.billing.session import BillingSession  # noqa: E402
 from penny.billing.usage_subscriber import start_usage_subscriber_task  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.db import get_db  # noqa: E402
-from penny.onboarding import TurnSignals, ensure_items, evaluate  # noqa: E402
-from penny.reminders import DbReminderQueue  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
     RequestContext,
     SessionMode,
@@ -349,6 +354,7 @@ async def plaid_exchange(
             ctx,
             public_token=public_token,
             conversation_id=conversation_id,
+            queue=DbReminderQueue(ctx),
         )
 
 
@@ -461,6 +467,10 @@ async def chat(
                 # reminders (onboarding nudges, Plaid-link success) flush into
                 # this turn's user message.
                 reminders=DbReminderQueue(turn_ctx),
+                # Website injects the web-store-backed onboarding resolver the
+                # resolve_onboarding_item tool needs (kept out of the agent
+                # domain, mirroring reminders above).
+                onboarding_resolver=resolve,
             )
             async for frame in stream_and_persist(
                 agent,

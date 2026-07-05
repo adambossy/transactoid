@@ -20,9 +20,10 @@ import uuid
 
 from agent_harness.extras.reminders import Reminder
 
-from penny.api.persistence.models import QueuedReminder
-from penny.api.persistence.tenant import owner_web_session
 from penny.tenancy.context import RequestContext
+
+from .models import QueuedReminder
+from .tenant import owner_web_session
 
 
 class DbReminderQueue:

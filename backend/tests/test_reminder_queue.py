@@ -1,4 +1,4 @@
-"""DB-backed reminder queue (``penny.reminders.DbReminderQueue``).
+"""DB-backed reminder queue (``penny.api.persistence.reminders.DbReminderQueue``).
 
 The queue is website/app state in the ``web`` schema (decision D1), so tests
 create the web schema and drive the queue with fresh per-conversation contexts.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 from penny.api.persistence.engine import create_web_schema
-from penny.reminders import DbReminderQueue
+from penny.api.persistence.reminders import DbReminderQueue
 from penny.tenancy.context import RequestContext
 
 

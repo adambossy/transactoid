@@ -5,6 +5,7 @@ from __future__ import annotations
 from agent_harness import StaticToolset
 from agent_harness.core.toolsets import Toolset
 
+from ._services.onboarding import OnboardingResolver
 from .analytics import generate_chart, run_sql
 from .audit import (
     category_history,
@@ -14,7 +15,7 @@ from .audit import (
 from .connect_provider import connect_provider
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
-from .onboarding import resolve_onboarding_item
+from .onboarding import make_resolve_onboarding_item
 from .plaid import connect_new_account, list_plaid_accounts
 from .plaid_link import connect_bank_account
 from .recategorize import (
@@ -37,7 +38,7 @@ from .transactions import (
 )
 
 
-def build_toolset() -> Toolset:
+def build_toolset(*, onboarding_resolver: OnboardingResolver | None = None) -> Toolset:
     return StaticToolset(
         name="penny",
         tools=[
@@ -71,8 +72,9 @@ def build_toolset() -> Toolset:
             send_email_report,
             # Billing (connect-a-provider card)
             connect_provider,
-            # Onboarding
-            resolve_onboarding_item,
+            # Onboarding (resolver injected by the website; None on front doors
+            # that don't wire onboarding, e.g. the CLI/cron)
+            make_resolve_onboarding_item(onboarding_resolver),
             # Memory
             generate_memory_index,
             # NOTE: the `bash` shell-exec tool was intentionally removed
