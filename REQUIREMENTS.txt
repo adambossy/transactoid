@@ -113,7 +113,17 @@ T1. Domain segregation (HARD)
 T2. Finance-data isolation
     App/website data never shares the finance database or the run_sql blast
     radius; it lives in a separate schema/db owned by the website's own engine.
-    run_sql is intentionally unrestricted read+write over finance data ONLY.
+    run_sql operates over finance data ONLY.
+
+T2a. run_sql is read-only (HARD)
+    The agent's run_sql tool accepts only a single read-only SELECT (covering
+    VALUES / TABLE / set-ops / WITH … SELECT). It parses every query with
+    libpg_query (pglast) and rejects, before execution, any write/DDL/session
+    statement, multi-statement input, and side-effecting function call
+    (notably set_config, the RLS GUC-override vector, class F02). The gate is at
+    the input layer so it holds independently of database grants (unavailable on
+    Neon). Enforced by backend/penny/security/sql_read_guard.py and
+    backend/tests/security/test_sql_read_guard.py.
 
 T3. Never point a dev server at production
     Dev/test runs against a Neon branch (backend/.env.test). The production

@@ -1,11 +1,20 @@
 """Analytics — direct SQL access for the agent.
 
-Mirrors the original ``run_sql`` MCP tool: arbitrary SQL, dates/datetimes
-ISO-stringified for JSON safety. As of phase 2 the free-form SQL path runs on a
-**read-only** DB role (``get_readonly_db``) under the request's tenant context
-(``session_for``), so RLS still fences reads and the database itself rejects any
-prompt-injected write. Curated ``@tool`` writes keep a normal read-write
-connection.
+Mirrors the original ``run_sql`` MCP tool: dates/datetimes ISO-stringified for
+JSON safety. ``run_sql`` is defence-in-depth against prompt-injected SQL:
+
+1. **Input layer** — gated to **read-only SELECTs** by
+   :func:`penny.security.assert_read_only_select`, which parses the query with
+   libpg_query (the real Postgres parser) and rejects anything that is not a
+   lone read SELECT: writes, DDL, ``SET``/``set_config`` GUC mutation (the
+   RLS-override vector), multi-statement input, and side-effecting functions. A
+   rejected query never touches the database, independent of DB grants (which
+   can't be applied on Neon).
+2. **Database layer** — runs on a **read-only** role (``get_readonly_db``) under
+   the request's tenant context (``session_for``), so RLS fences reads and the
+   database itself rejects any write.
+
+Curated ``@tool`` writes keep a normal read-write connection.
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ from agent_harness import tool
 from sqlalchemy import text
 
 from penny.db import get_readonly_db
+from penny.security import SqlGuardError, assert_read_only_select
 from penny.tenancy.context import require_request_context
 from penny.tools._services.chart import GenerateChartTool
 
@@ -40,20 +50,32 @@ def _serialize_row(row: Any) -> dict[str, Any]:
 
 @tool
 async def run_sql(query: str) -> dict[str, Any]:
-    """Execute a read-only SQL query against the Penny transaction database.
+    """Execute a **read-only SELECT** against the Penny transaction database.
 
-    Use ``SELECT`` for analytics. This path runs on a read-only role, so writes
-    are rejected — use the dedicated tools (recategorize, tag, migrate-taxonomy)
-    to change data.
+    Only read queries are permitted: a single ``SELECT`` (including ``VALUES``,
+    ``TABLE t``, set operations, and ``WITH … SELECT``). Writes, DDL, ``SET``/
+    ``SHOW``, multi-statement input, and side-effecting functions are rejected
+    before execution. Use the dedicated mutation tools (recategorize, tag,
+    migrate-taxonomy) to change data.
 
     Args:
-        query: SQL statement to execute.
+        query: A read-only SELECT statement.
 
     Returns:
         ``{"status": "success", "rows": [...], "count": N}`` on success;
         ``{"status": "error", "rows": [], "count": 0, "error": str}`` on
-        failure.
+        failure or rejection.
     """
+    # Gate before touching the database: a rejected query must never execute.
+    try:
+        assert_read_only_select(query)
+    except SqlGuardError as exc:
+        return {
+            "status": "error",
+            "rows": [],
+            "count": 0,
+            "error": f"run_sql rejected: {exc.reason}",
+        }
 
     def _run() -> dict[str, Any]:
         try:
