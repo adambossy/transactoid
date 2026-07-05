@@ -46,11 +46,18 @@ from starlette.routing import Mount
 
 @dataclass(frozen=True)
 class Principal:
-    """Who a capability token resolves to. On main: a dev principal."""
+    """Who a capability token resolves to.
+
+    ``ctx`` is the tenant ``RequestContext`` for the conversation (present when
+    the account-creation auth stack is active); the MCP adapter re-pins it for
+    the request so the tools run tenant-scoped exactly as a web-originated call.
+    ``None`` in single-user/dev, where tools run unscoped.
+    """
 
     conversation_id: str
     household_id: str | None = None
     user_id: str | None = None
+    ctx: Any | None = None
 
 
 class CapabilityRegistry:
@@ -203,10 +210,20 @@ def create_mcp(
             await resp(scope, receive, send)
             return
         token = _principal.set(principal)
+        # Re-pin the tenant context so the tools (run_sql, sync, …) run scoped to
+        # this conversation's household exactly as a web-originated call would.
+        if principal.ctx is not None:
+            from penny.tenancy.context import set_request_context
+
+            set_request_context(principal.ctx)
         try:
             await session_manager.handle_request(scope, receive, send)
         finally:
             _principal.reset(token)
+            if principal.ctx is not None:
+                from penny.tenancy.context import set_request_context
+
+                set_request_context(None)
 
     return Starlette(routes=[Mount("/", app=_handle)]), session_manager
 

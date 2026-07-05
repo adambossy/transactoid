@@ -10,13 +10,14 @@ const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 // Resolve @adambossy/agent-ui to the local source checkout so edits in
 // ~/code/agent-ui hot-reload into Penny. Mirrors the alias the playground
-// uses internally. Set AGENT_UI_USE_VENDOR=1 to fall back to the vendored
-// tarball under node_modules (useful for CI / production builds).
+// uses internally. Set AGENT_UI_USE_PUBLISHED=1 to instead resolve the
+// published package from node_modules (CI / production builds, where the
+// local source checkout doesn't exist).
 const AGENT_UI_SRC = path.resolve(
   process.env.AGENT_UI_PATH ?? path.join(os.homedir(), "code/agent-ui/packages/agent-ui"),
   "src",
 );
-const useVendor = process.env.AGENT_UI_USE_VENDOR === "1";
+const usePublished = process.env.AGENT_UI_USE_PUBLISHED === "1";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -26,15 +27,22 @@ export default defineConfig({
     // SECOND React copy (separate from Penny's `frontend/node_modules/react`),
     // and hooks fire against a null dispatcher → blank screen.
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
-    alias: useVendor
-      ? []
-      : [
-          {
-            find: "@adambossy/agent-ui/styles.css",
-            replacement: path.join(AGENT_UI_SRC, "styles.css"),
-          },
-          { find: "@adambossy/agent-ui", replacement: path.join(AGENT_UI_SRC, "index.ts") },
-        ],
+    alias: [
+      {
+        find: "@penny/ui/styles.css",
+        replacement: path.resolve(__dirname, "packages/ui/src/theme.css"),
+      },
+      { find: "@penny/ui", replacement: path.resolve(__dirname, "packages/ui/src/index.ts") },
+      ...(usePublished
+        ? []
+        : [
+            {
+              find: "@adambossy/agent-ui/styles.css",
+              replacement: path.join(AGENT_UI_SRC, "styles.css"),
+            },
+            { find: "@adambossy/agent-ui", replacement: path.join(AGENT_UI_SRC, "index.ts") },
+          ]),
+    ],
   },
   server: {
     // Pinned: every doc/bookmark in this project says 5174 (historically vite

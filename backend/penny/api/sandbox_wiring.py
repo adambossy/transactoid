@@ -2,16 +2,24 @@
 
 Holds the process-global sandbox provider + store, mints/registers a proxy
 capability token per turn, builds the ``TurnPayload`` (system prompt rendered
-here on Fly), then dispatches the turn to a Modal sandbox and relays its events —
-reusing the existing ``MessageAccumulator`` + ``_translate`` + persistence so the
-browser frames and the stored transcript are identical to the in-process path.
+here on Fly, tenant-scoped), then dispatches the turn to a Modal sandbox and
+relays its events — reusing the existing ``MessageAccumulator`` + ``_translate``
++ persistence so the browser frames and the stored transcript are identical to
+the in-process path. Tenancy is threaded through: the MCP capability token
+carries the turn's ``RequestContext`` so tools run scoped to the household, and
+persistence is ctx-scoped.
 
 Everything secret-shaped is read from env, never hardcoded:
     PENNY_SANDBOX_IMAGE   the published runner image id
     PENNY_SANDBOX_APP     Modal app name (default penny-sandbox)
     PENNY_PROXY_URL       the deployed secrets-proxy base URL
     PENNY_PROXY_ADMIN     the proxy admin token (shared Fly↔proxy secret)
-    PENNY_MCP_PUBLIC_URL  optional: ngrok URL of Fly's MCP server (enables tools)
+    PENNY_MCP_PUBLIC_URL  optional: public URL of Fly's MCP server (enables tools)
+
+Billing note: the proxy currently injects the platform Gemini key. Threading a
+BYO/subsidy ``credential`` through to the proxy (and usage metering back to the
+ledger) for sandboxed turns is a follow-up; the pre-dispatch billing *gate*
+(Blocked → connect prompt) already runs in ``main.chat`` before we get here.
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -26,13 +35,18 @@ import httpx
 from loguru import logger
 from protocol.events import decode_envelope
 
+from agent_harness.core.credentials import Credential
+from agent_harness.core.events import RunEnd, RunStart
+from penny.agent_factory import _render_system_prompt
 from penny.sandboxes.provider import ModalSandboxProvider
 from penny.sandboxes.reaper import dispatch_turn, on_turn_end
 from penny.sandboxes.store import InMemorySandboxStore
+from penny.tenancy.context import RequestContext, set_request_context
 
 from .accumulator import MessageAccumulator
 from .bridge import _safe_persist, _sse, _translate
 from .mcp_server import CapabilityRegistry, Principal
+from .persistence.store import ConversationStore
 
 _provider: ModalSandboxProvider | None = None
 _sandbox_store = InMemorySandboxStore()
@@ -66,8 +80,13 @@ async def _register_proxy_session(conversation_id: str) -> tuple[str, str]:
 
 
 def _build_payload(
-    conversation_id: str, prompt: str, system_prompt: str, seed_messages: list[dict[str, Any]],
-    proxy_url: str, proxy_token: str,
+    conversation_id: str,
+    prompt: str,
+    system_prompt: str,
+    seed_messages: list[dict[str, Any]],
+    proxy_url: str,
+    proxy_token: str,
+    ctx: RequestContext,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "conversation_id": conversation_id,
@@ -84,27 +103,44 @@ def _build_payload(
     }
     mcp_url = os.environ.get("PENNY_MCP_PUBLIC_URL")
     if mcp_url:
-        mcp_token = mcp_registry.mint(Principal(conversation_id=conversation_id))
+        # The MCP token carries the tenant context so tools run household-scoped.
+        mcp_token = mcp_registry.mint(
+            Principal(
+                conversation_id=conversation_id,
+                household_id=str(ctx.household_id),
+                user_id=str(ctx.user_id),
+                ctx=ctx,
+            )
+        )
         payload["mcp"] = {"url": mcp_url.rstrip("/"), "token": mcp_token}
     return payload
 
 
 async def sandboxed_stream_and_persist(
-    *, prompt: str, system_prompt: str, seed_messages: list[dict[str, Any]], store: Any, conversation_id: str
+    *,
+    store: ConversationStore,
+    conversation_id: str,
+    ctx: RequestContext,
+    prompt: str,
+    seed_messages: list[dict[str, Any]],
+    credential: Credential | None = None,
 ) -> AsyncIterator[str]:
-    """Dispatch a Modal sandbox, run the turn, relay+persist, finalize."""
-    import time
+    """Dispatch a Modal sandbox, run the turn, relay+persist (ctx-scoped)."""
+    del credential  # billing credential-through-proxy is a follow-up (see module note)
 
     provider = get_provider()
     rec = _sandbox_store.get(conversation_id)
-    proxy_url, proxy_token = await _register_proxy_session(conversation_id)
-    payload = _build_payload(conversation_id, prompt, system_prompt, seed_messages, proxy_url, proxy_token)
+    system_prompt = _render_system_prompt(ctx)
 
     acc = MessageAccumulator()
     open_text: set[str] = set()
     finalized = False
     http = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=15.0))
     try:
+        proxy_url, proxy_token = await _register_proxy_session(conversation_id)
+        payload = _build_payload(
+            conversation_id, prompt, system_prompt, seed_messages, proxy_url, proxy_token, ctx
+        )
         handle = await dispatch_turn(rec, provider, now=time.time())
         start = await http.post(f"{handle.tunnel_url.rstrip('/')}/turns", json=payload)
         start.raise_for_status()
@@ -120,12 +156,10 @@ async def sandboxed_stream_and_persist(
                 data = line[len("data: ") :]
                 if data.strip() == "[DONE]":
                     break
-                from agent_harness.core.events import RunEnd, RunStart
-
                 _seq, event = decode_envelope(json.loads(data))
                 acc.consume(event)
                 if isinstance(event, RunStart):
-                    _safe_persist(store, conversation_id, acc, "streaming")
+                    _safe_persist(store, conversation_id, ctx, acc, "streaming")
                 try:
                     frames = _translate(event, open_text)
                 except Exception as exc:  # noqa: BLE001
@@ -133,17 +167,18 @@ async def sandboxed_stream_and_persist(
                 for frame in frames:
                     yield _sse(frame)
                 if isinstance(event, RunEnd):
-                    _safe_persist(store, conversation_id, acc, acc.status)
+                    _safe_persist(store, conversation_id, ctx, acc, acc.status)
                     finalized = True
     except Exception as exc:  # noqa: BLE001 - surface transport/dispatch failure
         logger.bind(conversation_id=conversation_id).warning("sandboxed turn failed: {}", exc)
         yield _sse({"type": "error", "errorText": str(exc)})
     finally:
         if not finalized:
-            _safe_persist(store, conversation_id, acc, "error")
+            _safe_persist(store, conversation_id, ctx, acc, "error")
         _active_runs.pop(conversation_id, None)
         await on_turn_end(rec, now=time.time())
         await http.aclose()
+        set_request_context(None)  # streaming task ran in a context copy
     yield "data: [DONE]\n\n"
 
 

@@ -37,14 +37,71 @@ P5. Amazon itemization
 
 P6. Conversation persistence
     Persist conversations and messages so chat history survives across sessions.
+    The signed-in user can browse their conversation history (newest-first) from
+    a chat-history drawer, open any past conversation, and start a new chat —
+    scoped to conversations the principal may see (their own, plus joint threads).
 
 P7. Agent workspace
     Maintain a persistent per-user workspace (memory/, reports/) that carries
-    user state (e.g. budget notes) across chat and scheduled runs.
+    user state (e.g. budget notes) across chat and scheduled runs. State lives
+    in a hybrid store (Postgres capability broker + R2 blobs, manifest-
+    versioned) partitioned by visibility: a shared workspace per household and
+    a private one per user. Each run materializes the readable workspace into a
+    temp checkout and flushes changes back atomically; a joint session sees the
+    shared workspace only. A one-time `penny admin import-workspace` lifts an
+    existing local ~/.transactoid into the store.
 
 P8. Output language
     Reports and chat responses are written in English (US) with $ currency,
     regardless of the language of transaction descriptors or memory notes.
+
+P9. BYO keys & metered subsidy
+    On a billing-enabled deployment, each user gets a small subsidized token
+    runway granted on their first Plaid link (per-user, so a two-spouse
+    household that both connect gets twice the grant; amount via
+    PENNY_SUBSIDY_CENTS, default $2). Each model call is metered: while runway
+    remains the turn runs on the platform key and accrues exact cost; once the
+    runway is spent the user must bring their own provider credentials — a
+    provider API key now, or a sanctioned OAuth subscription — which they can
+    connect at any time from an in-chat "Connect a provider" card or a
+    Providers & billing settings screen. A connected credential bills the user's
+    own provider (no subsidy accounting). With billing disabled (no platform
+    subsidy key configured) chat runs on the default key with no metering, so
+    dev/self-host is unaffected.
+
+P10. Open signup, households, and invites
+    Signup is fully open: any visitor can sign up (Clerk social login) and is
+    auto-provisioned an isolated one-person household with its own seeded
+    taxonomy on first authenticated request. A household member can invite NEW
+    (accountless) people by email; the invitee signs up straight into the
+    inviter's household. One individual = one household — there is no household
+    merge and no multi-household membership; an email that already belongs to an
+    active account cannot be invited (they are told to start fresh), and someone
+    who wants into another household starts over and re-links their bank. Members
+    see their household's name (renamable) and manage pending invites (list /
+    revoke). Cost/abuse of open signup is bounded by the P9 per-user subsidy cap.
+
+P11. Light-only appearance
+    The web app renders exclusively in the light "cream" design system (warm
+    paper ground, deep teal-green ink, gold accents, light-only logos) on every
+    screen — chat, auth/signup, providers & billing, invites, and the design-
+    system gallery. It never follows the OS `prefers-color-scheme: dark`
+    preference and exposes no light/dark toggle.
+
+P12. Progressive agent-embedded onboarding
+    A new user lands straight in the chat — no wizard, stepper, or setup screen —
+    and the agent nudges toward setup steps (connect a bank, review account
+    visibility, tune the taxonomy, add merchant rules) at deterministic
+    milestones, naturally and at most once per turn, until each step is accepted
+    or dismissed (a dismissed step never nudges again but stays revisitable by
+    just asking). Nudges appear only in individual conversations, never joint
+    threads. To connect a bank the agent offers an inline Plaid Link card
+    rendered in the chat: Plaid runs in the browser and the public token is
+    exchanged server-side, storing the linked item (access token encrypted) and
+    its accounts as private, then kicking off the first sync; the user can
+    connect more accounts anytime by asking. A localhost Link flow stays for dev.
+    The onboarding state driving the nudges is invisible to the user — it never
+    appears in the transcript.
 
 
 TECHNICAL INVARIANTS / CONSTRAINTS
@@ -59,7 +116,17 @@ T1. Domain segregation (HARD)
 T2. Finance-data isolation
     App/website data never shares the finance database or the run_sql blast
     radius; it lives in a separate schema/db owned by the website's own engine.
-    run_sql is intentionally unrestricted read+write over finance data ONLY.
+    run_sql operates over finance data ONLY.
+
+T2a. run_sql is read-only (HARD)
+    The agent's run_sql tool accepts only a single read-only SELECT (covering
+    VALUES / TABLE / set-ops / WITH … SELECT). It parses every query with
+    libpg_query (pglast) and rejects, before execution, any write/DDL/session
+    statement, multi-statement input, and side-effecting function call
+    (notably set_config, the RLS GUC-override vector, class F02). The gate is at
+    the input layer so it holds independently of database grants (unavailable on
+    Neon). Enforced by backend/penny/security/sql_read_guard.py and
+    backend/tests/security/test_sql_read_guard.py.
 
 T3. Never point a dev server at production
     Dev/test runs against a Neon branch (backend/.env.test). The production
@@ -86,9 +153,35 @@ T7. Single source of truth
     backend/configs/taxonomy.yaml; runtime/deploy config in the PENNY_*
     contract. No value is duplicated across homes.
 
-T8. Single-user
-    No authentication or multi-tenancy yet. Multi-user productionization is
-    tracked separately (see plans/).
+T8. Multi-tenant data isolation
+    Every financial row belongs to exactly one household and one owning user,
+    with 'private'/'shared' visibility. Isolation is enforced in two layers:
+    Postgres row-level security (USING and WITH CHECK, so neither reads nor
+    writes cross households — including the agent's read-only run_sql) and
+    app-level query filtering (the only layer on SQLite dev). A joint session
+    sees shared rows only; no row may be owned by the joint-session sentinel.
+    The agent's free-form run_sql runs on a dedicated read-only Postgres role
+    that cannot mutate the tenant GUC to escape its household: EXECUTE on
+    set_config is revoked and the context is pinned through a set-once
+    SECURITY DEFINER helper, so an injected CTE cannot flip app.current_household
+    before RLS evaluates (F02/F05). That role also cannot read the RLS-exempt
+    identity tables (users/households) — SELECT on them is revoked so run_sql
+    cannot enumerate every email/Clerk-id and household UUID (F04) — and is
+    confined to the finance schema, never the website's web.* app schema.
+    Plaid access tokens are encrypted at rest (key-versioned, so rotation is
+    a config change); in clerk (prod) mode, storing a token with no key set
+    fails closed rather than persisting plaintext (F07). In production, identity
+    is a Clerk-verified JWT resolved to
+    the household/user principal per request (dev keeps an env-pinned principal);
+    an authenticated identity with a verified email but no row is auto-provisioned
+    a household (P10), while an unverified/absent email is rejected. The same
+    RLS/visibility rules govern the
+    workspace store tables (prefixes/manifests/heads): R2 keys derive only from
+    RLS-gated rows via opaque unguessable prefix tokens, and only the workspace
+    shim touches R2 — the agent never gets a direct R2 capability.
+    Enforced by backend/tests/adapters/db/test_rls_isolation.py,
+    test_multitenant_acceptance.py, and test_workspace_rls.py (require
+    POSTGRES_TEST_URL).
 
 T9. Verification gate
     `ruff check`, `ruff format --check`, and `pytest` pass before any unit of
@@ -102,3 +195,53 @@ T10. Layered domain architecture (target)
      adheres, and code a change touches is migrated toward it under the campfire
      rule with strict scope limits. See AGENTS.md ("Architecture: layered
      domains").
+
+T11. Credential security & no-ambient-key gate
+     BYO provider credentials and the usage/subsidy ledgers are website-owned,
+     owner-scoped (private to the user even within a household — no shared arm),
+     and out of the finance run_sql blast radius (their own web schema/db with
+     owner-scoped RLS, USING and WITH CHECK). Secrets are encrypted at rest
+     (key-versioned envelope) and decrypted only at the outbound-LLM call site;
+     reads expose only a masked hint — never to the browser, a URL, or logs
+     (token-exchange errors are scrubbed). OAuth is Authorization-Code + PKCE
+     with an independent CSRF state and refresh-rotation persisted atomically
+     under a per-(user,provider) lock; no CLI-impersonation surface ships. On a
+     billing-enabled shared server there is no ambient/global env-key fallback
+     for a user run: the pre-dispatch gate resolves the per-user credential and
+     cannot be bypassed by a client-supplied model/credential parameter; with no
+     BYO credential and no remaining subsidy the turn is blocked, never silently
+     run on the platform key. Enforced by backend/tests/billing/ (test_vault.py,
+     test_gate.py, test_billing_rls.py — the last requires POSTGRES_TEST_URL).
+
+T12. Signup & invite integrity
+     Provisioning and joining are fail-closed: a solo signup yields a fully
+     isolated household (T8 RLS), and provision-or-join is idempotent so a signup
+     race or retry produces exactly one household/user (email is unique, lowercased
+     and matched lowercased). An invite is realized as a pending users row
+     (external_auth_id NULL) in the INVITER's household only — the target
+     household is always the caller's principal, never a request-body value — and
+     a first login atomically claims it. An invite can never target an email that
+     already has an active account (no takeover), and revoking an invite only ever
+     deletes an unclaimed pending row, never an active user. Auto-provision
+     requires a verified email. Enforced by backend/tests/test_signup.py,
+     tests/api/test_invites.py, tests/api/test_me.py, tests/api/test_auth_*.py,
+     and tests/adapters/db/test_signup_isolation.py (the last requires
+     POSTGRES_TEST_URL).
+
+T13. System-reminder subsystem & onboarding state
+     Dynamic onboarding/nudge state never enters the (cache-stable) system
+     prompt: it is delivered as server-generated <system-reminder> text flushed
+     into the next user message by agent-harness's ReminderQueue and drained at
+     run start, and hidden from the UI as a first-class agent-ui guarantee
+     (stripSystemReminders) — so it reaches the model but never the rendered or
+     stored transcript. Reminder content is server-generated only (never
+     interpolated from client input), so the flush path cannot inject attacker
+     text into the turn; only the most recent reminder of a kind reflects current
+     state. Onboarding items and queued reminders are website/app state in the
+     separate web DB/schema (out of the agent run_sql blast radius), owner-scoped
+     within a household by RLS (USING + WITH CHECK). Item status is limited to
+     pending/accepted/dismissed; activation is computed deterministically per
+     turn, never stored. Enforced by backend/tests/test_reminder_e2e.py,
+     tests/test_onboarding.py, tests/test_reminder_queue.py,
+     tests/test_domain_segregation.py, and
+     tests/adapters/db/test_phase5_rls.py (the last requires POSTGRES_TEST_URL).

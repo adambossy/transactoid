@@ -1,10 +1,20 @@
 """Analytics — direct SQL access for the agent.
 
-Mirrors the original ``run_sql`` MCP tool: arbitrary SQL against the
-shared DB, dates/datetimes ISO-stringified for JSON safety. Per the
-explicit project decision, the tool stays **unrestricted** in this MVP
-(read AND write SQL both pass through). Tightening this is a
-productionization item, not a port-time concern.
+Mirrors the original ``run_sql`` MCP tool: dates/datetimes ISO-stringified for
+JSON safety. ``run_sql`` is defence-in-depth against prompt-injected SQL:
+
+1. **Input layer** — gated to **read-only SELECTs** by
+   :func:`penny.security.assert_read_only_select`, which parses the query with
+   libpg_query (the real Postgres parser) and rejects anything that is not a
+   lone read SELECT: writes, DDL, ``SET``/``set_config`` GUC mutation (the
+   RLS-override vector), multi-statement input, and side-effecting functions. A
+   rejected query never touches the database, independent of DB grants (which
+   can't be applied on Neon).
+2. **Database layer** — runs on a **read-only** role (``get_readonly_db``) under
+   the request's tenant context (``session_for``), so RLS fences reads and the
+   database itself rejects any write.
+
+Curated ``@tool`` writes keep a normal read-write connection.
 """
 
 from __future__ import annotations
@@ -14,8 +24,11 @@ from decimal import Decimal
 from typing import Any
 
 from agent_harness import tool
+from sqlalchemy import text
 
-from penny.db import get_db
+from penny.db import get_readonly_db
+from penny.security import SqlGuardError, assert_read_only_select
+from penny.tenancy.context import require_request_context
 from penny.tools._services.chart import GenerateChartTool
 
 
@@ -37,28 +50,44 @@ def _serialize_row(row: Any) -> dict[str, Any]:
 
 @tool
 async def run_sql(query: str) -> dict[str, Any]:
-    """Execute a SQL query against the Penny transaction database.
+    """Execute a **read-only SELECT** against the Penny transaction database.
 
-    Use ``SELECT`` for analytics; the database also accepts mutations but
-    prefer the dedicated tools (recategorize, tag, migrate-taxonomy) when
-    they exist for what you want to do.
+    Only read queries are permitted: a single ``SELECT`` (including ``VALUES``,
+    ``TABLE t``, set operations, and ``WITH … SELECT``). Writes, DDL, ``SET``/
+    ``SHOW``, multi-statement input, and side-effecting functions are rejected
+    before execution. Use the dedicated mutation tools (recategorize, tag,
+    migrate-taxonomy) to change data.
 
     Args:
-        query: SQL statement to execute.
+        query: A read-only SELECT statement.
 
     Returns:
         ``{"status": "success", "rows": [...], "count": N}`` on success;
         ``{"status": "error", "rows": [], "count": 0, "error": str}`` on
-        failure.
+        failure or rejection.
     """
+    # Gate before touching the database: a rejected query must never execute.
+    try:
+        assert_read_only_select(query)
+    except SqlGuardError as exc:
+        return {
+            "status": "error",
+            "rows": [],
+            "count": 0,
+            "error": f"run_sql rejected: {exc.reason}",
+        }
 
     def _run() -> dict[str, Any]:
         try:
-            result = get_db().execute_raw_sql(query)
-            if result.returns_rows:
-                rows = [_serialize_row(row) for row in result.fetchall()]
-                return {"status": "success", "rows": rows, "count": len(rows)}
-            return {"status": "success", "rows": [], "count": result.rowcount}
+            # session_for pins the tenant GUCs so RLS scopes the read; the
+            # read-only role blocks any DML at the database level.
+            ctx = require_request_context()
+            with get_readonly_db().session_for(ctx) as session:
+                result = session.execute(text(query))
+                if result.returns_rows:
+                    rows = [_serialize_row(row) for row in result.fetchall()]
+                    return {"status": "success", "rows": rows, "count": len(rows)}
+                return {"status": "success", "rows": [], "count": result.rowcount}
         except Exception as exc:
             return {"status": "error", "rows": [], "count": 0, "error": str(exc)}
 

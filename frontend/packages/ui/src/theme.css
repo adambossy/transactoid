@@ -1,0 +1,83 @@
+/* Penny design-system preset. Import it AFTER `@import "tailwindcss"` in the
+   consuming app's stylesheet (Tailwind v4 library-preset pattern); Tailwind then
+   processes this @theme block, exposing the palette + font families as CSS
+   variables (var(--color-navy)) AND generating utilities (bg-navy, text-ink,
+   font-display). Single source of truth for the palette + font stack; tokens.ts
+   mirrors these values for JS consumers and tokens.drift.test.ts guards the two
+   against drift. */
+@theme {
+  --color-paper: #FAF4E7;
+  --color-cream: #ECE0C0;
+  --color-cream-soft: #F3E9CF;
+  --color-ink: #1C3E3A;
+  --color-navy: #1E4846;
+  --color-navy-700: #2A625D;
+  --color-steel: #3C7A72;
+  --color-orange: #D69E3D;
+  --color-orange-soft: #E3B255;
+
+  --font-display: 'Fraunces',Georgia,serif;
+  --font-serif: 'Cormorant Garamond','Fraunces',Georgia,serif;
+  --font-ui: 'Work Sans',system-ui,sans-serif;
+}
+
+/* Self-hosted woff2 (latin subset) — keeps the package portable and removes the
+   CDN/privacy dependency. font-display: swap so text paints in the fallback
+   immediately. Fraunces / Cormorant Garamond / Work Sans are shipped as their
+   variable files; each @font-face pins the weight the template uses. */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/fraunces-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/fraunces-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/fraunces-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/cormorant-garamond-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/cormorant-garamond-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Work Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/work-sans-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Work Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/work-sans-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Work Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/work-sans-600.woff2') format('woff2');
+}

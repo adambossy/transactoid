@@ -1,0 +1,44 @@
+{
+  "title": "Phase 1a — Multi-tenant Data Model",
+  "root": {
+    "id": "phase-1a",
+    "label": "Phase 1a — Multi-tenant data model",
+    "href": "index.html",
+    "sections": ["goal", "sequence", "key-choices"],
+    "crosslinks": ["phase-1a-migrations", "phase-1a-enforcement", "phase-1a-testing", "phase-1a-ux"],
+    "children": [
+      {
+        "id": "phase-1a-migrations",
+        "label": "Migrations",
+        "href": "migrations.html",
+        "sections": ["chain", "expand-backfill-contract", "dialect-guard"],
+        "crosslinks": ["phase-1a-enforcement"],
+        "children": []
+      },
+      {
+        "id": "phase-1a-enforcement",
+        "label": "Enforcement",
+        "href": "enforcement.html",
+        "sections": ["request-context", "set-local", "policy", "app-filtering"],
+        "crosslinks": ["phase-1a-testing"],
+        "children": []
+      },
+      {
+        "id": "phase-1a-testing",
+        "label": "Testing",
+        "href": "testing.html",
+        "sections": ["postgres-marker", "suites", "acceptance"],
+        "crosslinks": ["phase-1a-enforcement"],
+        "children": []
+      },
+      {
+        "id": "phase-1a-ux",
+        "label": "UI/UX & E2E",
+        "href": "ux.html",
+        "sections": ["ui-ux", "e2e"],
+        "crosslinks": [],
+        "children": []
+      }
+    ]
+  }
+}

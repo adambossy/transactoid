@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Penny renders light-only (cream palette, light-only logos). Pin the
+         browser to light so the first paint and browser chrome never follow the
+         OS dark setting; the app's CSS force-light overrides do the rest. -->
+    <meta name="color-scheme" content="light" />
     <title>Penny</title>
   </head>
   <body>

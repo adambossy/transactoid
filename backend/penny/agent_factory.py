@@ -17,15 +17,20 @@ import os
 from pathlib import Path
 
 from agent_harness import Agent
+from agent_harness.core.credentials import ApiKeyCredential, Credential
 from agent_harness.core.filesystem import FilesystemTools
-from agent_harness.core.models import ModelSettings
+from agent_harness.core.models import ModelSettings, UsagePricer
 from agent_harness.core.skills import SkillRegistry, build_skill_tool
+from agent_harness.extras.reminders import ReminderQueue
 from agent_harness.providers.google import GeminiModel, GoogleProvider
+from agent_harness.sandboxes.inprocess import InProcessSandbox
 from agent_harness.sessions.inmemory import InMemorySession
 
 from .plugins.amazon import build_amazon_toolset
 from .prompts import load_prompt
 from .sandbox import get_sandbox
+from .tenancy.context import RequestContext
+from .tools._services.onboarding import OnboardingResolver
 from .tools.registry import build_toolset
 
 
@@ -40,16 +45,20 @@ def _sql_dialect_from_env() -> str:
 _CORE_MEMORY_FILES = ("index.md", "merchant-rules.md")
 
 
-def _assemble_agent_memory() -> str:
+def _assemble_agent_memory(workspace_dir: Path | None = None) -> str:
     """Concatenate the core memory files from the workspace.
 
-    Mirrors main's behavior: read ``index.md`` then ``merchant-rules.md``
-    from ``~/.transactoid/memory/`` (joined with blank lines). Empty string
-    if neither exists.
+    Reads ``index.md`` then ``merchant-rules.md`` (joined with blank lines);
+    empty string if neither exists. With ``workspace_dir`` (the per-run hybrid
+    checkout, phase 1b) it reads ``<workspace_dir>/memory``; without it, the
+    legacy ``~/.transactoid/memory`` — kept so scripts/tests with no checkout
+    still resolve memory.
     """
     from .workspace import resolve_memory_dir
 
-    memory_dir = resolve_memory_dir()
+    memory_dir = (
+        workspace_dir / "memory" if workspace_dir is not None else resolve_memory_dir()
+    )
     if not memory_dir.exists() or not memory_dir.is_dir():
         return ""
     parts: list[str] = []
@@ -60,13 +69,16 @@ def _assemble_agent_memory() -> str:
     return "\n\n".join(parts)
 
 
-def _render_system_prompt() -> str:
+def _render_system_prompt(
+    ctx: RequestContext, workspace_dir: Path | None = None
+) -> str:
     """Render the penny-system-prompt prompt with full runtime context.
 
     Fills: today's date + ISO week, DB dialect + dialect directives, schema
     snapshot, taxonomy snapshot, and agent memory. (taxonomy-rules is NOT
     injected here — that 35 KB block belongs to the categorizer prompt;
-    main never put it in the agent loop either.)
+    main never put it in the agent loop either.) ``workspace_dir`` scopes
+    ``{{AGENT_MEMORY}}`` to the per-run hybrid checkout when present.
     """
     import yaml  # local import — keeps top-level import cost light
 
@@ -106,7 +118,10 @@ def _render_system_prompt() -> str:
         "{{SQL_DIALECT_DIRECTIVES}}": sql_directives,
         "{{DATABASE_SCHEMA}}": schema_yaml,
         "{{CATEGORY_TAXONOMY}}": taxonomy_yaml,
-        "{{AGENT_MEMORY}}": _assemble_agent_memory() or "(no memory files yet)",
+        # Phase 1b: memory comes from the per-run hybrid checkout when the
+        # front door materialized one; else the legacy workspace dir.
+        "{{AGENT_MEMORY}}": _assemble_agent_memory(workspace_dir)
+        or "(no memory files yet)",
     }
     rendered = load_prompt("penny-system-prompt")
     for placeholder, value in replacements.items():
@@ -117,14 +132,29 @@ def _render_system_prompt() -> str:
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # .../backend/
 
 
-def build_model() -> GeminiModel:
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is not set")
-    # Pin to the model the user picked (defaults to GEMINI_3_5_FLASH inside
-    # agent-harness, but be explicit so it's visible in code review).
+def build_model(*, credential: Credential | None = None) -> GeminiModel:
+    """Build a FRESH Gemini model — one provider per request, never shared.
+
+    The harness resolves a run's credential by mutating the provider client
+    (``use_credential``); a provider shared across concurrent users would race
+    (phase-2b decision D2). So every request builds its own provider here.
+
+    Credentialing (the harness removed the ambient env-key fallback):
+    - explicit ``credential`` — the per-user gate decision (BYO key or the
+      platform subsidy key) — builds the provider client directly;
+    - no ``credential`` — the dev/default path reads the platform key from
+      ``GOOGLE_API_KEY`` and passes it as an explicit ``ApiKeyCredential`` so
+      dev chat/cron still work.
+    """
+    if credential is None:
+        api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY is not set")
+        credential = ApiKeyCredential(provider="google", key=api_key)
+    # Pin the model name explicitly (harness default is GEMINI_3_5_FLASH) so it
+    # is visible in review.
     return GeminiModel(
-        provider=GoogleProvider(api_key=api_key), name="gemini-3.5-flash"
+        provider=GoogleProvider(credential=credential), name="gemini-3.5-flash"
     )
 
 
@@ -146,8 +176,29 @@ def build_agent(
     model: GeminiModel,
     session: InMemorySession,
     persist_session: bool = True,
+    ctx: RequestContext,
+    workspace_dir: Path | None = None,
+    usage_pricer: UsagePricer | None = None,
+    reminders: ReminderQueue | None = None,
+    onboarding_resolver: OnboardingResolver | None = None,
 ) -> Agent:
-    sandbox = get_sandbox()
+    """Build the per-request Agent, scoped to the requesting principal.
+
+    ``ctx`` is required: the agent's tools hit the finance DB, and every DB
+    session is tenant-scoped by the RequestContext (front doors set the
+    ContextVar; this keyword makes the dependency explicit and threads the
+    principal into prompt rendering).
+
+    ``workspace_dir`` (phase 1b) roots the agent's filesystem sandbox at the
+    per-run hybrid checkout so its memory/reports edits land where flush picks
+    them up. Without it, the process-wide legacy ``~/.transactoid`` sandbox is
+    used (scripts/tests with no checkout).
+    """
+    sandbox = (
+        InProcessSandbox(root=str(workspace_dir))
+        if workspace_dir is not None
+        else get_sandbox()
+    )
 
     skill_registry = SkillRegistry.load(project_root=_PROJECT_ROOT, user_root=None)
     skill_tool = build_skill_tool(skill_registry)
@@ -160,13 +211,24 @@ def build_agent(
     return Agent(
         name="penny",
         model=model,
-        instructions=_render_system_prompt(),
+        instructions=_render_system_prompt(ctx, workspace_dir),
         session=session,
         persist_session=persist_session,
         sandbox=sandbox,
         model_settings=ModelSettings(thinking_budget=_thinking_budget_from_env()),
+        # A subsidized run carries a pricer so the loop emits ModelUsage events
+        # the billing subscriber accrues; a BYO run passes None (no metering).
+        usage_pricer=usage_pricer,
+        # Injected by the website (phase 5): a DB-backed ReminderQueue whose
+        # pending reminders the run loop drains into the next user message. The
+        # factory only sees the harness Protocol — the web-backed implementation
+        # is constructed by the caller, keeping agent/website segregation intact.
+        reminders=reminders,
         toolsets=[
-            build_toolset(),
+            # The onboarding-resolve op is website-owned persistence; the website
+            # constructs it and passes it here (like reminders/usage_pricer) so
+            # the factory only sees the OnboardingResolver Protocol.
+            build_toolset(onboarding_resolver=onboarding_resolver),
             build_amazon_toolset(),
             filesystem_tools,
             skills_toolset,

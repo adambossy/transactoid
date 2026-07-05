@@ -7,9 +7,12 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-dotenv>=1.0",
-    "agent-harness[anthropic,openai,google,otel] @ git+https://github.com/adambossy/agent-harness.git@47228dd085202424157f0ffb65c2114c250b7d48",
+    "agent-harness[anthropic,openai,google,otel] @ git+https://github.com/adambossy/agent-harness.git@v0.2.0",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.11",
+    # libpg_query (Postgres's real parser) bindings — powers the read-only
+    # SQL guard that gates the agent's run_sql tool (penny.security).
+    "pglast>=6.0",
     "pyyaml>=6.0",
     "loguru>=0.7.3",
     "promptorium-python @ git+https://github.com/adambossy/promptorium-python@main",
@@ -19,6 +22,10 @@ dependencies = [
     "resend>=0.9",
     "alembic>=1.18.4",
     "typer>=0.12",
+    # Fernet encryption of Plaid access tokens at rest (penny.security).
+    "cryptography>=43.0",
+    # RS256 + JWKS verification of Clerk-issued bearer tokens (penny.auth).
+    "pyjwt[crypto]>=2.8",
     # Vendor-neutral OTEL tracing exported to Langfuse over OTLP (see
     # penny.observability). agent-harness[otel] provides the API+SDK used by
     # its OTELSubscriber; the exporter ships spans to Langfuse's OTLP endpoint.
@@ -28,6 +35,10 @@ dependencies = [
     # span (observability.current_trace_id) so eval deep links match the id
     # Langfuse stores the trace under. Spans still ship over OTLP, not the SDK.
     "langfuse>=4.12.0",
+    # Sentry error tracking (penny.observability.sentry). Auto-instruments the
+    # FastAPI app + Typer/cron entrypoints for unhandled-exception reporting.
+    "sentry-sdk>=2.0",
+    # Modal Sandboxes: the per-conversation runtime for the sandboxed agent loop.
     "modal>=1.5.1",
     # MCP server SDK: the tool server that exposes penny toolsets to the
     # sandboxed agent over streamable-HTTP MCP (agent-harness ships only the
@@ -66,3 +77,6 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "postgres: requires a Postgres database (set POSTGRES_TEST_URL); skipped otherwise",
+]
