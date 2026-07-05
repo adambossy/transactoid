@@ -28,11 +28,15 @@ from dotenv import load_dotenv
 from loguru import logger
 import typer
 
+from penny.observability import init_sentry
 from penny.tenancy.context import RequestContext, SessionMode
 
 # Load env once at the entrypoint (project convention), without clobbering
 # anything deploy already injected into the environment.
 load_dotenv(override=False)
+
+# Error tracking as early as possible so CLI / cron-job crashes are reported.
+init_sentry()
 
 app = typer.Typer(
     help="Penny — headless personal-finance agent runner.",

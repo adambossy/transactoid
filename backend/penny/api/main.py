@@ -42,6 +42,7 @@ from penny.billing.session import BillingSession  # noqa: E402
 from penny.billing.usage_subscriber import start_usage_subscriber_task  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
 from penny.db import get_db  # noqa: E402
+from penny.observability import init_sentry  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
     RequestContext,
     SessionMode,
@@ -58,6 +59,10 @@ from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
 from .persistence.store import ConversationAccessError, ConversationStore  # noqa: E402
 from .signup_routes import router as signup_router  # noqa: E402
+
+# Initialize error tracking before the app is built so startup and
+# request-handler failures are reported. Idempotent + no-op when unconfigured.
+init_sentry()
 
 app = FastAPI(title="Penny backend")
 

@@ -35,6 +35,9 @@ dependencies = [
     # span (observability.current_trace_id) so eval deep links match the id
     # Langfuse stores the trace under. Spans still ship over OTLP, not the SDK.
     "langfuse>=4.12.0",
+    # Sentry error tracking (penny.observability.sentry). Auto-instruments the
+    # FastAPI app + Typer/cron entrypoints for unhandled-exception reporting.
+    "sentry-sdk>=2.0",
 ]
 
 [project.scripts]

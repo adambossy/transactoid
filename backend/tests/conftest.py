@@ -15,6 +15,11 @@ import pytest
 os.environ.setdefault("PENNY_AUTH_MODE", "dev")
 os.environ.setdefault("PENNY_DEV_USER_ID", "11111111-1111-1111-1111-111111111111")
 os.environ.setdefault("PENNY_DEV_HOUSEHOLD_ID", "22222222-2222-2222-2222-222222222222")
+# Sentry defaults on (project DSN is baked in); disable it for the suite so
+# importing the app never initializes error reporting and test-triggered
+# exceptions can't leak to the prod Sentry project. Set before importing
+# penny.api.main below, which calls init_sentry() at import.
+os.environ.setdefault("PENNY_SENTRY_ENABLED", "false")
 
 import penny.api.auth as _api_auth
 import penny.api.main
