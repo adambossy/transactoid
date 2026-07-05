@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 import contextlib
 from dataclasses import replace
 import json
@@ -13,7 +13,8 @@ import tempfile
 from typing import Any
 import uuid
 
-from agent_harness.core.credentials import ApiKeyCredential
+from agent_harness.core.credentials import ApiKeyCredential, Credential
+from agent_harness.core.models import UsagePricer
 from agent_harness.sessions.inmemory import InMemorySession
 from agent_harness.usage.counting import price_table_pricer
 from dotenv import load_dotenv
@@ -192,6 +193,57 @@ def _resolve_gate(ctx: RequestContext) -> billing_gate.GateDecision:
     """Resolve the pre-dispatch billing gate for this turn (owner-scoped read)."""
     with BillingSession().begin(ctx) as s:
         return billing_gate.resolve_for_run(s, ctx)
+
+
+def _credential_wiring(
+    decision: billing_gate.GateDecision, ctx: RequestContext
+) -> tuple[Credential | None, UsagePricer | None, Callable[[Any], Any] | None]:
+    """Translate a non-``Blocked`` gate decision into the per-run wiring.
+
+    Returns ``(credential, usage_pricer, subscribe_hook)``: ``UseDefault`` → the
+    default env key with no metering ``(None, None, None)``; ``UseByo`` → the
+    user's key, no metering; ``UseSubsidy`` → the platform key plus the pricer +
+    usage subscriber so completions accrue to the ledger.
+    """
+    if isinstance(decision, billing_gate.UseByo):
+        return decision.credential, None, None
+    if isinstance(decision, billing_gate.UseSubsidy):
+        credential = ApiKeyCredential(provider="google", key=decision.platform_key)
+        pricer = price_table_pricer(load_price_table())
+
+        def subscribe_hook(bus: Any) -> Any:
+            return start_usage_subscriber_task(bus, ctx)
+
+        return credential, pricer, subscribe_hook
+    return None, None, None
+
+
+@contextlib.asynccontextmanager
+async def _turn_workspace(ctx: RequestContext) -> AsyncIterator[Any]:
+    """Bracket the phase-1b workspace lifecycle around a streamed turn.
+
+    Materializes the turn's readable prefixes into a per-run temp checkout,
+    yields it (the agent roots its sandbox there so memory/reports edits are
+    local-FS fast), and on a CLEAN exit flushes changed blobs + advances each
+    prefix head; the temp dir is always removed. A streaming SSE generator can't
+    use ``run_with_workspace``'s ``await run_fn(root)`` shape, so the primitives
+    are composed as this async context manager instead. An aborted or errored
+    turn resumes at the ``yield`` with the exception and never reaches flush —
+    only a clean turn flushes. Scoped by ``ctx``, so a joint thread materializes
+    shared-only prefixes, consistent with the rest of the turn.
+    """
+    blob_store = R2BlobStore()
+    root = Path(tempfile.mkdtemp(prefix="penny-ws-"))
+    db = get_db()
+    try:
+        with db.session_for(ctx) as s:
+            ensure_prefixes(s, ctx)
+            checkout = materialize(s, ctx, blob_store=blob_store, root=root)
+        yield checkout
+        with db.session_for(ctx) as s:
+            flush(s, ctx, checkout, blob_store=blob_store)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def _build_turn_signals(ctx: RequestContext, conversation_id: str) -> TurnSignals:
@@ -413,93 +465,65 @@ async def chat(
         )
 
     # Translate the decision into the per-request credential + metering wiring.
-    # UseDefault → default env key, no metering; UseByo → the user's key, no
-    # metering; UseSubsidy → the platform key, with the usage subscriber + pricer
-    # so completions accrue to the ledger.
-    run_credential = None
-    usage_pricer = None
-    subscribe_hook = None
-    if isinstance(decision, billing_gate.UseByo):
-        run_credential = decision.credential
-    elif isinstance(decision, billing_gate.UseSubsidy):
-        run_credential = ApiKeyCredential(provider="google", key=decision.platform_key)
-        usage_pricer = price_table_pricer(load_price_table())
-
-        def subscribe_hook(bus: Any) -> Any:
-            return start_usage_subscriber_task(bus, turn_ctx)
+    run_credential, usage_pricer, subscribe_hook = _credential_wiring(
+        decision, turn_ctx
+    )
 
     async def _scoped_stream() -> AsyncIterator[str]:
         # The response body is iterated in a different task context than the
-        # handler that set the ContextVar (which the streaming task inherits
-        # as a copy), so token-based reset would raise "created in a different
-        # Context" — clear the principal instead.
-        #
-        # Phase 1b workspace lifecycle: materialize the turn's readable
-        # prefixes into a per-run temp checkout, build the agent rooted there
-        # (so its memory/reports edits are local-FS fast), stream the turn,
-        # then flush changed blobs + advance each prefix head on success. A
-        # streaming SSE generator can't be expressed as run_with_workspace's
-        # ``await run_fn(root)`` shape, so the same materialize/flush primitives
-        # are composed inline here; an aborted stream never reaches flush. The
-        # workspace is scoped by turn_ctx, so a joint thread materializes
-        # shared-only prefixes, consistent with the rest of the turn.
-        blob_store = R2BlobStore()
-        root = Path(tempfile.mkdtemp(prefix="penny-ws-"))
-        db = get_db()
+        # handler that set the ContextVar (which the streaming task inherits as a
+        # copy), so token-based reset would raise "created in a different
+        # Context" — clear the principal in the finally instead.
         try:
-            # Pre-stream setup runs BEFORE stream_and_persist emits any frame, so
-            # a failure here (workspace materialize, onboarding enqueue, agent
-            # build) would otherwise tear the SSE connection with nothing for the
-            # UI to render. Surface it as the bridge's error-frame contract
-            # ({type:error} + [DONE]) instead — the ChatScreen red-banner path.
+            # Pre-stream setup (workspace materialize on `async with` entry,
+            # onboarding enqueue, agent build) runs BEFORE stream_and_persist
+            # emits any frame. A failure here would otherwise tear the SSE
+            # connection with nothing for the UI, so surface it as the bridge's
+            # error-frame contract ({type:error} + [DONE]) — the ChatScreen red
+            # banner. The except wraps the whole `async with` so a setup error
+            # propagates OUT of the context (skipping flush) before it is caught;
+            # stream_and_persist itself never raises (it emits its own frames).
             try:
-                with db.session_for(turn_ctx) as s:
-                    ensure_prefixes(s, turn_ctx)
-                    checkout = materialize(
-                        s, turn_ctx, blob_store=blob_store, root=root
+                async with _turn_workspace(turn_ctx) as checkout:
+                    # Evaluate onboarding triggers and enqueue the consolidated
+                    # reminder BEFORE the agent runs, so the harness drains it into
+                    # this turn's user message. Individual conversations only;
+                    # joint threads skip.
+                    await _maybe_enqueue_onboarding(turn_ctx, conversation_id=chat_id)
+                    # persist_session=False: the harness never writes to
+                    # sessions.db; the app store (above + the bridge) is the single
+                    # persistence layer. The seeded session provides read-only
+                    # continuity.
+                    agent = build_agent(
+                        model=build_model(credential=run_credential),
+                        session=session,
+                        persist_session=False,
+                        ctx=turn_ctx,
+                        workspace_dir=checkout.root,
+                        usage_pricer=usage_pricer,
+                        # Website injects the DB-backed queue so backend-enqueued
+                        # reminders (onboarding nudges, Plaid-link success) flush
+                        # into this turn's user message.
+                        reminders=DbReminderQueue(turn_ctx),
+                        # Website injects the web-store-backed onboarding resolver
+                        # the resolve_onboarding_item tool needs (kept out of the
+                        # agent domain, mirroring reminders above).
+                        onboarding_resolver=resolve,
                     )
-                # Evaluate onboarding triggers and enqueue the consolidated
-                # reminder BEFORE the agent runs, so the harness drains it into
-                # this turn's user message. Individual conversations only; joint
-                # threads skip.
-                await _maybe_enqueue_onboarding(turn_ctx, conversation_id=chat_id)
-                # persist_session=False: the harness never writes to sessions.db;
-                # the app store (above + the bridge) is the single persistence
-                # layer. The seeded session provides read-only continuity.
-                agent = build_agent(
-                    model=build_model(credential=run_credential),
-                    session=session,
-                    persist_session=False,
-                    ctx=turn_ctx,
-                    workspace_dir=checkout.root,
-                    usage_pricer=usage_pricer,
-                    # Website injects the DB-backed queue so backend-enqueued
-                    # reminders (onboarding nudges, Plaid-link success) flush into
-                    # this turn's user message.
-                    reminders=DbReminderQueue(turn_ctx),
-                    # Website injects the web-store-backed onboarding resolver the
-                    # resolve_onboarding_item tool needs (kept out of the agent
-                    # domain, mirroring reminders above).
-                    onboarding_resolver=resolve,
-                )
+                    async for frame in stream_and_persist(
+                        agent,
+                        prompt,
+                        store=store,
+                        conversation_id=chat_id,
+                        ctx=turn_ctx,
+                        subscribe_bus=subscribe_hook,
+                    ):
+                        yield frame
             except Exception as exc:
                 logger.exception("pre-stream setup failed for conversation {}", chat_id)
                 yield _sse({"type": "error", "errorText": str(exc)})
                 yield "data: [DONE]\n\n"
-                return
-            async for frame in stream_and_persist(
-                agent,
-                prompt,
-                store=store,
-                conversation_id=chat_id,
-                ctx=turn_ctx,
-                subscribe_bus=subscribe_hook,
-            ):
-                yield frame
-            with db.session_for(turn_ctx) as s:
-                flush(s, turn_ctx, checkout, blob_store=blob_store)
         finally:
-            shutil.rmtree(root, ignore_errors=True)
             set_request_context(None)
 
     return StreamingResponse(
