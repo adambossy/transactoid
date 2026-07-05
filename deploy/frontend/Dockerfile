@@ -26,6 +26,14 @@ RUN npm ci
 # App source.
 COPY frontend/ ./
 
+# Clerk publishable key: a PUBLIC key that Vite inlines into the bundle at
+# build time (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY). With no key the app
+# builds in dev/no-Clerk mode and sends no bearer token, which a Clerk-enforcing
+# backend rejects — so prod builds MUST pass it:
+#   fly deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_...
+ARG VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+
 # AGENT_UI_USE_VENDOR=1: consume the vendored @adambossy/agent-ui tarball
 # under node_modules instead of the ~/code/agent-ui source alias, which does
 # not exist in a container. (resolve.dedupe still applies — do not remove it.)
