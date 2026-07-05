@@ -1,0 +1,32 @@
+[project]
+name = "penny-sandbox"
+version = "0.1.0"
+description = "Agent-runtime shell that runs the Penny agent loop inside a Modal sandbox"
+requires-python = ">=3.12"
+# Deliberately thin: agent-harness + a web server. NO finance stack — tools run
+# on Fly over MCP, so SQLAlchemy/Plaid/boto3/psycopg must never land here (a CI
+# denylist enforces it).
+dependencies = [
+    "agent-harness",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2",
+    "httpx>=0.27",
+]
+
+[tool.uv.sources]
+agent-harness = { path = "../../../../../agent-harness", editable = true }
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["protocol", "runner"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

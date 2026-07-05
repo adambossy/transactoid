@@ -28,6 +28,11 @@ dependencies = [
     # span (observability.current_trace_id) so eval deep links match the id
     # Langfuse stores the trace under. Spans still ship over OTLP, not the SDK.
     "langfuse>=4.12.0",
+    "modal>=1.5.1",
+    # MCP server SDK: the tool server that exposes penny toolsets to the
+    # sandboxed agent over streamable-HTTP MCP (agent-harness ships only the
+    # MCP *client*; the server side is ours).
+    "mcp>=1.0",
 ]
 
 [project.scripts]

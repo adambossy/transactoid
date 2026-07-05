@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from agent_harness.providers.google import GeminiModel
@@ -23,13 +24,38 @@ from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
 from .persistence.store import ConversationStore  # noqa: E402
 
-app = FastAPI(title="Penny backend")
+def _sandbox_flag() -> bool:
+    return os.environ.get("PENNY_SANDBOX_TURNS", "").lower() in ("1", "true", "yes")
 
 
-@app.on_event("startup")
-async def _on_startup() -> None:
-    """Create the schema + seed the taxonomy on first boot. Idempotent."""
-    bootstrap()
+# The MCP tool server (built when the sandbox flag is on): same process as the
+# token minting (sandbox_wiring.mcp_registry), so the capability registry is
+# shared. The session manager's run() must be entered in the app lifespan
+# because a mounted sub-app's own lifespan does not fire.
+_mcp_app = None
+_mcp_session_manager = None
+if _sandbox_flag():
+    from penny.api.mcp_server import create_mcp
+    from penny.api.sandbox_wiring import mcp_registry
+    from penny.plugins.amazon import build_amazon_toolset
+    from penny.tools.registry import build_toolset
+
+    _mcp_app, _mcp_session_manager = create_mcp([build_toolset(), build_amazon_toolset()], mcp_registry)
+
+
+@__import__("contextlib").asynccontextmanager
+async def _lifespan(app: FastAPI):  # noqa: ANN201
+    bootstrap()  # idempotent schema + taxonomy seed
+    if _mcp_session_manager is not None:
+        async with _mcp_session_manager.run():
+            yield
+    else:
+        yield
+
+
+app = FastAPI(title="Penny backend", lifespan=_lifespan)
+if _mcp_app is not None:
+    app.mount("/mcp", _mcp_app)
 
 
 app.add_middleware(
@@ -143,6 +169,17 @@ async def get_session(session_id: str) -> dict[str, Any]:
     return {"sessionId": session_id, "messages": conversation_to_ui(rows)}
 
 
+_SSE_HEADERS = {
+    "x-vercel-ai-ui-message-stream": "v1",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+}
+
+
+def _sandbox_enabled() -> bool:
+    return os.environ.get("PENNY_SANDBOX_TURNS", "").lower() in ("1", "true", "yes")
+
+
 @app.post("/api/chat")
 async def chat(request: Request) -> StreamingResponse:
     body: dict[str, Any] = await request.json()
@@ -153,29 +190,47 @@ async def chat(request: Request) -> StreamingResponse:
     store = _get_conversation_store()
     store.ensure_conversation(chat_id)
 
-    # Seed the agent with PRIOR-turn context from the app store BEFORE the
-    # current user turn is appended, so the seed excludes this turn (the loop
-    # appends the new prompt itself). This is what makes persist_session=False
-    # safe: the model still sees earlier turns.
-    session = await _seed_session(store, chat_id)
+    # PRIOR-turn context, captured BEFORE the current user turn is appended.
+    prior_messages = parts_to_messages(store.get_conversation_messages(chat_id))
 
-    # Persist the user turn up front (before any assistant frame) so it is
-    # durable even if the client disconnects mid-stream. Creation is lazy.
     store.append_user_message(chat_id, ai_sdk_message_id=user_message_id, text=prompt)
-    # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
 
-    # persist_session=False: the harness never writes to sessions.db; the app
-    # store (above + the bridge) is the single persistence layer. The seeded
-    # session provides read-only continuity.
-    agent = build_agent(model=_get_model(), session=session, persist_session=False)
+    if _sandbox_enabled():
+        # The loop runs in a per-conversation Modal sandbox; Fly renders the
+        # prompt, seeds prior turns, and relays the sandbox's events.
+        from penny.agent_factory import _render_system_prompt
 
+        from .sandbox_wiring import sandboxed_stream_and_persist
+
+        seed = [m.model_dump(mode="json") for m in prior_messages]
+        return StreamingResponse(
+            sandboxed_stream_and_persist(
+                prompt=prompt,
+                system_prompt=_render_system_prompt(),
+                seed_messages=seed,
+                store=store,
+                conversation_id=chat_id,
+            ),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
+
+    # In-process path (default): build the agent and stream it locally.
+    session = InMemorySession(session_id=chat_id)
+    if prior_messages:
+        await session.add_messages(prior_messages)
+    agent = build_agent(model=_get_model(), session=session, persist_session=False)
     return StreamingResponse(
         stream_and_persist(agent, prompt, store=store, conversation_id=chat_id),
         media_type="text/event-stream",
-        headers={
-            "x-vercel-ai-ui-message-stream": "v1",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-        },
+        headers=_SSE_HEADERS,
     )
+
+
+@app.post("/api/chat/{conversation_id}/cancel")
+async def cancel_chat(conversation_id: str) -> dict[str, bool]:
+    """Route a browser stop to the sandbox runner's cancel endpoint."""
+    from .sandbox_wiring import cancel_active_run
+
+    return {"cancelled": await cancel_active_run(conversation_id)}
