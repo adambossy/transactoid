@@ -9,19 +9,22 @@ so ``put`` is idempotent and ``exists`` is only an optimization.
 
 from __future__ import annotations
 
-import hashlib
 from typing import Protocol
 
 from penny.adapters.storage.r2 import download_object_from_r2, store_object_in_r2
 
 
-def content_key(prefix_token: str, body: bytes) -> str:
-    """The R2 key for ``body`` under ``prefix_token``: ``{token}/{sha256hex}``.
+def content_key(prefix_token: str, sha256_hex: str) -> str:
+    """The R2 key for a blob under ``prefix_token``: ``{token}/{sha256hex}``.
 
-    Content addressing makes uploads idempotent (same bytes → same key) and
-    keys unguessable without the opaque prefix token.
+    The single home for the R2 key layout: both ``sync`` call sites route
+    through here. ``sha256_hex`` is the blob's content hash — callers holding the
+    raw bytes hash them first (``hashlib.sha256(body).hexdigest()``); callers
+    reading a manifest already hold the recorded SHA. Content addressing makes
+    uploads idempotent (same bytes → same key) and keys unguessable without the
+    opaque prefix token.
     """
-    return f"{prefix_token}/{hashlib.sha256(body).hexdigest()}"
+    return f"{prefix_token}/{sha256_hex}"
 
 
 class BlobStore(Protocol):

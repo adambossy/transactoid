@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from penny.adapters.db.models import Household, User, WorkspaceHead, WorkspaceManifest
@@ -21,7 +22,7 @@ def _seed_with_content(db, blob_store):
         infos = resolve_readable_prefixes(s, ctx)
         shared = next(i for i in infos if i.visibility == "shared")
         body = b"# merchant rules\n"
-        key = content_key(shared.prefix_token, body)
+        key = content_key(shared.prefix_token, hashlib.sha256(body).hexdigest())
         blob_store.put(key, body)
         m = WorkspaceManifest(
             prefix_token=shared.prefix_token,

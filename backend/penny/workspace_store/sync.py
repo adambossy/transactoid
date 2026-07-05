@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from penny.adapters.db.models import WorkspaceHead, WorkspaceManifest
 from penny.tenancy.context import RequestContext, SessionMode
-from penny.workspace_store.blobs import BlobStore
+from penny.workspace_store.blobs import BlobStore, content_key
 from penny.workspace_store.broker import PrefixInfo, resolve_readable_prefixes
 
 
@@ -75,7 +75,7 @@ def materialize(
         for path, sha in snap.entries.items():
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(blob_store.get(f"{info.prefix_token}/{sha}"))
+            target.write_bytes(blob_store.get(content_key(info.prefix_token, sha)))
             checkout.origin[path] = info.prefix_token
     return checkout
 
@@ -174,7 +174,7 @@ def flush(
                     entries.pop(path, None)
                     continue
                 sha = hashlib.sha256(body).hexdigest()
-                key = f"{token}/{sha}"
+                key = content_key(token, sha)
                 if not blob_store.exists(key):
                     blob_store.put(key, body)  # immutable, pre-CAS, safe
                 entries[path] = sha
