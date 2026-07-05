@@ -30,6 +30,15 @@ A top-level ``SelectStmt`` is broad on purpose: it also represents
 (``WITH x AS (INSERT … RETURNING …) SELECT …``) parse to a tree that contains an
 ``InsertStmt`` node and are therefore rejected by the whole-tree statement scan.
 
+Scope / limits
+--------------
+This is a *parse-level* barrier: it inspects the statement text as PostgreSQL
+would parse it. It cannot see side-effects hidden inside a user-defined callee
+(a ``SELECT my_func()`` whose body writes), because the callee's body is not in
+this parse tree. The authoritative write barrier remains the read-only database
+role / revoked write grants; this guard is defense-in-depth on top of that, not
+a standalone read-only guarantee.
+
 This module intentionally imports nothing from the rest of Penny; it is
 portable and reusable anywhere untrusted SQL must be gated to reads.
 """
@@ -111,6 +120,13 @@ _DENYLISTED_FUNCTIONS: frozenset[str] = frozenset(
     {
         # GUC / session-state mutation
         "set_config",
+        # sequence mutation (setval/nextval advance sequence state; a write)
+        "setval",
+        "nextval",
+        # time-based side effect / DoS (a query that blocks the backend)
+        "pg_sleep",
+        "pg_sleep_for",
+        "pg_sleep_until",
         # server / session control
         "pg_reload_conf",
         "pg_terminate_backend",
@@ -176,6 +192,22 @@ class _RejectingWalk(Visitor):
                 f"disallowed statement node {clsname!r} in parse tree "
                 "(only a read-only SELECT is permitted)"
             )
+
+        # A SelectStmt is not automatically read-only: ``SELECT … INTO foo``
+        # creates a table (a SelectStmt with a populated intoClause), and
+        # ``SELECT … FOR UPDATE/SHARE`` takes row locks (a lockingClause). Both
+        # can hide in a nested SelectStmt (a CTE body, a subquery), so we check
+        # here in the whole-tree walk rather than only at the top level.
+        if clsname == "SelectStmt":
+            if getattr(node, "intoClause", None) is not None:
+                raise SqlGuardError(
+                    "SELECT ... INTO creates a table (not a read-only SELECT)"
+                )
+            if getattr(node, "lockingClause", None):
+                raise SqlGuardError(
+                    "SELECT ... FOR UPDATE/SHARE takes row locks "
+                    "(not a read-only SELECT)"
+                )
 
         if clsname == "FuncCall":
             name = _bare_funcname(node)

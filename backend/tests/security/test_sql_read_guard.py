@@ -205,6 +205,28 @@ ADVERSARIAL: list[str] = [
         "WITH c AS (SELECT set_config('app.current_household', '<victim>', true)) "
         "SELECT * FROM derived_transactions, c"
     ),
+    # --- SELECT ... INTO creates a table (a write masquerading as a SELECT) ---
+    "SELECT 1 INTO foo",
+    "SELECT * INTO newtab FROM t",
+    "SELECT a INTO TEMP tmp FROM t",
+    "SELECT a INTO UNLOGGED u FROM t",
+    "SELECT a INTO TEMPORARY tmp FROM t",
+    "WITH c AS (SELECT 1 INTO foo) SELECT * FROM c",
+    # --- SELECT ... FOR UPDATE / FOR SHARE take row locks (a write side effect) ---
+    "SELECT a FROM t FOR UPDATE",
+    "SELECT a FROM t FOR SHARE",
+    "SELECT a FROM t FOR NO KEY UPDATE",
+    "SELECT a FROM t FOR KEY SHARE",
+    "SELECT a FROM t FOR UPDATE NOWAIT",
+    "SELECT a FROM t WHERE a IN (SELECT a FROM u FOR UPDATE)",
+    # --- sequence mutation / sleep (side effects) ---
+    "SELECT setval('s', 1)",
+    "SELECT setval('s', 1, true)",
+    "SELECT nextval('s')",
+    "SELECT pg_catalog.nextval('s')",
+    "SELECT pg_sleep(10)",
+    "SELECT pg_sleep_for('10 seconds')",
+    "SELECT pg_sleep_until(now() + '10 seconds')",
     # --- other denylisted functions ---
     "SELECT pg_reload_conf()",
     "SELECT pg_terminate_backend(123)",
