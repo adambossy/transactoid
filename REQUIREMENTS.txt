@@ -37,6 +37,9 @@ P5. Amazon itemization
 
 P6. Conversation persistence
     Persist conversations and messages so chat history survives across sessions.
+    The signed-in user can browse their conversation history (newest-first) from
+    a chat-history drawer, open any past conversation, and start a new chat —
+    scoped to conversations the principal may see (their own, plus joint threads).
 
 P7. Agent workspace
     Maintain a persistent per-user workspace (memory/, reports/) that carries
