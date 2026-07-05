@@ -356,6 +356,29 @@ async def health() -> dict[str, bool]:
     return {"ok": True}
 
 
+@app.get("/api/conversations")
+async def list_conversations(
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, Any]:
+    """List the principal's conversations (newest-first) for the history drawer.
+
+    Tenant-scoped by the resolved ``RequestContext`` (same visibility rule as
+    hydration): the store returns only conversations the principal may see.
+    """
+    store = _get_conversation_store()
+    rows = store.list_conversations(ctx)
+    return {
+        "conversations": [
+            {
+                "id": row.conversation_id,
+                "title": row.title,
+                "updated_at": row.updated_at.isoformat(),
+            }
+            for row in rows
+        ]
+    }
+
+
 @app.get("/api/sessions/{session_id}")
 async def get_session(
     session_id: str,

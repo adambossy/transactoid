@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from penny.tenancy.context import RequestContext
@@ -148,6 +148,32 @@ class ConversationStore:
             session.flush()
             session.expunge(conv)
             return conv
+
+    def list_conversations(self, ctx: RequestContext) -> list[Conversation]:
+        """Return the principal's visible conversations, newest-first.
+
+        Visibility mirrors ``_can_access`` but as a SQL predicate: same
+        household, and either owner-owned or a ``joint`` (household-shared)
+        thread. Ordered by ``updated_at`` descending so the most recently active
+        conversation leads the list. Rows are expunged so callers can read them
+        after the session closes.
+        """
+        with self.session() as session:
+            rows = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.household_id == ctx.household_id,
+                    or_(
+                        Conversation.owner_user_id == ctx.user_id,
+                        Conversation.session_mode == "joint",
+                    ),
+                )
+                .order_by(Conversation.updated_at.desc())
+                .all()
+            )
+            for row in rows:
+                session.expunge(row)
+            return rows
 
     def get_conversation(
         self, conversation_id: str, ctx: RequestContext
