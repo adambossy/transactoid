@@ -190,13 +190,15 @@ def _bearer(request: Request) -> str | None:
 
 def create_mcp(
     toolsets: list[Toolset], registry: CapabilityRegistry
-) -> tuple[Starlette, StreamableHTTPSessionManager]:
-    """Build the MCP ASGI app AND return its session manager.
+) -> tuple[Any, StreamableHTTPSessionManager]:
+    """Build the MCP ASGI handler AND return its session manager.
 
-    The manager's ``run()`` context must be entered by whoever hosts the app —
-    when mounted on FastAPI, the sub-app's own lifespan does NOT fire, so the
-    host app runs the manager in its lifespan. :func:`build_mcp_app` is the
-    standalone variant (its lifespan runs under a dedicated uvicorn).
+    Returns the *raw* ASGI callable (not a Starlette sub-app) so the host can
+    ``app.mount("/mcp", handler)`` it directly: a nested ``Mount("/")`` would
+    redirect ``POST /mcp`` → ``/mcp/`` (307), which the MCP client — and a proxy
+    that strips the trailing slash — cannot follow. The manager's ``run()`` must
+    be entered by whoever hosts the handler (mounted sub-app lifespans don't
+    fire); :func:`build_mcp_app` is the standalone variant for the unit test.
     """
     index = _ToolIndex(toolsets)
     server = _build_server(index)
@@ -225,17 +227,16 @@ def create_mcp(
 
                 set_request_context(None)
 
-    return Starlette(routes=[Mount("/", app=_handle)]), session_manager
+    return _handle, session_manager
 
 
 def build_mcp_app(toolsets: list[Toolset], registry: CapabilityRegistry) -> Starlette:
     """Standalone (own-lifespan) MCP app — used by the unit test under uvicorn."""
-    app, session_manager = create_mcp(toolsets, registry)
+    handle, session_manager = create_mcp(toolsets, registry)
 
     @contextlib.asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
         async with session_manager.run():
             yield
 
-    app.router.lifespan_context = _lifespan
-    return app
+    return Starlette(routes=[Mount("/", app=handle)], lifespan=_lifespan)

@@ -96,6 +96,20 @@ async def _lifespan(app: FastAPI):  # noqa: ANN201
 
 app = FastAPI(title="Penny backend", lifespan=_lifespan)
 if _mcp_app is not None:
+    # The MCP client (and a proxy that strips the trailing slash) POSTs to
+    # ``/mcp``; a mount only matches ``/mcp/…`` and would 307-redirect, which the
+    # client can't follow. Rewrite ``/mcp`` → ``/mcp/`` at the ASGI layer before
+    # routing — a pure path rewrite, so streaming is untouched.
+    class _McpSlash:
+        def __init__(self, inner: Any) -> None:
+            self._inner = inner
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope.get("type") == "http" and scope.get("path") == "/mcp":
+                scope = {**scope, "path": "/mcp/"}
+            await self._inner(scope, receive, send)
+
+    app.add_middleware(_McpSlash)
     app.mount("/mcp", _mcp_app)
 
 
