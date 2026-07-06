@@ -32,6 +32,11 @@ class TurnLog:
     def next_seq(self) -> int:
         return len(self._envelopes)
 
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Every envelope appended so far — the whole turn for the finalize
+        callback the runner POSTs to Fly once the turn closes."""
+        return list(self._envelopes)
+
     async def append(self, event: Any) -> int:
         """Append one harness event; returns its assigned ``seq``."""
         async with self._tick:

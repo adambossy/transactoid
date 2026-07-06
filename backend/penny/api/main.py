@@ -19,7 +19,7 @@ from agent_harness.core.models import UsagePricer
 from agent_harness.sessions.inmemory import InMemorySession
 from agent_harness.usage.counting import price_table_pricer
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -65,6 +65,7 @@ from .signup_routes import router as signup_router  # noqa: E402
 # request-handler failures are reported. Idempotent + no-op when unconfigured.
 init_sentry()
 
+
 def _sandbox_flag() -> bool:
     return os.environ.get("PENNY_SANDBOX_TURNS", "").lower() in ("1", "true", "yes")
 
@@ -81,7 +82,9 @@ if _sandbox_flag():
     from penny.plugins.amazon import build_amazon_toolset
     from penny.tools.registry import build_toolset
 
-    _mcp_app, _mcp_session_manager = create_mcp([build_toolset(), build_amazon_toolset()], mcp_registry)
+    _mcp_app, _mcp_session_manager = create_mcp(
+        [build_toolset(), build_amazon_toolset()], mcp_registry
+    )
 
 
 @__import__("contextlib").asynccontextmanager
@@ -609,3 +612,43 @@ async def cancel_chat(
     from .sandbox_wiring import cancel_active_run
 
     return {"cancelled": await cancel_active_run(conversation_id)}
+
+
+@app.get("/api/chat/{conversation_id}/stream")
+async def resume_chat(
+    conversation_id: str,
+    ctx: RequestContext = Depends(request_context),
+) -> Response:
+    """Reconnect a browser to an in-flight sandboxed turn (authed).
+
+    The AI SDK's ``resumeStream()`` GETs this after a dropped connection; we
+    replay the turn's whole buffer then follow it live. ``204`` means nothing to
+    resume — the turn already finished (or never ran) — and the client falls back
+    to the persisted transcript it hydrated on load.
+    """
+    from .sandbox_wiring import resume_stream
+
+    gen = resume_stream(conversation_id, ctx)
+    if gen is None:
+        return Response(status_code=204)
+    return StreamingResponse(gen, media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@app.post("/api/chat/{conversation_id}/finalize")
+async def finalize_chat(conversation_id: str, request: Request) -> Response:
+    """Runner→Fly persist callback (machine-to-machine).
+
+    The sandbox POSTs its finished event log here when the turn closes. Auth is
+    the per-turn **capability token** (``Authorization: Bearer``), NOT the user
+    session — so this is deliberately outside the Clerk ``request_context`` gate.
+    Idempotent: a retried delivery upserts the same assistant message.
+    """
+    from .sandbox_wiring import finalize_turn
+
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else None
+    body = await request.json()
+    events = body.get("events") or []
+    store = _get_conversation_store()
+    ok = await finalize_turn(store, conversation_id, token, events)
+    return Response(status_code=204 if ok else 401)

@@ -12,8 +12,11 @@ Endpoints (all consumed by the Fly relay, never the browser):
 * ``GET /healthz`` — readiness-probe target.
 
 A run executes in a detached task that publishes to an ``InMemoryEventBus``; a
-drain task folds every event into the turn's :class:`TurnLog`. The agent factory
-is injectable so tests can drive a scripted fake without a model or MCP server.
+drain task folds every event into the turn's :class:`TurnLog`. When the turn
+closes, the runner POSTs the whole log to Fly's ``persist`` callback (with
+retries) — the runner is the durable owner of the result, so it persists even if
+no browser was ever connected. The agent factory is injectable so tests can
+drive a scripted fake without a model or MCP server.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from agent_harness import Agent
 from agent_harness.core.events import Error, InMemoryEventBus
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+import httpx
 from protocol.turn import TurnPayload
 
 from .agent_assembly import build_agent
@@ -43,6 +47,38 @@ RunDriver = Callable[[TurnPayload, InMemoryEventBus], Awaitable[None]]
 async def _default_driver(payload: TurnPayload, bus: InMemoryEventBus) -> None:
     agent: Agent = await build_agent(payload)
     await agent.run(prompt=payload.prompt, event_bus=bus)
+
+
+async def _post_finalize(payload: TurnPayload, log: TurnLog) -> None:
+    """Deliver the finished turn's whole event log to Fly's persist callback.
+
+    The sandbox is the durable owner of the result: it retries until Fly acks, so
+    the turn persists regardless of whether a browser was ever connected (and
+    even across a brief Fly restart). Fly upserts by message id, so a retried
+    delivery is idempotent. Best-effort — bounded retries, then give up (the box
+    would be reaped anyway; a lost result is the rare cost).
+    """
+    cb = payload.persist
+    if cb is None:
+        return
+    body = {"conversation_id": payload.conversation_id, "events": log.snapshot()}
+    headers = {"Authorization": f"Bearer {cb.token}"}
+    delay = 1.0
+    for attempt in range(8):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(cb.url, json=body, headers=headers)
+            if resp.status_code < 300:
+                return
+            print(
+                f"[runner] finalize HTTP {resp.status_code} (attempt {attempt})",
+                flush=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - retry any transport failure
+            print(f"[runner] finalize attempt {attempt} failed: {exc}", flush=True)
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 30.0)
+    print("[runner] finalize gave up after retries", flush=True)
 
 
 def _format_exc(exc: BaseException) -> str:
@@ -111,6 +147,9 @@ def create_app(driver: RunDriver = _default_driver) -> FastAPI:
             await run.log.append(Error(message="run cancelled", recoverable=False))
         await run.log.close()
         state["active"] = None  # run stays in ``runs`` for replay
+        # Push the authoritative result to Fly for persistence (retried, and
+        # independent of any browser connection).
+        await _post_finalize(payload, run.log)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

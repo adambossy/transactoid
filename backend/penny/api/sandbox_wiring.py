@@ -1,20 +1,29 @@
 """Wire the sandboxed chat path into the FastAPI app (behind the flag).
 
-Holds the process-global sandbox provider + store, mints/registers a proxy
-capability token per turn, builds the ``TurnPayload`` (system prompt rendered
-here on Fly, tenant-scoped), then dispatches the turn to a Modal sandbox and
-relays its events — reusing the existing ``MessageAccumulator`` + ``_translate``
-+ persistence so the browser frames and the stored transcript are identical to
-the in-process path. Tenancy is threaded through: the MCP capability token
-carries the turn's ``RequestContext`` so tools run scoped to the household, and
-persistence is ctx-scoped.
+Two clean halves, decoupled:
+
+* **Display (pull).** ``POST /api/chat`` and the ``GET .../stream`` resume both
+  pull the runner's event log over the Modal tunnel (``relay_turn``), translate
+  to AI-SDK frames, and stream to the browser. They persist *nothing* — a browser
+  disconnect ends the stream but never the turn.
+* **Persistence (push).** When the turn finishes, the runner POSTs its whole
+  event log to ``POST /api/chat/{id}/finalize`` (``finalize_turn``). Fly decodes,
+  accumulates, persists (ctx-scoped), traces to Langfuse, and returns the sandbox
+  to idle. This happens regardless of any browser, so the turn is durable even if
+  the user closed the window.
+
+Auth for the finalize callback is the same per-turn **capability token** the
+runner already holds for MCP (machine-to-machine, conversation-scoped) — never
+the user's session token. The token resolves to the turn's ``Principal`` (and its
+tenant ``RequestContext``) via the shared ``mcp_registry``.
 
 Everything secret-shaped is read from env, never hardcoded:
     PENNY_SANDBOX_IMAGE   the published runner image id
     PENNY_SANDBOX_APP     Modal app name (default penny-sandbox)
     PENNY_PROXY_URL       the deployed secrets-proxy base URL
     PENNY_PROXY_ADMIN     the proxy admin token (shared Fly↔proxy secret)
-    PENNY_MCP_PUBLIC_URL  optional: public URL of Fly's MCP server (enables tools)
+    PENNY_MCP_PUBLIC_URL  public URL of Fly's MCP server; its base also hosts the
+                          finalize callback (enables tools + persistence)
 
 Billing note: the proxy currently injects the platform Gemini key. Threading a
 BYO/subsidy ``credential`` through to the proxy (and usage metering back to the
@@ -26,14 +35,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 import contextlib
-import json
 import os
 import secrets
 import time
 from typing import Any
 
 from agent_harness.core.credentials import Credential
-from agent_harness.core.events import InMemoryEventBus, RunEnd, RunStart
+from agent_harness.core.events import InMemoryEventBus
 import httpx
 from loguru import logger
 from protocol.events import decode_envelope
@@ -41,21 +49,25 @@ from protocol.events import decode_envelope
 from penny import observability
 from penny.agent_factory import _render_system_prompt
 from penny.sandboxes.provider import ModalSandboxProvider
-from penny.sandboxes.reaper import dispatch_turn, on_turn_end
+from penny.sandboxes.reaper import SandboxBusy, dispatch_turn, on_turn_end
+from penny.sandboxes.relay import relay_turn
 from penny.sandboxes.store import InMemorySandboxStore
 from penny.tenancy.context import RequestContext, set_request_context
 
 from .accumulator import MessageAccumulator
-from .bridge import _safe_persist, _sse, _translate
+from .bridge import _safe_persist, _sse
 from .mcp_server import CapabilityRegistry, Principal
 from .persistence.store import ConversationStore
 
 _provider: ModalSandboxProvider | None = None
 _sandbox_store = InMemorySandboxStore()
-# MCP capability registry, shared with the mounted MCP server (tools path).
+# MCP capability registry, shared with the mounted MCP server (tools path) and
+# the finalize callback (persistence path).
 mcp_registry = CapabilityRegistry()
-# conversation_id -> (tunnel_url, run_id) for the cancel endpoint.
-_active_runs: dict[str, tuple[str, str]] = {}
+# conversation_id -> (tunnel_url, run_id, household_id) for an in-flight turn:
+# the runner to resume from, and who may resume it. Cleared when the turn's
+# finalize callback lands.
+_active: dict[str, tuple[str, str, str]] = {}
 
 
 def get_provider() -> ModalSandboxProvider:
@@ -87,6 +99,15 @@ async def _register_proxy_session(conversation_id: str) -> tuple[str, str]:
     return proxy_url, token
 
 
+def _public_base() -> str | None:
+    """Fly's public base URL (the tunnel the runner reaches), derived from the
+    MCP public URL — same host serves MCP tools and the finalize callback."""
+    mcp_url = os.environ.get("PENNY_MCP_PUBLIC_URL")
+    if not mcp_url:
+        return None
+    return mcp_url.rstrip("/").removesuffix("/mcp").rstrip("/")
+
+
 def _build_payload(
     conversation_id: str,
     prompt: str,
@@ -109,10 +130,11 @@ def _build_payload(
             "thinking_budget": -1,
         },
     }
-    mcp_url = os.environ.get("PENNY_MCP_PUBLIC_URL")
-    if mcp_url:
-        # The MCP token carries the tenant context so tools run household-scoped.
-        mcp_token = mcp_registry.mint(
+    base = _public_base()
+    if base:
+        # One capability token per turn authorizes BOTH the MCP tool calls and
+        # the finalize callback — conversation-scoped, carries the tenant ctx.
+        token = mcp_registry.mint(
             Principal(
                 conversation_id=conversation_id,
                 household_id=str(ctx.household_id),
@@ -120,8 +142,42 @@ def _build_payload(
                 ctx=ctx,
             )
         )
-        payload["mcp"] = {"url": mcp_url.rstrip("/"), "token": mcp_token}
+        payload["mcp"] = {"url": f"{base}/mcp", "token": token}
+        payload["persist"] = {
+            "url": f"{base}/api/chat/{conversation_id}/finalize",
+            "token": token,
+        }
     return payload
+
+
+async def _dispatch(
+    conversation_id: str,
+    ctx: RequestContext,
+    prompt: str,
+    seed_messages: list[dict[str, Any]],
+) -> tuple[str, str]:
+    """Dispatch a sandbox and start the turn. Returns (tunnel_url, run_id).
+    Raises :class:`SandboxBusy` if a turn is already active."""
+    provider = get_provider()
+    rec = _sandbox_store.get(conversation_id)
+    system_prompt = _render_system_prompt(ctx)
+    proxy_url, proxy_token = await _register_proxy_session(conversation_id)
+    payload = _build_payload(
+        conversation_id,
+        prompt,
+        system_prompt,
+        seed_messages,
+        proxy_url,
+        proxy_token,
+        ctx,
+    )
+    handle = await dispatch_turn(rec, provider, now=time.time())
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as c:
+        start = await c.post(f"{handle.tunnel_url.rstrip('/')}/turns", json=payload)
+        start.raise_for_status()
+        run_id = start.json()["run_id"]
+    _active[conversation_id] = (handle.tunnel_url, run_id, str(ctx.household_id))
+    return handle.tunnel_url, run_id
 
 
 async def sandboxed_stream_and_persist(
@@ -133,100 +189,119 @@ async def sandboxed_stream_and_persist(
     seed_messages: list[dict[str, Any]],
     credential: Credential | None = None,
 ) -> AsyncIterator[str]:
-    """Dispatch a Modal sandbox, run the turn, relay+persist (ctx-scoped)."""
-    del credential  # billing credential-through-proxy is a follow-up (see module note)
+    """POST /api/chat body: start the turn and stream it to the browser.
 
-    provider = get_provider()
-    rec = _sandbox_store.get(conversation_id)
-    system_prompt = _render_system_prompt(ctx)
+    Display only — persistence + tracing happen in the runner's finalize
+    callback, so a browser disconnect ends this stream but not the turn. (``store``
+    is unused here; kept for signature symmetry with the in-process path.)
+    """
+    del credential, store
+    try:
+        tunnel_url, run_id = await _dispatch(
+            conversation_id, ctx, prompt, seed_messages
+        )
+    except SandboxBusy:
+        # A turn is already in flight (e.g. a double-submit) — attach to it.
+        entry = _active.get(conversation_id)
+        if entry is None:
+            yield _sse({"type": "error", "errorText": "a turn is already active"})
+            yield "data: [DONE]\n\n"
+            return
+        tunnel_url, run_id, _hh = entry
+    except Exception as exc:  # noqa: BLE001 - dispatch/transport failure before the run
+        logger.bind(conversation_id=conversation_id).warning(
+            "sandbox dispatch failed: {}", exc
+        )
+        yield _sse({"type": "error", "errorText": str(exc)})
+        yield "data: [DONE]\n\n"
+        return
 
-    # Observability: the agent loop runs in the sandbox (no Langfuse creds there),
-    # so the relay traces it — a local bus fed the decoded events drives the same
-    # OTELSubscriber the in-process path uses, so sandboxed turns land in Langfuse.
+    async for frame in relay_turn(tunnel_url, run_id, from_seq=0):
+        yield _sse(frame)
+    yield "data: [DONE]\n\n"
+
+
+def resume_stream(
+    conversation_id: str, ctx: RequestContext
+) -> AsyncIterator[str] | None:
+    """Follow an in-flight turn's runner log for a reconnecting browser
+    (replay-then-follow). ``None`` (→ HTTP 204) when there is nothing to resume —
+    the turn already finalized (or never ran), and the client uses the persisted
+    transcript it hydrated on load."""
+    entry = _active.get(conversation_id)
+    if entry is None:
+        return None
+    tunnel_url, run_id, household_id = entry
+    if household_id != str(ctx.household_id):
+        return None  # not this principal's conversation — no existence leak
+
+    async def _gen() -> AsyncIterator[str]:
+        async for frame in relay_turn(tunnel_url, run_id, from_seq=0):
+            yield _sse(frame)
+        yield "data: [DONE]\n\n"
+
+    return _gen()
+
+
+async def finalize_turn(
+    store: ConversationStore,
+    conversation_id: str,
+    token: str | None,
+    events: list[dict[str, Any]],
+) -> bool:
+    """Persist a finished turn delivered by the runner's callback.
+
+    Authenticates with the per-turn capability token (resolved to the turn's
+    ``Principal`` + tenant ctx), then accumulates the event log and upserts the
+    assistant message — idempotent, so a retried delivery is safe. Also traces to
+    Langfuse and returns the sandbox to idle. Returns ``False`` (→ 401) on a bad
+    or mismatched token.
+    """
+    principal = mcp_registry.resolve(token)
+    if principal is None or principal.conversation_id != conversation_id:
+        return False
+    ctx = principal.ctx
+    if ctx is None:
+        return False
+
+    # Trace the whole turn to Langfuse from the delivered log (browser-independent).
     trace_bus = InMemoryEventBus()
     trace_task = observability.start_run_trace_task(
         trace_bus,
         source="chat",
         session_id=conversation_id,
         user_id=str(ctx.user_id),
-        prompt=prompt,
+        prompt="",
     )
-
+    set_request_context(ctx)
     acc = MessageAccumulator()
-    open_text: set[str] = set()
-    finalized = False
-    http = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=15.0))
     try:
-        proxy_url, proxy_token = await _register_proxy_session(conversation_id)
-        payload = _build_payload(
-            conversation_id,
-            prompt,
-            system_prompt,
-            seed_messages,
-            proxy_url,
-            proxy_token,
-            ctx,
-        )
-        handle = await dispatch_turn(rec, provider, now=time.time())
-        start = await http.post(f"{handle.tunnel_url.rstrip('/')}/turns", json=payload)
-        start.raise_for_status()
-        run_id = start.json()["run_id"]
-        _active_runs[conversation_id] = (handle.tunnel_url, run_id)
-
-        url = f"{handle.tunnel_url.rstrip('/')}/runs/{run_id}/events"
-        async with http.stream("GET", url, params={"from_seq": 0}) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[len("data: ") :]
-                if data.strip() == "[DONE]":
-                    break
-                _seq, event = decode_envelope(json.loads(data))
-                acc.consume(event)
-                await trace_bus.publish(event)  # feed the Langfuse tracer
-                if isinstance(event, RunStart):
-                    _safe_persist(store, conversation_id, ctx, acc, "streaming")
-                try:
-                    frames = _translate(event, open_text)
-                except Exception as exc:  # noqa: BLE001
-                    frames = [
-                        {
-                            "type": "error",
-                            "errorText": f"stream translation failed: {exc}",
-                        }
-                    ]
-                for frame in frames:
-                    yield _sse(frame)
-                if isinstance(event, RunEnd):
-                    _safe_persist(store, conversation_id, ctx, acc, acc.status)
-                    finalized = True
-    except Exception as exc:  # noqa: BLE001 - surface transport/dispatch failure
-        logger.bind(conversation_id=conversation_id).warning(
-            "sandboxed turn failed: {}", exc
-        )
-        yield _sse({"type": "error", "errorText": str(exc)})
+        for env in events:
+            _seq, event = decode_envelope(env)
+            acc.consume(event)
+            await trace_bus.publish(event)
+        _safe_persist(store, conversation_id, ctx, acc, acc.status)
     finally:
-        if not finalized:
-            _safe_persist(store, conversation_id, ctx, acc, "error")
-        _active_runs.pop(conversation_id, None)
-        await on_turn_end(rec, now=time.time())
-        await http.aclose()
-        # Close the trace bus and let the Langfuse span flush.
         await trace_bus.close()
         if trace_task is not None:
             with contextlib.suppress(Exception):
                 await trace_task
-        set_request_context(None)  # streaming task ran in a context copy
-    yield "data: [DONE]\n\n"
+        await on_turn_end(_sandbox_store.get(conversation_id), now=time.time())
+        _active.pop(conversation_id, None)
+        if token is not None:
+            mcp_registry.revoke(token)  # one-time: turn is over
+        set_request_context(None)
+    return True
 
 
 async def cancel_active_run(conversation_id: str) -> bool:
-    """Route a browser stop to the runner's cancel endpoint."""
-    entry = _active_runs.get(conversation_id)
+    """Route a browser stop to the runner's cancel endpoint; the runner then
+    closes the turn and delivers its (partial) log via the finalize callback."""
+    entry = _active.get(conversation_id)
     if entry is None:
         return False
-    tunnel_url, run_id = entry
-    async with httpx.AsyncClient(timeout=30.0) as c:
-        await c.post(f"{tunnel_url.rstrip('/')}/runs/{run_id}/cancel")
+    tunnel_url, run_id, _hh = entry
+    with contextlib.suppress(Exception):
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            await c.post(f"{tunnel_url.rstrip('/')}/runs/{run_id}/cancel")
     return True
