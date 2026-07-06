@@ -21,9 +21,13 @@ class SandboxHandle:
 
 class SandboxProvider(Protocol):
     async def create(self, conversation_id: str) -> SandboxHandle: ...
-    async def restore(self, conversation_id: str, snapshot_image_id: str) -> SandboxHandle: ...
+    async def restore(
+        self, conversation_id: str, snapshot_image_id: str
+    ) -> SandboxHandle: ...
     async def snapshot(self, sandbox_id: str) -> str: ...  # returns image id; may raise
     async def terminate(self, sandbox_id: str) -> None: ...
+    # Live boxes as (sandbox_id, conversation_id) — the reaper's box inventory.
+    async def list_active(self) -> list[tuple[str, str]]: ...
 
 
 class ModalSandboxProvider:
@@ -33,7 +37,14 @@ class ModalSandboxProvider:
     method. Not unit-tested (needs a live image); driven in the final e2e run.
     """
 
-    def __init__(self, app_name: str, image_ref: str, *, runner_port: int = 8080, idle_timeout: int = 3600) -> None:
+    def __init__(
+        self,
+        app_name: str,
+        image_ref: str,
+        *,
+        runner_port: int = 8080,
+        idle_timeout: int = 3600,
+    ) -> None:
         self._app_name = app_name
         self._image_ref = image_ref
         self._runner_port = runner_port
@@ -46,11 +57,19 @@ class ModalSandboxProvider:
 
         import httpx
 
-        app = await asyncio.to_thread(lambda: modal.App.lookup(self._app_name, create_if_missing=True))
+        app = await asyncio.to_thread(
+            lambda: modal.App.lookup(self._app_name, create_if_missing=True)
+        )
         # The sandbox's primary process is the runner server on the tunnel port.
         runner_cmd = [
-            "python", "-m", "uvicorn", "runner.server:app",
-            "--host", "0.0.0.0", "--port", str(self._runner_port),
+            "python",
+            "-m",
+            "uvicorn",
+            "runner.server:app",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(self._runner_port),
         ]
         sb = await asyncio.to_thread(
             lambda: modal.Sandbox.create(
@@ -88,17 +107,25 @@ class ModalSandboxProvider:
     async def create(self, conversation_id: str) -> SandboxHandle:
         import modal
 
-        return await self._new_sandbox(modal.Image.from_id(self._image_ref), conversation_id)
+        return await self._new_sandbox(
+            modal.Image.from_id(self._image_ref), conversation_id
+        )
 
-    async def restore(self, conversation_id: str, snapshot_image_id: str) -> SandboxHandle:
+    async def restore(
+        self, conversation_id: str, snapshot_image_id: str
+    ) -> SandboxHandle:
         import asyncio
 
         import modal
 
         # Fresh sandbox from the current base image with the workspace delta mounted.
-        handle = await self._new_sandbox(modal.Image.from_id(self._image_ref), conversation_id)
+        handle = await self._new_sandbox(
+            modal.Image.from_id(self._image_ref), conversation_id
+        )
         sb = await asyncio.to_thread(modal.Sandbox.from_id, handle.sandbox_id)
-        await asyncio.to_thread(sb.mount_image, "/workspace", modal.Image.from_id(snapshot_image_id))
+        await asyncio.to_thread(
+            sb.mount_image, "/workspace", modal.Image.from_id(snapshot_image_id)
+        )
         return handle
 
     async def snapshot(self, sandbox_id: str) -> str:
@@ -117,3 +144,27 @@ class ModalSandboxProvider:
 
         sb = await asyncio.to_thread(modal.Sandbox.from_id, sandbox_id)
         await asyncio.to_thread(sb.terminate)
+
+    async def list_active(self) -> list[tuple[str, str]]:
+        """Live boxes for this app as (sandbox_id, conversation_id) pairs.
+
+        Modal is the durable registry: each box is tagged with its
+        ``conversation_id`` at create, so the reaper knows which boxes exist with
+        no Fly-side state — it survives a Fly restart. Exited boxes are skipped.
+        """
+        import asyncio
+
+        import modal
+
+        def _list() -> list[tuple[str, str]]:
+            app = modal.App.lookup(self._app_name, create_if_missing=True)
+            out: list[tuple[str, str]] = []
+            for sb in modal.Sandbox.list(app_id=app.app_id):
+                if sb.poll() is not None:  # exited — not a live box
+                    continue
+                cid = sb.get_tags().get("conversation_id")
+                if cid:
+                    out.append((sb.object_id, cid))
+            return out
+
+        return await asyncio.to_thread(_list)
