@@ -105,6 +105,85 @@ def test_accumulator_reasoning_text_and_tool_round_trip():
     assert output == expected_output
 
 
+def test_accumulator_final_text_lands_after_tool_calls_with_constant_message_id():
+    # Regression: Gemini reuses one message_id ("gemini-msg") for every step and
+    # emits a MessageEnd per tool-only step. The final answer must render AFTER
+    # the tool calls that produced it — not merged into a part pinned at step 1.
+    events = [
+        RunStart(run_id="run_g", agent_name="penny", prompt="report"),
+        # step 1: tool only, then a step-boundary MessageEnd (no text)
+        ToolCallEnd(tool_call_id="c1", tool_name="run_sql", arguments={"q": "1"}),
+        ToolExecEnd(
+            tool_call_id="c1",
+            result=ToolResult(
+                content=[TextBlock(text="a")], structured_content={"n": 1}
+            ),
+        ),
+        MessageEnd(message_id="gemini-msg", final=_assistant(""), usage=Usage()),
+        # step 2: another tool-only step, same message_id
+        ToolCallEnd(tool_call_id="c2", tool_name="run_sql", arguments={"q": "2"}),
+        ToolExecEnd(
+            tool_call_id="c2",
+            result=ToolResult(
+                content=[TextBlock(text="b")], structured_content={"n": 2}
+            ),
+        ),
+        MessageEnd(message_id="gemini-msg", final=_assistant(""), usage=Usage()),
+        # step 3: the final answer, same message_id
+        MessageDelta(message_id="gemini-msg", delta="Done: ", partial="Done: "),
+        MessageDelta(message_id="gemini-msg", delta="2 rows.", partial="Done: 2 rows."),
+        MessageEnd(
+            message_id="gemini-msg", final=_assistant("Done: 2 rows."), usage=Usage()
+        ),
+        RunEnd(run_id="run_g", result=None, usage=Usage(), duration_ms=1),
+    ]
+
+    parts = _accumulate(events).parts()
+
+    # The two tool parts come first, then the single text answer last.
+    assert [p["type"] for p in parts] == ["tool-run_sql", "tool-run_sql", "text"]
+    assert parts[-1] == {"type": "text", "text": "Done: 2 rows.", "state": "done"}
+
+
+def test_accumulator_interleaved_text_segments_stay_in_transcript_order():
+    # A mid-turn note ("Let me check.") and the final answer share one message_id
+    # but are separated by a tool call — they must remain two parts in order,
+    # not a single merged bubble.
+    events = [
+        RunStart(run_id="run_i", agent_name="penny", prompt="q"),
+        MessageDelta(
+            message_id="gemini-msg", delta="Let me check.", partial="Let me check."
+        ),
+        ToolCallEnd(tool_call_id="c1", tool_name="run_sql", arguments={"q": "1"}),
+        ToolExecEnd(
+            tool_call_id="c1",
+            result=ToolResult(
+                content=[TextBlock(text="a")], structured_content={"n": 1}
+            ),
+        ),
+        MessageEnd(message_id="gemini-msg", final=_assistant(""), usage=Usage()),
+        MessageDelta(message_id="gemini-msg", delta="Answer: 1.", partial="Answer: 1."),
+        MessageEnd(
+            message_id="gemini-msg", final=_assistant("Answer: 1."), usage=Usage()
+        ),
+        RunEnd(run_id="run_i", result=None, usage=Usage(), duration_ms=1),
+    ]
+
+    parts = _accumulate(events).parts()
+
+    assert parts == [
+        {"type": "text", "text": "Let me check.", "state": "done"},
+        {
+            "type": "tool-run_sql",
+            "toolCallId": "c1",
+            "state": "output-available",
+            "input": {"q": "1"},
+            "output": {"n": 1},
+        },
+        {"type": "text", "text": "Answer: 1.", "state": "done"},
+    ]
+
+
 def test_accumulator_tool_output_error_maps_to_output_error_part():
     # input: a tool that fails
     events = [

@@ -17,6 +17,15 @@ Part shapes (mirroring ``_translate`` / what ``useChat`` expects):
 
 Ordering follows first-appearance of each part across the stream — exactly the
 visual transcript order the bridge yields.
+
+Text/reasoning segmenting: a provider streams one assistant turn as many model
+steps, and some providers reuse a single ``message_id`` for every step (Gemini
+hardcodes ``"gemini-msg"``). So text is *not* keyed by ``message_id`` — that
+would merge text from different steps (e.g. a mid-turn note and the final answer)
+into one part pinned at the earliest step, printing the answer *above* the tool
+calls that produced it. Instead each contiguous text (or reasoning) run is its
+own uniquely-keyed part, opened lazily on the first real delta and closed at the
+next step/tool boundary, so parts land in true transcript order.
 """
 
 from __future__ import annotations
@@ -57,6 +66,12 @@ class MessageAccumulator:
         # tool_call_id -> part key (tool parts are keyed by call id)
         self._tool_keys: dict[str, str] = {}
         self._error_counter: int = 0
+        # Text/reasoning segmenting: a monotonic counter mints a unique key per
+        # contiguous run; the ``_open_*`` keys name the run currently accepting
+        # deltas (``None`` once a step/tool boundary has closed it).
+        self._segment_counter: int = 0
+        self._open_text_key: str | None = None
+        self._open_reasoning_key: str | None = None
 
     # ----- ingestion -------------------------------------------------------
 
@@ -65,22 +80,32 @@ class MessageAccumulator:
         if isinstance(event, RunStart):
             self.run_id = event.run_id
         elif isinstance(event, ThinkingStart):
-            self._ensure_reasoning(event.message_id)
+            # A new reasoning run begins; any open text run is complete.
+            self._open_text_key = None
+            self._open_reasoning_key = None
         elif isinstance(event, ThinkingDelta):
-            part = self._ensure_reasoning(event.message_id)
+            part = self._open_reasoning()
             part["text"] += event.delta
         elif isinstance(event, ThinkingEnd):
-            self._ensure_reasoning(event.message_id)
+            self._open_reasoning_key = None
         elif isinstance(event, MessageDelta):
-            part = self._ensure_text(event.message_id)
+            part = self._open_text()
             part["text"] += event.delta
         elif isinstance(event, MessageEnd):
-            self._ensure_text(event.message_id)
+            # Step boundary: close the runs so the next step's text/reasoning
+            # opens a fresh part in transcript order (message_id is not unique).
+            self._open_text_key = None
+            self._open_reasoning_key = None
         elif isinstance(event, ToolCallEnd):
+            # A tool call interrupts any open text/reasoning run.
+            self._open_text_key = None
+            self._open_reasoning_key = None
             self._add_tool_call(event)
         elif isinstance(event, ToolExecEnd):
             self._promote_tool_result(event)
         elif isinstance(event, Error):
+            self._open_text_key = None
+            self._open_reasoning_key = None
             self._add_stream_error(event.message)
         elif isinstance(event, RunEnd):
             self.finished = True
@@ -110,23 +135,27 @@ class MessageAccumulator:
 
     # ----- internals -------------------------------------------------------
 
-    def _ensure_reasoning(self, message_id: str) -> dict[str, Any]:
-        key = f"r_{message_id}"
-        part = self._parts.get(key)
-        if part is None:
-            part = {"type": "reasoning", "text": "", "state": "done"}
-            self._parts[key] = part
+    def _open_reasoning(self) -> dict[str, Any]:
+        """Return the open reasoning run, opening a new one at the current
+        position if none is active."""
+        if self._open_reasoning_key is None:
+            self._segment_counter += 1
+            key = f"r_{self._segment_counter}"
+            self._parts[key] = {"type": "reasoning", "text": "", "state": "done"}
             self._order.append(key)
-        return part
+            self._open_reasoning_key = key
+        return self._parts[self._open_reasoning_key]
 
-    def _ensure_text(self, message_id: str) -> dict[str, Any]:
-        key = f"t_{message_id}"
-        part = self._parts.get(key)
-        if part is None:
-            part = {"type": "text", "text": "", "state": "done"}
-            self._parts[key] = part
+    def _open_text(self) -> dict[str, Any]:
+        """Return the open text run, opening a new one at the current position
+        if none is active."""
+        if self._open_text_key is None:
+            self._segment_counter += 1
+            key = f"t_{self._segment_counter}"
+            self._parts[key] = {"type": "text", "text": "", "state": "done"}
             self._order.append(key)
-        return part
+            self._open_text_key = key
+        return self._parts[self._open_text_key]
 
     def _add_tool_call(self, event: ToolCallEnd) -> None:
         key = f"tool_{event.tool_call_id}"
