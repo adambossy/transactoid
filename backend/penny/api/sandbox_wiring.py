@@ -24,19 +24,21 @@ ledger) for sandboxed turns is a follow-up; the pre-dispatch billing *gate*
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+import contextlib
 import json
 import os
 import secrets
 import time
-from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_harness.core.credentials import Credential
+from agent_harness.core.events import InMemoryEventBus, RunEnd, RunStart
 import httpx
 from loguru import logger
 from protocol.events import decode_envelope
 
-from agent_harness.core.credentials import Credential
-from agent_harness.core.events import RunEnd, RunStart
+from penny import observability
 from penny.agent_factory import _render_system_prompt
 from penny.sandboxes.provider import ModalSandboxProvider
 from penny.sandboxes.reaper import dispatch_turn, on_turn_end
@@ -60,7 +62,9 @@ def get_provider() -> ModalSandboxProvider:
     global _provider
     if _provider is None:
         image = os.environ["PENNY_SANDBOX_IMAGE"]
-        _provider = ModalSandboxProvider(os.environ.get("PENNY_SANDBOX_APP", "penny-sandbox"), image)
+        _provider = ModalSandboxProvider(
+            os.environ.get("PENNY_SANDBOX_APP", "penny-sandbox"), image
+        )
     return _provider
 
 
@@ -73,7 +77,11 @@ async def _register_proxy_session(conversation_id: str) -> tuple[str, str]:
         r = await c.post(
             f"{proxy_url}/admin/register",
             headers={"x-admin-token": os.environ["PENNY_PROXY_ADMIN"]},
-            json={"token": token, "conversation_id": conversation_id, "credential_ref": "gemini"},
+            json={
+                "token": token,
+                "conversation_id": conversation_id,
+                "credential_ref": "gemini",
+            },
         )
         r.raise_for_status()
     return proxy_url, token
@@ -132,6 +140,18 @@ async def sandboxed_stream_and_persist(
     rec = _sandbox_store.get(conversation_id)
     system_prompt = _render_system_prompt(ctx)
 
+    # Observability: the agent loop runs in the sandbox (no Langfuse creds there),
+    # so the relay traces it — a local bus fed the decoded events drives the same
+    # OTELSubscriber the in-process path uses, so sandboxed turns land in Langfuse.
+    trace_bus = InMemoryEventBus()
+    trace_task = observability.start_run_trace_task(
+        trace_bus,
+        source="chat",
+        session_id=conversation_id,
+        user_id=str(ctx.user_id),
+        prompt=prompt,
+    )
+
     acc = MessageAccumulator()
     open_text: set[str] = set()
     finalized = False
@@ -139,7 +159,13 @@ async def sandboxed_stream_and_persist(
     try:
         proxy_url, proxy_token = await _register_proxy_session(conversation_id)
         payload = _build_payload(
-            conversation_id, prompt, system_prompt, seed_messages, proxy_url, proxy_token, ctx
+            conversation_id,
+            prompt,
+            system_prompt,
+            seed_messages,
+            proxy_url,
+            proxy_token,
+            ctx,
         )
         handle = await dispatch_turn(rec, provider, now=time.time())
         start = await http.post(f"{handle.tunnel_url.rstrip('/')}/turns", json=payload)
@@ -158,19 +184,27 @@ async def sandboxed_stream_and_persist(
                     break
                 _seq, event = decode_envelope(json.loads(data))
                 acc.consume(event)
+                await trace_bus.publish(event)  # feed the Langfuse tracer
                 if isinstance(event, RunStart):
                     _safe_persist(store, conversation_id, ctx, acc, "streaming")
                 try:
                     frames = _translate(event, open_text)
                 except Exception as exc:  # noqa: BLE001
-                    frames = [{"type": "error", "errorText": f"stream translation failed: {exc}"}]
+                    frames = [
+                        {
+                            "type": "error",
+                            "errorText": f"stream translation failed: {exc}",
+                        }
+                    ]
                 for frame in frames:
                     yield _sse(frame)
                 if isinstance(event, RunEnd):
                     _safe_persist(store, conversation_id, ctx, acc, acc.status)
                     finalized = True
     except Exception as exc:  # noqa: BLE001 - surface transport/dispatch failure
-        logger.bind(conversation_id=conversation_id).warning("sandboxed turn failed: {}", exc)
+        logger.bind(conversation_id=conversation_id).warning(
+            "sandboxed turn failed: {}", exc
+        )
         yield _sse({"type": "error", "errorText": str(exc)})
     finally:
         if not finalized:
@@ -178,6 +212,11 @@ async def sandboxed_stream_and_persist(
         _active_runs.pop(conversation_id, None)
         await on_turn_end(rec, now=time.time())
         await http.aclose()
+        # Close the trace bus and let the Langfuse span flush.
+        await trace_bus.close()
+        if trace_task is not None:
+            with contextlib.suppress(Exception):
+                await trace_task
         set_request_context(None)  # streaming task ran in a context copy
     yield "data: [DONE]\n\n"
 

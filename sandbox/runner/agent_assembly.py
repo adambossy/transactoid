@@ -21,13 +21,17 @@ from agent_harness.sessions import InMemorySession
 from protocol.turn import TurnPayload
 
 
-def _seed_session(payload: TurnPayload) -> InMemorySession:
+async def _seed_session(payload: TurnPayload) -> InMemorySession:
     session = InMemorySession(session_id=payload.conversation_id)
+    messages: list[Message] = []
     for raw in payload.seed_messages:
         # seed_messages are encoded harness Messages (``{"__pyd__", "d"}``) or
         # already-dumped Message dicts; accept both.
         data = raw.get("d", raw) if isinstance(raw, dict) else raw
-        session.add(Message.model_validate(data))
+        messages.append(Message.model_validate(data))
+    if messages:
+        # ``add_messages`` is the Session API: async, batched, list-typed.
+        await session.add_messages(messages)
     return session
 
 
@@ -54,15 +58,18 @@ def _build_model(payload: TurnPayload) -> Any:
         from google import genai
         from google.genai.types import HttpOptions
 
-        client = genai.Client(api_key=token, http_options=HttpOptions(base_url=cfg.base_url))
+        client = genai.Client(
+            api_key=token, http_options=HttpOptions(base_url=cfg.base_url)
+        )
     provider = GoogleProvider(api_key=token, client=client)
     return GeminiModel(provider=provider, name=cfg.name)
 
 
-def build_agent(payload: TurnPayload) -> Agent:
+async def build_agent(payload: TurnPayload) -> Agent:
     """Assemble the per-turn agent: model @ proxy, tools @ MCP, seeded session."""
     toolsets: list[Any] = []
     if payload.mcp is not None:
+
         async def _auth() -> dict[str, str]:
             return {"Authorization": f"Bearer {payload.mcp.token}"}
 
@@ -73,6 +80,6 @@ def build_agent(payload: TurnPayload) -> Agent:
         model=_build_model(payload),
         instructions=payload.system_prompt,
         toolsets=toolsets,
-        session=_seed_session(payload),
+        session=await _seed_session(payload),
         persist_session=False,
     )

@@ -22,6 +22,7 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 import json
+import traceback
 from typing import Any
 import uuid
 
@@ -40,8 +41,28 @@ RunDriver = Callable[[TurnPayload, InMemoryEventBus], Awaitable[None]]
 
 
 async def _default_driver(payload: TurnPayload, bus: InMemoryEventBus) -> None:
-    agent: Agent = build_agent(payload)
+    agent: Agent = await build_agent(payload)
     await agent.run(prompt=payload.prompt, event_bus=bus)
+
+
+def _format_exc(exc: BaseException) -> str:
+    """Flatten an exception, unwrapping ``ExceptionGroup`` (agent-harness runs the
+    loop in a TaskGroup, so a failure arrives as a group whose ``str`` is the
+    useless "unhandled errors in a TaskGroup"). Return the real leaf messages.
+    """
+    parts: list[str] = []
+
+    def walk(e: BaseException, depth: int) -> None:
+        parts.append(f"{'  ' * depth}{type(e).__name__}: {e}")
+        subs = getattr(e, "exceptions", None)  # ExceptionGroup
+        if subs:
+            for s in subs:
+                walk(s, depth + 1)
+        elif e.__cause__ is not None:
+            walk(e.__cause__, depth + 1)
+
+    walk(exc, 0)
+    return " | ".join(parts)
 
 
 @dataclass
@@ -70,8 +91,14 @@ def create_app(driver: RunDriver = _default_driver) -> FastAPI:
                 await driver(payload, bus)
             except asyncio.CancelledError:
                 pass  # cancel() aborts the agent; the bus close below ends drain
-            except Exception as exc:  # a loop failure surfaces as a wire event
-                await run.log.append(Error(message=str(exc)))
+            except BaseException as exc:  # noqa: BLE001 - a loop failure surfaces as a wire event
+                # Log the full traceback to the sandbox's stdout for post-mortem,
+                # and put the UNWRAPPED exception on the wire so the real cause
+                # (not "unhandled errors in a TaskGroup") reaches Fly + Langfuse.
+                print(
+                    f"[runner] agent run failed:\n{traceback.format_exc()}", flush=True
+                )
+                await run.log.append(Error(message=_format_exc(exc)))
             finally:
                 await bus.close()
 
@@ -109,7 +136,9 @@ def create_app(driver: RunDriver = _default_driver) -> FastAPI:
         return run
 
     @app.get("/runs/{run_id}/events")
-    async def events(run_id: str, request: Request, from_seq: int = 0) -> StreamingResponse:
+    async def events(
+        run_id: str, request: Request, from_seq: int = 0
+    ) -> StreamingResponse:
         run = _lookup(run_id)
 
         async def _sse() -> AsyncIterator[str]:
@@ -122,7 +151,10 @@ def create_app(driver: RunDriver = _default_driver) -> FastAPI:
         return StreamingResponse(
             _sse(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache, no-transform", "Connection": "keep-alive"},
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+            },
         )
 
     @app.post("/runs/{run_id}/cancel")
