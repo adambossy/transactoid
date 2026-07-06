@@ -1,0 +1,102 @@
+{
+  "title": "Penny on Modal: sandboxed agent loop",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["goal", "topology", "strategy", "tradeoffs"],
+    "crosslinks": ["architecture", "turn-lifecycle", "event-stream", "mcp-tools", "secrets-proxy", "packaging", "image-bake", "security", "delivery", "assumptions"],
+    "children": [
+      {
+        "id": "architecture",
+        "label": "Architecture",
+        "href": "architecture/index.html",
+        "sections": ["planes", "decisions", "references"],
+        "crosslinks": ["turn-lifecycle", "event-stream", "mcp-tools", "secrets-proxy", "security"],
+        "children": [
+          {
+            "id": "turn-lifecycle",
+            "label": "Turn lifecycle",
+            "href": "architecture/turn-lifecycle.html",
+            "sections": ["fresh-turn", "warm-turn", "turn-persist", "restore", "idle-reaper"],
+            "crosslinks": ["event-stream", "secrets-proxy", "security"],
+            "children": []
+          },
+          {
+            "id": "event-stream",
+            "label": "Event stream & resume",
+            "href": "architecture/event-stream.html",
+            "sections": ["wire-protocol", "event-codec", "fly-resume", "browser-resume"],
+            "crosslinks": ["turn-lifecycle", "mcp-tools", "packaging"],
+            "children": []
+          },
+          {
+            "id": "mcp-tools",
+            "label": "Tools over MCP",
+            "href": "architecture/mcp-tools.html",
+            "sections": ["toolset-split", "server", "tenancy-auth"],
+            "crosslinks": ["security", "secrets-proxy"],
+            "children": []
+          },
+          {
+            "id": "secrets-proxy",
+            "label": "Secrets proxy",
+            "href": "architecture/secrets-proxy.html",
+            "sections": ["proxy-design", "capability-registration", "provider-routing", "egress"],
+            "crosslinks": ["assumptions", "security", "mcp-tools"],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "packaging",
+        "label": "Packaging & segregation",
+        "href": "packaging/index.html",
+        "sections": ["layout", "dependency-rules", "guardrails"],
+        "crosslinks": ["image-bake"],
+        "children": [
+          {
+            "id": "image-bake",
+            "label": "Image bake & cold start",
+            "href": "packaging/image-bake.html",
+            "sections": ["base-image", "snapshot-strategy", "cold-start-budget"],
+            "crosslinks": ["packaging", "turn-lifecycle"],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "security",
+        "label": "Security model",
+        "href": "security/index.html",
+        "sections": ["threat-model", "controls", "comparisons"],
+        "crosslinks": ["secrets-proxy", "mcp-tools"],
+        "children": []
+      },
+      {
+        "id": "delivery",
+        "label": "Delivery plan",
+        "href": "delivery/index.html",
+        "sections": ["phases", "gates", "risks"],
+        "crosslinks": ["packaging", "image-bake", "assumptions", "security"],
+        "children": []
+      },
+      {
+        "id": "verification",
+        "label": "End-to-end verification",
+        "href": "verification/index.html",
+        "sections": ["approach", "happy-path", "tool-call", "cancellation", "persistence", "exit-criteria"],
+        "crosslinks": ["turn-lifecycle", "event-stream", "mcp-tools", "delivery"],
+        "children": []
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"],
+        "crosslinks": ["mcp-tools", "image-bake", "turn-lifecycle", "event-stream", "packaging", "secrets-proxy", "security", "delivery"],
+        "children": []
+      }
+    ]
+  }
+}

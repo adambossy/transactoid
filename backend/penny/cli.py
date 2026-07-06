@@ -367,6 +367,39 @@ def eval_categorizer(
     typer.echo(f"Eval {result.get('status')}: {result}")
 
 
+@app.command("reap-sandboxes")
+def reap_sandboxes() -> None:
+    """Terminate idle per-conversation Modal sandboxes (Fly-cron sweep).
+
+    Stateless + durable: the live boxes come from Modal (each tagged with its
+    conversation_id), the idle clock from the persisted transcript — so it needs
+    no in-memory registry and survives a Fly restart. A box is spared while its
+    conversation's turn is in flight (trailing user message). See
+    ``penny.sandboxes.reaper.reap_idle_sandboxes``.
+    """
+    import time
+
+    from penny.api.persistence.store import ConversationStore
+    from penny.sandboxes.provider import ModalSandboxProvider
+    from penny.sandboxes.reaper import reap_idle_sandboxes
+
+    app_name = os.environ.get("PENNY_SANDBOX_APP", "penny-sandbox")
+    # The image ref is unused for reaping (list + terminate only).
+    provider = ModalSandboxProvider(app_name, os.environ.get("PENNY_SANDBOX_IMAGE", ""))
+    store = ConversationStore()
+
+    try:
+        reaped = asyncio.run(
+            reap_idle_sandboxes(provider, store.latest_activity, now=time.time())
+        )
+    except Exception as exc:
+        typer.echo(f"Reap failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(
+        f"Reaped {len(reaped)} idle sandbox(es): {', '.join(reaped) or '(none)'}"
+    )
+
+
 def main() -> None:
     """Console-script entry point (``[project.scripts] penny``)."""
     app()

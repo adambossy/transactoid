@@ -50,8 +50,17 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     host: true,
+    // Allow the ngrok tunnel host (dev-only, for phone testing over a tunnel).
+    allowedHosts: true,
     proxy: {
       "/api": {
+        target: BACKEND_URL,
+        changeOrigin: true,
+        ws: false,
+      },
+      // The sandboxed agent reaches the MCP tool server through this same
+      // origin (so one public tunnel serves the UI, /api, and /mcp).
+      "/mcp": {
         target: BACKEND_URL,
         changeOrigin: true,
         ws: false,

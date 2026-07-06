@@ -38,6 +38,12 @@ dependencies = [
     # Sentry error tracking (penny.observability.sentry). Auto-instruments the
     # FastAPI app + Typer/cron entrypoints for unhandled-exception reporting.
     "sentry-sdk>=2.0",
+    # Modal Sandboxes: the per-conversation runtime for the sandboxed agent loop.
+    "modal>=1.5.1",
+    # MCP server SDK: the tool server that exposes penny toolsets to the
+    # sandboxed agent over streamable-HTTP MCP (agent-harness ships only the
+    # MCP *client*; the server side is ours).
+    "mcp>=1.0",
 ]
 
 [project.scripts]

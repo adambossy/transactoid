@@ -313,6 +313,24 @@ class ConversationStore:
                 session.expunge(row)
             return rows
 
+    def latest_activity(self, conversation_id: str) -> tuple[str, datetime] | None:
+        """The (role, updated_at) of a conversation's newest message — unscoped.
+
+        A system read for the sandbox reaper (no per-conversation principal): the
+        persisted transcript is the reaper's durable idle clock. A trailing
+        ``user`` message means a turn is in flight (persisted up front, before
+        dispatch); an ``assistant`` message means the turn finished. ``None`` when
+        the conversation has no messages yet.
+        """
+        with self.session() as session:
+            row = (
+                session.query(ConversationMessage)
+                .filter(ConversationMessage.conversation_id == conversation_id)
+                .order_by(ConversationMessage.seq.desc())
+                .first()
+            )
+            return None if row is None else (row.role, row.updated_at)
+
     # ----- internals -------------------------------------------------------
 
     def _require_access(

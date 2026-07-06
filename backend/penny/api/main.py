@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Callable
 import contextlib
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -18,7 +19,7 @@ from agent_harness.core.models import UsagePricer
 from agent_harness.sessions.inmemory import InMemorySession
 from agent_harness.usage.counting import price_table_pricer
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -64,13 +65,55 @@ from .signup_routes import router as signup_router  # noqa: E402
 # request-handler failures are reported. Idempotent + no-op when unconfigured.
 init_sentry()
 
-app = FastAPI(title="Penny backend")
+
+def _sandbox_flag() -> bool:
+    return os.environ.get("PENNY_SANDBOX_TURNS", "").lower() in ("1", "true", "yes")
 
 
-@app.on_event("startup")
-async def _on_startup() -> None:
-    """Create the schema + seed the taxonomy on first boot. Idempotent."""
-    bootstrap()
+# The MCP tool server (built when the sandbox flag is on): same process as the
+# token minting (sandbox_wiring.mcp_registry), so the capability registry is
+# shared. The session manager's run() must be entered in the app lifespan
+# because a mounted sub-app's own lifespan does not fire.
+_mcp_app = None
+_mcp_session_manager = None
+if _sandbox_flag():
+    from penny.api.mcp_server import create_mcp
+    from penny.api.sandbox_wiring import mcp_registry
+    from penny.plugins.amazon import build_amazon_toolset
+    from penny.tools.registry import build_toolset
+
+    _mcp_app, _mcp_session_manager = create_mcp(
+        [build_toolset(), build_amazon_toolset()], mcp_registry
+    )
+
+
+@__import__("contextlib").asynccontextmanager
+async def _lifespan(app: FastAPI):  # noqa: ANN201
+    bootstrap()  # idempotent schema + taxonomy seed
+    if _mcp_session_manager is not None:
+        async with _mcp_session_manager.run():
+            yield
+    else:
+        yield
+
+
+app = FastAPI(title="Penny backend", lifespan=_lifespan)
+if _mcp_app is not None:
+    # The MCP client (and a proxy that strips the trailing slash) POSTs to
+    # ``/mcp``; a mount only matches ``/mcp/…`` and would 307-redirect, which the
+    # client can't follow. Rewrite ``/mcp`` → ``/mcp/`` at the ASGI layer before
+    # routing — a pure path rewrite, so streaming is untouched.
+    class _McpSlash:
+        def __init__(self, inner: Any) -> None:
+            self._inner = inner
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope.get("type") == "http" and scope.get("path") == "/mcp":
+                scope = {**scope, "path": "/mcp/"}
+            await self._inner(scope, receive, send)
+
+    app.add_middleware(_McpSlash)
+    app.mount("/mcp", _mcp_app)
 
 
 # Fail closed at import: clerk mode requires issuer/JWKS/frontend-origin (the
@@ -468,18 +511,16 @@ async def chat(
     turn_ctx = _turn_context(ctx, conversation_mode=conv.session_mode)
     set_request_context(turn_ctx)
 
-    # Seed the agent with PRIOR-turn context from the app store BEFORE the
-    # current user turn is appended, so the seed excludes this turn (the loop
-    # appends the new prompt itself). This is what makes persist_session=False
-    # safe: the model still sees earlier turns.
-    session = await _seed_session(store, chat_id, turn_ctx)
+    # PRIOR-turn context, captured (tenant-scoped) BEFORE the current user turn
+    # is appended, so it excludes this turn (the loop appends the prompt itself).
+    prior_messages = parts_to_messages(
+        store.get_conversation_messages(chat_id, turn_ctx)
+    )
 
-    # Persist the user turn up front (before any assistant frame) so it is
-    # durable even if the client disconnects mid-stream. Creation is lazy.
+    # Persist the user turn up front (durable even on a mid-stream disconnect).
     store.append_user_message(
         chat_id, turn_ctx, ai_sdk_message_id=user_message_id, text=prompt
     )
-    # Derive a title from the first user message (internal write, no endpoint).
     store.set_title_if_unset(chat_id, prompt)
 
     # Pre-dispatch billing gate: decide how this turn is credentialed BEFORE any
@@ -491,37 +532,44 @@ async def chat(
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
-
-    # Translate the decision into the per-request credential + metering wiring.
     run_credential, usage_pricer, subscribe_hook = _credential_wiring(
         decision, turn_ctx
     )
 
+    if _sandbox_flag():
+        # The loop runs in a per-conversation Modal sandbox. Fly renders the
+        # prompt, seeds prior turns, mints the MCP capability token (tenant-scoped
+        # by ctx), and relays the sandbox's events. The gate's credential and the
+        # tenancy context are threaded through; the sandbox holds no secret.
+        from .sandbox_wiring import sandboxed_stream_and_persist
+
+        seed = [m.model_dump(mode="json") for m in prior_messages]
+        return StreamingResponse(
+            sandboxed_stream_and_persist(
+                store=store,
+                conversation_id=chat_id,
+                ctx=turn_ctx,
+                prompt=prompt,
+                seed_messages=seed,
+                credential=run_credential,
+            ),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
+
+    # In-process path (default): materialize the workspace, build the agent,
+    # stream it locally, clearing the principal when the stream ends.
+    session = InMemorySession(session_id=chat_id)
+    if prior_messages:
+        await session.add_messages(prior_messages)
+
     async def _scoped_stream() -> AsyncIterator[str]:
-        # The response body is iterated in a different task context than the
-        # handler that set the ContextVar (which the streaming task inherits as a
-        # copy), so token-based reset would raise "created in a different
-        # Context" — clear the principal in the finally instead.
+        # The response body iterates in a COPY of this context, so token-based
+        # reset would raise; clear the principal in the finally instead.
         try:
-            # Pre-stream setup (workspace materialize on `async with` entry,
-            # onboarding enqueue, agent build) runs BEFORE stream_and_persist
-            # emits any frame. A failure here would otherwise tear the SSE
-            # connection with nothing for the UI, so surface it as the bridge's
-            # error-frame contract ({type:error} + [DONE]) — the ChatScreen red
-            # banner. The except wraps the whole `async with` so a setup error
-            # propagates OUT of the context (skipping flush) before it is caught;
-            # stream_and_persist itself never raises (it emits its own frames).
             try:
                 async with _turn_workspace(turn_ctx) as checkout:
-                    # Evaluate onboarding triggers and enqueue the consolidated
-                    # reminder BEFORE the agent runs, so the harness drains it into
-                    # this turn's user message. Individual conversations only;
-                    # joint threads skip.
                     await _maybe_enqueue_onboarding(turn_ctx, conversation_id=chat_id)
-                    # persist_session=False: the harness never writes to
-                    # sessions.db; the app store (above + the bridge) is the single
-                    # persistence layer. The seeded session provides read-only
-                    # continuity.
                     agent = build_agent(
                         model=build_model(credential=run_credential),
                         session=session,
@@ -529,13 +577,7 @@ async def chat(
                         ctx=turn_ctx,
                         workspace_dir=checkout.root,
                         usage_pricer=usage_pricer,
-                        # Website injects the DB-backed queue so backend-enqueued
-                        # reminders (onboarding nudges, Plaid-link success) flush
-                        # into this turn's user message.
                         reminders=DbReminderQueue(turn_ctx),
-                        # Website injects the web-store-backed onboarding resolver
-                        # the resolve_onboarding_item tool needs (kept out of the
-                        # agent domain, mirroring reminders above).
                         onboarding_resolver=resolve,
                     )
                     async for frame in stream_and_persist(
@@ -559,3 +601,54 @@ async def chat(
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+@app.post("/api/chat/{conversation_id}/cancel")
+async def cancel_chat(
+    conversation_id: str,
+    ctx: RequestContext = Depends(request_context),
+) -> dict[str, bool]:
+    """Route a browser stop to the sandbox runner's cancel endpoint (authed)."""
+    from .sandbox_wiring import cancel_active_run
+
+    return {"cancelled": await cancel_active_run(conversation_id)}
+
+
+@app.get("/api/chat/{conversation_id}/stream")
+async def resume_chat(
+    conversation_id: str,
+    ctx: RequestContext = Depends(request_context),
+) -> Response:
+    """Reconnect a browser to an in-flight sandboxed turn (authed).
+
+    The AI SDK's ``resumeStream()`` GETs this after a dropped connection; we
+    replay the turn's whole buffer then follow it live. ``204`` means nothing to
+    resume — the turn already finished (or never ran) — and the client falls back
+    to the persisted transcript it hydrated on load.
+    """
+    from .sandbox_wiring import resume_stream
+
+    gen = resume_stream(conversation_id, ctx)
+    if gen is None:
+        return Response(status_code=204)
+    return StreamingResponse(gen, media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@app.post("/api/chat/{conversation_id}/finalize")
+async def finalize_chat(conversation_id: str, request: Request) -> Response:
+    """Runner→Fly persist callback (machine-to-machine).
+
+    The sandbox POSTs its finished event log here when the turn closes. Auth is
+    the per-turn **capability token** (``Authorization: Bearer``), NOT the user
+    session — so this is deliberately outside the Clerk ``request_context`` gate.
+    Idempotent: a retried delivery upserts the same assistant message.
+    """
+    from .sandbox_wiring import finalize_turn
+
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else None
+    body = await request.json()
+    events = body.get("events") or []
+    store = _get_conversation_store()
+    ok = await finalize_turn(store, conversation_id, token, events)
+    return Response(status_code=204 if ok else 401)

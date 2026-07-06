@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mermaid check</title>
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 24px; }
+  .d { border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin: 12px 0; }
+  .d.fail { border-color: #c0392b; background: #fdf0ee; }
+  .hd { font: 12px ui-monospace, monospace; color: #666; margin-bottom: 8px; }
+  .err { color: #c0392b; font: 12px ui-monospace, monospace; white-space: pre-wrap; }
+  #summary { font-weight: 600; margin-bottom: 16px; }
+</style></head>
+<body>
+  <div id="summary">Rendering…</div>
+  <div id="out"></div>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+    const blocks = [{"id":"event-stream-30","pageId":"event-stream","line":30,"code":"sequenceDiagram\n  participant R as Runner log\n  participant F as Fly relay\n  participant B as Browser\n  R-->>F: SSE events from_seq=0\n  F->>F: translate to frames, persist, buffer per turn\n  F-->>B: SSE frames\n  Note over F,B: browser drops\n  B->>F: GET stream on remount\n  F-->>B: replay all buffered frames, then live\n  Note over R,F: Fly drops\n  F->>R: GET events from_seq=0\n  R-->>F: full turn replay, then live"},{"id":"architecture-29","pageId":"architecture","line":29,"code":"flowchart TB\n  subgraph trusted [Trusted: Fly + Modal Function]\n    fly[Fly: auth, lifecycle, relay, MCP tools]\n    proxy[Secrets proxy Function: LLM keys]\n  end\n  subgraph untrusted [Untrusted: per-conversation sandbox]\n    runner[Runner: agent loop, skills, workspace]\n  end\n  browser[Browser] --> fly\n  fly -->|ingress token| runner\n  runner -->|mcp token| fly\n  runner -->|proxy token| proxy"},{"id":"packaging-47","pageId":"packaging","line":47,"code":"flowchart LR\n  deploy[deploy/sandbox] -->|bakes, copies| sandbox[sandbox runner + protocol]\n  backend[backend website] -->|imports| protocol[sandbox protocol]\n  backend -->|imports| agentdomain[agent domain - tools, prompts]\n  sandbox -->|imports| harness[agent-harness]\n  sandbox -. never .-> backend\n  sandbox -. never .-> agentdomain"},{"id":"root-33","pageId":"root","line":33,"code":"flowchart LR\n  browser[Browser: AI SDK useChat] -->|SSE, whole-turn replay| fly[Fly server: FastAPI + Clerk auth]\n  fly -->|turn start, event pull over tunnel| runner[Modal sandbox: agent loop + skills + workspace]\n  runner -->|tool calls, MCP capability token| fly\n  runner -->|LLM calls, capability token| proxy[Modal Function: secrets proxy]\n  proxy -->|real API key injected| llm[Model APIs]\n  fly --> db[(Neon Postgres: finance + web)]"},{"id":"turn-lifecycle-23","pageId":"turn-lifecycle","line":23,"code":"sequenceDiagram\n  participant B as Browser\n  participant F as Fly\n  participant M as Modal API\n  participant R as Runner\n  B->>F: POST /api/chat with Clerk JWT\n  F->>F: auth, billing gate, persist user msg, mint tokens\n  F->>M: Sandbox.create base image, tunnel port, timeout backstop\n  M-->>F: sandbox_id and tunnel URL after readiness probe\n  F->>R: POST /turns with prompt, seed, system prompt, URLs, tokens\n  R-->>F: run_id\n  F->>R: GET events from_seq=0 over SSE\n  R-->>F: harness events seq 0..n\n  F-->>B: translated AI SDK frames\n  R-->>F: POST turn-result callback, authoritative completion"},{"id":"turn-lifecycle-67","pageId":"turn-lifecycle","line":67,"code":"sequenceDiagram\n  participant F as Fly\n  participant M as Modal API\n  participant R as New runner\n  F->>M: Sandbox.create base image\n  F->>M: mount_image workspace from snapshot_image_id\n  M-->>F: new sandbox_id and new tunnel URL\n  F->>F: update conversation record, state = ACTIVE\n  F->>R: POST /turns with session seed as usual"},{"id":"turn-lifecycle-88","pageId":"turn-lifecycle","line":88,"code":"stateDiagram-v2\n  [*] --> IDLE: sandbox created\n  IDLE --> ACTIVE: turn dispatched\n  ACTIVE --> IDLE: turn ends, persist result\n  IDLE --> REAPING: reaper, 15m idle\n  REAPING --> TERMINATED: snapshot committed, uncontested\n  REAPING --> ACTIVE: returning turn steals the box back\n  TERMINATED --> ACTIVE: next turn, cold restore"}];
+    const out = document.getElementById('out');
+    const results = [];
+    for (const b of blocks) {
+      const card = document.createElement('div');
+      card.className = 'd';
+      const hd = document.createElement('div');
+      hd.className = 'hd';
+      hd.textContent = 'plan-src/' + b.pageId + '.md : line ' + b.line;
+      card.appendChild(hd);
+      try {
+        await mermaid.parse(b.code);
+        const { svg } = await mermaid.render('m_' + b.id.replace(/[^a-zA-Z0-9_]/g, '_'), b.code);
+        const box = document.createElement('div');
+        box.innerHTML = svg;
+        card.appendChild(box);
+        results.push({ id: b.id, pageId: b.pageId, line: b.line, ok: true });
+      } catch (e) {
+        card.className = 'd fail';
+        const err = document.createElement('div');
+        err.className = 'err';
+        err.textContent = String((e && e.message) || e);
+        card.appendChild(err);
+        results.push({ id: b.id, pageId: b.pageId, line: b.line, ok: false, error: String((e && e.message) || e) });
+      }
+      out.appendChild(card);
+    }
+    const failed = results.filter((r) => !r.ok);
+    window.__mermaidCheck = { total: blocks.length, failedCount: failed.length, failed, results };
+    document.getElementById('summary').textContent =
+      blocks.length + ' diagram(s): ' + (blocks.length - failed.length) + ' ok, ' + failed.length + ' failed';
+  </script>
+</body>
+</html>
