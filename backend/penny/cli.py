@@ -323,11 +323,17 @@ def sync(
         summary = await sync_tool.sync(count=count)
         return summary.to_dict()
 
+    import penny.observability as observability
+
     try:
         result = asyncio.run(_sync())
     except Exception as exc:
         typer.echo(f"Sync failed: {exc}", err=True)
         raise typer.Exit(1) from exc
+    finally:
+        # Force-flush spans so the per-transaction categorizer traces export
+        # before this short-lived process exits (no-op when Langfuse is off).
+        observability.flush()
     typer.echo(
         "Sync complete: "
         f"added={result.get('total_added')} "

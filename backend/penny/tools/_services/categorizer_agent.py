@@ -16,14 +16,17 @@ runs in-process with its own per-run scratch sandbox under ``~/.transactoid``.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 from typing import Any
 import uuid
 
 from agent_harness import Agent
+from agent_harness.core.events import InMemoryEventBus
 from agent_harness.core.models import ModelSettings
 from agent_harness.sandboxes.inprocess import InProcessSandbox
 
+from penny import observability
 from penny.agent_factory import build_model
 from penny.db import get_db
 from penny.prompts import load_prompt
@@ -195,7 +198,29 @@ async def categorize_one(txn: dict[str, Any]) -> dict[str, Any]:
             }
 
     agent = build_categorizer_agent()
-    await agent.run(_build_txn_prompt(txn))
+    # Trace the categorizer agent to Langfuse via the same OTEL subscriber the
+    # chat/cron paths use — one trace per transaction. The migration to this
+    # agent (PR #49) dropped the old categorizer_span wiring, so categorization
+    # failures (the agent not calling submit_categorization) were invisible.
+    # No-op when tracing is disabled (bus is None → start_run_trace_task returns
+    # None). The short-lived `penny sync` CLI flushes spans before it exits.
+    bus = InMemoryEventBus() if observability.is_enabled() else None
+    trace_task = observability.start_run_trace_task(
+        bus,
+        source="categorizer",
+        trace_name="penny-categorizer",
+        session_id=f"categorizer-{transaction_id}",
+        prompt=descriptor or _build_txn_prompt(txn),
+        tags=["categorizer"],
+    )
+    try:
+        await agent.run(_build_txn_prompt(txn), event_bus=bus)
+    finally:
+        if bus is not None:
+            await bus.close()
+        if trace_task is not None:
+            with contextlib.suppress(Exception):
+                await trace_task
     # submit_categorization persisted the decision; read it back for the caller.
     decision = _read_decision(db, transaction_id)
     if decision is None:
