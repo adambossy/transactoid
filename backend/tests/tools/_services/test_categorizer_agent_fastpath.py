@@ -127,7 +127,7 @@ async def test_categorize_one_no_match_falls_through_to_agent(
     invoked = {"ran": False}
 
     class _StubAgent:
-        async def run(self, prompt: str) -> None:  # noqa: ARG002
+        async def run(self, prompt: str, event_bus: object = None) -> None:  # noqa: ARG002
             invoked["ran"] = True
 
     monkeypatch.setattr(
