@@ -16,6 +16,7 @@ runs in-process with its own per-run scratch sandbox under ``~/.transactoid``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from datetime import date
 from typing import Any
@@ -169,6 +170,35 @@ def _read_decision(db: Any, transaction_id: int) -> dict[str, Any] | None:
     }
 
 
+# Substrings that mark a *transient* model failure worth retrying — under sweep
+# concurrency Gemini returns 503/UNAVAILABLE/429 often, and a single one used to
+# abort the whole categorization batch.
+_TRANSIENT_MARKERS = ("503", "unavailable", "429", "resource_exhausted", "overloaded")
+
+
+async def _run_categorizer_with_retry(
+    prompt: str, bus: Any, *, attempts: int = 4
+) -> None:
+    """Run the categorizer agent, retrying transient model errors with backoff.
+
+    Rebuilds the agent per attempt (cheap) so a failed run doesn't carry state
+    forward. A non-transient error, or the final attempt, propagates — the sweep
+    then leaves that row for the next (cursor-independent) run.
+    """
+    delay = 1.0
+    for attempt in range(attempts):
+        agent = build_categorizer_agent()
+        try:
+            await agent.run(prompt, event_bus=bus)
+            return
+        except Exception as exc:  # noqa: BLE001 - classify then re-raise
+            transient = any(m in str(exc).lower() for m in _TRANSIENT_MARKERS)
+            if not transient or attempt == attempts - 1:
+                raise
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 20.0)
+
+
 async def categorize_one(txn: dict[str, Any]) -> dict[str, Any]:
     """Categorize one derived transaction.
 
@@ -197,7 +227,6 @@ async def categorize_one(txn: dict[str, Any]) -> dict[str, Any]:
                 "reasoning": (f"Exact verified match for descriptor {descriptor!r}."),
             }
 
-    agent = build_categorizer_agent()
     # Trace the categorizer agent to Langfuse via the same OTEL subscriber the
     # chat/cron paths use — one trace per transaction. The migration to this
     # agent (PR #49) dropped the old categorizer_span wiring, so categorization
@@ -214,7 +243,7 @@ async def categorize_one(txn: dict[str, Any]) -> dict[str, Any]:
         tags=["categorizer"],
     )
     try:
-        await agent.run(_build_txn_prompt(txn), event_bus=bus)
+        await _run_categorizer_with_retry(_build_txn_prompt(txn), bus)
     finally:
         if bus is not None:
             await bus.close()

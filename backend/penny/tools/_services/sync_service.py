@@ -34,7 +34,11 @@ if TYPE_CHECKING:
 # Max concurrent per-descriptor categorizations during the end-of-sync sweep.
 # Each is an agent run (multi-turn LLM), so this is smaller than the old batch
 # fan-out.
-_CATEGORIZE_CONCURRENCY = 6
+# Concurrent categorizer agents in the end-of-sync sweep. Kept low: at 6 the
+# fan-out reliably drew Gemini 503/UNAVAILABLE ("overloaded") errors that (even
+# with per-call retries) left rows uncategorized. Fewer in flight → far fewer
+# 503s; the sweep is cursor-independent so throughput is not the constraint.
+_CATEGORIZE_CONCURRENCY = 3
 # Recorded on sibling rows that reuse a deduped agent decision.
 _CATEGORIZER_MODEL = "gemini-3.5-flash"
 # Arbitrary fixed key for the Postgres advisory lock guarding the whole sync run.
@@ -339,7 +343,11 @@ class SyncTool:
                     total_added=0, total_modified=0, total_removed=0, items_synced=0
                 )
 
-            plaid_items = self._db.list_plaid_items()
+            # Scoped to the current RequestContext's sync principal (household +
+            # owner). The write role bypasses RLS, so this app-level filter is the
+            # tenant boundary — a sync must only touch its principal's items, and
+            # the new rows are stamped with that same principal.
+            plaid_items = self._db.list_plaid_items_for_context()
             if not plaid_items:
                 return SyncSummary(
                     total_added=0, total_modified=0, total_removed=0, items_synced=0
@@ -818,7 +826,23 @@ class SyncTool:
                     ),
                 )
 
-        await asyncio.gather(*[_handle(txns) for txns in by_key.values()])
+        # Resilient sweep: one transaction's failure (e.g. a transient Gemini 503
+        # under concurrency) must NOT abort the whole batch. Failed groups stay
+        # uncategorized and are recovered by the next sweep (which is
+        # cursor-independent — it re-queries category_id IS NULL). Without this a
+        # single 503 left every synced transaction uncategorized.
+        results = await asyncio.gather(
+            *[_handle(txns) for txns in by_key.values()], return_exceptions=True
+        )
+        failures = [r for r in results if isinstance(r, BaseException)]
+        if failures:
+            logger.warning(
+                "Categorization: {}/{} merchant groups failed this sweep "
+                "(left uncategorized for the next run); first error: {}",
+                len(failures),
+                len(results),
+                failures[0],
+            )
 
     async def _categorize_uncategorized(self) -> None:
         """End-of-sync sweep: categorize every uncategorized derived row.

@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+import uuid
 
 from loguru import logger
 
@@ -1498,6 +1499,47 @@ class DB:
         """
         with self.session() as session:  # type: Session
             items = session.query(PlaidItem).all()
+            for item in items:
+                session.expunge(item)
+            return items
+
+    def list_sync_principals(self) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Every ``(household_id, owner_user_id)`` that has Plaid items — one sync
+        principal per connector.
+
+        Unscoped admin read (the cron sync has no ambient context) used to drive
+        the sync loop: it visits each principal, pins that context, and syncs only
+        that principal's items. The write role bypasses RLS, so this simply sees
+        every household.
+        """
+        with self.session() as session:  # type: Session
+            rows = (
+                session.query(PlaidItem.household_id, PlaidItem.owner_user_id)
+                .distinct()
+                .order_by(PlaidItem.household_id, PlaidItem.owner_user_id)
+                .all()
+            )
+            return [(hh, owner) for hh, owner in rows]
+
+    def list_plaid_items_for_context(self) -> list[PlaidItem]:
+        """Plaid items for the CURRENT RequestContext's sync principal.
+
+        The sync stamps ``household_id``/``owner_user_id`` on new rows from the
+        context, so it must only touch that principal's items. The write role
+        bypasses RLS, so this app-level filter — not RLS — is the tenant boundary.
+        Individual context → that owner's items; joint (nil owner) → the whole
+        household's. Requires a context (a sync must always be scoped).
+        """
+        from penny.tenancy.context import SessionMode, require_request_context
+
+        ctx = require_request_context()
+        with self.session() as session:  # type: Session
+            query = session.query(PlaidItem).filter(
+                PlaidItem.household_id == ctx.household_id
+            )
+            if ctx.session_mode is not SessionMode.JOINT:
+                query = query.filter(PlaidItem.owner_user_id == ctx.user_id)
+            items = query.all()
             for item in items:
                 session.expunge(item)
             return items

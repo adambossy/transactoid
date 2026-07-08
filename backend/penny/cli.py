@@ -299,47 +299,90 @@ def run(
 def sync(
     count: int = typer.Option(250, "--count", help="Max transactions per Plaid page."),
 ) -> None:
-    """Sync + categorize the latest transactions from every Plaid item.
+    """Sync + categorize the latest transactions for every household.
 
-    Headless wrapper over the same ``SyncTool`` the ``sync_transactions``
-    agent tool calls — for any schedule that wants a fresh pull before
-    reporting.
+    Iterates one sync principal per ``(household_id, owner_user_id)`` that has
+    connected Plaid items, pinning that tenant ``RequestContext`` before each
+    pass so the sync only touches — and stamps its new rows with — that
+    principal (the write role bypasses RLS, so scoping is app-level). This is the
+    headless peer of the ``sync_transactions`` agent tool, for the cron.
+
+    FUTURE (out of scope, tracked separately): narrow this to *active* households
+    only, rather than every household in the database. Two planned activity
+    signals:
+      1. a user-configurable "jobs" model (regular self-report jobs) — a
+         household with an active job counts as active; and
+      2. website login recency against a configurable threshold
+         (e.g. ``PENNY_ACTIVE_HOUSEHOLD_DAYS`` = 30/90 days).
+    A household receiving email reports must count as active even with no login
+    or account changes. Until those land, we sync every household.
     """
     from penny.adapters.clients.plaid import PlaidClient
     from penny.bootstrap import bootstrap
     from penny.db import get_db
+    import penny.observability as observability
     from penny.services import build_categorizer, get_taxonomy
+    from penny.tenancy.context import (
+        RequestContext,
+        reset_request_context,
+        set_request_context,
+    )
     from penny.tools._services.sync_service import SyncTool
 
     bootstrap()
+    db = get_db()
+    principals = db.list_sync_principals()
+    if not principals:
+        typer.echo("No households with connected Plaid items — nothing to sync.")
+        return
 
-    async def _sync() -> dict[str, object]:
+    async def _sync_principal() -> dict[str, object]:
         sync_tool = SyncTool(
             plaid_client=PlaidClient.from_env(),
             categorizer_factory=build_categorizer,
-            db=get_db(),
+            db=db,
             taxonomy=get_taxonomy(),
         )
         summary = await sync_tool.sync(count=count)
         return summary.to_dict()
 
-    import penny.observability as observability
-
+    totals = {"added": 0, "modified": 0, "removed": 0}
+    failures: list[str] = []
     try:
-        result = asyncio.run(_sync())
-    except Exception as exc:
-        typer.echo(f"Sync failed: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        for household_id, owner_user_id in principals:
+            ctx = RequestContext(user_id=owner_user_id, household_id=household_id)
+            token = set_request_context(ctx)
+            try:
+                r = asyncio.run(_sync_principal())
+                totals["added"] += int(r.get("total_added") or 0)
+                totals["modified"] += int(r.get("total_modified") or 0)
+                totals["removed"] += int(r.get("total_removed") or 0)
+                typer.echo(
+                    f"  household {household_id} / owner {owner_user_id}: "
+                    f"+{r.get('total_added')} ~{r.get('total_modified')} "
+                    f"-{r.get('total_removed')}"
+                )
+            except Exception as exc:  # one principal's failure must not abort the rest
+                failures.append(f"{household_id}/{owner_user_id}: {exc}")
+                logger.exception(
+                    "sync failed for household {} owner {}", household_id, owner_user_id
+                )
+            finally:
+                reset_request_context(token)
     finally:
-        # Force-flush spans so the per-transaction categorizer traces export
-        # before this short-lived process exits (no-op when Langfuse is off).
+        # Flush so per-transaction categorizer traces export before we exit.
         observability.flush()
+
     typer.echo(
-        "Sync complete: "
-        f"added={result.get('total_added')} "
-        f"modified={result.get('total_modified')} "
-        f"removed={result.get('total_removed')}"
+        f"Sync complete across {len(principals)} principal(s): "
+        f"added={totals['added']} modified={totals['modified']} "
+        f"removed={totals['removed']}"
     )
+    if failures:
+        typer.echo(f"{len(failures)} principal(s) failed:", err=True)
+        for line in failures:
+            typer.echo(f"  - {line}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command("eval-categorizer")
