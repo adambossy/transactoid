@@ -13,6 +13,7 @@ from typing import Any
 
 from agent_harness import tool
 
+from penny.db import get_db
 from penny.tenancy.context import require_request_context
 from penny.tools._services.plaid_link import create_link_token
 
@@ -28,3 +29,35 @@ async def connect_bank_account() -> dict[str, Any]:
     """
     ctx = require_request_context()
     return await asyncio.to_thread(create_link_token, user_id=ctx.user_id)
+
+
+@tool
+async def relink_account(item_id: str) -> dict[str, Any]:
+    """Offer an inline card to re-authenticate (relink) an existing connection.
+
+    Use when a connection needs re-authentication — e.g. ``plaid_connection_status``
+    reports ``needs_relink`` for it, or a sync surfaced ``ITEM_LOGIN_REQUIRED``.
+    Pass that connection's ``item_id``. Mints an **update-mode** Plaid link token
+    and returns it as an inline card; completing it restores the *same* item (no
+    new connection), and syncs resume. Tell the user a relink card is shown in the
+    chat.
+
+    Returns the link-token payload ``{mode: 'update', link_token, item_id,
+    institution_name}``, or ``{status: 'error', message}`` when the item is
+    unknown to this user.
+    """
+    ctx = require_request_context()
+
+    def _mint() -> dict[str, Any]:
+        item = get_db().get_plaid_item(item_id)
+        if item is None:
+            return {
+                "status": "error",
+                "message": f"No linked connection found for item_id {item_id!r}.",
+            }
+        payload = create_link_token(user_id=ctx.user_id, access_token=item.access_token)
+        payload["item_id"] = item.item_id
+        payload["institution_name"] = getattr(item, "institution_name", None)
+        return payload
+
+    return await asyncio.to_thread(_mint)

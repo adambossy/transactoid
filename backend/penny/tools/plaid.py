@@ -14,7 +14,7 @@ from typing import Any
 
 from agent_harness import tool
 
-from penny.adapters.clients.plaid import PlaidClient
+from penny.adapters.clients.plaid import PlaidClient, PlaidClientError
 from penny.db import get_db
 
 
@@ -42,6 +42,77 @@ async def list_plaid_accounts() -> dict[str, Any]:
 
     items = await asyncio.to_thread(_fetch)
     return {"items": [_item_to_dict(it) for it in items], "count": len(items)}
+
+
+# Plaid error_codes that mean the user must re-authenticate (relink) the item
+# before syncs resume. Mirrors sync_service._PLAID_RELINK_CODES.
+_RELINK_CODES = frozenset(
+    {
+        "ITEM_LOGIN_REQUIRED",
+        "PENDING_EXPIRATION",
+        "INVALID_CREDENTIALS",
+        "INVALID_MFA",
+        "ITEM_LOCKED",
+        "USER_PERMISSION_REVOKED",
+    }
+)
+
+
+@tool
+async def plaid_connection_status() -> dict[str, Any]:
+    """Check the live health of every linked bank/card connection.
+
+    Queries Plaid on demand (``/item/get`` per item) and reports which
+    connections are healthy versus which need the user to re-authenticate
+    (relink) — e.g. an expired login (``ITEM_LOGIN_REQUIRED``). Use this before
+    telling the user their data is complete, or when a sync looked short. When a
+    connection ``needs_relink``, offer the ``relink_account`` card for its
+    ``item_id``.
+
+    Returns ``{"connections": [{item_id, institution_name, healthy, error_code,
+    needs_relink}], "needs_relink": [institution names], "count": N}``.
+    """
+
+    def _check() -> list[dict[str, Any]]:
+        db = get_db()
+        items = db.list_plaid_items()
+        client = PlaidClient.from_env() if items else None
+        out: list[dict[str, Any]] = []
+        for item in items:
+            name = getattr(item, "institution_name", None) or item.item_id
+            try:
+                error_code = client.get_item_status(item.access_token)  # type: ignore[union-attr]
+            except PlaidClientError as exc:
+                # An /item/get failure is itself a health signal — surface it as a
+                # relink candidate rather than hiding the connection.
+                error_code = _error_code_from(str(exc))
+            needs_relink = bool(error_code) and error_code in _RELINK_CODES
+            out.append(
+                {
+                    "item_id": item.item_id,
+                    "institution_name": name,
+                    "healthy": error_code is None,
+                    "error_code": error_code,
+                    "needs_relink": needs_relink,
+                }
+            )
+        return out
+
+    connections = await asyncio.to_thread(_check)
+    needs = [c["institution_name"] for c in connections if c["needs_relink"]]
+    return {
+        "connections": connections,
+        "needs_relink": needs,
+        "count": len(connections),
+    }
+
+
+def _error_code_from(message: str) -> str | None:
+    """Extract a known relink error_code embedded in a Plaid error message."""
+    for code in _RELINK_CODES:
+        if code in message:
+            return code
+    return None
 
 
 @tool

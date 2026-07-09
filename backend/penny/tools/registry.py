@@ -16,8 +16,8 @@ from .connect_provider import connect_provider
 from .delivery import send_email_report, upload_artifact_to_r2
 from .memory import generate_memory_index
 from .onboarding import make_resolve_onboarding_item
-from .plaid import connect_new_account, list_plaid_accounts
-from .plaid_link import connect_bank_account
+from .plaid import connect_new_account, list_plaid_accounts, plaid_connection_status
+from .plaid_link import connect_bank_account, relink_account
 from .recategorize import (
     recategorize_merchant,
     recategorize_transaction,
@@ -44,8 +44,10 @@ def build_toolset(*, onboarding_resolver: OnboardingResolver | None = None) -> T
         tools=[
             # Plaid + sync
             list_plaid_accounts,
+            plaid_connection_status,
             connect_new_account,
             connect_bank_account,
+            relink_account,
             sync_transactions,
             # Mutations
             recategorize_merchant,

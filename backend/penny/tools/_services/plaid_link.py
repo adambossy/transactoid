@@ -41,13 +41,21 @@ def _link_mode() -> str:
 
 
 def create_link_token(
-    *, user_id: uuid.UUID, client: PlaidClient | None = None
+    *,
+    user_id: uuid.UUID,
+    access_token: str | None = None,
+    client: PlaidClient | None = None,
 ) -> dict[str, Any]:
-    """Create a Plaid ``link_token`` for ``user_id`` (hosted mode).
+    """Create a Plaid ``link_token`` for ``user_id``.
 
-    Hosted mode (default) returns ``{mode: 'hosted', link_token, expiration}`` for
-    the inline card. Localhost mode returns a pointer to the dev
-    ``connect_new_account`` flow instead — no token is minted.
+    New-link mode (no ``access_token``) returns ``{mode: 'hosted', link_token,
+    expiration}`` for the inline connect card. Passing an existing item's
+    ``access_token`` mints an **update-mode** token (Plaid re-auth / relink) and
+    returns ``{mode: 'update', ...}`` — the same ``PlaidLinkCard`` renders it, but
+    onSuccess restores the existing item rather than exchanging a new one.
+
+    Localhost dev mode returns a pointer to the ``connect_new_account`` flow
+    instead — no token is minted, and relink isn't supported there.
     """
     if _link_mode() == "localhost":
         return {
@@ -59,12 +67,17 @@ def create_link_token(
         }
     client = client or PlaidClient.from_env()
     redirect_uri = os.environ.get("PLAID_REDIRECT_URI", "").strip() or None
+    update_mode = access_token is not None
     link_token = client.create_link_token(
         user_id=str(user_id),
         redirect_uri=redirect_uri,
-        products=["transactions"],
+        # Update mode carries no products (Plaid rejects them); the client forces
+        # the list empty when an access_token is present.
+        products=None if update_mode else ["transactions"],
+        access_token=access_token,
     )
-    return {"mode": "hosted", "link_token": link_token, "expiration": None}
+    mode = "update" if update_mode else "hosted"
+    return {"mode": mode, "link_token": link_token, "expiration": None}
 
 
 async def exchange_public_token(

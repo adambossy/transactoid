@@ -16,7 +16,13 @@ PRODUCT / FUNCTIONAL REQUIREMENTS
 P1. Transaction sync
     Sync bank/card transactions from every connected Plaid item into the
     finance database. Sync is re-runnable and idempotent; the immutable Plaid
-    record and the derived/analytical record are kept distinct.
+    record and the derived/analytical record are kept distinct. One item whose
+    connection is broken (e.g. an expired login needing re-authentication) must
+    not abort the other items' sync or the end-of-run categorization — the
+    failure is recorded and reported, not raised. Connections needing
+    re-authentication are surfaced to the user: at the top of email reports as a
+    plain-text banner, and in chat as an inline Plaid relink card (update mode)
+    that restores the existing connection so syncing resumes.
 
 P2. Categorization
     Categorize each transaction with an LLM against the two-level taxonomy.

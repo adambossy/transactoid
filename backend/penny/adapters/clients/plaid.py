@@ -96,6 +96,10 @@ class AccountsGetResponse(PlaidBaseModel):
 class ItemModel(PlaidBaseModel):
     item_id: str
     institution_id: str | None = None
+    # Plaid sets `error` to a non-null error object (with `error_code`) when the
+    # item is unhealthy — most importantly ITEM_LOGIN_REQUIRED, meaning the user
+    # must re-authenticate (relink) before syncs resume. Null when healthy.
+    error: dict[str, Any] | None = None
 
 
 class ItemGetResponse(PlaidBaseModel):
@@ -403,6 +407,11 @@ class PlaidClient:
                 Defaults to 730 (maximum ~2 years). Only applies on initial
                 Item setup; cannot be changed after transactions are initialized.
         """
+        # Update mode (re-auth / consent addition) is signalled by an existing
+        # access_token; Plaid rejects a non-empty `products` list in that mode, so
+        # force it empty and let `additional_consented_products` carry any new
+        # consent. New-link sessions send the requested products as usual.
+        update_mode = access_token is not None
         payload: dict[str, Any] = {
             "client_id": self._client_id,
             "secret": self._secret,
@@ -410,7 +419,7 @@ class PlaidClient:
             "language": language,
             "country_codes": country_codes or ["US"],
             "user": {"client_user_id": user_id},
-            "products": products or self._products or [],
+            "products": [] if update_mode else (products or self._products or []),
             "transactions": {"days_requested": days_requested},
         }
         if redirect_uri is not None:
@@ -498,6 +507,22 @@ class PlaidClient:
             "institution_name": institution_name,
         }
         return info
+
+    def get_item_status(self, access_token: str) -> str | None:
+        """Return the item's current Plaid error_code, or ``None`` when healthy.
+
+        A single /item/get call — no institution lookup (callers already hold the
+        institution name from the stored ``PlaidItem``). A non-null result (e.g.
+        ``"ITEM_LOGIN_REQUIRED"``) means the connection needs re-authentication.
+        """
+        payload: dict[str, Any] = {
+            "client_id": self._client_id,
+            "secret": self._secret,
+            "access_token": access_token,
+        }
+        item_resp = ItemGetResponse.parse(self._post("/item/get", payload))
+        error = item_resp.item.error
+        return error.get("error_code") if error else None
 
     def sync_transactions(
         self,
