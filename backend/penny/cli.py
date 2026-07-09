@@ -348,6 +348,7 @@ def sync(
 
     totals = {"added": 0, "modified": 0, "removed": 0}
     failures: list[str] = []
+    relink: list[str] = []
     try:
         for household_id, owner_user_id in principals:
             ctx = RequestContext(user_id=owner_user_id, household_id=household_id)
@@ -357,6 +358,7 @@ def sync(
                 totals["added"] += int(r.get("total_added") or 0)
                 totals["modified"] += int(r.get("total_modified") or 0)
                 totals["removed"] += int(r.get("total_removed") or 0)
+                relink.extend(r.get("relink_required_items") or [])
                 typer.echo(
                     f"  household {household_id} / owner {owner_user_id}: "
                     f"+{r.get('total_added')} ~{r.get('total_modified')} "
@@ -378,6 +380,12 @@ def sync(
         f"added={totals['added']} modified={totals['modified']} "
         f"removed={totals['removed']}"
     )
+    # A stale bank connection is a user-action item, not a job failure — the sync
+    # still ran (other items + categorization). Report it; don't exit non-zero.
+    if relink:
+        typer.echo(
+            f"Connections needing re-authentication: {', '.join(sorted(set(relink)))}"
+        )
     if failures:
         typer.echo(f"{len(failures)} principal(s) failed:", err=True)
         for line in failures:

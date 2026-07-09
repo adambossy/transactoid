@@ -11,8 +11,11 @@ import { PlaidLinkCard } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
 import "./index.css";
 
-// Render the connect_bank_account tool output as the inline Plaid Link card.
+// Render the connect_bank_account (new link) and relink_account (update-mode
+// re-auth) tool outputs as the same inline Plaid Link card — it branches on the
+// output `mode` (`"hosted"` vs `"update"`).
 registerToolRenderer("connect_bank_account", PlaidLinkCard);
+registerToolRenderer("relink_account", PlaidLinkCard);
 
 // Clerk is active iff a publishable key is configured — the frontend mirror of
 // the backend's PENNY_AUTH_MODE clerk/dev split. With no key the app runs in

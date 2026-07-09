@@ -41,6 +41,28 @@ if TYPE_CHECKING:
 _CATEGORIZE_CONCURRENCY = 3
 # Recorded on sibling rows that reuse a deduped agent decision.
 _CATEGORIZER_MODEL = "gemini-3.5-flash"
+
+# Plaid item-error codes that mean "the user must re-authenticate this bank" (as
+# opposed to a transient/network blip). A sync hitting one of these reports the
+# item as needing a relink rather than crashing the whole run.
+_PLAID_RELINK_CODES = (
+    "ITEM_LOGIN_REQUIRED",
+    "PENDING_EXPIRATION",
+    "INVALID_CREDENTIALS",
+    "INVALID_MFA",
+    "ITEM_LOCKED",
+    "USER_PERMISSION_REVOKED",
+)
+
+
+def _relink_label(item: Any, exc: BaseException) -> str | None:
+    """If ``exc`` is a Plaid re-auth error for ``item``, return a human label
+    (the institution name) to report; else ``None`` (a transient/other error)."""
+    if any(code in str(exc) for code in _PLAID_RELINK_CODES):
+        return item.institution_name or item.item_id
+    return None
+
+
 # Arbitrary fixed key for the Postgres advisory lock guarding the whole sync run.
 _SYNC_LOCK_KEY = 0x50454E4E59  # "PENNY"
 
@@ -96,6 +118,10 @@ class SyncSummary:
     investment_skipped_excluded: int = 0
     investment_deduped: int = 0
     consent_required_items: list[str] | None = None
+    # Institutions whose Plaid item needs re-authentication (e.g. a stale login,
+    # ITEM_LOGIN_REQUIRED). A broken item is reported here, not raised — the sync
+    # keeps going for the other items and still categorizes.
+    relink_required_items: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
@@ -110,6 +136,8 @@ class SyncSummary:
         }
         if self.consent_required_items:
             result["consent_required_items"] = self.consent_required_items
+        if self.relink_required_items:
+            result["relink_required_items"] = self.relink_required_items
         return result
 
 
@@ -354,8 +382,11 @@ class SyncTool:
                 )
 
             # Fetch/persist/mutate all items in parallel (independent cursors).
+            # return_exceptions=True so ONE broken item (e.g. a bank whose login
+            # expired → Plaid ITEM_LOGIN_REQUIRED) can't abort the other items OR
+            # the categorization sweep below — it is reported, not raised.
             tasks = [self._sync_item_with_cursor(item, count) for item in plaid_items]
-            all_results_with_investments = await asyncio.gather(*tasks)
+            per_item = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Flatten results and aggregate investments
             all_results: list[SyncResult] = []
@@ -363,14 +394,21 @@ class SyncTool:
             total_inv_excluded = 0
             total_inv_deduped = 0
             consent_errors: list[str] = []
+            relink_required: list[str] = []
 
-            for (
-                results,
-                inv_added,
-                inv_excluded,
-                inv_deduped,
-                consent_error,
-            ) in all_results_with_investments:
+            for item, outcome in zip(plaid_items, per_item, strict=True):
+                if isinstance(outcome, BaseException):
+                    label = _relink_label(item, outcome)
+                    logger.bind(item_id=item.item_id).warning(
+                        "Sync failed for item {} ({}): {}",
+                        item.item_id,
+                        item.institution_name,
+                        outcome,
+                    )
+                    if label is not None and label not in relink_required:
+                        relink_required.append(label)
+                    continue
+                results, inv_added, inv_excluded, inv_deduped, consent_error = outcome
                 all_results.extend(results)
                 total_inv_added += inv_added
                 total_inv_excluded += inv_excluded
@@ -379,6 +417,8 @@ class SyncTool:
                     consent_errors.append(consent_error)
 
             # End-of-sync categorization sweep (per-transaction agent), under lock.
+            # Runs regardless of item failures — it operates on already-persisted
+            # rows, not Plaid, so a broken connection must not block the backlog.
             await self._categorize_uncategorized()
 
             summary = self._aggregate_results(all_results, len(plaid_items))
@@ -387,6 +427,8 @@ class SyncTool:
             summary.investment_deduped = total_inv_deduped
             if consent_errors:
                 summary.consent_required_items = consent_errors
+            if relink_required:
+                summary.relink_required_items = relink_required
 
             return summary
 
