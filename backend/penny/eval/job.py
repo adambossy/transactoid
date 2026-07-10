@@ -71,7 +71,10 @@ async def run_eval(
     if not prod_url:
         raise RuntimeError("DATABASE_URL is required for the eval job")
     prod = DB(prod_url)
-    prod.create_schema()  # idempotent: ensure the eval_* tables exist
+    if prod.dialect == "sqlite":
+        prod.create_schema()  # dev/test: build eval_* (+ finance) from models
+    # Postgres: eval_runs/eval_items are alembic-owned (migration 007) and
+    # already present; create_all is refused on a durable schema.
     run_at = datetime.now()
 
     explicit_cohort = cohort_ids is not None

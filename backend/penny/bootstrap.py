@@ -21,16 +21,23 @@ _TAXONOMY_YAML = Path(__file__).resolve().parent.parent / "configs" / "taxonomy.
 
 
 def bootstrap() -> None:
-    """Create schema if missing, seed the dev identity + its taxonomy."""
-    db = get_db()
-    db.create_schema()
-    _seed_dev_household()
-    # Website-owned conversation store: a SEPARATE engine + schema/DB from the
-    # finance tables above (see api/persistence/engine.py). Kept a distinct
-    # call on a distinct metadata so neither schema leaks into the other.
-    from .api.persistence.engine import create_web_schema
+    """Ensure schema + seed the dev identity.
 
-    create_web_schema()
+    SQLite (dev/test) builds the schema from the models via ``create_all``.
+    On Postgres the schema is owned by alembic and applied out of band by
+    ``penny migrate`` (the deploy ``release_command``), so bootstrap creates
+    nothing there — it only seeds, which is a no-op on prod (no ``PENNY_DEV_*``).
+    """
+    db = get_db()
+    if db.dialect == "sqlite":
+        db.create_schema()
+        # Website-owned conversation store: a SEPARATE engine + schema/DB from
+        # the finance tables above (see api/persistence/engine.py). On Postgres
+        # its web.* tables are created by the same alembic chain (migration 019).
+        from .api.persistence.engine import create_web_schema
+
+        create_web_schema()
+    _seed_dev_household()
 
 
 def _seed_dev_household() -> None:

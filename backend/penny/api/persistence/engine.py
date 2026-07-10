@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -114,13 +114,17 @@ def reset_web_engine() -> None:
 
 
 def create_web_schema() -> None:
-    """Create the website store's tables (and the ``web`` schema on Postgres).
+    """Build the website store's tables from the models. SQLite (dev/test) ONLY.
 
-    Idempotent. ``create_all`` only creates missing tables; the Postgres
-    ``web`` schema is created first so the qualified table names resolve.
+    On Postgres the ``web`` schema and its tables are owned by the alembic chain
+    (migration 019 runs ``CREATE SCHEMA IF NOT EXISTS web`` + creates ``web.*``,
+    applied by ``penny migrate``). ``create_all`` here would be a second, silent
+    authority — refused, mirroring ``DB.create_schema``.
     """
     engine = get_web_engine()
     if engine.dialect.name != "sqlite":
-        with engine.begin() as conn:
-            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {WEB_SCHEMA}"))
+        raise RuntimeError(
+            "create_web_schema()/create_all is SQLite-only; on Postgres the "
+            "web.* tables are alembic-owned. Run `penny migrate`."
+        )
     WebBase.metadata.create_all(engine)

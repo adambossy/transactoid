@@ -15,6 +15,7 @@ import pytest
 import sqlalchemy as sa
 
 from penny.adapters.db.facade import DB
+from penny.adapters.db.models import Base
 from penny.adapters.db.rls import enable_rls
 
 
@@ -30,7 +31,11 @@ def pg_db():
         s.execute(sa.text(f'CREATE SCHEMA "{schema}"'))
     sep = "&" if "?" in url else "?"
     db = DB(f"{url}{sep}options=-csearch_path%3D{schema}")
-    db.create_schema()
+    # Ephemeral, finance-only, per-test schema — build the models directly.
+    # (DB.create_schema() refuses create_all on Postgres by design; a full
+    # `alembic upgrade head` would create a *global* `web` schema via migration
+    # 019 and break per-test isolation, so the raw metadata call is correct here.)
+    Base.metadata.create_all(db._engine)
     with db._engine.begin() as conn:
         enable_rls(conn)
     yield db

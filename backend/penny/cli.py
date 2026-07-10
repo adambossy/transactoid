@@ -457,6 +457,20 @@ def reap_sandboxes() -> None:
     )
 
 
+@app.command("migrate")
+def migrate_cmd() -> None:
+    """Apply alembic migrations to head — the prod release step.
+
+    Deploy runs this via the Fly ``release_command`` (see deploy/backend/
+    fly.toml), once in an ephemeral machine before the app machines start.
+    Idempotent; non-zero exit on failure fails the deploy.
+    """
+    from penny.schema import upgrade_to_head
+
+    upgrade_to_head()  # env.py reads DATABASE_URL
+    logger.info("penny migrate: schema at head")
+
+
 def main() -> None:
     """Console-script entry point (``[project.scripts] penny``)."""
     app()

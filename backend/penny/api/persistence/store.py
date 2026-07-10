@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from penny.tenancy.context import RequestContext
 
 from .engine import get_web_session_factory
-from .models import WEB_SCHEMA, Conversation, ConversationMessage, WebBase
+from .models import Conversation, ConversationMessage, WebBase
 
 # Title is derived from the first user message, truncated to this many chars.
 _TITLE_MAX_LEN = 80
@@ -95,10 +95,12 @@ class ConversationStore:
         )
 
     def create_schema(self) -> None:
-        """Create the website store's tables (and the ``web`` schema on PG).
+        """Build the website store's tables from the models. SQLite ONLY.
 
-        Idempotent. Mirrors ``engine.create_web_schema`` but honors an injected
-        session factory's bind so tests can point it at a throwaway engine.
+        Mirrors ``engine.create_web_schema`` but honors an injected session
+        factory's bind so tests can point it at a throwaway engine. On Postgres
+        the web.* schema is alembic-owned (migration 019); ``create_all`` is
+        refused there.
         """
         bind = self._session_factory.kw.get("bind")
         if bind is None:  # pragma: no cover - default factory always has a bind
@@ -107,8 +109,10 @@ class ConversationStore:
             create_web_schema()
             return
         if bind.dialect.name != "sqlite":
-            with bind.begin() as conn:
-                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {WEB_SCHEMA}"))
+            raise RuntimeError(
+                "create_schema()/create_all is SQLite-only; on Postgres the "
+                "web.* tables are alembic-owned. Run `penny migrate`."
+            )
         WebBase.metadata.create_all(bind)
 
     # ----- conversations ---------------------------------------------------

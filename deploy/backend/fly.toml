@@ -10,6 +10,15 @@
 app = "penny"
 primary_region = "iad"  # US East — close to the Neon/Supabase prod DB.
 
+# Apply alembic migrations once per deploy, in an ephemeral release machine
+# built from the NEW image, BEFORE the app machines roll — so the two app
+# machines never race on migrations. `penny migrate` = `alembic upgrade head`
+# (idempotent); a failure here aborts the deploy and leaves the old machines
+# serving. Alembic is the sole authority on the Postgres schema (create_all is
+# refused there); see docs/.../2026-07-09-alembic-sole-authority-on-postgres.md.
+[deploy]
+  release_command = "penny migrate"
+
 
 # Non-secret runtime values. Sourced from deploy/env/deploy.env.template
 # (section 1) — keep these in sync with that template. Secrets
