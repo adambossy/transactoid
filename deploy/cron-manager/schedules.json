@@ -76,7 +76,7 @@
         "app_name": "penny",
         "schedule": "0 10 * * *",
         "region": "iad",
-        "command": "-lc '/app/.venv/bin/penny run-scheduled-report --email adambossy@gmail.com'",
+        "command": "-lc '/app/.venv/bin/penny run-scheduled-report'",
         "command_timeout": 7200,
         "enabled": true,
         "config": {
