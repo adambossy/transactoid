@@ -131,14 +131,22 @@ POSTGRES_TEST_URL=postgresql://... uv run pytest -q -m postgres
 
 ## Databases
 
-- Default: SQLite at `backend/penny.db` (gitignored), schema via
-  `bootstrap()` on startup (`Base.metadata.create_all` straight from the
-  models — a dev convenience; migrations are not run there).
+- **One schema authority per environment.** SQLite (dev/test/eval) builds the
+  schema from the models via `create_all` (fast, model-accurate) — default
+  `backend/penny.db` (gitignored), created by `bootstrap()` on startup.
+  **Postgres is owned exclusively by alembic**: `bootstrap()` never touches a
+  Postgres schema, and `create_all` is *refused* there (`DB.create_schema` /
+  `create_web_schema` raise on a non-SQLite engine). `create_all` only creates
+  *missing tables* — it never `ALTER`s or advances `alembic_version`, so on a
+  durable Postgres DB it would be a second, silent authority that collides with
+  the migration chain (the phase-3 cutover root cause).
 - Schema evolution: alembic migrations live in `backend/db/migrations/`
-  (`version_locations` in `backend/alembic.ini`) and are the mechanism that
-  evolves the Postgres/prod schema. `create_all` only creates *missing tables*
-  — it never runs an `ALTER`, so a column rename/addition must go through a
-  migration.
+  (`version_locations` in `backend/alembic.ini`). They evolve the Postgres
+  schema and are applied by `penny migrate` (`alembic upgrade head`), run once
+  per deploy via the backend `release_command` (`deploy/backend/fly.toml`) in
+  an ephemeral machine before the app machines roll. A drift test
+  (`tests/test_schema_drift.py`) asserts the models and the chain agree. See
+  `docs/superpowers/plans/2026-07-09-alembic-sole-authority-on-postgres.md`.
 - Real data: Neon Postgres. `production` branch mirrors the Supabase prod
   DB; **never point a dev server at it**. Test against the `penny-test`
   Neon branch (`backend/.env.test`, gitignored). Recreate it from current
