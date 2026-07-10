@@ -223,6 +223,15 @@ def run_scheduled_report(
     max_turns: int = typer.Option(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
     ),
+    individual_only: bool = typer.Option(
+        False,
+        "--individual-only",
+        help=(
+            "Emit only the per-user (individual) reports; skip the household "
+            "(joint) report. Use when a schedule should reach each user privately "
+            "but NOT fan a joint report out to every household member."
+        ),
+    ),
 ) -> None:
     """Run today's scheduled reports (New-York-time precedence).
 
@@ -232,6 +241,11 @@ def run_scheduled_report(
     (``send_email_report`` needs no address). Fails loudly if the cron principal
     is unset. Drives the period-parameterized ``spending-report`` skill — there
     are no ``report-*`` prompt keys.
+
+    ``--individual-only`` drops the household (joint) job, so only the per-user
+    reports go out (the daily schedule uses this to stay per-user, matching its
+    historical single-recipient behavior rather than fanning out to the whole
+    household).
     """
     from penny.bootstrap import bootstrap
     from penny.services.scheduled_reports import (
@@ -248,6 +262,8 @@ def run_scheduled_report(
     )
 
     jobs = load_cron_jobs()  # fails loudly if the cron principal is unset
+    if individual_only:
+        jobs = [job for job in jobs if job.kind == "individual"]
     bootstrap()
     personal = _build_prompt(prompt=report_prompt(period), prompt_key=None)
     # No dedicated shared-report prompt exists; the household job's JOINT context
