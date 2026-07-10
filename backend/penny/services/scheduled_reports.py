@@ -56,6 +56,11 @@ def report_prompt(period: ReportPeriod) -> str:
     """Natural-language request that triggers the ``spending-report`` skill.
 
     Names the period explicitly so the skill resolves the right window from
-    the system prompt's Runtime Context (it never reads a ``report-*`` key).
+    the system prompt's Runtime Context (it never reads a ``report-*`` key), and
+    asks for email delivery — the skill (and system prompt) only call
+    ``send_email_report`` when the request asks for an emailed report, and the
+    recipient is resolved from the run's ``RequestContext`` (never named here).
+    Without the explicit "email it to me", a scheduled run would generate the
+    report but never send it (exit 0, no email).
     """
-    return f"Generate my {period} spending report for the current period."
+    return f"Generate my {period} spending report for the current period and email it to me."

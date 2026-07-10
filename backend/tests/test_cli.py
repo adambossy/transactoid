@@ -74,8 +74,12 @@ def test_report_prompt_triggers_skill_for_period(period: str) -> None:
     output = report_prompt(period)
 
     # expected: a natural-language request that names the period and the
-    # spending-report skill (so the agent loads the skill, no prompt key).
-    expected_output = f"Generate my {period} spending report for the current period."
+    # spending-report skill (so the agent loads the skill, no prompt key), and
+    # asks for email delivery (the skill only sends when the request asks).
+    expected_output = (
+        f"Generate my {period} spending report for the current period and "
+        "email it to me."
+    )
 
     # assert
     assert output == expected_output
