@@ -44,6 +44,9 @@ COPY backend/.agent ./.agent
 COPY backend/configs ./configs
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./alembic.ini
+# Version scripts (alembic.ini version_locations = %(here)s/db/migrations); the
+# release step (`penny migrate`) needs these to evolve the Postgres schema.
+COPY backend/db/migrations ./db/migrations
 
 # Install the project itself (now that source is present), still no sources.
 RUN uv sync --no-sources --no-dev --no-editable
@@ -68,6 +71,7 @@ COPY --from=builder /app/.agent /app/.agent
 COPY --from=builder /app/configs /app/configs
 COPY --from=builder /app/alembic /app/alembic
 COPY --from=builder /app/alembic.ini /app/alembic.ini
+COPY --from=builder /app/db/migrations /app/db/migrations
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

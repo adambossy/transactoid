@@ -330,8 +330,24 @@ class DB:
         self._session_factory = sessionmaker(bind=self._engine, class_=Session)
         event.listen(self._session_factory, "before_flush", _stamp_tenant_columns)
 
+    @property
+    def dialect(self) -> str:
+        """The engine's dialect name: ``"sqlite"`` | ``"postgresql"``."""
+        return self._engine.dialect.name
+
     def create_schema(self) -> None:
-        """Create database tables if they do not already exist."""
+        """Build the schema from the models. SQLite (ephemeral dev/test) ONLY.
+
+        On Postgres the schema is owned by alembic — run ``penny migrate``
+        (``upgrade head``). ``create_all`` can't ALTER / backfill / enable RLS,
+        so on a durable Postgres DB it would silently half-migrate and collide
+        with the migration chain (the phase-3 cutover root cause). Refused here.
+        """
+        if self._engine.dialect.name != "sqlite":
+            raise RuntimeError(
+                "create_schema()/create_all is SQLite-only; the Postgres schema "
+                "is alembic-owned. Run `penny migrate` (alembic upgrade head)."
+            )
         Base.metadata.create_all(self._engine)
 
     @contextmanager

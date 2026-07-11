@@ -1,0 +1,74 @@
+"""Schema-authority guarantees: alembic owns Postgres; create_all owns SQLite.
+
+See docs/superpowers/plans/2026-07-09-alembic-sole-authority-on-postgres.md.
+"""
+
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import create_engine, inspect
+
+from penny.adapters.db.facade import DB
+from penny.schema import upgrade_to_head
+
+
+def test_upgrade_to_head_builds_full_schema(tmp_path, monkeypatch):
+    url = f"sqlite:///{tmp_path / 'mig.db'}"
+    # env.py prefers DATABASE_URL; point it at the throwaway target.
+    monkeypatch.setenv("DATABASE_URL", url)
+    upgrade_to_head(url)
+
+    insp = inspect(create_engine(url))
+    tables = insp.get_table_names()
+    assert "households" in tables
+    assert "household_id" in {c["name"] for c in insp.get_columns("categories")}
+
+    # Idempotent: a second run is a no-op, not an error.
+    upgrade_to_head(url)
+
+
+def test_create_schema_refuses_postgres():
+    # Constructed, never connected — the guard fires on the dialect name alone.
+    db = DB("postgresql://u:p@localhost:5432/nope")
+    with pytest.raises(RuntimeError, match="alembic"):
+        db.create_schema()
+
+
+def test_bootstrap_skips_create_all_on_postgres(monkeypatch):
+    calls: list[str] = []
+
+    class FakeDB:
+        dialect = "postgresql"
+
+        def create_schema(self) -> None:
+            calls.append("create")
+
+    monkeypatch.setattr("penny.bootstrap.get_db", lambda: FakeDB())
+    monkeypatch.setattr("penny.bootstrap._seed_dev_household", lambda: None)
+
+    from penny.bootstrap import bootstrap
+
+    bootstrap()
+    assert calls == []  # Postgres schema is alembic-owned; no create_all
+
+
+def test_bootstrap_creates_all_on_sqlite(monkeypatch):
+    calls: list[str] = []
+
+    class FakeDB:
+        dialect = "sqlite"
+
+        def create_schema(self) -> None:
+            calls.append("finance")
+
+    monkeypatch.setattr("penny.bootstrap.get_db", lambda: FakeDB())
+    monkeypatch.setattr("penny.bootstrap._seed_dev_household", lambda: None)
+    monkeypatch.setattr(
+        "penny.api.persistence.engine.create_web_schema",
+        lambda: calls.append("web"),
+    )
+
+    from penny.bootstrap import bootstrap
+
+    bootstrap()
+    assert calls == ["finance", "web"]

@@ -134,6 +134,15 @@ T2a. run_sql is read-only (HARD)
     Neon). Enforced by backend/penny/security/sql_read_guard.py and
     backend/tests/security/test_sql_read_guard.py.
 
+T2b. One schema authority per environment
+    The durable (Postgres) schema is evolved ONLY by alembic migrations,
+    applied once per deploy via `penny migrate` (release_command). `create_all`
+    is forbidden on Postgres (DB.create_schema / create_web_schema raise on a
+    non-SQLite engine) — on a durable DB it silently half-migrates and collides
+    with the chain. SQLite (dev/test/eval) still builds from the models via
+    `create_all`. Enforced by backend/tests/test_schema_authority.py and
+    backend/tests/test_schema_drift.py (models must equal the migration chain).
+
 T3. Never point a dev server at production
     Dev/test runs against a Neon branch (backend/.env.test). The production
     databases (Supabase prod / Neon `production`) are off-limits to local or
