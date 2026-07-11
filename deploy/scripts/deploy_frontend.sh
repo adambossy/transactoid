@@ -26,10 +26,16 @@ else
   echo "         unless you intend a dev/no-auth build." >&2
 fi
 
+# --no-cache: the build (Depot remote builder) otherwise reuses a cached
+# `npm run build` layer keyed on the source, NOT reliably on the
+# VITE_CLERK_PUBLISHABLE_KEY build-arg — so a keyed build silently shipped the
+# previous no-key bundle. A full rebuild guarantees the current key is inlined.
+# Frontend deploys are infrequent, so the extra npm ci/build time is acceptable.
 echo "Deploying frontend app '$FRONTEND_APP'..."
 fly deploy \
   --app "$FRONTEND_APP" \
   --config "$CONFIG" \
   --dockerfile "$DOCKERFILE" \
+  --no-cache \
   ${build_args[@]+"${build_args[@]}"}
 echo "Frontend deploy complete."

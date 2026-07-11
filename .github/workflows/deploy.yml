@@ -50,6 +50,13 @@ jobs:
         run: bash deploy/scripts/deploy_backend.sh
 
       - name: Deploy frontend
+        # VITE_CLERK_PUBLISHABLE_KEY is a PUBLIC key inlined into the bundle at
+        # build time. Without it the frontend builds in no-Clerk mode and every
+        # request 401s ("missing bearer token"). It MUST be provided here, or CI
+        # silently reverts any manual keyed deploy on the next push. Stored as a
+        # repo secret (gh secret set VITE_CLERK_PUBLISHABLE_KEY).
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: bash deploy/scripts/deploy_frontend.sh
 
       # Sync after the backend deploy so the cron resolves the FRESH app image
