@@ -197,18 +197,23 @@ async def _drive_agent(
     return result.output is not None
 
 
-def _run_and_exit(*, prompt_text: str, max_turns: int) -> None:
-    """Bootstrap, drive the agent (dev principal), and map outcome to exit code.
+def _run_and_exit(
+    *, prompt_text: str, max_turns: int, ctx: RequestContext | None = None
+) -> None:
+    """Bootstrap, drive the agent under ``ctx``, and map outcome to exit code.
 
-    For the manual ``run``/``run-scheduled-report`` (single-prompt) front doors,
-    the principal comes from the ``PENNY_DEV_*`` env — a missing principal is a
+    When ``ctx`` is None (the default for the manual ``run`` front door), the
+    principal comes from the ``PENNY_DEV_*`` env — a missing principal is a
     genuine misconfiguration whose ``ValueError`` propagates to a non-zero exit.
+    Callers that already hold an explicit tenant principal (e.g. ``run
+    --household`` for the scheduled household report) pass it in directly.
     """
     from penny.bootstrap import bootstrap
     from penny.tenancy.principal import resolve_dev_principal
 
     bootstrap()
-    ctx = resolve_dev_principal({})
+    if ctx is None:
+        ctx = resolve_dev_principal({})
     success = asyncio.run(
         _drive_agent(prompt_text=prompt_text, max_turns=max_turns, ctx=ctx)
     )
@@ -298,8 +303,24 @@ def run(
     max_turns: int = typer.Option(
         _DEFAULT_MAX_TURNS, "--max-turns", help="Maximum agent turns."
     ),
+    household: bool = typer.Option(
+        False,
+        "--household",
+        help=(
+            "Run under the cron principal's JOINT household context "
+            "(PENNY_CRON_HOUSEHOLD_ID / PENNY_CRON_USER_IDS) instead of the dev "
+            "principal, so a report reaches every household member. Used by the "
+            "scheduled household report (e.g. the weekly)."
+        ),
+    ),
 ) -> None:
-    """Run the agent on an explicit prompt or prompt key."""
+    """Run the agent on an explicit prompt or prompt key.
+
+    By default the run uses the dev principal (``PENNY_DEV_*``). ``--household``
+    instead pins the cron principal's joint household context, so the recipient
+    resolution in ``send_email_report`` reaches every linked household member —
+    the recipient still comes from the context, never from the prompt text.
+    """
     if prompt is None and prompt_key is None:
         typer.echo("Either --prompt or --prompt-key is required", err=True)
         raise typer.Exit(1)
@@ -308,7 +329,12 @@ def run(
         raise typer.Exit(1)
 
     prompt_text = _build_prompt(prompt=prompt, prompt_key=prompt_key)
-    _run_and_exit(prompt_text=prompt_text, max_turns=max_turns)
+    ctx: RequestContext | None = None
+    if household:
+        # The household (JOINT) job carries the shared-data scope + all-member
+        # recipient resolution; fails loudly if PENNY_CRON_* is unset.
+        ctx = next(job.ctx for job in load_cron_jobs() if job.kind == "household")
+    _run_and_exit(prompt_text=prompt_text, max_turns=max_turns, ctx=ctx)
 
 
 @app.command("sync")

@@ -185,3 +185,35 @@ def test_run_and_exit_no_output_exits_nonzero(
 
     # assert
     assert exc_info.value.exit_code == expected_code
+
+
+def test_run_household_uses_joint_cron_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``run --household`` drives the agent under the cron principal's JOINT
+    household context (not the dev principal), so ``send_email_report`` resolves
+    every household member rather than a single dev user."""
+    from penny.tenancy.context import SessionMode
+
+    captured = _patch_run_and_exit_seams(monkeypatch, output="done")
+    household_id = "ff85a755-a002-4697-8a5d-45f2f068ebf2"
+    monkeypatch.setenv("PENNY_CRON_HOUSEHOLD_ID", household_id)
+    monkeypatch.setenv("PENNY_CRON_USER_IDS", "6bdb105c-91ae-44c3-b362-c1ce539b3d3a")
+
+    # Capture the ctx the run executes under (run_with_workspace receives it).
+    import penny.workspace_store.sync as ws_sync
+
+    async def _capture_ctx(ctx: Any, run_fn: Any, **_: Any) -> Any:
+        from pathlib import Path
+        import tempfile
+
+        captured["ctx"] = ctx
+        return await run_fn(Path(tempfile.mkdtemp(prefix="penny-ws-test-")))
+
+    monkeypatch.setattr(ws_sync, "run_with_workspace", _capture_ctx)
+
+    cli.run(prompt="hi", prompt_key=None, max_turns=3, household=True)
+
+    ctx = captured["ctx"]
+    assert ctx.session_mode is SessionMode.JOINT
+    assert str(ctx.household_id) == household_id

@@ -112,7 +112,7 @@
         "app_name": "penny",
         "schedule": "0 11 * * 6",
         "region": "iad",
-        "command": "-lc '/app/.venv/bin/penny run --prompt-key report-weekly-jenny --email jloleary0@gmail.com --email adambossy@gmail.com'",
+        "command": "-lc '/app/.venv/bin/penny run --prompt-key report-weekly-jenny --household'",
         "command_timeout": 7200,
         "enabled": true,
         "config": {
