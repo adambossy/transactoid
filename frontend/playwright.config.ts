@@ -30,7 +30,10 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: [
     {
-      command: `sh -c 'mkdir -p "${E2E_DB_DIR}" && uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8100'`,
+      // --no-sync: reuse the already-synced backend venv (CI builds it with
+      // `uv sync --no-sources`; a bare `uv run` would re-resolve the editable
+      // agent-harness path, which doesn't exist in CI).
+      command: `sh -c 'mkdir -p "${E2E_DB_DIR}" && uv run --no-sync uvicorn penny.api.main:app --host 127.0.0.1 --port 8100'`,
       cwd: BACKEND_DIR,
       url: "http://127.0.0.1:8100/api/health",
       reuseExistingServer: !process.env.CI,

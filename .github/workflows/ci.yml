@@ -40,21 +40,27 @@ jobs:
         with:
           enable-cache: true
 
+      # --no-sources ignores [tool.uv.sources] (the local editable path for
+      # agent-harness / promptorium, which doesn't exist in CI) and resolves
+      # those from the git pins in [project.dependencies] — same as the prod
+      # Dockerfile. `--frozen` can't be used with it (the lockfile records the
+      # editable source). Later steps use `uv run --no-sync` to reuse this venv
+      # without re-resolving (which would re-hit the missing editable path).
       - name: Install backend deps
         working-directory: backend
-        run: uv sync --frozen
+        run: uv sync --no-sources
 
       - name: Ruff lint
         working-directory: backend
-        run: uv run ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Ruff format check
         working-directory: backend
-        run: uv run ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: Backend tests (SQLite)
         working-directory: backend
-        run: uv run pytest -q
+        run: uv run --no-sync pytest -q
 
       # RLS is bypassed by superusers, so the isolation suites must run as a
       # dedicated NON-superuser role (mirrors Neon's neondb_owner).
@@ -69,7 +75,7 @@ jobs:
         working-directory: backend
         env:
           POSTGRES_TEST_URL: postgresql://penny_rls:penny_rls@127.0.0.1:5432/penny_ci
-        run: uv run pytest -q -m postgres
+        run: uv run --no-sync pytest -q -m postgres
 
       - name: Setup node
         uses: actions/setup-node@v4
