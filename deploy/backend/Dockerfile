@@ -6,11 +6,9 @@
 #   fly deploy --config deploy/backend/fly.toml \
 #              --dockerfile deploy/backend/Dockerfile
 #
-# Resolvability: backend/uv.lock pins agent-harness to a local editable path
-# (for local dev). That path does not exist in a remote builder, so we sync
-# with `--no-sources`, which ignores [tool.uv.sources] and resolves
-# agent-harness from the pinned git commit in [project.dependencies]. This is
-# the only divergence from local dev; everything else matches the lock.
+# backend/uv.lock pins agent-harness / promptorium-python to their git refs
+# (not a local path), so `uv sync --frozen` installs the exact locked set
+# identically here, in CI, and in dev — no divergence.
 
 # =============================================================================
 # Stage 1: builder
@@ -31,11 +29,10 @@ WORKDIR /app
 # Dependency metadata first for layer caching.
 COPY backend/pyproject.toml backend/uv.lock ./
 
-# Resolve + install deps WITHOUT the editable agent-harness source.
-# --no-sources ignores [tool.uv.sources]; agent-harness then comes from the
-# pinned git commit in [project.dependencies]. --no-install-project so the app
-# code (copied next) is layered separately and dep layers stay cached.
-RUN uv sync --no-sources --no-dev --no-install-project
+# Install deps from the frozen lock (git-pinned agent-harness). --no-install-
+# project so the app code (copied next) is layered separately and dep layers
+# stay cached.
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Application source (mirrors what penny imports + the data it reads).
 COPY backend/penny ./penny
@@ -48,8 +45,8 @@ COPY backend/alembic.ini ./alembic.ini
 # release step (`penny migrate`) needs these to evolve the Postgres schema.
 COPY backend/db/migrations ./db/migrations
 
-# Install the project itself (now that source is present), still no sources.
-RUN uv sync --no-sources --no-dev --no-editable
+# Install the project itself (now that source is present).
+RUN uv sync --frozen --no-dev --no-editable
 
 # =============================================================================
 # Stage 2: production

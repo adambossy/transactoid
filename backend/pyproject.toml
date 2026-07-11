@@ -60,12 +60,12 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["penny"]
 
-# Source-replace agent-harness with the local checkout so edits in
-# ~/code/agent-harness flow into Penny without re-publishing. Set
-# AGENT_HARNESS_USE_GIT=1 to opt back into the git dep.
-[tool.uv.sources]
-agent-harness = { path = "/Users/adambossy/code/agent-harness", editable = true }
-
+# agent-harness / promptorium-python are pinned as git deps in
+# [project.dependencies], so the lockfile is portable and `uv sync --frozen`
+# works identically in dev, CI, and prod. To hack on agent-harness locally,
+# opt in per-machine WITHOUT editing the committed lock:
+#     uv sync --frozen && uv pip install -e ~/code/agent-harness
+# (re-run the editable install after any `uv sync`). See AGENTS.md "Dev loop".
 [dependency-groups]
 dev = [
     "pytest>=8.0",
