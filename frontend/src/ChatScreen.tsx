@@ -6,7 +6,9 @@ import { AlertCircle, Brain } from "lucide-react";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
+import { OtherUserMessage } from "./OtherUserMessage";
 import { loadOrCreateSessionId } from "./session";
+import { useHouseholdMembers } from "./useHouseholdMembers";
 
 const MODEL = "gemini-3.5-flash";
 
@@ -101,6 +103,11 @@ function PendingThinking() {
 export function ChatScreen({ getToken }: { getToken: GetToken }) {
   const sessionId = useMemo(loadOrCreateSessionId, []);
   const [history, setHistory] = useState<AiUIMessage[] | null>(null);
+  // Message id → sender user id, from the hydration payload's senderUserId.
+  // Kept beside the AI SDK's message state (not inside it) so useChat's typing
+  // and state handling stay untouched. Live sends never enter this map, which
+  // is correct: the sender of a live turn is always the viewer.
+  const [senders, setSenders] = useState<Record<string, string>>({});
   // True when the hydrated transcript ends on a user message — i.e. the page was
   // (re)loaded mid-turn (the assistant's reply hasn't been finalized/persisted
   // yet), so the chat should immediately try to resume the live stream. A
@@ -124,8 +131,13 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
       .then((data) => {
         if (cancelled) return;
         const msgs = (data.messages ?? []) as AiUIMessage[];
+        const senderMap: Record<string, string> = {};
+        for (const raw of msgs as Array<{ id?: string; senderUserId?: string | null }>) {
+          if (raw.id && raw.senderUserId) senderMap[raw.id] = raw.senderUserId;
+        }
         const last = msgs[msgs.length - 1];
         setInitialIncomplete(last?.role === "user");
+        setSenders(senderMap);
         setHistory(msgs);
       })
       .catch(() => {
@@ -149,6 +161,7 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
       sessionId={sessionId}
       initialMessages={history}
       initialIncomplete={initialIncomplete}
+      senders={senders}
       getToken={getToken}
     />
   );
@@ -158,11 +171,13 @@ function Chat({
   sessionId,
   initialMessages,
   initialIncomplete,
+  senders,
   getToken,
 }: {
   sessionId: string;
   initialMessages: AiUIMessage[];
   initialIncomplete: boolean;
+  senders: Record<string, string>;
   getToken: GetToken;
 }) {
   // Session mode is chosen before the first message and fixed thereafter
@@ -182,6 +197,12 @@ function Chat({
     messages: initialMessages,
     generateId: () => crypto.randomUUID(),
   });
+
+  // "Mine vs theirs": a user message is the other member's iff its hydrated
+  // sender is known and isn't the viewer. A missing sender (legacy rows,
+  // members still loading, live sends) falls through to today's rendering —
+  // wrong-styling-by-guess would be worse than the status quo.
+  const { members, me } = useHouseholdMembers(getToken);
 
   // Resume a dropped SSE stream. The connection dies when the tab is
   // backgrounded (mobile app-switch) but the sandbox keeps running server-side,
@@ -272,14 +293,25 @@ function Chat({
               </fieldset>
             </div>
           ) : (
-            messages.map((m, i) => (
-              <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
-                <Message
-                  message={m as unknown as UIMessage}
-                  isStreaming={isStreaming && i === messages.length - 1}
-                />
-              </div>
-            ))
+            messages.map((m, i) => {
+              const senderId = m.role === "user" ? senders[m.id] : undefined;
+              const fromOtherMember = Boolean(senderId && me && senderId !== me.user_id);
+              return (
+                <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
+                  {fromOtherMember ? (
+                    <OtherUserMessage
+                      message={m as unknown as UIMessage}
+                      member={members.find((member) => member.user_id === senderId)}
+                    />
+                  ) : (
+                    <Message
+                      message={m as unknown as UIMessage}
+                      isStreaming={isStreaming && i === messages.length - 1}
+                    />
+                  )}
+                </div>
+              );
+            })
           )}
           {!showEmpty && (
             // Once created, the thread's fixed mode is shown (no picker).
