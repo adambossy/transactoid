@@ -6,21 +6,20 @@ import { AlertCircle, Brain } from "lucide-react";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
+import type { TokenGetter } from "./authFetch";
 import { OtherUserMessage } from "./OtherUserMessage";
 import { loadOrCreateSessionId } from "./session";
 import { useHouseholdMembers } from "./useHouseholdMembers";
 
 const MODEL = "gemini-3.5-flash";
 
-/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
-type GetToken = () => Promise<string | null>;
 type SessionMode = "individual" | "joint";
 
 // Reshape the AI SDK send body to the shape the backend's /api/chat expects,
 // attaching a fresh bearer token per request and the (creation-only) session
 // mode. The backend ignores sessionMode on an existing conversation.
 function makeTransport(
-  getToken: GetToken,
+  getToken: TokenGetter,
   getSessionMode: () => SessionMode,
 ): ChatTransport<AiUIMessage> {
   return new DefaultChatTransport<AiUIMessage>({
@@ -100,14 +99,9 @@ function PendingThinking() {
   );
 }
 
-export function ChatScreen({ getToken }: { getToken: GetToken }) {
+export function ChatScreen({ getToken }: { getToken: TokenGetter }) {
   const sessionId = useMemo(loadOrCreateSessionId, []);
   const [history, setHistory] = useState<AiUIMessage[] | null>(null);
-  // Message id → sender user id, from the hydration payload's senderUserId.
-  // Kept beside the AI SDK's message state (not inside it) so useChat's typing
-  // and state handling stay untouched. Live sends never enter this map, which
-  // is correct: the sender of a live turn is always the viewer.
-  const [senders, setSenders] = useState<Record<string, string>>({});
   // True when the hydrated transcript ends on a user message — i.e. the page was
   // (re)loaded mid-turn (the assistant's reply hasn't been finalized/persisted
   // yet), so the chat should immediately try to resume the live stream. A
@@ -131,13 +125,8 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
       .then((data) => {
         if (cancelled) return;
         const msgs = (data.messages ?? []) as AiUIMessage[];
-        const senderMap: Record<string, string> = {};
-        for (const raw of msgs as Array<{ id?: string; senderUserId?: string | null }>) {
-          if (raw.id && raw.senderUserId) senderMap[raw.id] = raw.senderUserId;
-        }
         const last = msgs[msgs.length - 1];
         setInitialIncomplete(last?.role === "user");
-        setSenders(senderMap);
         setHistory(msgs);
       })
       .catch(() => {
@@ -161,7 +150,6 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
       sessionId={sessionId}
       initialMessages={history}
       initialIncomplete={initialIncomplete}
-      senders={senders}
       getToken={getToken}
     />
   );
@@ -171,14 +159,12 @@ function Chat({
   sessionId,
   initialMessages,
   initialIncomplete,
-  senders,
   getToken,
 }: {
   sessionId: string;
   initialMessages: AiUIMessage[];
   initialIncomplete: boolean;
-  senders: Record<string, string>;
-  getToken: GetToken;
+  getToken: TokenGetter;
 }) {
   // Session mode is chosen before the first message and fixed thereafter
   // (immutable server-side). A ref feeds the transport without rebuilding it.
@@ -203,6 +189,18 @@ function Chat({
   // members still loading, live sends) falls through to today's rendering —
   // wrong-styling-by-guess would be worse than the status quo.
   const { members, me } = useHouseholdMembers(getToken);
+
+  // Message id → sender user id, from the hydration payload's senderUserId.
+  // Derived here (not threaded as state) and kept beside the AI SDK's message
+  // state so useChat's typing stays untouched. Live sends never enter this
+  // map, which is correct: the sender of a live turn is always the viewer.
+  const senders = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of initialMessages as Array<{ id?: string; senderUserId?: string | null }>) {
+      if (m.id && m.senderUserId) map[m.id] = m.senderUserId;
+    }
+    return map;
+  }, [initialMessages]);
 
   // Resume a dropped SSE stream. The connection dies when the tab is
   // backgrounded (mobile app-switch) but the sandbox keeps running server-side,

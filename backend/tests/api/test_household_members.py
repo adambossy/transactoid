@@ -1,26 +1,21 @@
-"""GET /api/household/members: live Clerk avatars, tenancy, cache, degradation."""
+"""GET /api/household/members: shape, tenancy, and the initials fallback.
+
+Clerk caching/degradation live in the adapter (``fetch_cached_user_profile``,
+covered by ``tests/adapters/test_clerk.py``); these route tests inject plain
+fake profile fetchers via ``get_profile_fetcher``.
+"""
 
 from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-import pytest
 
-from penny.adapters.clerk import ClerkError
+from penny.adapters.clerk import EMPTY_PROFILE
 from penny.adapters.db.models import Household, User
-from penny.api import signup_routes
 from penny.api.auth import request_context
 from penny.api.signup_routes import get_profile_fetcher, router
 from penny.db import get_db
 from penny.tenancy.context import RequestContext, SessionMode
-
-
-@pytest.fixture(autouse=True)
-def _fresh_profile_cache():
-    """The TTL cache is module state; isolate it per test."""
-    signup_routes._profile_cache.clear()
-    yield
-    signup_routes._profile_cache.clear()
 
 
 def _ctx(hid, uid):
@@ -69,12 +64,8 @@ def test_members_lists_linked_users_with_avatars(isolated_db):
     db.create_schema()
     ctx, partner_id = _seed_household(db)
     profiles = {
-        "c_ada": {
-            "image_url": "https://img.clerk.com/ada",
-            "first_name": "Ada",
-            "last_name": None,
-        },
-        "c_sam": {"image_url": None, "first_name": None, "last_name": None},
+        "c_ada": {"image_url": "https://img.clerk.com/ada", "first_name": "Ada"},
+        "c_sam": EMPTY_PROFILE,
     }
 
     # act
@@ -102,25 +93,6 @@ def test_members_lists_linked_users_with_avatars(isolated_db):
     assert r.json() == {"members": expected_members}
 
 
-def test_members_degrades_to_no_image_when_clerk_fails(isolated_db):
-    # input: the profile fetch raises (Clerk down / no secret key in dev)
-    db = get_db()
-    db.create_schema()
-    ctx, _ = _seed_household(db)
-
-    def _broken(sub):
-        raise ClerkError("CLERK_SECRET_KEY is not set")
-
-    # act
-    r = _client(ctx, _broken).get("/api/household/members")
-
-    # expected: the route still answers; every member has a null image and an
-    # email-derived display name (the client renders initials).
-    assert r.status_code == 200
-    output = [(m["display_name"], m["image_url"]) for m in r.json()["members"]]
-    assert output == [("ada", None), ("sam", None)]
-
-
 def test_members_never_leak_across_households(isolated_db):
     # input: a second household with its own member
     db = get_db()
@@ -139,30 +111,7 @@ def test_members_never_leak_across_households(isolated_db):
         )
 
     # act
-    r = _client(
-        ctx, lambda sub: {"image_url": None, "first_name": None, "last_name": None}
-    ).get("/api/household/members")
+    r = _client(ctx, lambda sub: EMPTY_PROFILE).get("/api/household/members")
 
     # expected: only the caller's household's members
     assert sorted(m["email"] for m in r.json()["members"]) == ["ada@x.com", "sam@x.com"]
-
-
-def test_members_profile_fetch_is_ttl_cached(isolated_db):
-    # input: two requests within the TTL
-    db = get_db()
-    db.create_schema()
-    ctx, _ = _seed_household(db)
-    calls: list[str] = []
-
-    def _counting(sub):
-        calls.append(sub)
-        return {"image_url": None, "first_name": None, "last_name": None}
-
-    client = _client(ctx, _counting)
-
-    # act
-    client.get("/api/household/members")
-    client.get("/api/household/members")
-
-    # expected: one Clerk fetch per member, not per request
-    assert sorted(calls) == ["c_ada", "c_sam"]

@@ -9,7 +9,8 @@
  * harness relies on.
  */
 
-type TokenGetter = () => Promise<string | null>;
+/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
+export type TokenGetter = () => Promise<string | null>;
 
 let currentGetter: TokenGetter = async () => null;
 

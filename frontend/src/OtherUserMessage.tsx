@@ -10,6 +10,11 @@ import type { HouseholdMember } from "./useHouseholdMembers";
  * which stays with agent-ui's Message. Penny-local on purpose: the library's
  * message type has no sender concept, so the one authored-message case lives
  * here rather than pushing household semantics upstream.
+ *
+ * PAIRED WITH agent-ui's Message.tsx user branch: the text extraction
+ * (text parts → join → stripSystemReminders) and the bubble metrics
+ * (max-w-[78%] rounded-2xl px-4 py-2.5) mirror it so the two renderings of
+ * the same message type never drift apart — check both when changing either.
  */
 export function OtherUserMessage({
   message,

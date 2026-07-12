@@ -44,6 +44,11 @@ class ClerkInvites(Protocol):
     def revoke_invitation(self, email: str) -> None: ...
 
 
+def email_local_part(email: str) -> str:
+    """A user's fallback human label: the part of their email before the ``@``."""
+    return email.strip().lower().split("@", 1)[0]
+
+
 def provision_solo_household(
     session: Session, *, email: str, external_auth_id: str
 ) -> tuple[uuid.UUID, uuid.UUID]:
@@ -57,8 +62,7 @@ def provision_solo_household(
     existing = session.query(User).filter(User.email == normalized).one_or_none()
     if existing is not None:
         return existing.household_id, existing.user_id
-    local = normalized.split("@", 1)[0]
-    hh = Household(name=f"{local}'s household")
+    hh = Household(name=f"{email_local_part(normalized)}'s household")
     session.add(hh)
     session.flush()
     user = User(
@@ -143,6 +147,25 @@ def create_invite(
         session.flush()
     clerk.create_invitation(normalized)
     return normalized
+
+
+def list_household_members(session: Session, ctx: RequestContext) -> list[User]:
+    """This household's members with a linked login, in a stable order.
+
+    The complement of ``list_pending_invites``: a member is a ``users`` row
+    whose invite has been claimed (``external_auth_id IS NOT NULL``).
+    ``created_at`` has second resolution, so members provisioned in the same
+    instant need the unique email as a deterministic tiebreak.
+    """
+    return (
+        session.query(User)
+        .filter(
+            User.household_id == ctx.household_id,
+            User.external_auth_id.isnot(None),
+        )
+        .order_by(User.created_at, User.email)
+        .all()
+    )
 
 
 def list_pending_invites(session: Session, ctx: RequestContext) -> list[str]:

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -106,8 +107,12 @@ class ClerkInvites:
         return None
 
 
-def _get_user(sub: str, *, secret_key: str | None, op: str) -> object:
-    """``GET /v1/users/{id}`` — shared fetch for the identity/profile readers."""
+def _get_user(sub: str, *, secret_key: str | None, op: str) -> dict[str, object]:
+    """``GET /v1/users/{id}`` — shared fetch for the identity/profile readers.
+
+    Normalizes a non-dict payload to ``{}`` so callers can ``.get(...)``
+    without their own shape guard.
+    """
     key = (secret_key or os.environ.get("CLERK_SECRET_KEY", "")).strip()
     if not key:
         raise ClerkError("CLERK_SECRET_KEY is not set")
@@ -118,7 +123,7 @@ def _get_user(sub: str, *, secret_key: str | None, op: str) -> object:
     )
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
-            return json.loads(resp.read() or b"null")
+            user = json.loads(resp.read() or b"null")
     except urllib.error.HTTPError as exc:
         body = exc.read() or b""
         from loguru import logger
@@ -129,6 +134,7 @@ def _get_user(sub: str, *, secret_key: str | None, op: str) -> object:
         raise ClerkError(
             f"{op} failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
         ) from None
+    return user if isinstance(user, dict) else {}
 
 
 def fetch_user_identity(
@@ -144,8 +150,6 @@ def fetch_user_identity(
     ``primary_email_address_id`` selecting the primary one.
     """
     user = _get_user(sub, secret_key=secret_key, op="fetch_user_identity")
-    if not isinstance(user, dict):
-        return None, False
     primary_id = user.get("primary_email_address_id")
     for addr in user.get("email_addresses") or []:
         if isinstance(addr, dict) and addr.get("id") == primary_id:
@@ -155,20 +159,31 @@ def fetch_user_identity(
     return None, False
 
 
+# The empty profile: what a member without Clerk data (or with Clerk
+# unreachable) resolves to. Callers render initials from it.
+EMPTY_PROFILE: dict[str, str | None] = {"image_url": None, "first_name": None}
+
+# Profiles are fetched live (never persisted — the deliberate "no syncing"
+# decision) but callers render them often, so a short in-process cache bounds
+# Clerk traffic to ~one call per member per TTL. Failures are cached briefly
+# too, so a Clerk outage costs one timeout per member per window rather than
+# one per request.
+_PROFILE_TTL_SECONDS = 300.0
+_PROFILE_FAILURE_TTL_SECONDS = 45.0
+_profile_cache: dict[str, tuple[float, dict[str, str | None]]] = {}
+
+
 def fetch_user_profile(
     sub: str, *, secret_key: str | None = None
 ) -> dict[str, str | None]:
-    """Resolve ``{image_url, first_name, last_name}`` for a Clerk user.
+    """Resolve ``{image_url, first_name}`` for a Clerk user, uncached.
 
     The profile Clerk mirrors from the user's Google account — ``image_url`` is
     the Gmail profile picture (a publicly loadable ``img.clerk.com`` URL, so it
-    can be handed straight to the browser). Deliberately **not persisted**
-    anywhere in Penny: callers fetch on demand and cache in memory at most.
-    Raises ``ClerkError`` on failure; a missing field comes back ``None``.
+    can be handed straight to the browser). Raises ``ClerkError`` on failure; a
+    missing field comes back ``None``.
     """
     user = _get_user(sub, secret_key=secret_key, op="fetch_user_profile")
-    if not isinstance(user, dict):
-        return {"image_url": None, "first_name": None, "last_name": None}
 
     def _opt(field: str) -> str | None:
         got = user.get(field)
@@ -177,8 +192,33 @@ def fetch_user_profile(
     return {
         "image_url": _opt("image_url"),
         "first_name": _opt("first_name"),
-        "last_name": _opt("last_name"),
     }
+
+
+def fetch_cached_user_profile(sub: str) -> dict[str, str | None]:
+    """``fetch_user_profile`` through the TTL cache, degradation absorbed.
+
+    A failed fetch (Clerk down, no secret key in dev) is a normal degraded
+    state for profile consumers — it resolves to ``EMPTY_PROFILE`` (rendered
+    as initials) and is negatively cached for a short window so the next
+    request retries soon without every request paying the timeout. Never
+    raises.
+    """
+    now = time.monotonic()
+    hit = _profile_cache.get(sub)
+    if hit is not None and now < hit[0]:
+        return hit[1]
+    try:
+        profile = fetch_user_profile(sub)
+        expires = now + _PROFILE_TTL_SECONDS
+    except ClerkError as exc:
+        from loguru import logger
+
+        logger.bind(sub=sub).warning(f"profile fetch degraded: {exc}")
+        profile = EMPTY_PROFILE
+        expires = now + _PROFILE_FAILURE_TTL_SECONDS
+    _profile_cache[sub] = (expires, profile)
+    return profile
 
 
 def _is_duplicate(payload: object) -> bool:

@@ -6,12 +6,11 @@ export interface AvatarPerson {
   imageUrl?: string | null;
 }
 
-export type AvatarSize = "xs" | "sm" | "md";
+export type AvatarSize = "xs" | "sm";
 
 const SIZE_CLASSES: Record<AvatarSize, string> = {
   xs: "h-5 w-5 text-[10px]",
   sm: "h-6 w-6 text-xs",
-  md: "h-8 w-8 text-sm",
 };
 
 export interface AvatarProps extends AvatarPerson {
@@ -54,7 +53,6 @@ export function Avatar({ name, imageUrl, size = "sm", className = "" }: AvatarPr
 
 export interface AvatarStackProps {
   people: AvatarPerson[];
-  size?: Extract<AvatarSize, "xs" | "sm">;
   className?: string;
 }
 
@@ -64,14 +62,14 @@ export interface AvatarStackProps {
  * circles. Entries past the second are ignored (two-person households are the
  * product reality; add a "+N" chip when a third member becomes real).
  */
-export function AvatarStack({ people, size = "xs", className = "" }: AvatarStackProps) {
+export function AvatarStack({ people, className = "" }: AvatarStackProps) {
   return (
     <span className={`flex shrink-0 items-center ${className}`}>
       {people.slice(0, 2).map((person, i) => (
         <Avatar
           key={`${person.name}-${i}`}
           {...person}
-          size={size}
+          size="xs"
           className={`ring-2 ring-paper ${i > 0 ? "-ml-2" : ""}`}
         />
       ))}

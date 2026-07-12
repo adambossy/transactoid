@@ -14,19 +14,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import lru_cache
-import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from loguru import logger
 from pydantic import BaseModel, Field
 
-from penny.adapters.clerk import ClerkError, ClerkInvites, fetch_user_profile
+from penny.adapters.clerk import ClerkInvites, fetch_cached_user_profile
 from penny.adapters.db.models import Household, User
 from penny.db import get_db
 from penny.signup import (
     InviteError,
     create_invite,
+    email_local_part,
+    list_household_members,
     list_pending_invites,
     rename_household,
     revoke_invite,
@@ -37,12 +37,6 @@ from .auth import request_context
 
 router = APIRouter()
 
-# Clerk profiles are fetched live (never persisted — the deliberate "no
-# syncing" decision) but the members list renders on every drawer open, so a
-# short in-process cache bounds Clerk traffic to ~one call per member per TTL.
-_PROFILE_TTL_SECONDS = 300.0
-_profile_cache: dict[str, tuple[float, dict[str, str | None]]] = {}
-
 
 @lru_cache(maxsize=1)
 def get_clerk_invites() -> ClerkInvites:
@@ -52,30 +46,10 @@ def get_clerk_invites() -> ClerkInvites:
 
 @lru_cache(maxsize=1)
 def get_profile_fetcher() -> Callable[[str], dict[str, str | None]]:
-    """The Clerk profile reader. Overridden in tests via ``dependency_overrides``."""
-    return fetch_user_profile
-
-
-def _cached_profile(
-    fetch: Callable[[str], dict[str, str | None]], sub: str
-) -> dict[str, str | None]:
-    """Fetch a member's Clerk profile through the TTL cache.
-
-    A failed fetch (Clerk down, no secret key in dev) is a normal degraded
-    state — return an empty profile so the member renders with initials — and
-    is not cached, so the next request retries.
-    """
-    now = time.monotonic()
-    hit = _profile_cache.get(sub)
-    if hit is not None and now - hit[0] < _PROFILE_TTL_SECONDS:
-        return hit[1]
-    try:
-        profile = fetch(sub)
-    except ClerkError as exc:
-        logger.bind(sub=sub).warning(f"member profile fetch failed: {exc}")
-        return {"image_url": None, "first_name": None, "last_name": None}
-    _profile_cache[sub] = (now, profile)
-    return profile
+    """The Clerk profile reader (TTL-cached, degradation absorbed — see
+    ``fetch_cached_user_profile``). Overridden in tests via
+    ``dependency_overrides``."""
+    return fetch_cached_user_profile
 
 
 class InviteBody(BaseModel):
@@ -118,39 +92,33 @@ def get_household_members(
 ) -> dict[str, list[dict[str, Any]]]:
     """The household's active members with their live Clerk (Google) avatars.
 
-    Members are the household's ``users`` rows with a linked login — pending
-    invitees (``external_auth_id`` NULL) have no Clerk account or picture and
-    are listed by ``GET /api/invites`` instead. ``image_url`` is fetched from
-    Clerk per member (TTL-cached, never persisted) and is null when Clerk has
-    no image or is unreachable; the client falls back to initials.
+    Members come from ``signup.list_household_members`` (pending invitees have
+    no Clerk account or picture and are listed by ``GET /api/invites``
+    instead). ``image_url`` is fetched from Clerk per member (TTL-cached,
+    never persisted) and is null when Clerk has no image or is unreachable;
+    the client falls back to initials. The rows are materialized and the DB
+    session closed *before* the Clerk fetches, so a slow Clerk never pins a
+    pooled connection.
     """
     with get_db().session_for(ctx) as s:
-        users = (
-            s.query(User)
-            .filter(
-                User.household_id == ctx.household_id,
-                User.external_auth_id.isnot(None),
-            )
-            # created_at has second resolution, so members provisioned in the
-            # same instant need the unique email as a deterministic tiebreak.
-            .order_by(User.created_at, User.email)
-            .all()
+        users = [
+            (u.user_id, u.email, u.external_auth_id)
+            for u in list_household_members(s, ctx)
+        ]
+    members = []
+    for user_id, email, external_auth_id in users:
+        profile = fetch_profile(external_auth_id)
+        members.append(
+            {
+                "user_id": str(user_id),
+                "email": email,
+                # First name when Clerk has one, else the email local-part —
+                # decided server-side so every client names members alike.
+                "display_name": profile["first_name"] or email_local_part(email),
+                "image_url": profile["image_url"],
+                "is_you": user_id == ctx.user_id,
+            }
         )
-        members = []
-        for user in users:
-            profile = _cached_profile(fetch_profile, user.external_auth_id)
-            members.append(
-                {
-                    "user_id": str(user.user_id),
-                    "email": user.email,
-                    # First name when Clerk has one, else the email local-part —
-                    # decided server-side so every client names members alike.
-                    "display_name": profile["first_name"]
-                    or user.email.split("@", 1)[0],
-                    "image_url": profile["image_url"],
-                    "is_you": user.user_id == ctx.user_id,
-                }
-            )
     return {"members": members}
 
 
