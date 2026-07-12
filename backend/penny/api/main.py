@@ -416,6 +416,9 @@ async def list_conversations(
                 "id": row.conversation_id,
                 "title": row.title,
                 "updated_at": row.updated_at.isoformat(),
+                # individual / joint — the client marks joint threads as
+                # shared spaces (participant avatars) in the drawer.
+                "session_mode": row.session_mode,
             }
             for row in rows
         ]
