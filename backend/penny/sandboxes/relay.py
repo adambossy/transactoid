@@ -25,7 +25,11 @@ from penny.api.bridge import _translate
 
 
 async def relay_turn(
-    tunnel_url: str, run_id: str, *, from_seq: int = 0, client: httpx.AsyncClient | None = None
+    tunnel_url: str,
+    run_id: str,
+    *,
+    from_seq: int = 0,
+    client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Pull the runner's events and yield translated AI SDK frames."""
     import json
@@ -47,7 +51,12 @@ async def relay_turn(
                 try:
                     frames = _translate(event, open_text)
                 except Exception as exc:  # a translation bug is a frame, not a hang
-                    frames = [{"type": "error", "errorText": f"stream translation failed: {exc}"}]
+                    frames = [
+                        {
+                            "type": "error",
+                            "errorText": f"stream translation failed: {exc}",
+                        }
+                    ]
                 for frame in frames:
                     yield frame
     finally:

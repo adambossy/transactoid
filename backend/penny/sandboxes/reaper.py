@@ -31,7 +31,7 @@ IDLE_TIMEOUT = 15 * 60.0
 LatestActivity = Callable[[str], "tuple[str, datetime] | None"]
 
 
-class SandboxBusy(Exception):
+class SandboxBusy(Exception):  # noqa: N818 - intentional short name; a control-flow signal (409), not an error condition
     """A turn is already active for this conversation (surfaces as 409)."""
 
 
