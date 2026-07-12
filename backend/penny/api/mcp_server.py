@@ -126,15 +126,21 @@ class _ToolIndex:
             for t in tools.values()
         ]
 
-    async def call(self, name: str, arguments: dict[str, Any]) -> mcp_types.CallToolResult:
+    async def call(
+        self, name: str, arguments: dict[str, Any]
+    ) -> mcp_types.CallToolResult:
         await self._ensure()
         toolset = self._owner.get(name)
         if toolset is None:
             return mcp_types.CallToolResult(
-                content=[mcp_types.TextContent(type="text", text=f"unknown tool: {name}")],
+                content=[
+                    mcp_types.TextContent(type="text", text=f"unknown tool: {name}")
+                ],
                 isError=True,
             )
-        call = ToolCall(id=f"call_{uuid.uuid4().hex[:8]}", name=name, arguments=arguments or {})
+        call = ToolCall(
+            id=f"call_{uuid.uuid4().hex[:8]}", name=name, arguments=arguments or {}
+        )
         result = await toolset.call_tool(None, call)
         return _to_mcp_result(result)
 
@@ -153,13 +159,19 @@ def _to_mcp_result(result: Any) -> mcp_types.CallToolResult:
         )
     if result.structured_content is not None:
         return mcp_types.CallToolResult(
-            content=[mcp_types.TextContent(type="text", text=json.dumps(result.structured_content, default=str))],
+            content=[
+                mcp_types.TextContent(
+                    type="text", text=json.dumps(result.structured_content, default=str)
+                )
+            ],
             structuredContent=result.structured_content
             if isinstance(result.structured_content, dict)
             else {"result": result.structured_content},
         )
     text = "\n".join(getattr(b, "text", "") for b in result.content)
-    return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=text)])
+    return mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text=text)]
+    )
 
 
 def _build_server(index: _ToolIndex) -> Server:
@@ -202,13 +214,17 @@ def create_mcp(
     """
     index = _ToolIndex(toolsets)
     server = _build_server(index)
-    session_manager = StreamableHTTPSessionManager(app=server, event_store=None, stateless=True)
+    session_manager = StreamableHTTPSessionManager(
+        app=server, event_store=None, stateless=True
+    )
 
     async def _handle(scope: Any, receive: Any, send: Any) -> None:
         request = Request(scope, receive)
         principal = registry.resolve(_bearer(request))
         if principal is None:
-            resp = JSONResponse({"error": "invalid or missing capability token"}, status_code=401)
+            resp = JSONResponse(
+                {"error": "invalid or missing capability token"}, status_code=401
+            )
             await resp(scope, receive, send)
             return
         token = _principal.set(principal)

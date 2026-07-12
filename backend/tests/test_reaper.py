@@ -17,7 +17,7 @@ import asyncio
 import pytest
 
 from penny.sandboxes.provider import SandboxHandle
-from penny.sandboxes.reaper import SandboxBusy, dispatch_turn, on_turn_end, reap_if_idle
+from penny.sandboxes.reaper import SandboxBusy, dispatch_turn, reap_if_idle
 from penny.sandboxes.store import ConversationSandbox, SandboxState
 
 
@@ -34,7 +34,9 @@ class FakeProvider:
         self.created += 1
         return SandboxHandle(f"sb-new-{self.created}", "http://tunnel/new")
 
-    async def restore(self, conversation_id: str, snapshot_image_id: str) -> SandboxHandle:
+    async def restore(
+        self, conversation_id: str, snapshot_image_id: str
+    ) -> SandboxHandle:
         self.restored += 1
         return SandboxHandle(f"sb-restore-{self.restored}", "http://tunnel/restore")
 
@@ -93,7 +95,9 @@ async def test_turn_steals_box_back_mid_snapshot() -> None:
     provider = FakeProvider()
     provider.gate = asyncio.Event()  # pause the snapshot mid-flight
 
-    reap = asyncio.create_task(reap_if_idle(rec, provider, now=10_000.0, idle_timeout=900))
+    reap = asyncio.create_task(
+        reap_if_idle(rec, provider, now=10_000.0, idle_timeout=900)
+    )
     # Wait until the reaper has entered REAPING and is inside snapshot().
     while provider.snapshots == 0:
         await asyncio.sleep(0.01)

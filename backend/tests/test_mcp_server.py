@@ -9,16 +9,16 @@ to an in-process call), and a missing/invalid capability token is denied.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 import contextlib
 import socket
-from collections.abc import AsyncIterator
 from typing import Any
 
-import pytest
-import uvicorn
-from agent_harness.core.tools import Tool, ToolCall, ToolPolicy, ToolResult
 from agent_harness.core.mcp import MCPServerHTTP
 from agent_harness.core.models import TextBlock
+from agent_harness.core.tools import Tool, ToolCall, ToolPolicy, ToolResult
+import pytest
+import uvicorn
 
 from penny.api.mcp_server import CapabilityRegistry, Principal, build_mcp_app
 
@@ -38,11 +38,21 @@ class EchoToolset:
         async def _unreachable(**_: Any) -> Any:  # dispatch goes through call_tool
             raise RuntimeError("unreachable")
 
-        return [Tool(name="echo", description="Echo text", schema=self._SCHEMA, policy=ToolPolicy(), fn=_unreachable)]
+        return [
+            Tool(
+                name="echo",
+                description="Echo text",
+                schema=self._SCHEMA,
+                policy=ToolPolicy(),
+                fn=_unreachable,
+            )
+        ]
 
     async def call_tool(self, ctx: Any, call: ToolCall) -> ToolResult:
         text = (call.arguments or {}).get("text", "")
-        return ToolResult(content=[TextBlock(text=text)], structured_content={"echo": text})
+        return ToolResult(
+            content=[TextBlock(text=text)], structured_content={"echo": text}
+        )
 
 
 def _free_port() -> int:
@@ -56,7 +66,9 @@ def _free_port() -> int:
 @contextlib.asynccontextmanager
 async def _serve(app: Any) -> AsyncIterator[str]:
     port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on")
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"
+    )
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
     try:
@@ -80,7 +92,9 @@ async def test_harness_client_roundtrips_over_mcp() -> None:
         return {"Authorization": f"Bearer {token}"}
 
     # In-process reference result.
-    direct = await toolset.call_tool(None, ToolCall(id="d", name="echo", arguments={"text": "hi"}))
+    direct = await toolset.call_tool(
+        None, ToolCall(id="d", name="echo", arguments={"text": "hi"})
+    )
     assert direct.structured_content == {"echo": "hi"}
 
     async with _serve(app) as url:
@@ -89,9 +103,13 @@ async def test_harness_client_roundtrips_over_mcp() -> None:
             names = {t.name for t in tools}
             assert "echo" in names
             echo = next(t for t in tools if t.name == "echo")
-            assert echo.schema["properties"]["text"]["type"] == "string"  # schema passthrough
+            assert (
+                echo.schema["properties"]["text"]["type"] == "string"
+            )  # schema passthrough
 
-            result = await client.call_tool(None, ToolCall(id="r", name="echo", arguments={"text": "hi"}))
+            result = await client.call_tool(
+                None, ToolCall(id="r", name="echo", arguments={"text": "hi"})
+            )
             assert result.error is None
             # The structured value round-trips through the MCP text block.
             assert "hi" in "".join(getattr(b, "text", "") for b in result.content)
@@ -100,7 +118,9 @@ async def test_harness_client_roundtrips_over_mcp() -> None:
 @pytest.mark.asyncio
 async def test_missing_token_is_denied() -> None:
     registry = CapabilityRegistry()
-    registry.mint(Principal(conversation_id="c1"))  # a valid token exists, but we won't send it
+    registry.mint(
+        Principal(conversation_id="c1")
+    )  # a valid token exists, but we won't send it
     app = build_mcp_app([EchoToolset()], registry)
 
     async def _no_auth() -> dict[str, str]:
@@ -109,6 +129,6 @@ async def test_missing_token_is_denied() -> None:
     async with _serve(app) as url:
         # 401 surfaces at the MCP initialize handshake (client __aenter__) or at
         # list_tools — either way the unauthenticated client cannot proceed.
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 - 401 surfaces at handshake OR list_tools; type varies
             async with MCPServerHTTP("penny-tools", url, auth=_no_auth) as client:
                 await client.list_tools(None)
