@@ -17,10 +17,24 @@ from typing import Any
 from agent_harness.core.mcp import MCPServerHTTP
 from agent_harness.core.models import TextBlock
 from agent_harness.core.tools import Tool, ToolCall, ToolPolicy, ToolResult
+import httpx
 import pytest
 import uvicorn
 
 from penny.api.mcp_server import CapabilityRegistry, Principal, build_mcp_app
+
+
+def _http_status_codes(exc: BaseException) -> list[int]:
+    """All httpx status codes in ``exc``, unwrapping ExceptionGroups (the MCP
+    client raises inside an anyio TaskGroup, so the 401 is nested)."""
+    found: list[int] = []
+    stack: list[BaseException] = [exc]
+    while stack:
+        e = stack.pop()
+        if isinstance(e, httpx.HTTPStatusError):
+            found.append(e.response.status_code)
+        stack.extend(getattr(e, "exceptions", ()))
+    return found
 
 
 class EchoToolset:
@@ -128,7 +142,10 @@ async def test_missing_token_is_denied() -> None:
 
     async with _serve(app) as url:
         # 401 surfaces at the MCP initialize handshake (client __aenter__) or at
-        # list_tools — either way the unauthenticated client cannot proceed.
-        with pytest.raises(Exception):  # noqa: B017 - 401 surfaces at handshake OR list_tools; type varies
+        # list_tools — either way the unauthenticated client cannot proceed. It
+        # arrives as an httpx.HTTPStatusError, possibly wrapped in an anyio
+        # ExceptionGroup; assert the concrete 401 rather than any failure.
+        with pytest.raises((httpx.HTTPStatusError, ExceptionGroup)) as excinfo:
             async with MCPServerHTTP("penny-tools", url, auth=_no_auth) as client:
                 await client.list_tools(None)
+    assert 401 in _http_status_codes(excinfo.value)

@@ -27,6 +27,8 @@ SQLite dev/tests skip this entirely: the columns come from the model via
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -57,6 +59,88 @@ def upgrade() -> None:
     if bind.dialect.name != "postgresql":
         return
     op.execute("CREATE SCHEMA IF NOT EXISTS web")
+
+    # Create the base web.* tables if absent. On a fresh, alembic-only Postgres
+    # DB nothing has made them yet (create_all is forbidden there), so the chain
+    # must — otherwise the ALTERs below fail with "relation does not exist".
+    # Idempotent: existing prod tables (originally from WebBase.create_all) are
+    # left untouched. Columns mirror the models MINUS the tenant columns this
+    # revision adds (household_id/owner_user_id/session_mode), so create_all and
+    # the chain converge on the same final shape (see test_schema_drift).
+    existing = set(sa.inspect(bind).get_table_names(schema="web"))
+    if "conversations" not in existing:
+        op.create_table(
+            "conversations",
+            sa.Column("conversation_id", sa.String, primary_key=True),
+            sa.Column("title", sa.String, nullable=True),
+            sa.Column(
+                "created_at",
+                sa.TIMESTAMP,
+                nullable=False,
+                server_default=sa.text("CURRENT_TIMESTAMP"),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.TIMESTAMP,
+                nullable=False,
+                server_default=sa.text("CURRENT_TIMESTAMP"),
+            ),
+            schema="web",
+        )
+    if "conversation_messages" not in existing:
+        op.create_table(
+            "conversation_messages",
+            sa.Column("message_id", sa.Integer, primary_key=True, autoincrement=True),
+            sa.Column(
+                "conversation_id",
+                sa.String,
+                sa.ForeignKey("web.conversations.conversation_id", ondelete="CASCADE"),
+                nullable=False,
+                index=True,
+            ),
+            sa.Column("ai_sdk_message_id", sa.String, nullable=True),
+            sa.Column("seq", sa.Integer, nullable=False),
+            sa.Column("role", sa.String, nullable=False),
+            sa.Column("parts", sa.JSON, nullable=False),
+            sa.Column(
+                "status",
+                sa.String,
+                nullable=False,
+                server_default=sa.text("'complete'"),
+            ),
+            sa.Column(
+                "created_at",
+                sa.TIMESTAMP,
+                nullable=False,
+                server_default=sa.text("CURRENT_TIMESTAMP"),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.TIMESTAMP,
+                nullable=False,
+                server_default=sa.text("CURRENT_TIMESTAMP"),
+            ),
+            sa.CheckConstraint(
+                "status IN ('streaming', 'complete', 'error')",
+                name="ck_conversation_messages_status",
+            ),
+            schema="web",
+        )
+        op.create_index(
+            "ix_conv_messages_conv_seq",
+            "conversation_messages",
+            ["conversation_id", "seq"],
+            schema="web",
+        )
+        op.create_index(
+            "uq_conv_messages_ai_sdk_id",
+            "conversation_messages",
+            ["conversation_id", "ai_sdk_message_id"],
+            unique=True,
+            schema="web",
+            postgresql_where=sa.text("ai_sdk_message_id IS NOT NULL"),
+        )
+
     op.execute(f"ALTER TABLE {_CONV} ADD COLUMN IF NOT EXISTS household_id uuid")
     op.execute(f"ALTER TABLE {_CONV} ADD COLUMN IF NOT EXISTS owner_user_id uuid")
     op.execute(
