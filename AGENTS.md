@@ -99,11 +99,16 @@ uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload
 npm run dev
 ```
 
-- **Local package dev is wired for both dependencies**: `pyproject.toml`
-  has a `[tool.uv.sources]` editable path for `~/code/agent-harness`;
-  `vite.config.ts` aliases `@adambossy/agent-ui` to
-  `~/code/agent-ui/packages/agent-ui/src` (with `resolve.dedupe` for react —
-  do not remove it, removing it causes a blank screen from a second React copy).
+- **agent-harness is a pinned git dep** (`@v0.2.0` in `[project.dependencies]`),
+  so `uv sync --frozen` installs the exact same set in dev, CI, and prod — the
+  lockfile is portable (no machine-local editable path). To hack on
+  agent-harness locally, opt in **per-machine** without touching the committed
+  lock: `uv sync --frozen && uv pip install -e ~/code/agent-harness` (re-run the
+  editable install after any `uv sync`, which reverts it to the pinned version).
+- **agent-ui** live-dev is still wired via `vite.config.ts`, which aliases
+  `@adambossy/agent-ui` to `~/code/agent-ui/packages/agent-ui/src` (with
+  `resolve.dedupe` for react — do not remove it, removing it causes a blank
+  screen from a second React copy).
 - **Backend restarts**: uvicorn `--reload` only watches `backend/` `*.py`.
   Edits to `.prompts/*.md` (lru_cached) and `~/code/agent-harness` need a
   manual restart.
