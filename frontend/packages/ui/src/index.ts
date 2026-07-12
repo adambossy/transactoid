@@ -2,6 +2,13 @@ export { tokens } from "./tokens";
 export type { Tokens } from "./tokens";
 export { Logo } from "./logo/Logo";
 export type { LogoProps, LogoVariant } from "./logo/Logo";
+export { Avatar, AvatarStack } from "./primitives/Avatar";
+export type {
+  AvatarPerson,
+  AvatarProps,
+  AvatarSize,
+  AvatarStackProps,
+} from "./primitives/Avatar";
 export { Button } from "./primitives/Button";
 export type { ButtonVariant } from "./primitives/Button";
 export { Chip } from "./primitives/Chip";

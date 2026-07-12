@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SquarePen } from "lucide-react";
+import { AvatarStack } from "@penny/ui";
 import { authHeaders } from "./authFetch";
 import { SESSION_KEY, openConversation, startNewChat } from "./session";
+import { useHouseholdMembers } from "./useHouseholdMembers";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -10,6 +12,7 @@ interface Conversation {
   id: string;
   title: string | null;
   updated_at: string;
+  session_mode: "individual" | "joint";
 }
 
 type LoadState =
@@ -40,6 +43,18 @@ export function ChatHistoryDrawer({
   getToken: GetToken;
 }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const { members } = useHouseholdMembers(getToken);
+
+  // The joint-thread mark: the other member in front, the viewer behind —
+  // "they are in here too". Empty until the household actually has two
+  // members (or while the members fetch is loading/failed), so individual
+  // entries and solo households render exactly as before.
+  const jointStack = useMemo(() => {
+    const other = members.find((m) => !m.is_you);
+    const self = members.find((m) => m.is_you);
+    if (!other || !self) return [];
+    return [other, self].map((m) => ({ name: m.display_name, imageUrl: m.image_url }));
+  }, [members]);
 
   // Refetch on each open so the list is fresh (a chat gains its title from the
   // first user message, and new chats appear without a manual reload).
@@ -119,12 +134,17 @@ export function ChatHistoryDrawer({
                 type="button"
                 onClick={() => openConversation(conv.id)}
                 aria-current={conv.id === activeId ? "true" : undefined}
-                className={`block w-full truncate rounded-lg px-2 py-2 text-left font-ui text-sm text-ink transition-colors hover:bg-cream-soft ${
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left font-ui text-sm text-ink transition-colors hover:bg-cream-soft ${
                   conv.id === activeId ? "bg-cream-soft font-medium" : ""
                 }`}
                 title={conv.title ?? "New conversation"}
               >
-                {conv.title ?? "New conversation"}
+                <span className="min-w-0 flex-1 truncate">
+                  {conv.title ?? "New conversation"}
+                </span>
+                {conv.session_mode === "joint" && jointStack.length >= 2 && (
+                  <AvatarStack people={jointStack} size="xs" />
+                )}
               </button>
             ))}
         </nav>
