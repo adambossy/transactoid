@@ -46,6 +46,12 @@ export default defineConfig({
         PENNY_DEV_HOUSEHOLD_ID: DEV_HOUSEHOLD_ID,
         PENNY_DEV_SESSION_MODE: "individual",
         PENNY_LANGFUSE_ENABLED: "false",
+        // Throwaway Fernet key so the BYO-credential vault can encrypt at rest
+        // (byo-credential.spec.ts). Test-only — encrypts ephemeral E2E creds in
+        // the throwaway SQLite DB above; not a production secret.
+        PENNY_PLAID_TOKEN_KEY:
+          process.env.PENNY_PLAID_TOKEN_KEY ??
+          "kSwSnHyO-f-TCPv-9uYmzHPPgO9ONdR5U83WChmXEeQ=",
       },
     },
     {
