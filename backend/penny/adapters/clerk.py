@@ -106,6 +106,31 @@ class ClerkInvites:
         return None
 
 
+def _get_user(sub: str, *, secret_key: str | None, op: str) -> object:
+    """``GET /v1/users/{id}`` — shared fetch for the identity/profile readers."""
+    key = (secret_key or os.environ.get("CLERK_SECRET_KEY", "")).strip()
+    if not key:
+        raise ClerkError("CLERK_SECRET_KEY is not set")
+    req = urllib.request.Request(  # noqa: S310 - fixed HTTPS Clerk endpoint
+        f"{_API_BASE}/users/{urllib.parse.quote(sub, safe='')}",
+        method="GET",
+        headers={"Authorization": f"Bearer {key}", "User-Agent": _USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
+            return json.loads(resp.read() or b"null")
+    except urllib.error.HTTPError as exc:
+        body = exc.read() or b""
+        from loguru import logger
+
+        logger.bind(
+            sub=sub, status=exc.code, body=body[:400].decode("utf-8", "replace")
+        ).error(f"Clerk {op} failed")
+        raise ClerkError(
+            f"{op} failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
+        ) from None
+
+
 def fetch_user_identity(
     sub: str, *, secret_key: str | None = None
 ) -> tuple[str | None, bool]:
@@ -118,27 +143,7 @@ def fetch_user_identity(
     user's ``email_addresses`` with per-address ``verification.status`` and the
     ``primary_email_address_id`` selecting the primary one.
     """
-    key = (secret_key or os.environ.get("CLERK_SECRET_KEY", "")).strip()
-    if not key:
-        raise ClerkError("CLERK_SECRET_KEY is not set")
-    req = urllib.request.Request(  # noqa: S310 - fixed HTTPS Clerk endpoint
-        f"{_API_BASE}/users/{urllib.parse.quote(sub, safe='')}",
-        method="GET",
-        headers={"Authorization": f"Bearer {key}", "User-Agent": _USER_AGENT},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
-            user = json.loads(resp.read() or b"null")
-    except urllib.error.HTTPError as exc:
-        body = exc.read() or b""
-        from loguru import logger
-
-        logger.bind(
-            sub=sub, status=exc.code, body=body[:400].decode("utf-8", "replace")
-        ).error("Clerk fetch_user_identity failed")
-        raise ClerkError(
-            f"fetch_user_identity failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
-        ) from None
+    user = _get_user(sub, secret_key=secret_key, op="fetch_user_identity")
     if not isinstance(user, dict):
         return None, False
     primary_id = user.get("primary_email_address_id")
@@ -148,6 +153,32 @@ def fetch_user_identity(
             verified = (addr.get("verification") or {}).get("status") == "verified"
             return (str(email) if email else None, bool(verified))
     return None, False
+
+
+def fetch_user_profile(
+    sub: str, *, secret_key: str | None = None
+) -> dict[str, str | None]:
+    """Resolve ``{image_url, first_name, last_name}`` for a Clerk user.
+
+    The profile Clerk mirrors from the user's Google account — ``image_url`` is
+    the Gmail profile picture (a publicly loadable ``img.clerk.com`` URL, so it
+    can be handed straight to the browser). Deliberately **not persisted**
+    anywhere in Penny: callers fetch on demand and cache in memory at most.
+    Raises ``ClerkError`` on failure; a missing field comes back ``None``.
+    """
+    user = _get_user(sub, secret_key=secret_key, op="fetch_user_profile")
+    if not isinstance(user, dict):
+        return {"image_url": None, "first_name": None, "last_name": None}
+
+    def _opt(field: str) -> str | None:
+        got = user.get(field)
+        return str(got) if got else None
+
+    return {
+        "image_url": _opt("image_url"),
+        "first_name": _opt("first_name"),
+        "last_name": _opt("last_name"),
+    }
 
 
 def _is_duplicate(payload: object) -> bool:
