@@ -3,7 +3,7 @@ export type { Tokens } from "./tokens";
 export { Logo } from "./logo/Logo";
 export type { LogoProps, LogoVariant } from "./logo/Logo";
 export { Button, buttonClasses } from "./primitives/Button";
-export type { ButtonVariant } from "./primitives/Button";
+export type { ButtonSize, ButtonVariant } from "./primitives/Button";
 export { ButtonLink } from "./primitives/ButtonLink";
 export { DemoBubble } from "./primitives/DemoBubble";
 export type { DemoBubbleProps } from "./primitives/DemoBubble";

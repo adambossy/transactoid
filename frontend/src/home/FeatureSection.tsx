@@ -40,7 +40,7 @@ export function FeatureSection({
             {titleAccent ? <> <AccentUnderline>{titleAccent}</AccentUnderline></> : null}
           </h2>
           <p className="mt-4 max-w-md font-ui text-lg text-ink">{body}</p>
-          <ButtonLink href="/sign-up" className="mt-7 px-7 py-3.5">
+          <ButtonLink href="/sign-up" size="lg" className="mt-7">
             {cta} →
           </ButtonLink>
         </div>

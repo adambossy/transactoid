@@ -14,7 +14,7 @@ export function ClosingCta() {
             {home.closing.title}
           </h2>
           <p className="mx-auto mt-4 max-w-xl font-ui text-lg text-navy">{home.closing.body}</p>
-          <ButtonLink href="/sign-up" className="mt-8 px-9 py-4">
+          <ButtonLink href="/sign-up" size="xl" className="mt-8">
             {home.closing.cta} →
           </ButtonLink>
         </div>
