@@ -10,6 +10,8 @@ import { Card } from "./primitives/Card";
 import { Input } from "./primitives/Input";
 import { NavLink } from "./primitives/NavLink";
 import { AccentUnderline } from "./primitives/AccentUnderline";
+import { ButtonLink } from "./primitives/ButtonLink";
+import { DemoBubble } from "./primitives/DemoBubble";
 
 /** A labeled block wrapping one primitive example, carrying a stable
  *  data-testid for the E2E gallery guard. */
@@ -90,6 +92,43 @@ export function Gallery() {
         <span className="font-serif text-3xl font-semibold text-navy">
           your <AccentUnderline>finance savant.</AccentUnderline>
         </span>
+      </Sample>
+
+      <Sample id="ui-buttonlink" label="ButtonLink">
+        <ButtonLink variant="filled" href="#ui-buttonlink">
+          Ask Penny →
+        </ButtonLink>
+        <ButtonLink variant="outlined" href="#ui-buttonlink">
+          Meet Penny
+        </ButtonLink>
+      </Sample>
+
+      <Sample id="ui-demobubble" label="DemoBubble">
+        <div className="flex w-full max-w-md flex-col gap-3">
+          <DemoBubble role="user">Where did my spending surge last year?</DemoBubble>
+          <DemoBubble role="penny">
+            Three months broke your baseline:
+            <table>
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Sep</td>
+                  <td>$5,900</td>
+                </tr>
+                <tr>
+                  <td>Dec</td>
+                  <td>$7,200</td>
+                </tr>
+              </tbody>
+            </table>
+            All <b>one-offs</b>, not a lifestyle shift.
+          </DemoBubble>
+        </div>
       </Sample>
 
       <Sample id="ui-card" label="Card">
