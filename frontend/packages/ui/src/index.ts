@@ -8,6 +8,8 @@ export { Chip } from "./primitives/Chip";
 export type { ChipProps } from "./primitives/Chip";
 export { EyebrowPill } from "./primitives/EyebrowPill";
 export type { EyebrowPillProps } from "./primitives/EyebrowPill";
+export { NavLink } from "./primitives/NavLink";
+export { AccentUnderline } from "./primitives/AccentUnderline";
 export { Card } from "./primitives/Card";
 export { IconButton } from "./primitives/IconButton";
 export { Input } from "./primitives/Input";

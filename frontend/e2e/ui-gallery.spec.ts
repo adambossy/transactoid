@@ -21,6 +21,8 @@ const PRIMITIVES = [
   "ui-chip",
   "ui-input",
   "ui-card",
+  "ui-navlink",
+  "ui-accent-underline",
 ];
 
 test("gallery renders every primitive inside an AppShell with tokens applied", async ({ page }) => {

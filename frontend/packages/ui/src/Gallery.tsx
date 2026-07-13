@@ -8,6 +8,8 @@ import { Chip } from "./primitives/Chip";
 import { EyebrowPill } from "./primitives/EyebrowPill";
 import { Card } from "./primitives/Card";
 import { Input } from "./primitives/Input";
+import { NavLink } from "./primitives/NavLink";
+import { AccentUnderline } from "./primitives/AccentUnderline";
 
 /** A labeled block wrapping one primitive example, carrying a stable
  *  data-testid for the E2E gallery guard. */
@@ -76,6 +78,18 @@ export function Gallery() {
         <div className="w-full max-w-md">
           <Input value={query} onChange={setQuery} placeholder="Ask Penny anything…" />
         </div>
+      </Sample>
+
+      <Sample id="ui-navlink" label="NavLink">
+        <span className="text-navy">
+          <NavLink href="#ui-navlink">Analyze</NavLink>
+        </span>
+      </Sample>
+
+      <Sample id="ui-accent-underline" label="AccentUnderline">
+        <span className="font-serif text-3xl font-semibold text-navy">
+          your <AccentUnderline>finance savant.</AccentUnderline>
+        </span>
       </Sample>
 
       <Sample id="ui-card" label="Card">
