@@ -17,6 +17,16 @@ export interface HouseholdMember {
 // while the first fetch is still pending await it instead of duplicating it.
 let membersPromise: Promise<HouseholdMember[]> | null = null;
 
+/**
+ * Drop the cached members list. Clerk sign-out/sign-in happens in place (no
+ * page reload), so AuthGate calls this whenever the signed-in user changes —
+ * otherwise a second account in the same tab would see the first account's
+ * household (and mis-resolve `is_you`).
+ */
+export function resetHouseholdMembersCache(): void {
+  membersPromise = null;
+}
+
 function loadMembers(getToken: TokenGetter): Promise<HouseholdMember[]> {
   membersPromise ??= authHeaders(getToken)
     .then((headers) => fetch("/api/household/members", { headers }))
