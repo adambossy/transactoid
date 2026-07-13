@@ -9,6 +9,7 @@ import { ChatScreen } from "./ChatScreen";
 import { InviteScreen } from "./InviteScreen";
 import { PlaidLinkCard } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
+import { HomeScreen } from "./home/HomeScreen";
 import "./index.css";
 
 // Render the connect_bank_account (new link) and relink_account (update-mode
@@ -27,6 +28,12 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefine
 // import.meta.env.DEV so the route never exists in a production build. The Gallery
 // is intentionally auth-free (no ClerkProvider) so the design system stands alone.
 const showGallery = import.meta.env.DEV && window.location.pathname.startsWith("/ui");
+
+// Dev-only landing-page preview: `/home` renders the logged-out HomeScreen
+// without Clerk, mirroring the `/ui` Gallery pattern, so the marketing page is
+// developable and e2e-testable in dev-principal mode. In production the page
+// is the signed-out view of `/` (AuthGate).
+const showHomePreview = import.meta.env.DEV && window.location.pathname.startsWith("/home");
 
 // The Providers & billing settings screen (phase 2b). Same auth model as chat.
 const showBilling = window.location.pathname.startsWith("/settings/providers");
@@ -79,6 +86,7 @@ function devScreen() {
 
 function Root() {
   if (showGallery) return <Gallery />;
+  if (showHomePreview) return <HomeScreen />;
   if (clerkKey) {
     return (
       <ClerkProvider publishableKey={clerkKey}>
