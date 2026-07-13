@@ -25,15 +25,22 @@ from penny.api.mcp_server import CapabilityRegistry, Principal, build_mcp_app
 
 
 def _http_status_codes(exc: BaseException) -> list[int]:
-    """All httpx status codes in ``exc``, unwrapping ExceptionGroups (the MCP
-    client raises inside an anyio TaskGroup, so the 401 is nested)."""
+    """All httpx status codes reachable from ``exc``. The MCP client raises
+    inside an anyio TaskGroup, so the 401 is nested — follow both the group
+    members (``exceptions``) and the ``__cause__``/``__context__`` chain, since
+    which wrapper anyio uses varies by version."""
     found: list[int] = []
+    seen: set[int] = set()
     stack: list[BaseException] = [exc]
     while stack:
         e = stack.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
         if isinstance(e, httpx.HTTPStatusError):
             found.append(e.response.status_code)
         stack.extend(getattr(e, "exceptions", ()))
+        stack.extend(x for x in (e.__cause__, e.__context__) if x is not None)
     return found
 
 
@@ -144,8 +151,10 @@ async def test_missing_token_is_denied() -> None:
         # 401 surfaces at the MCP initialize handshake (client __aenter__) or at
         # list_tools — either way the unauthenticated client cannot proceed. It
         # arrives as an httpx.HTTPStatusError, possibly wrapped in an anyio
-        # ExceptionGroup; assert the concrete 401 rather than any failure.
-        with pytest.raises((httpx.HTTPStatusError, ExceptionGroup)) as excinfo:
+        # group; catch BaseExceptionGroup (the base of ExceptionGroup, so it
+        # also matches a group carrying a bare BaseException like CancelledError)
+        # and assert the concrete 401 rather than any failure.
+        with pytest.raises((httpx.HTTPStatusError, BaseExceptionGroup)) as excinfo:
             async with MCPServerHTTP("penny-tools", url, auth=_no_auth) as client:
                 await client.list_tools(None)
     assert 401 in _http_status_codes(excinfo.value)

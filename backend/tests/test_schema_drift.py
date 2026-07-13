@@ -79,6 +79,7 @@ def test_fresh_postgres_builds_web_schema_matching_models():
     with admin.connect() as conn:
         conn.execute(text(f'CREATE DATABASE "{dbname}"'))
     target_url = su_url.rsplit("/", 1)[0] + "/" + dbname
+    target_engine = None
     try:
         upgrade_to_head(target_url)
         target_engine = create_engine(target_url)
@@ -89,18 +90,27 @@ def test_fresh_postgres_builds_web_schema_matching_models():
             "fresh Postgres migration did not build the web conversation tables; "
             f"web schema has: {sorted(web_tables)}"
         )
-        # Every WebBase table must be built by the chain and match the model.
+        # Every WebBase table must be built by the chain and match the model on
+        # column name AND nullability. Nullability is the load-bearing check for
+        # the tenant columns: 019 adds household_id/owner_user_id nullable and
+        # 025 tightens them, mirroring the finance 012→013→014 pattern — a
+        # name-only comparison would silently pass an un-tightened column. Types
+        # are left out (they normalize differently across dialects); nullable is
+        # a clean bool the inspector reports reliably.
         for qualified, table in WebBase.metadata.tables.items():
             name = qualified.split(".")[-1]
-            migrated_cols = {c["name"] for c in insp.get_columns(name, schema="web")}
-            model_cols = {c.name for c in table.columns}
+            migrated_cols = {
+                (c["name"], c["nullable"]) for c in insp.get_columns(name, schema="web")
+            }
+            model_cols = {(c.name, c.nullable) for c in table.columns}
             assert migrated_cols == model_cols, (
-                f"web.{name} drifted from the model — only in model: "
-                f"{model_cols - migrated_cols}; only in migrations: "
+                f"web.{name} drifted from the model (name, nullable) — only in "
+                f"model: {model_cols - migrated_cols}; only in migrations: "
                 f"{migrated_cols - model_cols}"
             )
-        target_engine.dispose()
     finally:
+        if target_engine is not None:
+            target_engine.dispose()
         with admin.connect() as conn:
             conn.execute(text(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)'))
         admin.dispose()
