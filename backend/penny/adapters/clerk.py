@@ -215,19 +215,20 @@ def fetch_cached_user_profile(sub: str) -> dict[str, str | None]:
     """
     now = time.monotonic()
     hit = _profile_cache.get(sub)
-    if hit is not None and now < hit[0]:
-        return hit[1]
-    try:
-        profile = fetch_user_profile(sub)
-        expires = now + _PROFILE_TTL_SECONDS
-    except ClerkError as exc:
-        from loguru import logger
+    if hit is None or now >= hit[0]:
+        try:
+            profile = fetch_user_profile(sub)
+            expires = now + _PROFILE_TTL_SECONDS
+        except ClerkError as exc:
+            from loguru import logger
 
-        logger.bind(sub=sub).warning(f"profile fetch degraded: {exc}")
-        profile = EMPTY_PROFILE
-        expires = now + _PROFILE_FAILURE_TTL_SECONDS
-    _profile_cache[sub] = (expires, profile)
-    return profile
+            logger.bind(sub=sub).warning(f"profile fetch degraded: {exc}")
+            profile = EMPTY_PROFILE
+            expires = now + _PROFILE_FAILURE_TTL_SECONDS
+        hit = _profile_cache[sub] = (expires, profile)
+    # Copy on the way out: cache entries (and the EMPTY_PROFILE constant) must
+    # not be corruptible by a caller mutating the dict it received.
+    return dict(hit[1])
 
 
 def _is_duplicate(payload: object) -> bool:
