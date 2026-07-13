@@ -11,7 +11,6 @@ const nav = [
 
 export const home = {
   eyebrow: "Your finance savant",
-  wordmark: "PENNY",
   nav,
   header: { signIn: "Sign in", cta: "Meet Penny" },
   hero: {

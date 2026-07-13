@@ -16,6 +16,7 @@ const PRIMITIVES = [
   "ui-eyebrowpill",
   "ui-logo-emblem",
   "ui-logo-flat",
+  "ui-wordmark",
   "ui-button-filled",
   "ui-button-outlined",
   "ui-chip",

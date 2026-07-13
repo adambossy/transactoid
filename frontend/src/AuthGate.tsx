@@ -1,6 +1,6 @@
 import { Show, SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { lazy, Suspense, type ReactNode } from "react";
-import { Logo } from "@penny/ui";
+import { Wordmark } from "@penny/ui";
 import { AppShell } from "./AppShell";
 import { ChunkBoundary } from "./ChunkBoundary";
 
@@ -60,11 +60,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <Show when="signed-out">
         <div className="auth-gate flex h-full w-full flex-col bg-background">
-          <a href="/" className="flex items-center gap-3 px-6 py-4 no-underline">
-            <Logo variant="flat" size={36} />
-            <span className="font-serif text-xl font-semibold tracking-[0.22em] text-navy">
-              PENNY
-            </span>
+          <a href="/" className="inline-flex px-6 py-4 no-underline">
+            <Wordmark size={36} className="text-navy" />
           </a>
           <div className="flex flex-1 items-center justify-center">
             {showSignUp ? (

@@ -2,6 +2,8 @@ export { tokens } from "./tokens";
 export type { Tokens } from "./tokens";
 export { Logo } from "./logo/Logo";
 export type { LogoProps, LogoVariant } from "./logo/Logo";
+export { Wordmark } from "./primitives/Wordmark";
+export type { WordmarkProps } from "./primitives/Wordmark";
 export { Button, buttonClasses } from "./primitives/Button";
 export type { ButtonSize, ButtonVariant } from "./primitives/Button";
 export { ButtonLink } from "./primitives/ButtonLink";

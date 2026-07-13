@@ -12,6 +12,7 @@ import { NavLink } from "./primitives/NavLink";
 import { AccentUnderline } from "./primitives/AccentUnderline";
 import { ButtonLink } from "./primitives/ButtonLink";
 import { DemoBubble } from "./primitives/DemoBubble";
+import { Wordmark } from "./primitives/Wordmark";
 
 /** A labeled block wrapping one primitive example, carrying a stable
  *  data-testid for the E2E gallery guard. */
@@ -62,6 +63,10 @@ export function Gallery() {
 
       <Sample id="ui-logo-flat" label="Logo — flat">
         <Logo variant="flat" size={64} />
+      </Sample>
+
+      <Sample id="ui-wordmark" label="Wordmark">
+        <Wordmark className="text-navy" />
       </Sample>
 
       <Sample id="ui-button-filled" label="Button — filled">
