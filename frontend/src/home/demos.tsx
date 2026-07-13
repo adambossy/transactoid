@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
 import { DemoBubble } from "@penny/ui";
+import type { home } from "./copy";
 
 /** Placeholder demo conversations (from design-reference), keyed by feature
- *  id. Content-only — the words/numbers are expected to iterate with copy.ts. */
-export const demos: Record<string, ReactNode> = {
+ *  id. Content-only — the words/numbers are expected to iterate with copy.ts.
+ *  Keyed by the copy's own id union so renaming a feature there without
+ *  updating its demo is a compile error, not an empty panel in prod. */
+export const demos: Record<(typeof home.features)[number]["id"], ReactNode> = {
   analyze: (
     <>
       <DemoBubble role="user">Where did my spending surge last year, and why?</DemoBubble>
