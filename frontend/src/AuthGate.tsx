@@ -7,10 +7,10 @@ import { HomeScreen } from "./home/HomeScreen";
 // Signed-out routing: the marketing home page owns `/`; Clerk's <SignUp> and
 // <SignIn> live at /sign-up and /sign-in (cross-linked, phase 4 open signup);
 // any other signed-out deep link (e.g. /settings/providers) falls back to
-// sign-in so the visitor lands on the screen they asked for once authenticated.
+// sign-in, and post-auth users always navigate to `/` (deep-link restore is a possible follow-up).
 const path = window.location.pathname;
 const showSignUp = path.startsWith("/sign-up");
-const showHome = !showSignUp && !path.startsWith("/sign-in") && path === "/";
+const showHome = path === "/";
 
 /**
  * Clerk auth shell. A signed-out visitor sees the landing page at `/` and the

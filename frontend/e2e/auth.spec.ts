@@ -17,6 +17,11 @@ test("a signed-out visitor sees the landing page and can reach sign-in", async (
   await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
 });
 
+test("a signed-out deep link falls back to sign-in", async ({ page }) => {
+  await page.goto("/settings/providers");
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+});
+
 test("sign in, send a message, get a response, sign out", async ({ page }) => {
   await signInAsTestUser(page, USER_A);
   await expect(page.getByRole("textbox", { name: /message/i })).toBeVisible();
