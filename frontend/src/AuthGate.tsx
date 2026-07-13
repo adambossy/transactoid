@@ -13,7 +13,8 @@ const HomeScreen = lazy(() =>
 // Signed-out routing: the marketing home page owns `/`; Clerk's <SignUp> and
 // <SignIn> live at /sign-up and /sign-in (cross-linked, phase 4 open signup);
 // any other signed-out deep link (e.g. /settings/providers) falls back to
-// sign-in, and post-auth users always navigate to `/` (deep-link restore is a possible follow-up).
+// sign-in. Post-auth, Clerk honors a ?redirect_url= param and otherwise
+// defaults to `/` (fallbackRedirectUrl).
 const path = window.location.pathname;
 
 // Clerk-generated links can target the app root: invitation emails carry
@@ -67,9 +68,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
           </a>
           <div className="flex flex-1 items-center justify-center">
             {showSignUp ? (
-              <SignUp routing="hash" signInUrl="/sign-in" forceRedirectUrl="/" />
+              <SignUp routing="hash" signInUrl="/sign-in" fallbackRedirectUrl="/" />
             ) : (
-              <SignIn routing="hash" signUpUrl="/sign-up" forceRedirectUrl="/" />
+              <SignIn routing="hash" signUpUrl="/sign-up" fallbackRedirectUrl="/" />
             )}
           </div>
         </div>
