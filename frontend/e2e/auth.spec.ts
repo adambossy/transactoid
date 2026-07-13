@@ -8,10 +8,13 @@ test.skip(
   "set PENNY_E2E_CLERK=1 with Clerk test keys + a clerk-mode backend to run the auth e2e specs",
 );
 
-test("signed-out user sees the Clerk sign-in screen", async ({ page }) => {
+test("a signed-out visitor sees the landing page and can reach sign-in", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Meet Penny/i);
   await expect(page.getByRole("textbox", { name: /message/i })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
 });
 
 test("sign in, send a message, get a response, sign out", async ({ page }) => {
@@ -24,7 +27,7 @@ test("sign in, send a message, get a response, sign out", async ({ page }) => {
 
   await page.getByRole("button", { name: /account|user menu/i }).click();
   await page.getByRole("menuitem", { name: /sign out/i }).click();
-  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Meet Penny/i);
 });
 
 test("a protected request while signed-out is rejected (no chat access)", async ({ page }) => {
