@@ -104,6 +104,25 @@ def test_cached_profile_fetches_once_per_ttl_window(monkeypatch):
     )
 
 
+def test_network_failure_translates_to_clerk_error(monkeypatch):
+    # input: Clerk unreachable at the socket level (DNS failure / refused /
+    # timeout) — the outage modes that raise URLError, not HTTPError
+    import urllib.error
+    import urllib.request
+
+    def _unreachable(req, timeout):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _unreachable)
+    monkeypatch.setenv("CLERK_SECRET_KEY", "sk_test")
+
+    # act / expected: the raw fetch raises ClerkError (not URLError), so the
+    # cached wrapper's degradation catch covers real outages too
+    with pytest.raises(ClerkError):
+        clerk.fetch_user_profile("c_ada")
+    assert clerk.fetch_cached_user_profile("c_ada") == EMPTY_PROFILE
+
+
 def test_cached_profile_absorbs_failure_and_negative_caches(monkeypatch):
     # input: Clerk unreachable (or no secret key in dev)
     calls: list[str] = []

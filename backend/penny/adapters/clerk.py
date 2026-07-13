@@ -134,6 +134,15 @@ def _get_user(sub: str, *, secret_key: str | None, op: str) -> dict[str, object]
         raise ClerkError(
             f"{op} failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
         ) from None
+    except (OSError, json.JSONDecodeError) as exc:
+        # URLError/TimeoutError/ConnectionError (all OSError) are the common
+        # outage modes — Clerk unreachable rather than answering with an HTTP
+        # error — and a garbled body decodes to JSONDecodeError. Translate them
+        # all so callers need to know only ClerkError.
+        from loguru import logger
+
+        logger.bind(sub=sub, error=repr(exc)).error(f"Clerk {op} failed")
+        raise ClerkError(f"{op} failed: {exc!r}") from None
     return user if isinstance(user, dict) else {}
 
 
