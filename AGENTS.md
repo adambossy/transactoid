@@ -91,9 +91,9 @@ frontend/               # Vite + React 19 + @ai-sdk/react + @adambossy/agent-ui
 ## Dev loop
 
 ```bash
-# Backend (from backend/). Use .env.test to point at the Neon test branch.
-set -a && source .env.test && set +a
-uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload
+# Backend — run against the session Neon test branch via pennydb (from repo root).
+backend/scripts/pennydb test exec -- uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload
+# (classic equivalent, from backend/: set -a && source .env.test && set +a && uv run uvicorn …)
 
 # Frontend (from frontend/) — proxies /api to :8000
 npm run dev
@@ -153,12 +153,19 @@ POSTGRES_TEST_URL=postgresql://... uv run pytest -q -m postgres
   (`tests/test_schema_drift.py`) asserts the models and the chain agree. See
   `docs/superpowers/plans/2026-07-09-alembic-sole-authority-on-postgres.md`.
 - Real data: Neon Postgres. `production` branch mirrors the Supabase prod
-  DB; **never point a dev server at it**. Test against the `penny-test`
-  Neon branch (`backend/.env.test`, gitignored). Recreate it from current
-  prod with `neonctl branches delete/create --compute` (see .env.test
-  header; note `neonctl connection-string --branch-name` returns the
-  PARENT endpoint — a CLI bug — so build the URL from the branch's own
-  endpoint host).
+  DB; **never point a dev server at it**. Test against a fresh one-off test
+  branch: `pennydb test refresh` (wraps `scripts/new_test_branch.sh`; writes
+  `~/.transactoid/env.test`, shared by all worktrees, with
+  `backend/.env.test` as a symlink to it).
+- **Database access goes through `backend/scripts/pennydb`** — the target is
+  the mandatory first argument, and every invocation banners which DB it's
+  touching. `pennydb test psql|url|exec|refresh` for dev work (the default in
+  Claude sessions; allowlisted). `pennydb prod psql` is read-only and always
+  permission-prompted; writes need `pennydb prod psql --write`. Raw `psql` /
+  `neonctl connection-string` are denied in sessions (`.claude/settings.json`)
+  — and raw `neonctl connection-string --branch-name` has two traps anyway: it
+  returns the PARENT endpoint for child branches (CLI bug), and `production`
+  now requires `--role-name neondb_owner` (multiple roles exist).
 
 ## Conventions
 
