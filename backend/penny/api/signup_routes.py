@@ -44,11 +44,11 @@ def get_clerk_invites() -> ClerkInvites:
     return ClerkInvites()
 
 
-@lru_cache(maxsize=1)
 def get_profile_fetcher() -> Callable[[str], dict[str, str | None]]:
     """The Clerk profile reader (TTL-cached, degradation absorbed — see
     ``fetch_cached_user_profile``). Overridden in tests via
-    ``dependency_overrides``."""
+    ``dependency_overrides``; unlike ``get_clerk_invites`` there is nothing to
+    construct, so no ``lru_cache``."""
     return fetch_cached_user_profile
 
 
