@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(psql:*)",
+      "Bash(neonctl connection-string:*)"
+    ],
+    "allow": [
+      "Bash(backend/scripts/pennydb test:*)",
+      "Bash(scripts/pennydb test:*)",
+      "Bash(backend/scripts/pennydb selftest)",
+      "Bash(scripts/pennydb selftest)"
+    ]
+  }
+}

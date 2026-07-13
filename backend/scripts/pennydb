@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+#
+# pennydb — target-explicit database access for Penny dev work.
+#
+# The target (test | prod) is the MANDATORY first argument; there is no
+# default. Every invocation prints a banner to stderr saying exactly which
+# database it is about to touch, and prod psql is read-only unless --write.
+#
+#   pennydb test psql [psql args…]     psql against the session test branch
+#   pennydb test url                   print the test DATABASE_URL
+#   pennydb test exec -- <cmd…>        run a command with the test env loaded
+#   pennydb test refresh               fresh test branch (new_test_branch.sh)
+#   pennydb prod psql [psql args…]     READ-ONLY psql against production
+#   pennydb prod psql --write [args…]  explicit write session
+#   pennydb prod url [--role <name>]   print prod URL (resolved live)
+#   pennydb selftest                   offline checks, no network
+#
+# Test credentials come from ~/.transactoid/env.test (written by
+# `pennydb test refresh`, shared across worktrees). Prod credentials are
+# resolved live from neonctl and never written to disk.
+#
+# Design: docs/superpowers/specs/2026-07-12-pennydb-target-explicit-db-tooling-design.md
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=neon_env.sh
+source "$SCRIPT_DIR/neon_env.sh"
+
+STALE_DAYS=7
+
+# --- Output helpers (all to stderr; stdout is reserved for payloads) ---------
+
+if [[ -t 2 ]]; then
+  _green=$'\033[32m'; _red=$'\033[31m'; _bold=$'\033[1m'; _reset=$'\033[0m'
+else
+  _green=""; _red=""; _bold=""; _reset=""
+fi
+
+usage() {
+  sed -n 's/^#   \(pennydb.*\)/  \1/p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
+
+die() { echo "pennydb: $1" >&2; exit "${2:-1}"; }
+
+banner_test() {
+  # $1 = branch name, $2 = endpoint host
+  echo "${_green}>> TEST  branch ${1:-?} @ ${2:-?}${_reset}" >&2
+}
+
+banner_prod() {
+  # $1 = endpoint host, $2 = READ-ONLY | WRITE
+  local style="$_red"
+  [[ "$2" == "WRITE" ]] && style="${_red}${_bold}"
+  echo "${style}!! PROD  ${PROD_BRANCH} @ ${1:-?} (${2})${_reset}" >&2
+}
+
+# --- Test-side plumbing ------------------------------------------------------
+
+require_env_test() {
+  [[ -f "$PENNY_ENV_TEST_FILE" ]] || die \
+    "no test env at $PENNY_ENV_TEST_FILE — run: pennydb test refresh" 2
+  local now file_mtime age_days
+  now="$(date +%s)"
+  file_mtime="$(stat -f %m "$PENNY_ENV_TEST_FILE" 2>/dev/null \
+    || stat -c %Y "$PENNY_ENV_TEST_FILE")"
+  age_days=$(( (now - file_mtime) / 86400 ))
+  if (( age_days >= STALE_DAYS )); then
+    echo "pennydb: WARNING: test env is ${age_days}d old — the branch is" \
+      "likely stale; consider: pennydb test refresh" >&2
+  fi
+}
+
+test_url() {
+  require_env_test
+  local url
+  url="$(sed -n 's/^DATABASE_URL=//p' "$PENNY_ENV_TEST_FILE" | tail -1)"
+  [[ -n "$url" ]] || die "no DATABASE_URL in $PENNY_ENV_TEST_FILE" 2
+  echo "$url"
+}
+
+# Branch name / endpoint host from the env-file header written by refresh.
+test_meta() {
+  # $1 = "Branch" | "Endpoint"
+  sed -n "s/^# ${1}:[[:space:]]*//p" "$PENNY_ENV_TEST_FILE" | head -1
+}
+
+# --- Prod-side plumbing ------------------------------------------------------
+
+prod_url() {
+  # $1 = role name
+  command -v neonctl >/dev/null 2>&1 || die "neonctl not found (brew install neonctl; neonctl auth)"
+  local url
+  if ! url="$(neonctl connection-string \
+      --org-id "$ORG_ID" --project-id "$PROJECT_ID" \
+      --branch-name "$PROD_BRANCH" \
+      --database-name "$DB_NAME" --role-name "$1")"; then
+    die "could not resolve the production connection string (neonctl auth?)"
+  fi
+  [[ -n "$url" ]] || die "neonctl returned an empty production connection string"
+  echo "$url"
+}
+
+url_host() {
+  echo "$1" | sed -E 's#^[a-z]+://[^@]+@([^/:?]+).*#\1#'
+}
+
+# --- Selftest (offline; exercises parsing, banners, error paths) -------------
+
+selftest() {
+  local tmp fails=0
+  tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064 — expand now: tmp is local and gone at EXIT time
+  trap "rm -rf '$tmp'" EXIT
+
+  check() { # $1 = description, $2 = expected, $3 = actual
+    if [[ "$2" == "$3" ]]; then
+      echo "ok   $1"
+    else
+      echo "FAIL $1: expected [$2] got [$3]"; fails=$((fails+1))
+    fi
+  }
+
+  cat > "$tmp/env.test" <<'EOF'
+# Branch:      test-20260712-000000
+# Endpoint:    ep-example-123.c-7.us-east-1.aws.neon.tech
+DATABASE_URL=postgresql://u:pw@ep-example-123.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require
+EOF
+
+  local out
+  out="$(PENNYDB_ENV_FILE="$tmp/env.test" "${BASH_SOURCE[0]}" test url 2>/dev/null)"
+  check "test url extracts DATABASE_URL" \
+    "postgresql://u:pw@ep-example-123.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require" "$out"
+
+  out="$(PENNYDB_ENV_FILE="$tmp/env.test" "${BASH_SOURCE[0]}" test url 2>&1 >/dev/null)"
+  check "test banner names branch + host" \
+    ">> TEST  branch test-20260712-000000 @ ep-example-123.c-7.us-east-1.aws.neon.tech" "$out"
+
+  out="$(PENNYDB_ENV_FILE="$tmp/absent" "${BASH_SOURCE[0]}" test url 2>&1 >/dev/null; echo "rc=$?")"
+  check "missing env file errors with refresh hint (rc=2)" \
+    "pennydb: no test env at $tmp/absent — run: pennydb test refresh
+rc=2" "$out"
+
+  local rc
+  rc=0; "${BASH_SOURCE[0]}" >/dev/null 2>&1 || rc=$?
+  check "bare pennydb exits 2" "2" "$rc"
+
+  rc=0; "${BASH_SOURCE[0]}" staging psql >/dev/null 2>&1 || rc=$?
+  check "unknown target exits 2" "2" "$rc"
+
+  out="$(url_host "postgresql://a:b@ep-h.neon.tech:5432/db?x=1")"
+  check "url_host strips creds/port/params" "ep-h.neon.tech" "$out"
+
+  if (( fails > 0 )); then echo "selftest: $fails failure(s)"; exit 1; fi
+  echo "selftest: all checks passed"
+}
+
+# --- Dispatch ----------------------------------------------------------------
+
+[[ $# -ge 1 ]] || usage
+target="$1"; shift
+
+case "$target" in
+  selftest)
+    selftest ;;
+
+  test)
+    [[ $# -ge 1 ]] || usage
+    cmd="$1"; shift
+    case "$cmd" in
+      url)
+        url="$(test_url)"
+        banner_test "$(test_meta Branch)" "$(test_meta Endpoint)"
+        echo "$url"
+        ;;
+      psql)
+        url="$(test_url)"
+        banner_test "$(test_meta Branch)" "$(test_meta Endpoint)"
+        exec psql "$url" -X "$@"
+        ;;
+      exec)
+        [[ "${1:-}" == "--" ]] && shift
+        [[ $# -ge 1 ]] || die "usage: pennydb test exec -- <cmd…>" 2
+        require_env_test
+        banner_test "$(test_meta Branch)" "$(test_meta Endpoint)"
+        set -a; # shellcheck source=/dev/null
+        source "$PENNY_ENV_TEST_FILE"; set +a
+        exec "$@"
+        ;;
+      refresh)
+        exec "$SCRIPT_DIR/new_test_branch.sh"
+        ;;
+      *) usage ;;
+    esac
+    ;;
+
+  prod)
+    [[ $# -ge 1 ]] || usage
+    cmd="$1"; shift
+    case "$cmd" in
+      url)
+        role="$ROLE_NAME"
+        if [[ "${1:-}" == "--role" ]]; then
+          [[ $# -ge 2 ]] || die "usage: pennydb prod url [--role <name>]" 2
+          role="$2"; shift 2
+        fi
+        url="$(prod_url "$role")"
+        banner_prod "$(url_host "$url")" "READ-ONLY (url only)"
+        echo "$url"
+        ;;
+      psql)
+        mode="READ-ONLY"
+        args=()
+        for a in "$@"; do
+          if [[ "$a" == "--write" ]]; then mode="WRITE"; else args+=("$a"); fi
+        done
+        url="$(prod_url "$ROLE_NAME")"
+        banner_prod "$(url_host "$url")" "$mode"
+        if [[ "$mode" == "WRITE" ]]; then
+          exec psql "$url" -X ${args[@]+"${args[@]}"}
+        else
+          PGOPTIONS="${PGOPTIONS:-} -c default_transaction_read_only=on" \
+            exec psql "$url" -X ${args[@]+"${args[@]}"}
+        fi
+        ;;
+      *) usage ;;
+    esac
+    ;;
+
+  -h|--help|help) usage ;;
+  *) usage ;;
+esac
