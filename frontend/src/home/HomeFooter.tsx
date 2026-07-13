@@ -9,7 +9,7 @@ export function HomeFooter() {
         <div className="flex items-center gap-3">
           <Logo variant="flat" size={40} />
           <span className="font-serif text-2xl font-semibold tracking-[0.22em] text-cream">
-            PENNY
+            {home.wordmark}
           </span>
         </div>
         <p className="font-ui text-sm text-cream-soft/70">{home.footer.tagline}</p>

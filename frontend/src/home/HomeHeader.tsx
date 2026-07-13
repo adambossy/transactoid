@@ -11,7 +11,7 @@ export function HomeHeader() {
         <a href="/" className="flex items-center gap-3 no-underline">
           <Logo variant="flat" size={44} />
           <span className="font-serif text-2xl font-semibold tracking-[0.22em] text-navy">
-            PENNY
+            {home.wordmark}
           </span>
         </a>
         <nav className="hidden items-center gap-8 text-navy md:flex">
@@ -22,9 +22,9 @@ export function HomeHeader() {
           ))}
         </nav>
         <div className="flex items-center gap-5 text-navy">
-          <NavLink href="/sign-in">Sign in</NavLink>
+          <NavLink href="/sign-in">{home.header.signIn}</NavLink>
           <ButtonLink variant="outlined" href="/sign-up">
-            Meet Penny
+            {home.header.cta}
           </ButtonLink>
         </div>
       </div>
