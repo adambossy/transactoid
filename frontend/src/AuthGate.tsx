@@ -28,33 +28,42 @@ const showHome = path === "/";
  * main.tsx. In dev-principal mode the app renders screens without this gate.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { getToken } = useAuth();
+  const { isSignedIn, getToken } = useAuth();
+
+  // The landing page is the one surface meant for anonymous reach, so it must
+  // not wait for clerk-js: render it at `/` until Clerk positively reports a
+  // signed-in session (isSignedIn is undefined while Clerk loads, and never
+  // resolves if the script is blocked — the anonymous visitor still gets the
+  // page). A returning signed-in user sees the landing briefly before the app
+  // swaps in; a visitor with Clerk blocked couldn't authenticate anyway.
+  if (showHome && !isSignedIn) {
+    return (
+      <ChunkBoundary>
+        <Suspense fallback={null}>
+          <HomeScreen />
+        </Suspense>
+      </ChunkBoundary>
+    );
+  }
+
   return (
     <>
       <Show when="signed-out">
-        {showHome ? (
-          <ChunkBoundary>
-            <Suspense fallback={null}>
-              <HomeScreen />
-            </Suspense>
-          </ChunkBoundary>
-        ) : (
-          <div className="auth-gate flex h-full w-full flex-col bg-background">
-            <a href="/" className="flex items-center gap-3 px-6 py-4 no-underline">
-              <Logo variant="flat" size={36} />
-              <span className="font-serif text-xl font-semibold tracking-[0.22em] text-navy">
-                PENNY
-              </span>
-            </a>
-            <div className="flex flex-1 items-center justify-center">
-              {showSignUp ? (
-                <SignUp routing="hash" signInUrl="/sign-in" forceRedirectUrl="/" />
-              ) : (
-                <SignIn routing="hash" signUpUrl="/sign-up" forceRedirectUrl="/" />
-              )}
-            </div>
+        <div className="auth-gate flex h-full w-full flex-col bg-background">
+          <a href="/" className="flex items-center gap-3 px-6 py-4 no-underline">
+            <Logo variant="flat" size={36} />
+            <span className="font-serif text-xl font-semibold tracking-[0.22em] text-navy">
+              PENNY
+            </span>
+          </a>
+          <div className="flex flex-1 items-center justify-center">
+            {showSignUp ? (
+              <SignUp routing="hash" signInUrl="/sign-in" forceRedirectUrl="/" />
+            ) : (
+              <SignIn routing="hash" signUpUrl="/sign-up" forceRedirectUrl="/" />
+            )}
           </div>
-        )}
+        </div>
       </Show>
       <Show when="signed-in">
         <AppShell getToken={getToken} actions={<UserButton />}>
