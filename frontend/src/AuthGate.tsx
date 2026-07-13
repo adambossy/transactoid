@@ -15,8 +15,17 @@ const HomeScreen = lazy(() =>
 // any other signed-out deep link (e.g. /settings/providers) falls back to
 // sign-in, and post-auth users always navigate to `/` (deep-link restore is a possible follow-up).
 const path = window.location.pathname;
-const showSignUp = path.startsWith("/sign-up");
-const showHome = path === "/";
+
+// Clerk-generated links can target the app root: invitation emails carry
+// ?__clerk_ticket=… (consumed by <SignUp>) and hash-routed auth flows resume
+// at /#/sso-callback etc. (consumed by <SignIn routing="hash">). Those must
+// land on a mounted Clerk component, never the marketing page — and the
+// landing CTAs' plain hrefs would drop the ticket.
+const hasClerkTicket = new URLSearchParams(window.location.search).has("__clerk_ticket");
+const hasClerkHashFlow = window.location.hash.startsWith("#/");
+
+const showSignUp = path.startsWith("/sign-up") || hasClerkTicket;
+const showHome = path === "/" && !hasClerkTicket && !hasClerkHashFlow;
 
 /**
  * Clerk auth shell. A signed-out visitor sees the landing page at `/` and the
