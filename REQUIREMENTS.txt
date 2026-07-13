@@ -109,6 +109,16 @@ P12. Progressive agent-embedded onboarding
     The onboarding state driving the nudges is invisible to the user — it never
     appears in the transcript.
 
+P13. Public logged-out home page
+    A signed-out visitor to `/` sees a public marketing home page in the cream
+    design system — hero with sample prompts, a six-part feature tour with demo
+    conversations, and a closing call-to-action — rather than a bare sign-in
+    form. Every call-to-action routes to sign-up/sign-in (P10 open signup); the
+    sign-in and sign-up screens live at /sign-in and /sign-up and carry the
+    same design system (P11). Signed-out deep links to app screens still land
+    on sign-in. Copy is expected to iterate; the page structure and CTA routing
+    are the requirement (guardrail: frontend/e2e/home.spec.ts).
+
 
 TECHNICAL INVARIANTS / CONSTRAINTS
 ----------------------------------
