@@ -105,8 +105,11 @@
   opacity: 0.05;
 }
 
-/* Brand text selection (template's ::selection treatment). */
-::selection {
+/* Brand text selection (template's ::selection treatment), scoped to
+   marketing surfaces — opt in by putting `marketing` on the surface root.
+   App screens keep the browser default: gold-on-cream selection over the
+   chat transcript (and orange UI elements) would be illegible. */
+.marketing ::selection {
   background: var(--color-orange);
   color: var(--color-paper);
 }
