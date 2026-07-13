@@ -101,8 +101,12 @@ function Root() {
       </ChunkBoundary>
     );
   if (clerkKey) {
+    // signInUrl/signUpUrl point Clerk-initiated redirects (component transfer
+    // flows, session-expired bounces) at the app's own auth screens instead of
+    // the instance default, which may still be the Account Portal or the
+    // pre-landing-page `/` mount.
     return (
-      <ClerkProvider publishableKey={clerkKey}>
+      <ClerkProvider publishableKey={clerkKey} signInUrl="/sign-in" signUpUrl="/sign-up">
         <AuthGate>{authedScreen()}</AuthGate>
       </ClerkProvider>
     );
