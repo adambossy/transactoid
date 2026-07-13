@@ -1,16 +1,18 @@
 /** All landing-page copy in one place. The design is stable but the words are
  *  placeholder (carried from design-reference) — edit here, never in the
  *  section components. */
+const nav = [
+  { label: "Analyze", href: "#analyze" },
+  { label: "Project", href: "#project" },
+  { label: "Budget", href: "#budget" },
+  { label: "Forecast", href: "#forecast" },
+  { label: "Trends", href: "#trends" },
+] as const;
+
 export const home = {
   eyebrow: "Your finance savant",
   wordmark: "PENNY",
-  nav: [
-    { label: "Analyze", href: "#analyze" },
-    { label: "Project", href: "#project" },
-    { label: "Budget", href: "#budget" },
-    { label: "Forecast", href: "#forecast" },
-    { label: "Trends", href: "#trends" },
-  ],
+  nav,
   header: { signIn: "Sign in", cta: "Meet Penny" },
   hero: {
     title1: "Meet Penny,",
@@ -82,5 +84,8 @@ export const home = {
   },
   footer: {
     tagline: "Penny — your finance savant · © 2026",
+    // The subset of nav anchors the footer repeats — declared beside `nav` so
+    // reordering the nav is a deliberate footer decision too.
+    links: nav.slice(0, 3),
   },
 } as const;

@@ -14,7 +14,7 @@ export function HomeFooter() {
         </div>
         <p className="font-ui text-sm text-cream-soft/70">{home.footer.tagline}</p>
         <nav className="flex gap-6 text-cream-soft">
-          {home.nav.slice(0, 3).map((n) => (
+          {home.footer.links.map((n) => (
             <NavLink key={n.href} href={n.href} className="text-xs uppercase tracking-[0.22em]">
               {n.label}
             </NavLink>

@@ -1,5 +1,5 @@
 import { ClerkProvider, useAuth } from "@clerk/react";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { Gallery } from "@penny/ui";
 import { registerToolRenderer } from "@adambossy/agent-ui";
@@ -9,8 +9,13 @@ import { ChatScreen } from "./ChatScreen";
 import { InviteScreen } from "./InviteScreen";
 import { PlaidLinkCard } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
-import { HomeScreen } from "./home/HomeScreen";
 import "./index.css";
+
+// Lazy for the same reason as AuthGate's copy: keep the landing page's chunk
+// out of the always-loaded entry bundle.
+const HomeScreen = lazy(() =>
+  import("./home/HomeScreen").then((m) => ({ default: m.HomeScreen })),
+);
 
 // Render the connect_bank_account (new link) and relink_account (update-mode
 // re-auth) tool outputs as the same inline Plaid Link card — it branches on the
@@ -86,7 +91,12 @@ function devScreen() {
 
 function Root() {
   if (showGallery) return <Gallery />;
-  if (showHomePreview) return <HomeScreen />;
+  if (showHomePreview)
+    return (
+      <Suspense fallback={null}>
+        <HomeScreen />
+      </Suspense>
+    );
   if (clerkKey) {
     return (
       <ClerkProvider publishableKey={clerkKey}>

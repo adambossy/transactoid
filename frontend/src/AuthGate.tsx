@@ -1,8 +1,13 @@
 import { Show, SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { Logo } from "@penny/ui";
 import { AppShell } from "./AppShell";
-import { HomeScreen } from "./home/HomeScreen";
+
+// Lazy so the marketing page's sections/copy/demos load only for signed-out
+// visitors at `/` — signed-in users (the common case) never fetch that chunk.
+const HomeScreen = lazy(() =>
+  import("./home/HomeScreen").then((m) => ({ default: m.HomeScreen })),
+);
 
 // Signed-out routing: the marketing home page owns `/`; Clerk's <SignUp> and
 // <SignIn> live at /sign-up and /sign-in (cross-linked, phase 4 open signup);
@@ -27,7 +32,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <Show when="signed-out">
         {showHome ? (
-          <HomeScreen />
+          <Suspense fallback={null}>
+            <HomeScreen />
+          </Suspense>
         ) : (
           <div className="auth-gate flex h-full w-full flex-col bg-background">
             <a href="/" className="flex items-center gap-3 px-6 py-4 no-underline">
