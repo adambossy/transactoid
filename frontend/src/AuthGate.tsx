@@ -2,6 +2,7 @@ import { Show, SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Logo } from "@penny/ui";
 import { AppShell } from "./AppShell";
+import { ChunkBoundary } from "./ChunkBoundary";
 
 // Lazy so the marketing page's sections/copy/demos load only for signed-out
 // visitors at `/` — signed-in users (the common case) never fetch that chunk.
@@ -32,9 +33,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <Show when="signed-out">
         {showHome ? (
-          <Suspense fallback={null}>
-            <HomeScreen />
-          </Suspense>
+          <ChunkBoundary>
+            <Suspense fallback={null}>
+              <HomeScreen />
+            </Suspense>
+          </ChunkBoundary>
         ) : (
           <div className="auth-gate flex h-full w-full flex-col bg-background">
             <a href="/" className="flex items-center gap-3 px-6 py-4 no-underline">

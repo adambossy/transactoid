@@ -6,6 +6,7 @@ import { registerToolRenderer } from "@adambossy/agent-ui";
 import { AppShell } from "./AppShell";
 import { AuthGate } from "./AuthGate";
 import { ChatScreen } from "./ChatScreen";
+import { ChunkBoundary } from "./ChunkBoundary";
 import { InviteScreen } from "./InviteScreen";
 import { PlaidLinkCard } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
@@ -93,9 +94,11 @@ function Root() {
   if (showGallery) return <Gallery />;
   if (showHomePreview)
     return (
-      <Suspense fallback={null}>
-        <HomeScreen />
-      </Suspense>
+      <ChunkBoundary>
+        <Suspense fallback={null}>
+          <HomeScreen />
+        </Suspense>
+      </ChunkBoundary>
     );
   if (clerkKey) {
     return (
