@@ -53,9 +53,8 @@ class ModalSandboxProvider:
     async def _new_sandbox(self, image: Any, conversation_id: str) -> SandboxHandle:
         import asyncio
 
-        import modal
-
         import httpx
+        import modal
 
         app = await asyncio.to_thread(
             lambda: modal.App.lookup(self._app_name, create_if_missing=True)
@@ -67,7 +66,7 @@ class ModalSandboxProvider:
             "uvicorn",
             "runner.server:app",
             "--host",
-            "0.0.0.0",
+            "0.0.0.0",  # noqa: S104 - runner binds all interfaces inside its sandbox
             "--port",
             str(self._runner_port),
         ]
@@ -99,7 +98,7 @@ class ModalSandboxProvider:
                     resp = await client.get(f"{url}/healthz")
                     if resp.status_code == 200:
                         return SandboxHandle(sandbox_id=sb.object_id, tunnel_url=url)
-                except Exception:  # noqa: BLE001 - runner still starting
+                except Exception:  # noqa: BLE001,S110 - runner still starting; retry loop
                     pass
                 await asyncio.sleep(1)
         raise RuntimeError("sandbox runner never became ready")

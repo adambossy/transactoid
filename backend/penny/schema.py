@@ -18,18 +18,34 @@ from alembic.config import Config
 
 from alembic import command
 
-# alembic.ini lives at backend/; %(here)s resolves there, so version_locations
-# (%(here)s/db/migrations) finds the version scripts regardless of caller cwd.
-_ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+# alembic.ini lives beside the penny package in a source checkout (backend/),
+# but in the deployed image the package is installed into site-packages while
+# alembic.ini + db/migrations sit in the WORKDIR — so fall back to cwd. %(here)s
+# in the ini resolves to the ini's own directory, so version_locations finds
+# the version scripts from either location.
+def _alembic_ini() -> Path:
+    candidates = (
+        Path(__file__).resolve().parent.parent / "alembic.ini",
+        Path.cwd() / "alembic.ini",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        "alembic.ini not found; looked in " + ", ".join(str(c) for c in candidates)
+    )
 
 
 def upgrade_to_head(database_url: str | None = None) -> None:
     """Apply alembic migrations to head. Idempotent (no-op when already at head).
 
-    ``env.py`` honors ``DATABASE_URL``; ``database_url`` sets the config url
-    explicitly (used by tests and the CLI when the env var is not the target).
+    A passed ``database_url`` is authoritative: ``env.py`` prefers the explicit
+    ``sqlalchemy.url`` set here over ``DATABASE_URL``, so a caller can migrate a
+    chosen DB even when a stray ``DATABASE_URL`` points elsewhere. With no
+    argument (the CLI/release path) ``env.py`` falls back to ``DATABASE_URL``.
     """
-    cfg = Config(str(_ALEMBIC_INI))
+    cfg = Config(str(_alembic_ini()))
     if database_url:
         cfg.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(cfg, "head")

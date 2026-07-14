@@ -57,12 +57,16 @@ async def stream_sandboxed_turn(
         start.raise_for_status()
         run_id = start.json()["run_id"]
 
-        async for frame in relay_turn(handle.tunnel_url, run_id, from_seq=0, client=http):
+        async for frame in relay_turn(
+            handle.tunnel_url, run_id, from_seq=0, client=http
+        ):
             if frame_buffer is not None:
                 await frame_buffer.append(frame)
             yield _sse(frame)
     except Exception as exc:  # surface a loop/transport failure as an error frame
-        logger.bind(conversation_id=rec.conversation_id).warning("sandboxed turn failed: {}", exc)
+        logger.bind(conversation_id=rec.conversation_id).warning(
+            "sandboxed turn failed: {}", exc
+        )
         yield _sse({"type": "error", "errorText": str(exc)})
     finally:
         if frame_buffer is not None:
@@ -73,7 +77,9 @@ async def stream_sandboxed_turn(
     yield "data: [DONE]\n\n"
 
 
-async def cancel_turn(rec: ConversationSandbox, run_id: str, *, client: httpx.AsyncClient | None = None) -> None:
+async def cancel_turn(
+    rec: ConversationSandbox, run_id: str, *, client: httpx.AsyncClient | None = None
+) -> None:
     """Route a browser stop to the runner's cancel endpoint."""
     if rec.tunnel_url is None:
         return

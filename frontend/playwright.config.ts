@@ -46,6 +46,12 @@ export default defineConfig({
         PENNY_DEV_HOUSEHOLD_ID: DEV_HOUSEHOLD_ID,
         PENNY_DEV_SESSION_MODE: "individual",
         PENNY_LANGFUSE_ENABLED: "false",
+        // Throwaway Fernet key so the BYO-credential vault can encrypt at rest
+        // (byo-credential.spec.ts). Test-only — encrypts ephemeral E2E creds in
+        // the throwaway SQLite DB above; not a production secret.
+        PENNY_PLAID_TOKEN_KEY:
+          process.env.PENNY_PLAID_TOKEN_KEY ??
+          "kSwSnHyO-f-TCPv-9uYmzHPPgO9ONdR5U83WChmXEeQ=",
       },
     },
     {
@@ -57,8 +63,11 @@ export default defineConfig({
         // Point the E2E vite proxy at the E2E backend (dev setups often
         // have their own server on :8000).
         BACKEND_URL: "http://127.0.0.1:8100",
-        // CI has no ~/code/agent-ui checkout; use the vendored tarball.
-        AGENT_UI_USE_VENDOR: process.env.CI ? "1" : (process.env.AGENT_UI_USE_VENDOR ?? "0"),
+        // CI has no ~/code/agent-ui checkout; resolve the published npm package
+        // instead of the source alias (matches vite.config's AGENT_UI_USE_PUBLISHED).
+        AGENT_UI_USE_PUBLISHED: process.env.CI
+          ? "1"
+          : (process.env.AGENT_UI_USE_PUBLISHED ?? "0"),
         // Clerk publishable key for the auth e2e specs. Empty in the default
         // dev-principal harness (the app then sends no bearer token); set it
         // (with PENNY_E2E_CLERK=1 + a clerk-mode backend) to run auth.spec.ts.
