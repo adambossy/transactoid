@@ -87,11 +87,19 @@ load_test_env() {
   PENNY_TEST_ENDPOINT="${PENNY_TEST_ENDPOINT:-$(sed -n 's/^# Endpoint:[[:space:]]*//p' "$PENNY_ENV_TEST_FILE" | head -1)}"
 
   # Keep the classic `source backend/.env.test` loop truthful in THIS checkout
-  # too, not just the one that ran refresh — a stale regular file here is the
-  # exact wrong-DB failure pennydb exists to kill. Skip under an explicit
-  # override (selftest fixtures).
+  # too, not just the one that ran refresh — a stale symlink here is the exact
+  # wrong-DB failure pennydb exists to kill. Only repair what refresh/the
+  # worktree hook created (a symlink) or an absent file; a REGULAR file may be
+  # a hand-pointed override, so warn instead of clobbering it. Skip entirely
+  # under an explicit override (selftest fixtures).
+  local classic="$SCRIPT_DIR/../.env.test"
   if [[ -z "${PENNYDB_ENV_FILE:-}" ]]; then
-    ln -sfn "$PENNY_ENV_TEST_FILE" "$SCRIPT_DIR/../.env.test"
+    if [[ -L "$classic" || ! -e "$classic" ]]; then
+      ln -sfn "$PENNY_ENV_TEST_FILE" "$classic"
+    else
+      echo "pennydb: NOTE: backend/.env.test is a regular file (hand-written?)" \
+        "— leaving it alone; pennydb reads $PENNY_ENV_TEST_FILE instead" >&2
+    fi
   fi
 
   echo "${_green}>> TEST  branch ${PENNY_TEST_BRANCH:-?} @ ${PENNY_TEST_ENDPOINT:-?}${_reset}" >&2
