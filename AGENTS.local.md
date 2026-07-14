@@ -35,6 +35,15 @@ Deploy is a **fifth segregated domain** alongside the four above (the agent-harn
 2. **Dev-tooling is NOT deploy and stays out of `deploy/`:** `.pre-commit-config.yaml`, ruff/mypy config, `.mcp.json` (and `.claude/`, `.agent/` discovery roots) are developer/local concerns that run locally or in a *test* CI job, not the release pipeline. The litmus test: if removing the file would break a *developer's local loop* but not a *production release*, it is dev-tooling and stays put.
 3. **A headless front door (the Typer CLI) is app code, not deploy code, and not agent-internal.** `backend/penny/cli.py` is a peer entrypoint beside `backend/penny/api/main.py`: it may construct and drive the agent (import `agent_factory`, `bootstrap`, the services), exactly as the web bridge does. It must **not** move into `deploy/` (deploy only *invokes* it), and it must **not** live under `penny/tools`/`.agent/skills` — front doors drive the agent; the agent never drives a front door.
 
+## Env files across worktrees
+
+`backend/.env` and `frontend/.env` live only in the primary checkout
+(`~/code/transactoid`) and are the single source of truth. The `WorktreeCreate`
+hook (`~/.claude/hooks/create-worktree-with-env.sh`) **symlinks** them (and any
+other gitignored `*.env`, e.g. `backend/.env.test`) into every new worktree, so
+a secret edited once is live everywhere. The hook creates empty placeholders in
+the primary if either is missing, so the links never dangle.
+
 ## Scheduler path (Sprites-forward)
 
 The cron-manager uses the **manager-spawns-ephemeral-job-machines** pattern with the headless Typer CLI as the job contract, deliberately chosen to pave the way for Fly's ephemeral-job-machine (Sprites) service. The job contract is: *run `penny <command>` in an ephemeral, auto-destroyed machine built from the app image, with per-job env injected from the cron `config.env`.* Migrating from `fly machine run` to Sprites later swaps only the **spawn primitive** — the job/CLI/image/env contract is unchanged. Do not adopt native Machine `schedule` or an in-container scheduler: neither produces per-job ephemeral machines, so both would be dead-ends for the Sprites trajectory.
