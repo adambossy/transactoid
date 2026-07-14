@@ -110,8 +110,18 @@ load_test_env() {
 resolve_prod_url() {
   # $1 = role name → sets PROD_URL
   require_neonctl
+  command -v jq >/dev/null 2>&1 || die "jq not found (brew install jq)"
+  # Resolve by branch ID, not --branch-name: neonctl's documented bug resolves
+  # a child branch NAME to its PARENT's endpoint (see new_test_branch.sh
+  # header). production is the root branch today, so --branch-name happens to
+  # work — but if production is ever recreated as a child (a cutover fork),
+  # the name form would banner PROD while handing out another branch's
+  # endpoint. The id form is immune.
+  local branch_id
+  branch_id="$("${NEON[@]}" branches get "$PROD_BRANCH" --output json | jq -r '.id // empty')"
+  [[ "$branch_id" == br-* ]] || die "could not resolve the ${PROD_BRANCH} branch id (neonctl auth?)"
   if ! PROD_URL="$("${NEON[@]}" connection-string \
-      --branch-name "$PROD_BRANCH" \
+      --branch-id "$branch_id" \
       --database-name "$DB_NAME" --role-name "$1")"; then
     die "could not resolve the production connection string (neonctl auth?)"
   fi
