@@ -1,6 +1,6 @@
-"""Account provisioning + invites — the website-domain signup service.
+"""The website-domain household service: provisioning, invites, membership.
 
-Owns "provision-or-join": phase-2's auth dependency calls
+Owns the household lifecycle — "provision-or-join": phase-2's auth dependency calls
 ``resolve_or_provision_identity`` in its unknown-user branch, and the website's
 invite routes call ``create_invite`` / ``list_pending_invites`` /
 ``revoke_invite``. The invariant is **one individual = one household**: a solo
@@ -35,7 +35,7 @@ class ClerkInvites(Protocol):
     """The external invite provider seam (see ``penny.adapters.clerk``).
 
     A ``FakeClerkInvites`` stands in for it in tests; the real adapter calls the
-    Clerk Invitations REST API. Injecting it keeps the signup service free of any
+    Clerk Invitations REST API. Injecting it keeps the household service free of any
     Clerk specifics.
     """
 

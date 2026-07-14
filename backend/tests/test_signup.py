@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from penny.adapters.db.models import Category, Household, User
 from penny.db import get_db
-from penny.signup import (
+from penny.households import (
     provision_solo_household,
     resolve_or_provision_identity,
 )

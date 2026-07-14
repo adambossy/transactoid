@@ -1,6 +1,6 @@
 """Thin adapter over Clerk's Invitations REST API.
 
-Implements the ``penny.signup.ClerkInvites`` seam so the signup service stays
+Implements the ``penny.households.ClerkInvites`` seam so the household service stays
 free of Clerk specifics. ``FakeClerkInvites`` stands in for this in tests; the
 real ``ClerkInvites`` here is what production wires in. It authenticates with the
 phase-2 ``CLERK_SECRET_KEY`` and speaks the documented endpoints:

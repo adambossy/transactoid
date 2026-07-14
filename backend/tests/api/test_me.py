@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 
 from penny.adapters.db.models import Household, User
 from penny.api.auth import request_context
-from penny.api.signup_routes import router
+from penny.api.household_routes import router
 from penny.db import get_db
-from penny.signup import rename_household
+from penny.households import rename_household
 from penny.tenancy.context import RequestContext, SessionMode
 
 

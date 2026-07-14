@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from penny.adapters.clerk import EMPTY_PROFILE
 from penny.adapters.db.models import Household, User
 from penny.api.auth import request_context
-from penny.api.signup_routes import get_profile_fetcher, router
+from penny.api.household_routes import get_profile_fetcher, router
 from penny.db import get_db
 from penny.tenancy.context import RequestContext, SessionMode
 

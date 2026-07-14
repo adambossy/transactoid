@@ -1,6 +1,6 @@
 """Website API routes for account bootstrap, household, and invites.
 
-The website-domain surface over ``penny.signup``. Every route is authed
+The website-domain surface over ``penny.households``. Every route is authed
 (``request_context``) and derives its tenant from ``ctx.household_id`` — the
 ``household_id`` is never read from a request body, so a caller can only ever act
 on their own household. The Clerk invite provider is injected via
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from penny.adapters.clerk import ClerkInvites, fetch_cached_user_profile
 from penny.adapters.db.models import Household, User
 from penny.db import get_db
-from penny.signup import (
+from penny.households import (
     InviteError,
     create_invite,
     email_local_part,
@@ -92,7 +92,7 @@ def get_household_members(
 ) -> dict[str, list[dict[str, Any]]]:
     """The household's active members with their live Clerk (Google) avatars.
 
-    Members come from ``signup.list_household_members`` (pending invitees have
+    Members come from ``households.list_household_members`` (pending invitees have
     no Clerk account or picture and are listed by ``GET /api/invites``
     instead). ``image_url`` is fetched from Clerk per member (TTL-cached,
     never persisted) and is null when Clerk has no image or is unreachable;
