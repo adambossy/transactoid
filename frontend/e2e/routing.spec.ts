@@ -62,10 +62,13 @@ test("browser back/forward walk between conversations", async ({ page }) => {
   await expect(page).toHaveURL(UUID_RE);
   const urlA = page.url();
 
-  // New chat via the drawer link, then conversation B.
+  // New chat via the drawer link, then conversation B. Wait for the draft
+  // screen's empty state before typing — the fill must not race the route
+  // swap and land in conversation A's composer.
   await page.getByRole("button", { name: /open chat history/i }).click();
   await page.getByRole("link", { name: /new chat/i }).click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByText(/what can i help with/i)).toBeVisible();
   await sendMessage(page, "Routing check: conversation B");
   await expect(page).toHaveURL(UUID_RE);
   const urlB = page.url();

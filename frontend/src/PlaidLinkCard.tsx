@@ -24,6 +24,8 @@ type ToolPart = { state?: string; output?: unknown };
  * redirects to the static PLAID_REDIRECT_URI with only ?oauth_state_id, so
  * ChatRoute reads this to reopen the conversation whose card opened Link
  * (letting `receivedRedirectUri` below resume the flow after rehydration).
+ * localStorage, not sessionStorage — mobile banks can land the redirect in a
+ * new tab, where a per-tab stash would be empty and the resume would die.
  */
 export const PLAID_OAUTH_CONVERSATION_KEY = "penny:plaidOauthConversation";
 
@@ -63,7 +65,7 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
         }),
       });
       if (!res.ok) throw new Error(`Failed to link bank (${res.status})`);
-      sessionStorage.removeItem(PLAID_OAUTH_CONVERSATION_KEY);
+      localStorage.removeItem(PLAID_OAUTH_CONVERSATION_KEY);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -137,7 +139,7 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
             // Stash the conversation for the OAuth-redirect round trip (see
             // PLAID_OAUTH_CONVERSATION_KEY). Harmless for non-OAuth banks —
             // the exchange clears it.
-            sessionStorage.setItem(PLAID_OAUTH_CONVERSATION_KEY, conversationId);
+            localStorage.setItem(PLAID_OAUTH_CONVERSATION_KEY, conversationId);
             open();
           }}
           data-testid="plaid-connect"

@@ -120,7 +120,7 @@ export function ChatRoute({ getToken }: { getToken: GetToken }) {
   // the query string rides along so the rehydrated card's receivedRedirectUri
   // completes the flow. Pre-routing, the localStorage session pin did this.
   if (!id && location.search.includes("oauth_state_id")) {
-    const resume = sessionStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY);
+    const resume = localStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY);
     if (resume) {
       return (
         <Navigate to={{ pathname: `/c/${resume}`, search: location.search }} replace />
