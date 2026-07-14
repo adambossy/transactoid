@@ -92,8 +92,10 @@ frontend/               # Vite + React 19 + @ai-sdk/react + @adambossy/agent-ui
 
 ```bash
 # Backend — run against the session Neon test branch via pennydb (from repo root).
-backend/scripts/pennydb test exec -- uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload
-# (classic equivalent, from backend/: set -a && source .env.test && set +a && uv run uvicorn …)
+backend/scripts/pennydb test exec -- uv run --project backend uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload
+# `test exec` injects DATABASE_URL (+ PENNY_TEST_*) and nothing else; other env
+# comes from backend/.env via load_dotenv. Classic equivalent, from backend/:
+#   set -a && source .env.test && set +a && uv run uvicorn …
 
 # Frontend (from frontend/) — proxies /api to :8000
 npm run dev
