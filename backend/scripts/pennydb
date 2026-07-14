@@ -57,8 +57,13 @@ load_test_env() {
 
   local now file_mtime age_days
   now="$(date +%s)"
-  file_mtime="$(stat -f %m "$PENNY_ENV_TEST_FILE" 2>/dev/null \
-    || stat -c %Y "$PENNY_ENV_TEST_FILE")"
+  # BSD and GNU stat disagree, and GNU `stat -f` "succeeds" with filesystem
+  # info on stdout — a || chain captures garbage. Branch on platform instead.
+  if [[ "$(uname)" == "Darwin" ]]; then
+    file_mtime="$(stat -f %m "$PENNY_ENV_TEST_FILE")"
+  else
+    file_mtime="$(stat -c %Y "$PENNY_ENV_TEST_FILE")"
+  fi
   age_days=$(( (now - file_mtime) / 86400 ))
   if (( age_days >= STALE_DAYS )); then
     echo "pennydb: WARNING: test env is ${age_days}d old — the branch is" \
