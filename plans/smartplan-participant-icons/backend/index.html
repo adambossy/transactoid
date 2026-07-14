@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backend — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="backend" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; Backend
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Branch</p>
+        <h1>Backend</h1>
+        <p class="lede">Three additive changes to the website/app domain — a sender column on messages, a members endpoint that proxies Clerk avatars, and one new field on the conversation list. No finance-side or agent-domain code is touched.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Every human message written from now on records which household member wrote it, and that identity travels with the message when a conversation is reopened.</li>
+          <li>The app can list the household's members with their current Google profile picture, without Penny ever storing a copy of the picture.</li>
+          <li>The conversation list tells the client enough to decide which entries are shared spaces.</li>
+          <li>All of this stays inside the website domain: no agent tool, skill, or finance-facade code changes, and app data stays out of the agent's reach.</li>
+        </ol>
+      </section>
+
+      <section id="what-changes">
+        <header class="section-header">
+          <h2>What changes, at a glance</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="what-changes">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Change</th><th>Where</th><th>Page</th></tr></thead>
+          <tbody>
+            <tr><td>Nullable <code>sender_user_id</code> on messages, stamped on write, emitted on load</td><td><code>penny/api/persistence/</code> + <code>penny/api/hydration.py</code> + migration <code>025</code></td><td><a href="sender-attribution.html">Sender attribution</a></td></tr>
+            <tr><td>New <code>GET /api/household/members</code> returning Clerk image URLs live</td><td><code>penny/api/signup_routes.py</code> + <code>penny/adapters/clerk.py</code></td><td><a href="members-endpoint.html">Members &amp; avatars API</a></td></tr>
+            <tr><td><code>session_mode</code> added to each entry of <code>GET /api/conversations</code></td><td><code>penny/api/main.py</code></td><td><a href="conversations-api.html">Conversations API</a></td></tr>
+          </tbody>
+        </table>
+        <p>All three are independent of each other and individually shippable; the sidebar needs the second and third, the bubbles need the first and second.</p>
+      </section>
+
+      <section id="data-flow">
+        <header class="section-header">
+          <h2>Data flow</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="data-flow">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <div class="mermaid">
+sequenceDiagram
+  participant B as Browser
+  participant A as Penny API
+  participant C as Clerk
+  B->>A: GET /api/household/members
+  A->>C: fetch profile per member, short cache
+  C-->>A: image URL and name
+  A-->>B: members with is_you flag
+  B->>A: GET /api/sessions/id
+  A-->>B: messages, each with senderUserId
+        </div>
+        <p>The browser joins the two streams itself: a message's <code>senderUserId</code> is looked up in the members list to find the avatar and to decide "mine vs theirs". The backend never assembles a per-message avatar.</p>
+      </section>
+
+      <section id="boundaries">
+        <header class="section-header">
+          <h2>Domain boundaries respected</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="boundaries">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Website domain only.</strong> The sender column lives on the web-schema message table, out of the agent's <code>run_sql</code> reach. The members endpoint sits beside the existing household routes in <code>signup_routes.py</code>.</li>
+          <li><strong>The Clerk adapter is the single seam to Clerk.</strong> The new profile fetch extends <code>penny/adapters/clerk.py</code>, which already owns invitations and the one-shot identity fetch — no route calls Clerk's REST API directly.</li>
+          <li><strong>Membership is not modelled twice.</strong> The participant set of a joint conversation is simply "the members of its household" — the existing <code>users WHERE household_id = …</code> query. No participants junction table is introduced; see the <a href="../assumptions/index.html">assumptions page</a> for why.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="sender-attribution.html">Sender attribution</a> · <a href="members-endpoint.html">Members &amp; avatars API</a> · <a href="conversations-api.html">Conversations API</a> · <a href="../frontend/index.html">Frontend branch</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

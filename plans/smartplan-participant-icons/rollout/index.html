@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rollout &amp; verification — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="rollout" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; Rollout &amp; verification
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Branch</p>
+        <h1>Rollout &amp; verification</h1>
+        <p class="lede">Five dependency-ordered commits on this feature branch, each individually green; a safe additive migration; and a two-member manual pass before merge.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Every commit leaves the app working — a mid-stack revert never strands the UI against a missing API.</li>
+          <li>The production database change is additive, reversible, and applied by the normal deploy pipeline, not by hand.</li>
+          <li>Before merge, the feature has been seen working in a real browser with two signed-in household members.</li>
+        </ol>
+      </section>
+
+      <section id="commit-order">
+        <header class="section-header">
+          <h2>Commit order</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="commit-order">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ol>
+          <li><strong>feat(api): record message sender</strong> — model column, migration <code>025</code>, store stamping, hydration field, tests. Invisible to users; deployable alone. (<a href="../backend/sender-attribution.html">details</a>)</li>
+          <li><strong>feat(api): household members endpoint</strong> — Clerk adapter profile fetch, <code>GET /api/household/members</code>, TTL cache, tests. (<a href="../backend/members-endpoint.html">details</a>)</li>
+          <li><strong>feat(api): expose session_mode on conversation list</strong> — one-key response change + test. Could fold into commit 2 if it feels too small alone. (<a href="../backend/conversations-api.html">details</a>)</li>
+          <li><strong>feat(ui): avatar primitives + members hook + sidebar stack</strong> — <code>Avatar</code>/<code>AvatarStack</code>, <code>useHouseholdMembers</code>, drawer entry restyle. First visible change. (<a href="../frontend/sidebar.html">details</a>)</li>
+          <li><strong>feat(ui): green bubbles for the other member</strong> — <code>OtherUserMessage</code>, the render branch, sender map. Includes the <code>REQUIREMENTS.txt</code> product-section update (below). (<a href="../frontend/chat-bubbles.html">details</a>)</li>
+        </ol>
+        <p>Backend-first ordering means the frontend never ships against an API that is not already live; each frontend commit degrades gracefully if its data is missing.</p>
+      </section>
+
+      <section id="verification">
+        <header class="section-header">
+          <h2>Automated verification</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="verification">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Per unit of work, the standard gate from <code>backend/</code>: <code>uv run ruff check .</code>, <code>uv run ruff format --check .</code>, <code>uv run pytest -q</code>. Additionally for this feature:</p>
+        <ul>
+          <li><strong>Postgres suite</strong> (<code>POSTGRES_TEST_URL=… uv run pytest -q -m postgres</code>) after the migration commit — it exercises RLS paths the SQLite run skips, and migration <code>025</code> touches an RLS-governed table.</li>
+          <li><strong>Schema drift test</strong> (<code>tests/test_schema_drift.py</code>) confirms models and the migration chain still agree.</li>
+          <li><strong>Frontend:</strong> the repo has no frontend test gate; rely on TypeScript (<code>npm run build</code>) and the manual pass. The <code>tokens.ts</code> drift test applies only if a new color token is minted (the plan avoids one).</li>
+        </ul>
+      </section>
+
+      <section id="requirements-txt">
+        <header class="section-header">
+          <h2>REQUIREMENTS.txt — same change, not after</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="requirements-txt">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>This is a user-facing behaviour change, so the Product section of <code>REQUIREMENTS.txt</code> must gain the two behaviours in the same branch (reviewers treat it as scope-of-record):</p>
+        <ul>
+          <li>Shared (joint) conversations are visually identified in the chat history by the participating members' profile pictures.</li>
+          <li>Within a shared conversation, messages are attributed to their author; another member's messages are visually distinct from the viewer's own.</li>
+        </ul>
+        <p>No Technical-invariant change: avatars are deliberately <em>not</em> persisted (worth a sentence in the PR description rather than a new invariant).</p>
+      </section>
+
+      <section id="manual-test">
+        <header class="section-header">
+          <h2>Manual two-member pass</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="manual-test">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The dev auth stub pins a single principal per process, so a genuine two-member test needs two Clerk users in one household against the Neon <code>penny-test</code> branch (the invite flow creates the second member). Checklist, using two browser profiles:</p>
+        <ol>
+          <li>Member A starts a <em>joint</em> conversation and sends a message; member B's drawer shows the entry with the two-avatar stack; A's individual conversations show none.</li>
+          <li>B opens the conversation: A's message is green, left-aligned, with A's Google picture; B replies and their own message is grey/right.</li>
+          <li>A reloads: B's reply is now green-with-avatar on A's screen; A's own messages unchanged.</li>
+          <li>Open a pre-feature joint conversation: old messages render as today (no green, no avatar) — the legacy-rows contract.</li>
+          <li>Temporarily break the members fetch (bad token or blocked route): chat still works, drawer shows no stacks, no console errors beyond the failed fetch.</li>
+        </ol>
+        <p>Quicker single-member smoke tests along the way (avatar fallback, sidebar layout) work in dev mode with Clerk absent, since the members endpoint degrades to initials.</p>
+      </section>
+
+      <p class="foot"><a href="../backend/index.html">Backend</a> · <a href="../frontend/index.html">Frontend</a> · <a href="../assumptions/index.html">Assumptions &amp; open questions</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>
