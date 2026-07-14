@@ -41,13 +41,8 @@ source "$SCRIPT_DIR/neon_env.sh"
 ENV_TEST_FILE="$PENNY_ENV_TEST_FILE"
 ENV_TEST_SYMLINK="$BACKEND_DIR/.env.test"
 
-NEON=(neonctl --org-id "$ORG_ID" --project-id "$PROJECT_ID")
-
 # --- Preflight --------------------------------------------------------------
-command -v neonctl >/dev/null 2>&1 || {
-  echo "ERROR: neonctl not found. Install it and run 'neonctl auth'." >&2
-  exit 1
-}
+require_neonctl
 command -v jq >/dev/null 2>&1 || {
   echo "ERROR: jq not found. Install jq (e.g. 'brew install jq')." >&2
   exit 1
@@ -113,7 +108,7 @@ ENDPOINT_HOST="$(echo "$create_json" \
 if [[ -z "$ENDPOINT_HOST" || "$ENDPOINT_HOST" == "null" ]]; then
   # Last resort: derive host from the connection_uri we got.
   if [[ -n "$CONN_URI" ]]; then
-    ENDPOINT_HOST="$(echo "$CONN_URI" | sed -E 's#^[a-z]+://[^@]+@([^/:]+).*#\1#')"
+    ENDPOINT_HOST="$(url_host "$CONN_URI")"
   fi
 fi
 
@@ -184,15 +179,16 @@ cat > "$ENV_TEST_FILE" <<EOF
 #
 # NOTE: main.py calls load_dotenv(override=False), so sourcing this BEFORE
 # launching uvicorn ensures DATABASE_URL here wins over the root .env value.
-DATABASE_URL=$DATABASE_URL
+# Values are single-quoted: the URL can contain '&' (e.g. channel_binding),
+# which an unquoted sourced assignment silently backgrounds.
+DATABASE_URL='$DATABASE_URL'
+PENNY_TEST_BRANCH='$NEW_BRANCH'
+PENNY_TEST_ENDPOINT='$ENDPOINT_HOST'
 EOF
 
 # Back-compat: keep backend/.env.test working in this checkout as a symlink to
-# the shared file (replace a stale regular file from the pre-pennydb layout).
-if [[ ! -L "$ENV_TEST_SYMLINK" ]]; then
-  rm -f "$ENV_TEST_SYMLINK"
-  ln -s "$ENV_TEST_FILE" "$ENV_TEST_SYMLINK"
-fi
+# the shared file (replaces a stale regular file from the pre-pennydb layout).
+ln -sfn "$ENV_TEST_FILE" "$ENV_TEST_SYMLINK"
 
 # --- Report -----------------------------------------------------------------
 REDACTED_HOST="$ENDPOINT_HOST"

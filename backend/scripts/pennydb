@@ -44,23 +44,17 @@ usage() {
 
 die() { echo "pennydb: $1" >&2; exit "${2:-1}"; }
 
-banner_test() {
-  # $1 = branch name, $2 = endpoint host
-  echo "${_green}>> TEST  branch ${1:-?} @ ${2:-?}${_reset}" >&2
-}
-
-banner_prod() {
-  # $1 = endpoint host, $2 = READ-ONLY | WRITE
-  local style="$_red"
-  [[ "$2" == "WRITE" ]] && style="${_red}${_bold}"
-  echo "${style}!! PROD  ${PROD_BRANCH} @ ${1:-?} (${2})${_reset}" >&2
-}
-
 # --- Test-side plumbing ------------------------------------------------------
 
-require_env_test() {
+# Loads the shared test env file once: sets DATABASE_URL and, for the banner,
+# PENNY_TEST_BRANCH / PENNY_TEST_ENDPOINT (falling back to the older
+# comment-header format), warns when the branch is stale, repairs this
+# checkout's backend/.env.test symlink, and prints the banner. Every `test`
+# subcommand goes through here, so the banner guarantee has one home.
+load_test_env() {
   [[ -f "$PENNY_ENV_TEST_FILE" ]] || die \
     "no test env at $PENNY_ENV_TEST_FILE — run: pennydb test refresh" 2
+
   local now file_mtime age_days
   now="$(date +%s)"
   file_mtime="$(stat -f %m "$PENNY_ENV_TEST_FILE" 2>/dev/null \
@@ -70,40 +64,52 @@ require_env_test() {
     echo "pennydb: WARNING: test env is ${age_days}d old — the branch is" \
       "likely stale; consider: pennydb test refresh" >&2
   fi
-}
 
-test_url() {
-  require_env_test
-  local url
-  url="$(sed -n 's/^DATABASE_URL=//p' "$PENNY_ENV_TEST_FILE" | tail -1)"
-  [[ -n "$url" ]] || die "no DATABASE_URL in $PENNY_ENV_TEST_FILE" 2
-  echo "$url"
-}
+  # Extract keys without sourcing: URLs can contain '&', which a sourced
+  # unquoted assignment silently backgrounds. Handles optionally-quoted values.
+  _env_get() {
+    local v
+    v="$(sed -n "s/^${1}=//p" "$PENNY_ENV_TEST_FILE" | tail -1)"
+    v="${v#\'}"; v="${v%\'}"
+    echo "$v"
+  }
+  DATABASE_URL="$(_env_get DATABASE_URL)"
+  [[ -n "$DATABASE_URL" ]] || die "no DATABASE_URL in $PENNY_ENV_TEST_FILE" 2
+  PENNY_TEST_BRANCH="$(_env_get PENNY_TEST_BRANCH)"
+  PENNY_TEST_ENDPOINT="$(_env_get PENNY_TEST_ENDPOINT)"
+  # Pre-pennydb env files carry branch/endpoint only in comment headers.
+  PENNY_TEST_BRANCH="${PENNY_TEST_BRANCH:-$(sed -n 's/^# Branch:[[:space:]]*//p' "$PENNY_ENV_TEST_FILE" | head -1)}"
+  PENNY_TEST_ENDPOINT="${PENNY_TEST_ENDPOINT:-$(sed -n 's/^# Endpoint:[[:space:]]*//p' "$PENNY_ENV_TEST_FILE" | head -1)}"
 
-# Branch name / endpoint host from the env-file header written by refresh.
-test_meta() {
-  # $1 = "Branch" | "Endpoint"
-  sed -n "s/^# ${1}:[[:space:]]*//p" "$PENNY_ENV_TEST_FILE" | head -1
+  # Keep the classic `source backend/.env.test` loop truthful in THIS checkout
+  # too, not just the one that ran refresh — a stale regular file here is the
+  # exact wrong-DB failure pennydb exists to kill. Skip under an explicit
+  # override (selftest fixtures).
+  if [[ -z "${PENNYDB_ENV_FILE:-}" ]]; then
+    ln -sfn "$PENNY_ENV_TEST_FILE" "$SCRIPT_DIR/../.env.test"
+  fi
+
+  echo "${_green}>> TEST  branch ${PENNY_TEST_BRANCH:-?} @ ${PENNY_TEST_ENDPOINT:-?}${_reset}" >&2
 }
 
 # --- Prod-side plumbing ------------------------------------------------------
 
-prod_url() {
-  # $1 = role name
-  command -v neonctl >/dev/null 2>&1 || die "neonctl not found (brew install neonctl; neonctl auth)"
-  local url
-  if ! url="$(neonctl connection-string \
-      --org-id "$ORG_ID" --project-id "$PROJECT_ID" \
+resolve_prod_url() {
+  # $1 = role name → sets PROD_URL
+  require_neonctl
+  if ! PROD_URL="$("${NEON[@]}" connection-string \
       --branch-name "$PROD_BRANCH" \
       --database-name "$DB_NAME" --role-name "$1")"; then
     die "could not resolve the production connection string (neonctl auth?)"
   fi
-  [[ -n "$url" ]] || die "neonctl returned an empty production connection string"
-  echo "$url"
+  [[ -n "$PROD_URL" ]] || die "neonctl returned an empty production connection string"
 }
 
-url_host() {
-  echo "$1" | sed -E 's#^[a-z]+://[^@]+@([^/:?]+).*#\1#'
+banner_prod() {
+  # $1 = mode label
+  local style="$_red"
+  [[ "$1" == *WRITE* ]] && style="${_red}${_bold}"
+  echo "${style}!! PROD  ${PROD_BRANCH} @ $(url_host "$PROD_URL") (${1})${_reset}" >&2
 }
 
 # --- Selftest (offline; exercises parsing, banners, error paths) -------------
@@ -122,20 +128,32 @@ selftest() {
     fi
   }
 
+  # New-format env file (machine-readable, quoted keys; the '&' in the URL is
+  # the regression case — unquoted it backgrounds a sourced assignment).
   cat > "$tmp/env.test" <<'EOF'
-# Branch:      test-20260712-000000
-# Endpoint:    ep-example-123.c-7.us-east-1.aws.neon.tech
-DATABASE_URL=postgresql://u:pw@ep-example-123.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL='postgresql://u:pw@ep-example-123.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
+PENNY_TEST_BRANCH='test-20260712-000000'
+PENNY_TEST_ENDPOINT='ep-example-123.c-7.us-east-1.aws.neon.tech'
+EOF
+  # Old-format env file (comment header only) — the fallback path.
+  cat > "$tmp/env-old.test" <<'EOF'
+# Branch:      test-20260101-000000
+# Endpoint:    ep-old-456.c-7.us-east-1.aws.neon.tech
+DATABASE_URL=postgresql://u:pw@ep-old-456.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require
 EOF
 
   local out
   out="$(PENNYDB_ENV_FILE="$tmp/env.test" "${BASH_SOURCE[0]}" test url 2>/dev/null)"
-  check "test url extracts DATABASE_URL" \
-    "postgresql://u:pw@ep-example-123.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require" "$out"
+  check "test url extracts DATABASE_URL (quoted, with &)" \
+    "postgresql://u:pw@ep-example-123.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" "$out"
 
   out="$(PENNYDB_ENV_FILE="$tmp/env.test" "${BASH_SOURCE[0]}" test url 2>&1 >/dev/null)"
   check "test banner names branch + host" \
     ">> TEST  branch test-20260712-000000 @ ep-example-123.c-7.us-east-1.aws.neon.tech" "$out"
+
+  out="$(PENNYDB_ENV_FILE="$tmp/env-old.test" "${BASH_SOURCE[0]}" test url 2>&1 >/dev/null)"
+  check "old-format env file banners via comment fallback" \
+    ">> TEST  branch test-20260101-000000 @ ep-old-456.c-7.us-east-1.aws.neon.tech" "$out"
 
   out="$(PENNYDB_ENV_FILE="$tmp/absent" "${BASH_SOURCE[0]}" test url 2>&1 >/dev/null; echo "rc=$?")"
   check "missing env file errors with refresh hint (rc=2)" \
@@ -168,28 +186,23 @@ case "$target" in
   test)
     [[ $# -ge 1 ]] || usage
     cmd="$1"; shift
+    # refresh needs no env file — it creates one.
+    if [[ "$cmd" == "refresh" ]]; then
+      exec "$SCRIPT_DIR/new_test_branch.sh"
+    fi
+    load_test_env
     case "$cmd" in
       url)
-        url="$(test_url)"
-        banner_test "$(test_meta Branch)" "$(test_meta Endpoint)"
-        echo "$url"
+        echo "$DATABASE_URL"
         ;;
       psql)
-        url="$(test_url)"
-        banner_test "$(test_meta Branch)" "$(test_meta Endpoint)"
-        exec psql "$url" -X "$@"
+        exec psql "$DATABASE_URL" -X "$@"
         ;;
       exec)
         [[ "${1:-}" == "--" ]] && shift
         [[ $# -ge 1 ]] || die "usage: pennydb test exec -- <cmd…>" 2
-        require_env_test
-        banner_test "$(test_meta Branch)" "$(test_meta Endpoint)"
-        set -a; # shellcheck source=/dev/null
-        source "$PENNY_ENV_TEST_FILE"; set +a
+        export DATABASE_URL PENNY_TEST_BRANCH PENNY_TEST_ENDPOINT
         exec "$@"
-        ;;
-      refresh)
-        exec "$SCRIPT_DIR/new_test_branch.sh"
         ;;
       *) usage ;;
     esac
@@ -205,9 +218,10 @@ case "$target" in
           [[ $# -ge 2 ]] || die "usage: pennydb prod url [--role <name>]" 2
           role="$2"; shift 2
         fi
-        url="$(prod_url "$role")"
-        banner_prod "$(url_host "$url")" "READ-ONLY (url only)"
-        echo "$url"
+        resolve_prod_url "$role"
+        # The URL itself carries no read-only guard — say so.
+        banner_prod "URL for role ${role} — WRITE-CAPABLE unless the role is read-only"
+        echo "$PROD_URL"
         ;;
       psql)
         mode="READ-ONLY"
@@ -215,14 +229,12 @@ case "$target" in
         for a in "$@"; do
           if [[ "$a" == "--write" ]]; then mode="WRITE"; else args+=("$a"); fi
         done
-        url="$(prod_url "$ROLE_NAME")"
-        banner_prod "$(url_host "$url")" "$mode"
-        if [[ "$mode" == "WRITE" ]]; then
-          exec psql "$url" -X ${args[@]+"${args[@]}"}
-        else
-          PGOPTIONS="${PGOPTIONS:-} -c default_transaction_read_only=on" \
-            exec psql "$url" -X ${args[@]+"${args[@]}"}
+        resolve_prod_url "$ROLE_NAME"
+        banner_prod "$mode"
+        if [[ "$mode" == "READ-ONLY" ]]; then
+          export PGOPTIONS="${PGOPTIONS:-} -c default_transaction_read_only=on"
         fi
+        exec psql "$PROD_URL" -X ${args[@]+"${args[@]}"}
         ;;
       *) usage ;;
     esac
