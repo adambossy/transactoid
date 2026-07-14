@@ -208,6 +208,6 @@ echo "   New branch:   $NEW_BRANCH ($NEW_BRANCH_ID)"
 echo "   Endpoint host: $REDACTED_HOST"
 echo "   Wrote:        $ENV_TEST_FILE"
 echo
-echo "   To use it:"
+echo "   To use it (from repo root):"
 echo "     backend/scripts/pennydb test psql"
-echo "     backend/scripts/pennydb test exec -- uv run uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload"
+echo "     backend/scripts/pennydb test exec -- uv run --project backend uvicorn penny.api.main:app --host 127.0.0.1 --port 8000 --reload"
