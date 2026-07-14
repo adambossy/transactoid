@@ -47,6 +47,16 @@ P6. Conversation persistence
     a chat-history drawer, open any past conversation, and start a new chat —
     scoped to conversations the principal may see (their own, plus joint threads).
 
+P6a. Multi-user conversation legibility
+    Shared (joint) conversations are visually identified: in the chat-history
+    drawer they carry the participating members' profile pictures (the Google
+    picture mirrored by the auth provider — fetched live, never stored by
+    Penny), and within a shared conversation each user message written after
+    this feature shipped is attributed to its author, with another member's
+    messages rendered visually distinct from the viewer's own. Messages from
+    before attribution existed keep their prior rendering; missing pictures
+    degrade to initials and never block chat.
+
 P7. Agent workspace
     Maintain a persistent per-user workspace (memory/, reports/) that carries
     user state (e.g. budget notes) across chat and scheduled runs. State lives

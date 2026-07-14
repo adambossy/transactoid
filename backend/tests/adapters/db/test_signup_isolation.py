@@ -15,7 +15,7 @@ import pytest
 import sqlalchemy as sa
 
 from penny.adapters.db.models import PlaidItem, PlaidTransaction
-from penny.signup import resolve_or_provision_identity
+from penny.households import resolve_or_provision_identity
 from penny.tenancy.context import RequestContext
 
 pytestmark = pytest.mark.postgres

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from penny.api.persistence.models import WebBase
 from penny.api.persistence.store import ConversationStore
-from penny.tenancy.context import RequestContext
+from penny.tenancy.context import RequestContext, SessionMode
 
 # The single principal these store-mechanics tests run as; access checks pass
 # because every call in a test shares this context.
@@ -60,6 +60,37 @@ def test_seq_is_monotonic_across_user_and_assistant(tmp_path: Path):
         (1, "assistant", "complete"),
         (2, "user", "complete"),
     ]
+    assert output == expected_output
+
+
+def test_user_turn_is_stamped_with_its_sender(tmp_path: Path):
+    # input: a joint-session context — exactly where attribution must not
+    # collapse to the nil sentinel that effective_user_id would produce.
+    conversation_id = "conv-sender"
+    ctx = RequestContext(
+        user_id=uuid.uuid4(),
+        household_id=uuid.uuid4(),
+        session_mode=SessionMode.JOINT,
+    )
+
+    # setup
+    store = _make_store(tmp_path)
+    store.ensure_conversation(conversation_id, ctx, session_mode="joint")
+
+    # act
+    store.append_user_message(conversation_id, ctx, ai_sdk_message_id="u1", text="hi")
+    store.upsert_assistant_message(
+        conversation_id,
+        ctx,
+        ai_sdk_message_id="run_1",
+        parts=[{"type": "text", "text": "hello", "state": "done"}],
+        status="complete",
+    )
+    rows = store.get_conversation_messages(conversation_id, ctx)
+    output = [(row.role, row.sender_user_id) for row in rows]
+
+    # expected: the user turn carries the real member id; assistant turns none
+    expected_output = [("user", ctx.user_id), ("assistant", None)]
     assert output == expected_output
 
 
