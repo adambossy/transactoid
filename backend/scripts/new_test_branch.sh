@@ -42,6 +42,16 @@ ENV_TEST_FILE="$PENNY_ENV_TEST_FILE"
 ENV_TEST_SYMLINK="$BACKEND_DIR/.env.test"
 
 # --- Preflight --------------------------------------------------------------
+# PENNYDB_ENV_FILE redirects pennydb's READS for offline fixtures; refresh has
+# real side effects (deletes test-* branches, repoints the symlink) that the
+# override cannot isolate — a redirected refresh would delete live branches
+# while leaving the shared env file pointing at a dead one. Refuse it.
+if [[ -n "${PENNYDB_ENV_FILE:-}" ]]; then
+  echo "ERROR: refresh does not honor PENNYDB_ENV_FILE (it deletes real Neon" >&2
+  echo "       branches and rewrites the shared env file). Unset it first." >&2
+  exit 2
+fi
+
 require_neonctl
 command -v jq >/dev/null 2>&1 || {
   echo "ERROR: jq not found. Install jq (e.g. 'brew install jq')." >&2
