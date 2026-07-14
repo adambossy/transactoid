@@ -3,10 +3,11 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
 import { AlertCircle, Brain } from "lucide-react";
-import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
+import { PLAID_OAUTH_CONVERSATION_KEY } from "./PlaidLinkCard";
 
 const MODEL = "gemini-3.5-flash";
 
@@ -112,6 +113,21 @@ export function ChatRoute({ getToken }: { getToken: GetToken }) {
   const location = useLocation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftId = useMemo(() => crypto.randomUUID(), [location.key]);
+
+  // Plaid OAuth-redirect resume: the bank returns to the static
+  // PLAID_REDIRECT_URI carrying only ?oauth_state_id, with no path context.
+  // Reopen the conversation whose card opened Link (stashed at open time) —
+  // the query string rides along so the rehydrated card's receivedRedirectUri
+  // completes the flow. Pre-routing, the localStorage session pin did this.
+  if (!id && location.search.includes("oauth_state_id")) {
+    const resume = sessionStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY);
+    if (resume) {
+      return (
+        <Navigate to={{ pathname: `/c/${resume}`, search: location.search }} replace />
+      );
+    }
+  }
+
   const sessionId = id ?? draftId;
   return <ChatScreen key={sessionId} sessionId={sessionId} draft={!id} getToken={getToken} />;
 }
@@ -165,28 +181,40 @@ export function ChatScreen({
   // backend restarts don't blank the transcript. A 404 (unknown id, or a
   // conversation the principal cannot access) renders the not-found state
   // rather than a silent empty chat a message could be sent into.
+  //
+  // Hydration happens once per mount: `hydratedRef` keeps a re-run (getToken
+  // identity churn) from refetching and — worse — flipping a live transcript
+  // into the not-found state if the conversation vanished server-side mid-view.
+  const hydratedRef = useRef(false);
   useEffect(() => {
-    if (skipHydration) return;
+    if (skipHydration || hydratedRef.current) return;
     let cancelled = false;
     authHeaders(getToken)
       .then((headers) => fetch(`/api/sessions/${sessionId}`, { headers }))
       .then((res) => {
         if (res.ok) return res.json();
         if (res.status === 404) {
-          if (!cancelled) setNotFound(true);
+          if (!cancelled) {
+            hydratedRef.current = true;
+            setNotFound(true);
+          }
           return null;
         }
         return { messages: [] };
       })
       .then((data) => {
         if (cancelled || data === null) return;
+        hydratedRef.current = true;
         const msgs = (data.messages ?? []) as AiUIMessage[];
         const last = msgs[msgs.length - 1];
         setInitialIncomplete(last?.role === "user");
         setHistory(msgs);
       })
       .catch(() => {
-        if (!cancelled) setHistory([]);
+        if (!cancelled) {
+          hydratedRef.current = true;
+          setHistory([]);
+        }
       });
     return () => {
       cancelled = true;

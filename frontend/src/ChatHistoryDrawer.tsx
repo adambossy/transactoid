@@ -27,8 +27,10 @@ type LoadState =
  * still mounted for the width transition.
  *
  * The list is (re)fetched from `GET /api/conversations` each time the drawer
- * opens, so it reflects newly-started or newly-titled chats. Selecting an entry
- * (or "New chat") drives the shared session mechanism in `session.ts`.
+ * opens — and, since the desktop drawer stays open across client-side switches,
+ * whenever the active conversation changes — so it reflects newly-started or
+ * newly-titled chats. Entries (and "New chat") are plain links: the URL is the
+ * conversation mechanism.
  */
 export function ChatHistoryDrawer({
   open,
@@ -41,8 +43,14 @@ export function ChatHistoryDrawer({
 }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
-  // Refetch on each open so the list is fresh (a chat gains its title from the
-  // first user message, and new chats appear without a manual reload).
+  // The open conversation comes from the URL — the drawer may render outside
+  // the matched route, so match the path directly rather than useParams.
+  const activeId = useMatch("/c/:id")?.params.id;
+
+  // Refetch on each open, and on conversation switches while open (the desktop
+  // drawer stays open across client-side navigation), so the list is fresh —
+  // a chat gains its title from the first user message, and new chats appear
+  // without a manual reload.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -64,7 +72,7 @@ export function ChatHistoryDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, getToken]);
+  }, [open, getToken, activeId]);
 
   // ESC closes the drawer (and restores focus to the toggle via onClose).
   useEffect(() => {
@@ -76,12 +84,10 @@ export function ChatHistoryDrawer({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  // The open conversation comes from the URL — the drawer may render outside
-  // the matched route, so match the path directly rather than useParams.
-  const activeId = useMatch("/c/:id")?.params.id;
-
   // Below md the drawer is an overlay; navigating should dismiss it. On
   // desktop it pushes content and stays open across client-side switches.
+  // 768px is Tailwind's md — keep in sync with the max-md classes on the
+  // aside below and the backdrop's md:hidden in AppShell.
   const closeIfOverlay = () => {
     if (!window.matchMedia("(min-width: 768px)").matches) onClose();
   };

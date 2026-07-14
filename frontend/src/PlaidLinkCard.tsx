@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
+import { useMatch } from "react-router";
 import { Button, Card } from "@penny/ui";
 import { authedFetch } from "./authFetch";
 
@@ -18,13 +19,13 @@ type Output = {
 /** The tool-renderer part (agent-ui passes only `{ state, output }`). */
 type ToolPart = { state?: string; output?: unknown };
 
-// The conversation id the chat POST uses as its `id` (localStorage-backed), so
-// the exchange resumes the same conversation. Mirrors ChatScreen's SESSION_KEY.
-const SESSION_KEY = "penny:sessionId";
-
-function conversationId(): string {
-  return localStorage.getItem(SESSION_KEY) ?? "default";
-}
+/**
+ * Where an OAuth-redirect Link flow stashes its conversation id: the bank
+ * redirects to the static PLAID_REDIRECT_URI with only ?oauth_state_id, so
+ * ChatRoute reads this to reopen the conversation whose card opened Link
+ * (letting `receivedRedirectUri` below resume the flow after rehydration).
+ */
+export const PLAID_OAUTH_CONVERSATION_KEY = "penny:plaidOauthConversation";
 
 /**
  * Inline Plaid Link card rendered as generative UI for the `connect_bank_account`
@@ -36,6 +37,11 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
   const output = part.output as Output | undefined;
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The conversation the exchange resumes comes from the URL — the card only
+  // renders inside a conversation transcript, whose route is /c/:id by the
+  // time any tool output exists (the first send already promoted the draft).
+  const conversationId = useMatch("/c/:id")?.params.id ?? "default";
 
   // Update mode (relink_account): re-authenticating an existing item. Plaid
   // restores the *same* item in place, so there is no public_token to exchange —
@@ -53,10 +59,11 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
         method: "POST",
         body: JSON.stringify({
           public_token: publicToken,
-          conversation_id: conversationId(),
+          conversation_id: conversationId,
         }),
       });
       if (!res.ok) throw new Error(`Failed to link bank (${res.status})`);
+      sessionStorage.removeItem(PLAID_OAUTH_CONVERSATION_KEY);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -126,7 +133,13 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
         <Button
           variant="filled"
           disabled={!ready}
-          onClick={() => open()}
+          onClick={() => {
+            // Stash the conversation for the OAuth-redirect round trip (see
+            // PLAID_OAUTH_CONVERSATION_KEY). Harmless for non-OAuth banks —
+            // the exchange clears it.
+            sessionStorage.setItem(PLAID_OAUTH_CONVERSATION_KEY, conversationId);
+            open();
+          }}
           data-testid="plaid-connect"
         >
           {isUpdate ? "Reconnect" : "Connect a bank"}
