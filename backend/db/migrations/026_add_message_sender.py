@@ -1,7 +1,7 @@
 """Add sender attribution to web conversation messages
 
-Revision ID: 025_add_message_sender
-Revises: 024_tenant_guc_wrapper
+Revision ID: 026_add_message_sender
+Revises: 025_tighten_web_conversation_tenancy
 Create Date: 2026-07-12
 
 A joint (household-shared) conversation is written by more than one member, but
@@ -24,8 +24,8 @@ from collections.abc import Sequence
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "025_add_message_sender"
-down_revision: str | Sequence[str] | None = "024_tenant_guc_wrapper"
+revision: str = "026_add_message_sender"
+down_revision: str | Sequence[str] | None = "025_tighten_web_conversation_tenancy"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
