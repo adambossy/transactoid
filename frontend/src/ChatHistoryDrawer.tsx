@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SquarePen } from "lucide-react";
+import { Link, useMatch } from "react-router";
 import { authHeaders } from "./authFetch";
-import { SESSION_KEY, openConversation, startNewChat } from "./session";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -76,7 +76,15 @@ export function ChatHistoryDrawer({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  const activeId = localStorage.getItem(SESSION_KEY);
+  // The open conversation comes from the URL — the drawer may render outside
+  // the matched route, so match the path directly rather than useParams.
+  const activeId = useMatch("/c/:id")?.params.id;
+
+  // Below md the drawer is an overlay; navigating should dismiss it. On
+  // desktop it pushes content and stays open across client-side switches.
+  const closeIfOverlay = () => {
+    if (!window.matchMedia("(min-width: 768px)").matches) onClose();
+  };
 
   return (
     <aside
@@ -92,14 +100,14 @@ export function ChatHistoryDrawer({
       <div inert={!open} className="flex h-full w-72 flex-col">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <span className="font-ui text-sm font-medium text-ink">Chats</span>
-          <button
-            type="button"
-            onClick={startNewChat}
+          <Link
+            to="/"
+            onClick={closeIfOverlay}
             className="inline-flex items-center gap-1.5 rounded-full border border-cream px-3 py-1.5 font-ui text-xs text-ink transition-colors hover:bg-cream-soft"
           >
             <SquarePen className="h-3.5 w-3.5" />
             New chat
-          </button>
+          </Link>
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
@@ -114,10 +122,10 @@ export function ChatHistoryDrawer({
           )}
           {state.status === "ready" &&
             state.items.map((conv) => (
-              <button
+              <Link
                 key={conv.id}
-                type="button"
-                onClick={() => openConversation(conv.id)}
+                to={`/c/${conv.id}`}
+                onClick={closeIfOverlay}
                 aria-current={conv.id === activeId ? "true" : undefined}
                 className={`block w-full truncate rounded-lg px-2 py-2 text-left font-ui text-sm text-ink transition-colors hover:bg-cream-soft ${
                   conv.id === activeId ? "bg-cream-soft font-medium" : ""
@@ -125,7 +133,7 @@ export function ChatHistoryDrawer({
                 title={conv.title ?? "New conversation"}
               >
                 {conv.title ?? "New conversation"}
-              </button>
+              </Link>
             ))}
         </nav>
       </div>

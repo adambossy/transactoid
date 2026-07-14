@@ -3,10 +3,10 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
 import { AlertCircle, Brain } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
-import { loadOrCreateSessionId } from "./session";
 
 const MODEL = "gemini-3.5-flash";
 
@@ -98,9 +98,57 @@ function PendingThinking() {
   );
 }
 
-export function ChatScreen({ getToken }: { getToken: GetToken }) {
-  const sessionId = useMemo(loadOrCreateSessionId, []);
-  const [history, setHistory] = useState<AiUIMessage[] | null>(null);
+/**
+ * Route adapter: derives the conversation id from the URL — the single source
+ * of truth for which conversation is on screen.
+ *
+ * On `/c/:id` the param is the id. On `/` (a draft chat) a fresh id is minted
+ * per navigation — keyed to `location.key` so "New chat" from anywhere always
+ * yields a clean conversation, while the first-send `/` → `/c/<id>` URL
+ * replacement keeps `key={sessionId}` stable and the in-flight turn mounted.
+ */
+export function ChatRoute({ getToken }: { getToken: GetToken }) {
+  const { id } = useParams();
+  const location = useLocation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const draftId = useMemo(() => crypto.randomUUID(), [location.key]);
+  const sessionId = id ?? draftId;
+  return <ChatScreen key={sessionId} sessionId={sessionId} draft={!id} getToken={getToken} />;
+}
+
+/** Deep link to a conversation that doesn't exist or isn't the principal's. */
+function ConversationNotFound() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center bg-background text-center">
+      <h1 className="text-2xl font-semibold sm:text-3xl">Conversation not found</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        This conversation doesn't exist, or you don't have access to it.
+      </p>
+      <Link
+        to="/"
+        className="mt-6 rounded-full border border-cream px-4 py-2 font-ui text-sm text-ink transition-colors hover:bg-cream-soft"
+      >
+        Start a new chat
+      </Link>
+    </div>
+  );
+}
+
+export function ChatScreen({
+  sessionId,
+  draft,
+  getToken,
+}: {
+  sessionId: string;
+  draft: boolean;
+  getToken: GetToken;
+}) {
+  // Hydration is a mount-time decision: the first-send `/` → `/c/<id>` URL
+  // replacement flips `draft` without remounting (same key), and fetching then
+  // would clobber the in-flight first turn. A draft has no history to load.
+  const [skipHydration] = useState(draft);
+  const [history, setHistory] = useState<AiUIMessage[] | null>(skipHydration ? [] : null);
+  const [notFound, setNotFound] = useState(false);
   // True when the hydrated transcript ends on a user message — i.e. the page was
   // (re)loaded mid-turn (the assistant's reply hasn't been finalized/persisted
   // yet), so the chat should immediately try to resume the live stream. A
@@ -114,15 +162,24 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
   }, [getToken]);
 
   // Hydrate persisted history before mounting the chat so refreshes and
-  // backend restarts don't blank the transcript. A conversation the principal
-  // cannot access (or that does not exist) 404s → treated as empty.
+  // backend restarts don't blank the transcript. A 404 (unknown id, or a
+  // conversation the principal cannot access) renders the not-found state
+  // rather than a silent empty chat a message could be sent into.
   useEffect(() => {
+    if (skipHydration) return;
     let cancelled = false;
     authHeaders(getToken)
       .then((headers) => fetch(`/api/sessions/${sessionId}`, { headers }))
-      .then((res) => (res.ok ? res.json() : { messages: [] }))
+      .then((res) => {
+        if (res.ok) return res.json();
+        if (res.status === 404) {
+          if (!cancelled) setNotFound(true);
+          return null;
+        }
+        return { messages: [] };
+      })
       .then((data) => {
-        if (cancelled) return;
+        if (cancelled || data === null) return;
         const msgs = (data.messages ?? []) as AiUIMessage[];
         const last = msgs[msgs.length - 1];
         setInitialIncomplete(last?.role === "user");
@@ -134,7 +191,11 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, getToken]);
+  }, [sessionId, getToken, skipHydration]);
+
+  if (notFound) {
+    return <ConversationNotFound />;
+  }
 
   if (history === null) {
     return (
@@ -147,6 +208,7 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
   return (
     <Chat
       sessionId={sessionId}
+      draft={draft}
       initialMessages={history}
       initialIncomplete={initialIncomplete}
       getToken={getToken}
@@ -156,15 +218,18 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
 
 function Chat({
   sessionId,
+  draft,
   initialMessages,
   initialIncomplete,
   getToken,
 }: {
   sessionId: string;
+  draft: boolean;
   initialMessages: AiUIMessage[];
   initialIncomplete: boolean;
   getToken: GetToken;
 }) {
+  const navigate = useNavigate();
   // Session mode is chosen before the first message and fixed thereafter
   // (immutable server-side). A ref feeds the transport without rebuilding it.
   const [sessionMode, setSessionMode] = useState<SessionMode>("individual");
@@ -304,7 +369,14 @@ function Chat({
 
       <Composer
         disabled={isStreaming}
-        onSend={(text) => sendMessage({ text })}
+        onSend={(text) => {
+          sendMessage({ text });
+          // First send promotes the draft: the conversation now exists
+          // server-side, so give it its real URL. Replace, not push — this
+          // renames the view in place; back should not revisit a ghost empty
+          // chat. The route re-renders with `draft` false, so this runs once.
+          if (draft) void navigate(`/c/${sessionId}`, { replace: true });
+        }}
         modelLabel="Gemini 3.5 Flash"
         footerHint="Penny can make mistakes — verify important numbers"
       />

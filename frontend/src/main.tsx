@@ -1,12 +1,12 @@
 import { ClerkProvider, useAuth } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { Gallery } from "@penny/ui";
 import { registerToolRenderer } from "@adambossy/agent-ui";
 import { AppShell } from "./AppShell";
 import { AuthGate } from "./AuthGate";
-import { ChatScreen } from "./ChatScreen";
+import { ChatRoute } from "./ChatScreen";
 import { InviteScreen } from "./InviteScreen";
 import { PlaidLinkCard } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
@@ -31,16 +31,19 @@ const noToken = async () => null;
 type GetToken = () => Promise<string | null>;
 
 // The signed-in screens, shared verbatim by both auth modes — only the token
-// source differs. Chat is the default landing.
+// source differs. `/` is always a new chat; a conversation lives at /c/:id;
+// anything unmatched goes home (replace, so the dead URL doesn't trap back).
 function AppRoutes({ getToken }: { getToken: GetToken }) {
   return (
     <Routes>
+      <Route path="/" element={<ChatRoute getToken={getToken} />} />
+      <Route path="/c/:id" element={<ChatRoute getToken={getToken} />} />
       <Route
         path="/settings/providers/*"
         element={<ProvidersBillingScreen getToken={getToken} />}
       />
       <Route path="/invites/*" element={<InviteScreen getToken={getToken} />} />
-      <Route path="*" element={<ChatScreen getToken={getToken} />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
