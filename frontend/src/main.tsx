@@ -1,6 +1,7 @@
 import { ClerkProvider, useAuth } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, Route, Routes } from "react-router";
 import { Gallery } from "@penny/ui";
 import { registerToolRenderer } from "@adambossy/agent-ui";
 import { AppShell } from "./AppShell";
@@ -23,74 +24,71 @@ registerToolRenderer("relink_account", PlaidLinkCard);
 // the phase-1a e2e harness and local dev keep working without Clerk.
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
-// Dev-only design-system preview: `/ui` renders the @penny/ui Gallery. Guarded by
-// import.meta.env.DEV so the route never exists in a production build. The Gallery
-// is intentionally auth-free (no ClerkProvider) so the design system stands alone.
-const showGallery = import.meta.env.DEV && window.location.pathname.startsWith("/ui");
-
-// The Providers & billing settings screen (phase 2b). Same auth model as chat.
-const showBilling = window.location.pathname.startsWith("/settings/providers");
-
-// The invite screen (phase 4): a household member invites new people. Same auth
-// model as chat.
-const showInvites = window.location.pathname.startsWith("/invites");
-
 // Dev-principal mode: no token (the backend uses the env-pinned principal).
 const noToken = async () => null;
 
-function AuthedChat() {
+/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
+type GetToken = () => Promise<string | null>;
+
+// The signed-in screens, shared verbatim by both auth modes — only the token
+// source differs. Chat is the default landing.
+function AppRoutes({ getToken }: { getToken: GetToken }) {
+  return (
+    <Routes>
+      <Route
+        path="/settings/providers/*"
+        element={<ProvidersBillingScreen getToken={getToken} />}
+      />
+      <Route path="/invites/*" element={<InviteScreen getToken={getToken} />} />
+      <Route path="*" element={<ChatScreen getToken={getToken} />} />
+    </Routes>
+  );
+}
+
+function AuthedRoutes() {
   // Clerk keeps the session token in memory and refreshes it; fetch a fresh one
   // per request. Only mounted inside <ClerkProvider>. getToken is a stable
   // reference — pass it through directly so the screens' useCallback/useMemo/
   // useEffect deps on it don't churn every render.
   const { getToken } = useAuth();
-  return <ChatScreen getToken={getToken} />;
-}
-
-function AuthedBilling() {
-  const { getToken } = useAuth();
-  return <ProvidersBillingScreen getToken={getToken} />;
-}
-
-function AuthedInvites() {
-  const { getToken } = useAuth();
-  return <InviteScreen getToken={getToken} />;
-}
-
-// The signed-in screen selected by pathname (chat is the default landing).
-function authedScreen() {
-  if (showBilling) return <AuthedBilling />;
-  if (showInvites) return <AuthedInvites />;
-  return <AuthedChat />;
-}
-
-function devScreen() {
-  // Dev-principal mode renders the same app chrome (drawer + header) as the
-  // authed path, minus Clerk's <UserButton>, so chat history + nav are present.
-  const screen = showBilling ? (
-    <ProvidersBillingScreen getToken={noToken} />
-  ) : showInvites ? (
-    <InviteScreen getToken={noToken} />
-  ) : (
-    <ChatScreen getToken={noToken} />
-  );
-  return <AppShell getToken={noToken}>{screen}</AppShell>;
+  return <AppRoutes getToken={getToken} />;
 }
 
 function Root() {
-  if (showGallery) return <Gallery />;
-  if (clerkKey) {
-    return (
-      <ClerkProvider publishableKey={clerkKey}>
-        <AuthGate>{authedScreen()}</AuthGate>
-      </ClerkProvider>
-    );
-  }
-  return devScreen();
+  return (
+    <Routes>
+      {/* Dev-only design-system preview: `/ui` renders the @penny/ui Gallery.
+          The route is only registered in dev builds (import.meta.env.DEV), so it
+          never exists in production. It sits above the auth split because the
+          design system is intentionally auth-free (no ClerkProvider). */}
+      {import.meta.env.DEV && <Route path="/ui/*" element={<Gallery />} />}
+      <Route
+        path="*"
+        element={
+          clerkKey ? (
+            <ClerkProvider publishableKey={clerkKey}>
+              <AuthGate>
+                <AuthedRoutes />
+              </AuthGate>
+            </ClerkProvider>
+          ) : (
+            // Dev-principal mode renders the same app chrome (drawer + header) as
+            // the authed path, minus Clerk's <UserButton>, so chat history + nav
+            // are present.
+            <AppShell getToken={noToken}>
+              <AppRoutes getToken={noToken} />
+            </AppShell>
+          )
+        }
+      />
+    </Routes>
+  );
 }
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Root />
+    <BrowserRouter>
+      <Root />
+    </BrowserRouter>
   </StrictMode>,
 );

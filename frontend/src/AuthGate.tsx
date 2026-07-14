@@ -1,11 +1,7 @@
 import { Show, SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router";
 import { AppShell } from "./AppShell";
-
-// Self-serve signup is open (phase 4): the signed-out view offers Clerk's
-// <SignUp> on the /sign-up path and <SignIn> everywhere else. Both components
-// cross-link, so a visitor can switch between them.
-const showSignUp = window.location.pathname.startsWith("/sign-up");
 
 /**
  * Clerk auth shell. A signed-out visitor sees the hosted <SignUp> / <SignIn>
@@ -17,6 +13,11 @@ const showSignUp = window.location.pathname.startsWith("/sign-up");
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { getToken } = useAuth();
+  // Self-serve signup is open (phase 4): the signed-out view offers Clerk's
+  // <SignUp> on the /sign-up path and <SignIn> everywhere else. Both components
+  // cross-link, so a visitor can switch between them. Read via useLocation (not
+  // a module-level snapshot) so client-side navigation keeps it current.
+  const showSignUp = useLocation().pathname.startsWith("/sign-up");
   return (
     <>
       <Show when="signed-out">
