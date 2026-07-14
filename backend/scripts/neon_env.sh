@@ -15,3 +15,21 @@ PROTECTED_BRANCHES=("production" "penny-test")
 # The per-machine env file the dev loop and pennydb read the test-branch
 # DATABASE_URL from. Lives in the workspace so every worktree shares it.
 PENNY_ENV_TEST_FILE="${PENNYDB_ENV_FILE:-${PENNY_WORKSPACE:-$HOME/.transactoid}/env.test}"
+
+# Project-scoped neonctl invocation, e.g.: "${NEON[@]}" branches list
+NEON=(neonctl --org-id "$ORG_ID" --project-id "$PROJECT_ID")
+
+require_neonctl() {
+  command -v neonctl >/dev/null 2>&1 || {
+    echo "ERROR: neonctl not found. Install it and run 'neonctl auth'." >&2
+    exit 1
+  }
+}
+
+# Host part of a postgres URL (creds, port, path, params stripped). Pure
+# parameter expansion — no forks.
+url_host() {
+  local h="${1#*://}"
+  h="${h#*@}"
+  echo "${h%%[/:?]*}"
+}

@@ -163,7 +163,10 @@ POSTGRES_TEST_URL=postgresql://... uv run pytest -q -m postgres
   Claude sessions; allowlisted). `pennydb prod psql` is read-only and always
   permission-prompted; writes need `pennydb prod psql --write`. Raw `psql` /
   `neonctl connection-string` are denied in sessions (`.claude/settings.json`)
-  — and raw `neonctl connection-string --branch-name` has two traps anyway: it
+  — a best-effort speed bump on the obvious spellings, not a security
+  boundary; the wrapper is the *convenient* path, which is the real
+  enforcement. Raw `neonctl connection-string --branch-name` has two traps
+  anyway: it
   returns the PARENT endpoint for child branches (CLI bug), and `production`
   now requires `--role-name neondb_owner` (multiple roles exist).
 
