@@ -8,6 +8,22 @@ from typing import Literal
 Provider = Literal["openai", "claude", "gemini", "langgraph"]
 ReasoningEffort = Literal["low", "medium", "high"]
 Verbosity = Literal["low", "medium", "high"]
+Environment = Literal["production", "development"]
+
+
+def penny_env() -> Environment:
+    """The environment tier this process runs in (``PENNY_ENV``).
+
+    Defaults to ``development``; deploy pins ``PENNY_ENV=production``
+    (``deploy/backend/fly.toml`` ``[env]``). Gate dev-only behavior on this
+    single var rather than minting per-feature flags.
+    """
+    value = os.environ.get("PENNY_ENV", "").strip().lower() or "development"
+    if value not in ("production", "development"):
+        raise ValueError(
+            f"PENNY_ENV must be 'production' or 'development', got {value!r}"
+        )
+    return value  # type: ignore[return-value]
 
 
 @dataclass(frozen=True, slots=True)

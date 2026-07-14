@@ -6,10 +6,12 @@ Local dev is moving to real Clerk auth (keys, network, sign-in step). Clerk
 instances have independent user databases, so the developer's identity has a
 different subject (`sub`) per instance. The Neon `penny-test` branch is
 recreated from prod, whose `users.external_auth_id` values are **prod**-instance
-subjects. A local sign-in presents a **dev**-instance subject, misses the
-by-subject match in `resolve_or_provision_identity`, and falls through to
-provisioning a fresh solo household — orphaning the developer's real data on
-every branch recreation.
+subjects. A local sign-in presents a **dev**-instance subject and misses the
+by-subject match in `resolve_or_provision_identity`. The email-idempotent
+provision fallback still resolves to the right household (UNIQUE email), but
+the subject is never re-stamped — so *every* request takes the slow path,
+including a Clerk Backend API identity fetch, and the by-subject fast path
+never recovers.
 
 ## Decision
 
@@ -53,6 +55,7 @@ every branch recreation.
 `backend/tests/test_signup.py`:
 - development (default): a row with a different non-NULL subject and matching
   email is re-linked — same household/user returned, subject re-stamped.
-- `PENNY_ENV=production`: same setup provisions a fresh solo household and the
-  original row is untouched (today's behavior).
+- `PENNY_ENV=production`: same setup resolves to the same household via the
+  email-idempotent provision path, but the stored subject is never re-stamped
+  (today's behavior).
 - invalid `PENNY_ENV` raises.

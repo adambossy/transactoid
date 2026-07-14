@@ -269,7 +269,10 @@ T12. Signup & invite integrity
      a first login atomically claims it. An invite can never target an email that
      already has an active account (no takeover), and revoking an invite only ever
      deletes an unclaimed pending row, never an active user. Auto-provision
-     requires a verified email. Enforced by backend/tests/test_signup.py,
+     requires a verified email. Subject re-binding is environment-gated: only
+     under PENNY_ENV=development (the default; deploy pins production) may a
+     verified email re-stamp a row's external_auth_id to a new Clerk subject —
+     production keeps strict subject matching. Enforced by backend/tests/test_signup.py,
      tests/api/test_invites.py, tests/api/test_me.py, tests/api/test_auth_*.py,
      and tests/adapters/db/test_signup_isolation.py (the last requires
      POSTGRES_TEST_URL).

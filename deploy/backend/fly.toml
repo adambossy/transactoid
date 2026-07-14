@@ -26,6 +26,8 @@ primary_region = "iad"  # US East — close to the Neon/Supabase prod DB.
 # `fly secrets set` and MUST NOT appear here.
 [env]
   PYTHONUNBUFFERED = "1"
+  # Environment tier: disables dev-only auth conveniences (see backend/.env.example).
+  PENNY_ENV = "production"
   PENNY_AGENT_PROVIDER = "gemini"
   PENNY_AGENT_MODEL = "gemini-3.5-flash"
   PENNY_CATEGORIZER_MODEL = "gemini-3.5-flash"
