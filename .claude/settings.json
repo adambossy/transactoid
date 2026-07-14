@@ -5,9 +5,13 @@
       "Bash(neonctl connection-string:*)"
     ],
     "allow": [
-      "Bash(backend/scripts/pennydb test:*)",
-      "Bash(scripts/pennydb test:*)",
+      "Bash(backend/scripts/pennydb test psql:*)",
+      "Bash(backend/scripts/pennydb test url)",
+      "Bash(backend/scripts/pennydb test refresh)",
       "Bash(backend/scripts/pennydb selftest)",
+      "Bash(scripts/pennydb test psql:*)",
+      "Bash(scripts/pennydb test url)",
+      "Bash(scripts/pennydb test refresh)",
       "Bash(scripts/pennydb selftest)"
     ]
   }
