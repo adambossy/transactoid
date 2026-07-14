@@ -19,11 +19,13 @@ from __future__ import annotations
 from typing import Protocol
 import uuid
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from penny.adapters.db.facade import apply_tenant_guc
 from penny.adapters.db.models import Household, User
 from penny.bootstrap import seed_taxonomy_for_household
+from penny.config import penny_env
 from penny.tenancy.context import RequestContext
 
 
@@ -95,7 +97,14 @@ def resolve_or_provision_identity(
       1. existing user by ``external_auth_id`` (survives email changes);
       2. a **pending** invite row by email (``external_auth_id IS NULL``) → claim
          it (stamp ``external_auth_id``) and join that household;
-      3. otherwise auto-provision a fresh solo household.
+      3. development only: re-bind a row whose subject is stale — same email,
+         different Clerk instance (a Neon test branch recreated from prod
+         carries prod subjects; the developer signs in with the dev instance);
+      4. otherwise auto-provision a fresh solo household.
+
+    The caller (``api/auth.py``) fails closed on unverified email before this
+    runs, so every branch below operates on a proven address. Production keeps
+    strict subject matching — one Clerk instance, subjects never drift.
     """
     normalized = email.strip().lower()
     by_sub = (
@@ -115,6 +124,19 @@ def resolve_or_provision_identity(
         claimed.external_auth_id = external_auth_id
         session.flush()
         return claimed.household_id, claimed.user_id
+    if penny_env() == "development":
+        stale = (
+            session.query(User)
+            .filter(User.email == normalized, User.external_auth_id.isnot(None))
+            .one_or_none()
+        )
+        if stale is not None:
+            logger.bind(user_id=str(stale.user_id)).info(
+                "Re-linked user to new auth subject (PENNY_ENV=development)"
+            )
+            stale.external_auth_id = external_auth_id
+            session.flush()
+            return stale.household_id, stale.user_id
     return provision_solo_household(
         session, email=normalized, external_auth_id=external_auth_id
     )
