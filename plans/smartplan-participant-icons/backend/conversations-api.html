@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversations API — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="backend-conversations-api" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; <a href="index.html">Backend</a>
+        &nbsp;/&nbsp; Conversations API
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Backend · leaf</p>
+        <h1>Conversations API</h1>
+        <p class="lede">The smallest change in the project: the conversation list starts saying which entries are joint, so the sidebar can decide where the avatar stack belongs.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>The chat history the app receives says, per conversation, whether it is a personal or a shared one.</li>
+          <li>The list stays as fast and small as it is today — no per-conversation lookups are added.</li>
+        </ol>
+      </section>
+
+      <section id="response-change">
+        <header class="section-header">
+          <h2>Response change</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="response-change">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>GET /api/conversations</code> (<code>backend/penny/api/main.py:402–422</code>) today returns <code>{id, title, updated_at}</code> per conversation, even though the store already hands the route full <code>Conversation</code> rows carrying <code>session_mode</code>. The change is one added key in the response dict:</p>
+        <pre>{ "id": "…", "title": "Groceries plan", "updated_at": "…",
+  "session_mode": "joint" }</pre>
+        <p>No store change, no query change, purely additive — existing clients ignore the extra key.</p>
+      </section>
+
+      <section id="multi-user-rule">
+        <header class="section-header">
+          <h2>The multi-user rule lives in the client</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="multi-user-rule">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Per the decision taken during planning, a conversation counts as multi-user when it is <strong>joint and the household has two or more members</strong>. The backend supplies the two facts separately — <code>session_mode</code> here, the member list from <a href="members-endpoint.html">the members endpoint</a> — and the sidebar combines them:</p>
+        <pre>isMultiUser = conversation.session_mode === "joint" &amp;&amp; members.length &gt;= 2</pre>
+        <p>Two things were considered and rejected:</p>
+        <ul>
+          <li><em>A per-conversation member count from the server</em> — redundant: membership is household-wide, one members fetch serves every entry in the list.</li>
+          <li><em>"Two or more distinct actual senders"</em> — more literal but needs a message-table aggregate per conversation and shows nothing until the second person speaks; the structural rule advertises the shared space immediately.</li>
+        </ul>
+        <p>Test: the route test asserting the response shape gains the <code>session_mode</code> key for both an individual and a joint conversation.</p>
+      </section>
+
+      <p class="foot"><a href="members-endpoint.html">Previous: Members &amp; avatars API</a> · <a href="../frontend/sidebar.html">Consumed by: History sidebar</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

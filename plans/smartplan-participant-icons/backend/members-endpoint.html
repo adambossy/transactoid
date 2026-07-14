@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Members &amp; avatars API — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="backend-members-endpoint" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; <a href="index.html">Backend</a>
+        &nbsp;/&nbsp; Members &amp; avatars API
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Backend · leaf</p>
+        <h1>Members &amp; avatars API</h1>
+        <p class="lede">One new endpoint, <code>GET /api/household/members</code>, that lists the household's members with their current Clerk (Google) profile picture — fetched live, never persisted, per the decision taken during planning.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Anyone signed in can see who is in their household, with each person's current Google profile picture and a usable display name.</li>
+          <li>Penny never stores a copy of anyone's picture; if someone changes their Google photo, Penny shows the new one within minutes with no sync job.</li>
+          <li>If the picture service is unreachable, the app still works — members simply show initials instead of photos.</li>
+          <li>Nobody can list members of a household they don't belong to.</li>
+        </ol>
+      </section>
+
+      <section id="endpoint-shape">
+        <header class="section-header">
+          <h2>Endpoint shape</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="endpoint-shape">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>GET /api/household/members</code>, added to <code>backend/penny/api/signup_routes.py</code> beside the existing household routes (<code>/api/me</code>, <code>/api/invites</code>). Scoped by the request context's <code>household_id</code> like everything else there. Response:</p>
+        <pre>{ "members": [
+  { "user_id": "…", "email": "ada@…", "display_name": "Ada",
+    "image_url": "https://img.clerk.com/…", "is_you": true },
+  { "user_id": "…", "email": "sam@…", "display_name": "Sam",
+    "image_url": null, "is_you": false }
+] }</pre>
+        <ul>
+          <li>Members are the finance-side <code>users</code> rows for the household <em>with a linked login</em> (<code>external_auth_id IS NOT NULL</code>) — pending invitees are rows too, but they have no Clerk account and no picture, so they are excluded. The existing invites screen already covers them.</li>
+          <li><code>display_name</code> is Clerk's first name when present, else the email local-part — a server-side decision so every client renders names the same way.</li>
+          <li><code>is_you</code> lets the client find the viewer without a second call to <code>/api/me</code>.</li>
+          <li><code>image_url</code> is null when Clerk has no image or the fetch failed; the client falls back to initials.</li>
+        </ul>
+      </section>
+
+      <section id="clerk-adapter">
+        <header class="section-header">
+          <h2>Clerk adapter extension</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="clerk-adapter">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>backend/penny/adapters/clerk.py</code> is the single seam to Clerk (invites + <code>fetch_user_identity</code>, lines 109–150, which already calls <code>GET /v1/users/{id}</code> and reads only the email). Add a sibling <code>fetch_user_profile(external_auth_id)</code> reusing the same HTTP plumbing, returning <code>{image_url, first_name, last_name}</code> from the same Clerk payload that <code>fetch_user_identity</code> already receives and discards.</p>
+        <p>Clerk's <code>image_url</code> values are publicly loadable <code>img.clerk.com</code> URLs, so returning the URL to the browser is sufficient — no image proxying, no signed URLs, no bytes through Penny.</p>
+        <p>A failed or slow Clerk call for one member must not fail the endpoint: catch per-member, return <code>image_url: null</code> for that member, log at warning. This is "define errors out of existence" — a missing picture is a normal state the client already handles, while a genuinely broken route (bad auth, DB down) still raises.</p>
+      </section>
+
+      <section id="caching">
+        <header class="section-header">
+          <h2>Caching — the one knob</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="caching">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The sidebar opens often; households are tiny (one to a few members). Without any cache, every drawer open costs one Clerk API call per member. Proposal: a module-level in-process TTL cache keyed by <code>external_auth_id</code>, roughly 5 minutes — a dict and a timestamp, not a cache library. That bounds Clerk traffic to about one call per member per app instance per 5 minutes while keeping "no complicated syncing" intact: nothing is persisted, nothing survives a restart, nothing needs invalidation plumbing.</p>
+        <p>This is deliberately the smallest thing that works. If it ever matters more (many instances, rate limits), the escape hatch is the webhook-sync design that was considered and rejected — recorded on the <a href="../assumptions/index.html">assumptions page</a>.</p>
+      </section>
+
+      <section id="edge-cases">
+        <header class="section-header">
+          <h2>Edge cases &amp; tests</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="edge-cases">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Dev mode</strong> (env-pinned principal, no Clerk): the endpoint still returns the member list from the DB with <code>image_url: null</code> throughout. The UI shows initials — the feature is exercisable locally without Clerk keys.</li>
+          <li><strong>Solo household:</strong> returns one member; the frontend simply never shows a stack (see <a href="conversations-api.html">multi-user rule</a>).</li>
+          <li><strong>Tenancy:</strong> the query filters on <code>ctx.household_id</code>; a test asserts a member of household A never appears for a caller in household B.</li>
+        </ul>
+        <p>Tests: route test with the Clerk adapter mocked (happy path, Clerk failure → null image, pending invitee excluded, cross-household isolation); adapter test for the new fetch parsing <code>image_url</code>/<code>first_name</code> from a canned Clerk payload.</p>
+      </section>
+
+      <p class="foot"><a href="sender-attribution.html">Previous: Sender attribution</a> · <a href="conversations-api.html">Next: Conversations API</a> · <a href="../frontend/avatar-components.html">Consumed by: Avatar primitives</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

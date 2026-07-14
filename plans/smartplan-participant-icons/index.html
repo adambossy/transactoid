@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Executive summary — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="root" data-page-depth="0">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <header class="page-header">
+        <p class="eyebrow">Penny · chat UI</p>
+        <h1>Participant icons &amp; multi-user chat</h1>
+        <p class="lede">Make shared household conversations legible: overlapping member avatars on multi-user entries in the history sidebar, and green, avatar-tagged bubbles for messages the other household member sent.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>A household member scanning the chat history can tell at a glance which conversations are shared with their partner, because those entries carry two small overlapping profile pictures on the right.</li>
+          <li>Inside a shared conversation, messages written by the other member look unmistakably different from the reader's own: green, on the left, with the sender's profile picture beside them.</li>
+          <li>Profile pictures are the ones people already have on their Google account — nobody uploads or configures anything in Penny.</li>
+          <li>Nothing changes for a solo household or an individual conversation; the UI looks exactly as it does today.</li>
+        </ol>
+      </section>
+
+      <section id="the-goal">
+        <header class="section-header">
+          <h2>The goal</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="the-goal">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Penny already supports shared conversations — a <em>joint</em> conversation is visible to every member of the household — but the UI hides that fact. The history sidebar renders every conversation identically, and inside a conversation every human message renders as "yours": right-aligned, grey, anonymous. In a two-person household this is actively confusing: you can open a joint conversation and read messages you never wrote, presented as if you did.</p>
+        <p>This project makes shared conversations legible in two places: the sidebar (who is in this conversation?) and the transcript (who said this?).</p>
+      </section>
+
+      <section id="strategy">
+        <header class="section-header">
+          <h2>Strategy</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="strategy">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Exploration of the codebase found two genuine gaps behind the two visible features, plus one deliberate non-goal:</p>
+        <ol>
+          <li><strong>Messages carry no sender identity.</strong> The message table records only <em>user</em> vs <em>assistant</em>. The backbone of the work is a new nullable sender column, stamped at write time and surfaced when a conversation is loaded. See <a href="backend/sender-attribution.html">Sender attribution</a>.</li>
+          <li><strong>Penny stores no profile pictures — and will not start.</strong> Per the decision taken during planning, avatars come straight from Clerk (which mirrors the Google account picture) with no syncing or persistence. Your own picture is already available in the browser; the other member's is fetched through one small backend endpoint that proxies Clerk. See <a href="backend/members-endpoint.html">Members &amp; avatars API</a>.</li>
+          <li><strong>No changes to the shared UI library.</strong> The green bubble and avatar are rendered by Penny's own frontend around the existing message component, not by forking <code>@adambossy/agent-ui</code>. See <a href="frontend/chat-bubbles.html">Green bubbles</a>.</li>
+        </ol>
+        <div class="mermaid">
+flowchart LR
+  clerk[Clerk user profiles] --> members[Members API]
+  members --> sidebar[History sidebar avatars]
+  members --> bubbles[Chat bubble avatars]
+  db[(conversation messages with sender)] --> hydration[Session load]
+  hydration --> bubbles
+        </div>
+      </section>
+
+      <section id="shape-of-the-work">
+        <header class="section-header">
+          <h2>Shape of the work</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="shape-of-the-work">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The work splits cleanly along the API boundary, then lands in five dependency-ordered commits (detailed in <a href="rollout/index.html">Rollout</a>):</p>
+        <ul>
+          <li><a href="backend/index.html"><strong>Backend</strong></a> — three small changes: the sender column and its migration, a household-members endpoint that returns Clerk image URLs live, and one added field on the conversation-list response.</li>
+          <li><a href="frontend/index.html"><strong>Frontend</strong></a> — an <code>Avatar</code>/<code>AvatarStack</code> primitive pair, a members hook, the sidebar entry restyle, and the green-bubble render branch in the chat screen.</li>
+        </ul>
+        <p>Everything backend lands first and is invisible on its own; the frontend then consumes it. No step is destructive and every schema change is additive and nullable.</p>
+      </section>
+
+      <section id="tradeoffs">
+        <header class="section-header">
+          <h2>Big tradeoffs</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="tradeoffs">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Live Clerk fetch vs. stored avatars.</strong> Chosen: live fetch, no persistence. It keeps the schema untouched and pictures always current, at the cost of a runtime dependency on Clerk for avatar display. A short in-process cache keeps the cost to roughly one Clerk call per member every few minutes. If Clerk is briefly unreachable, avatars degrade to initials — the feature, not the app, degrades.</li>
+          <li><strong>Sidebar rule is structural, not literal.</strong> A conversation shows the avatar stack when it is <em>joint</em> and the household has two or more members — even before the second person has actually typed. Chosen deliberately: it is cheap (no message scan) and it advertises "this is a shared space", which is what the joint mode means.</li>
+          <li><strong>Old messages stay anonymous.</strong> Messages written before this ships have no sender recorded and cannot be backfilled. They keep today's rendering (grey, right-aligned). Only messages written after the backend lands get attribution.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="backend/index.html">Backend</a> · <a href="frontend/index.html">Frontend</a> · <a href="rollout/index.html">Rollout &amp; verification</a> · <a href="assumptions/index.html">Assumptions &amp; open questions</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="smartplan.js"></script>
+</body>
+</html>

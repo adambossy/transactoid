@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Green bubbles — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="frontend-chat-bubbles" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; <a href="index.html">Frontend</a>
+        &nbsp;/&nbsp; Green bubbles
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Frontend · leaf</p>
+        <h1>Green bubbles</h1>
+        <p class="lede">Feature 2: in <code>ChatScreen</code>, messages the other household member sent render as left-aligned green bubbles with their avatar — the iMessage-style layout chosen during planning. Everything else renders exactly as today.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Reading a shared conversation, the reader can attribute every recent human message to its author without thinking: mine are grey on the right, theirs are green on the left with their face.</li>
+          <li>Penny's own replies are visually unchanged.</li>
+          <li>Messages from before this feature existed keep their current appearance rather than guessing an author.</li>
+        </ol>
+      </section>
+
+      <section id="render-branch">
+        <header class="section-header">
+          <h2>The render branch</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="render-branch">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The message map (<code>frontend/src/ChatScreen.tsx:275–283</code>) wraps each message in <code>&lt;div data-role=…&gt;</code> and delegates to agent-ui's <code>Message</code>. Insert one branch:</p>
+        <div class="mermaid">
+flowchart TD
+  m[message] --> u{role is user}
+  u -- no --> lib[agent-ui Message, unchanged]
+  u -- yes --> s{sender known and not me}
+  s -- no --> lib
+  s -- yes --> other[OtherUserMessage, green bubble plus avatar]
+        </div>
+        <p><code>OtherUserMessage</code> is a small local component in <code>frontend/src</code>: a flex row of <code>Avatar size="sm"</code> and a bubble div rendering the message's text parts. User messages are plain text (only assistant messages carry tool/reasoning parts), so reproducing the bubble locally forfeits nothing from the library.</p>
+      </section>
+
+      <section id="bubble-style">
+        <header class="section-header">
+          <h2>Bubble style</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="bubble-style">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Mirror the library's own user bubble (<code>rounded-2xl px-4 py-2.5 max-w-[78%]</code>) but left-aligned and green. For "green" in Penny's warm palette, reuse the existing <strong><code>steel</code> token (#3C7A72)</strong> — <code>bg-steel text-paper</code> — rather than minting a new color: it is the palette's green, it clears WCAG AA against <code>paper</code>-family text at bubble sizes, and reusing it means no <code>theme.css</code>/<code>tokens.ts</code> drift-test churn. The avatar sits bottom-left of the bubble (<code>items-end</code>), 4px gap.</p>
+        <p>Penny is forced-light (the <code>dark:</code> variant is retargeted to a never-set class), so one value suffices — no dark-mode variant needed. If <code>bg-steel</code> reads too saturated in situ, the fallback is a new soft token (e.g. <code>--color-sage</code>) added to <code>packages/ui/src/theme.css</code> <em>and mirrored in <code>tokens.ts</code></em>, which the drift test guards.</p>
+      </section>
+
+      <section id="sender-resolution">
+        <header class="section-header">
+          <h2>Resolving "mine vs theirs"</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="sender-resolution">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Two lookups, both already planned:</p>
+        <ul>
+          <li><strong>Sender per message:</strong> when <code>ChatScreen</code> hydrates a session it receives <code>senderUserId</code> per message (see <a href="../backend/sender-attribution.html">Sender attribution</a>). Keep a <code>sendersById: Map&lt;messageId, userId&gt;</code> in component state, populated from the hydration payload — deliberately outside the AI SDK's message objects, so <code>useChat</code>'s state handling is untouched.</li>
+          <li><strong>The viewer:</strong> <code>me.user_id</code> from <code>useHouseholdMembers</code>.</li>
+        </ul>
+        <p>Decision rule: <em>green iff the sender is known and is not me.</em> A missing sender (legacy rows, or members still loading) falls through to today's rendering — wrong-styling-by-guess is worse than the status quo.</p>
+      </section>
+
+      <section id="streaming-and-live">
+        <header class="section-header">
+          <h2>Streaming and live turns</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="streaming-and-live">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Messages the viewer sends live never enter <code>sendersById</code> (they are not in the hydration payload), so they take the "mine" path automatically — correct by construction, since the sender of a live turn is always the viewer. There is no live push between household members today (no websocket); the other member's messages appear when the conversation is reloaded/hydrated, which is exactly the path that carries attribution. Nothing extra to build.</p>
+        <p>Verification: a quick browser pass with two members (see <a href="../rollout/index.html">Rollout → manual test</a>) covering hydrated other-user messages, own live sends, and a legacy conversation.</p>
+      </section>
+
+      <p class="foot"><a href="sidebar.html">Previous: History sidebar</a> · <a href="../rollout/index.html">Next: Rollout &amp; verification</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

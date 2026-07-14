@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontend — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="frontend" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; Frontend
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Branch</p>
+        <h1>Frontend</h1>
+        <p class="lede">New avatar primitives in the shared UI package, one members hook, and two surgical component changes — the sidebar entry and the chat message map. The shared <code>@adambossy/agent-ui</code> library is not modified.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Shared conversations in the history drawer show two small overlapping member pictures on the right of the entry, without crowding the title.</li>
+          <li>In a shared conversation, the other member's messages are green, sit on the left, and carry their picture; the reader's own messages look exactly as they do today.</li>
+          <li>Members without a picture still get a recognisable mark — their initial in a colored circle — so the UI never shows a broken image.</li>
+        </ol>
+      </section>
+
+      <section id="what-changes">
+        <header class="section-header">
+          <h2>What changes, at a glance</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="what-changes">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Change</th><th>Where</th><th>Page</th></tr></thead>
+          <tbody>
+            <tr><td><code>Avatar</code> + <code>AvatarStack</code> primitives, <code>useHouseholdMembers</code> hook</td><td><code>frontend/packages/ui/src</code>, <code>frontend/src</code></td><td><a href="avatar-components.html">Avatar primitives</a></td></tr>
+            <tr><td>Entry becomes a flex row: title left, avatar stack right on joint conversations</td><td><code>frontend/src/ChatHistoryDrawer.tsx</code></td><td><a href="sidebar.html">History sidebar</a></td></tr>
+            <tr><td>Message map branches: other member's user messages render a Penny-local green bubble + avatar</td><td><code>frontend/src/ChatScreen.tsx</code></td><td><a href="chat-bubbles.html">Green bubbles</a></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="data-plumbing">
+        <header class="section-header">
+          <h2>Data plumbing</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="data-plumbing">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>One fetch feeds both features: <code>GET /api/household/members</code> is loaded once per app session by <code>useHouseholdMembers</code> and shared from <code>AppShell</code> down to the drawer and the chat screen — the same prop-threading pattern already used for <code>getToken</code>. From the response the client derives:</p>
+        <ul>
+          <li><code>me</code> — the member with <code>is_you: true</code> (the anchor for "mine vs theirs" in the transcript);</li>
+          <li><code>membersById</code> — the avatar/name lookup for both the sidebar stack and the bubble icon;</li>
+          <li><code>members.length &gt;= 2</code> — half of the sidebar's multi-user rule.</li>
+        </ul>
+        <p>Per-message sender ids arrive separately on the session hydration payload (see <a href="../backend/sender-attribution.html">Sender attribution</a>) and are kept in a small <code>sendersById</code> map inside <code>ChatScreen</code> — deliberately <em>not</em> threaded through the AI SDK's message state, so no fights with <code>useChat</code>'s typing or state management.</p>
+      </section>
+
+      <section id="no-upstream-changes">
+        <header class="section-header">
+          <h2>Why agent-ui stays untouched</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="no-upstream-changes">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The library's <code>Message</code> component takes only <code>{message, isStreaming}</code> — no author, no avatar, no variant. Teaching it about senders would push a Penny-specific concept (household members) into a general-purpose library whose message type has no sender field at all.</p>
+        <p>Instead, <code>ChatScreen</code> already owns the per-message wrapper <code>&lt;div data-role=…&gt;</code>, and the user-bubble markup is a single styled div — trivial to reproduce locally. The plan: render a small Penny-local <code>OtherUserMessage</code> for the one new case, delegate everything else (own messages, assistant messages, streaming, tool parts, reasoning) to the library exactly as today. If a second consumer of authored messages ever appears in agent-ui's world, that is the moment to generalize upstream — not before.</p>
+      </section>
+
+      <p class="foot"><a href="avatar-components.html">Avatar primitives</a> · <a href="sidebar.html">History sidebar</a> · <a href="chat-bubbles.html">Green bubbles</a> · <a href="../backend/index.html">Backend branch</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

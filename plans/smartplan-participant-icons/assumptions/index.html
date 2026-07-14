@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assumptions &amp; open questions — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="assumptions" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; Assumptions &amp; open questions
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Meta</p>
+        <h1>Assumptions &amp; open questions</h1>
+        <p class="lede">What was asked, what was assumed by default, and what remains genuinely unresolved.</p>
+      </header>
+
+      <section id="asked">
+        <header class="section-header">
+          <h2>What I asked you</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="asked">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Question</th><th>Your answer</th><th>Where it lands</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>How should Penny obtain profile pictures?</td>
+              <td>"Just keep using the Clerk icon directly, as we do now — no complicated syncing or persistence."</td>
+              <td>Shapes the whole avatar design: live proxy via one endpoint, no schema change, no webhooks. <a href="../backend/members-endpoint.html">Members &amp; avatars API</a></td>
+            </tr>
+            <tr>
+              <td>What makes a conversation "multi-user"?</td>
+              <td>Joint mode + household of 2+ members (structural rule, not actual senders).</td>
+              <td><a href="../backend/conversations-api.html">Conversations API</a>, <a href="../frontend/sidebar.html">History sidebar</a></td>
+            </tr>
+            <tr>
+              <td>Layout of the other member's bubbles?</td>
+              <td>Left-aligned green with avatar (iMessage-style); own messages unchanged on the right.</td>
+              <td><a href="../frontend/chat-bubbles.html">Green bubbles</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <p>One nuance on the first answer: "as we do now" — the app currently shows a Clerk avatar only for the <em>signed-in</em> user (Clerk's own account button). Clerk's browser SDK cannot see <em>other</em> members, so honouring "no syncing, no persistence" still requires the thin backend proxy that fetches the other member's image URL from Clerk's server API on demand. That is the minimal faithful reading of the answer; nothing is stored anywhere.</p>
+      </section>
+
+      <section id="assumed">
+        <header class="section-header">
+          <h2>What I assumed without asking</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="assumed">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Assumption</th><th>Alternative</th><th>Why this default</th><th>Affects</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>A ~5-minute in-process cache on Clerk profile fetches counts as "not complicated".</td>
+              <td>No cache at all — one Clerk call per member per drawer open.</td>
+              <td>It is a dict with timestamps, not infrastructure; without it the sidebar hammers Clerk on every open.</td>
+              <td><a href="../backend/members-endpoint.html">Members API → caching</a></td>
+            </tr>
+            <tr>
+              <td>Legacy (pre-feature) messages render as the viewer's own, exactly as today.</td>
+              <td>Render unattributed messages in a third neutral style.</td>
+              <td>Backfill is impossible; preserving today's look means the feature cannot make old conversations worse.</td>
+              <td><a href="../backend/sender-attribution.html">Sender attribution</a>, <a href="../frontend/chat-bubbles.html">Green bubbles</a></td>
+            </tr>
+            <tr>
+              <td>The green is the existing <code>steel</code> token (#3C7A72) with paper-white text.</td>
+              <td>Mint a new soft-green token (theme.css + tokens.ts).</td>
+              <td>Reuses the palette's only green, avoids drift-test churn; easy to swap after seeing it in situ.</td>
+              <td><a href="../frontend/chat-bubbles.html">Green bubbles → style</a></td>
+            </tr>
+            <tr>
+              <td>No participants junction table — a joint conversation's participants are simply the household's members.</td>
+              <td>Model per-conversation membership explicitly.</td>
+              <td>Matches how access control already works (joint = household-visible); a junction table would model a concept the product does not have yet.</td>
+              <td><a href="../backend/index.html">Backend → boundaries</a></td>
+            </tr>
+            <tr>
+              <td>The stack shows at most two avatars, other member in front.</td>
+              <td>Show up to three, or a "+N" overflow chip.</td>
+              <td>Households are two-person today; the "+N" chip is a five-line follow-up when a third member becomes real.</td>
+              <td><a href="../frontend/avatar-components.html">Avatar primitives</a>, <a href="../frontend/sidebar.html">Sidebar</a></td>
+            </tr>
+            <tr>
+              <td>Sender ids ride a side map in the chat screen, not inside the AI SDK message objects.</td>
+              <td>Attach metadata to the SDK's message state.</td>
+              <td>Keeps the SDK's typing/state management untouched; hydration already flows through Penny-owned code.</td>
+              <td><a href="../frontend/chat-bubbles.html">Green bubbles → sender resolution</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="open-questions">
+        <header class="section-header">
+          <h2>Open questions</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="open-questions">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Should the other member's name appear near their bubble?</strong> With only two people an avatar may suffice; group-style sender labels become useful if households grow. Affects <a href="../frontend/chat-bubbles.html">Green bubbles</a> only — a one-line addition either way. Suggest deciding by eye during the manual pass.</li>
+          <li><strong>Does the other member's message need to appear without a manual reload?</strong> There is no live push between members today; attribution rides the reload path. If "live" shared conversations are wanted later, that is a separate (websocket/poll) project — noted so nobody mistakes this plan for delivering it. Affects <a href="../frontend/chat-bubbles.html">Green bubbles → streaming</a>.</li>
+          <li><strong>Clerk rate limits at scale.</strong> Irrelevant at current size; if Penny ever has many households per instance, revisit the rejected webhook-sync design. Affects <a href="../backend/members-endpoint.html">Members API → caching</a>.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="../index.html">Back to executive summary</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

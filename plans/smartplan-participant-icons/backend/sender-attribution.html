@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sender attribution — Participant icons &amp; multi-user chat</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="participant-icons" data-page-id="backend-sender-attribution" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">Participant icons &amp; multi-user chat</a>
+        &nbsp;/&nbsp; <a href="index.html">Backend</a>
+        &nbsp;/&nbsp; Sender attribution
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Backend · leaf</p>
+        <h1>Sender attribution</h1>
+        <p class="lede">Record which household member wrote each human message, and hand that identity to the client when a conversation is loaded. This is the single schema change in the project and the backbone of the green-bubble feature.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>From the moment this ships, every message a person sends is stored with their identity attached.</li>
+          <li>When anyone in the household reopens a conversation, each human message says who wrote it.</li>
+          <li>Messages written before this shipped keep working exactly as today — nothing breaks because older rows have no sender.</li>
+        </ol>
+      </section>
+
+      <section id="schema-change">
+        <header class="section-header">
+          <h2>Schema change</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="schema-change">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Add one nullable column to <code>ConversationMessage</code> in <code>backend/penny/api/persistence/models.py</code> (table <code>web.conversation_messages</code>, currently lines 87–139):</p>
+        <ul>
+          <li><code>sender_user_id</code> — UUID, nullable, no foreign key. It identifies the household member who wrote a <em>user</em>-role message; it stays <code>NULL</code> for assistant messages and for all rows written before the change.</li>
+        </ul>
+        <details>
+          <summary>Why nullable, and why no foreign key</summary>
+          <p>Nullable because assistant rows and legacy rows legitimately have no sender — making absence a normal state defines the backfill problem out of existence. No foreign key because the web schema already references <code>household_id</code>/<code>owner_user_id</code> as bare UUIDs with no cross-schema FK (see the note on <code>Conversation</code>); a FK to the finance-side <code>users</code> table would pierce the schema boundary the web store deliberately keeps.</p>
+        </details>
+      </section>
+
+      <section id="stamping">
+        <header class="section-header">
+          <h2>Stamping at write time</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="stamping">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>store.append_user_message</code> (<code>backend/penny/api/persistence/store.py:230–257</code>) currently writes <code>role="user"</code> and discards the caller's identity, even though the chat route has it in hand. Change: the route (<code>backend/penny/api/main.py:521–523</code>) passes the sender explicitly, and the store writes it.</p>
+        <p><strong>One trap:</strong> use the real <code>ctx.user_id</code>, not <code>ctx.effective_user_id</code>. The tenancy context's <code>effective_user_id</code> deliberately collapses to the nil UUID in joint sessions (<code>penny/tenancy/context.py:23–26</code>) — exactly the sessions where attribution matters most. Attribution is about the human, not the tenancy principal.</p>
+        <p>Assistant writes (<code>upsert_assistant_message</code>) are untouched — Penny's messages need no sender.</p>
+      </section>
+
+      <section id="surfacing">
+        <header class="section-header">
+          <h2>Surfacing on load</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="surfacing">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>conversation_to_ui</code> (<code>backend/penny/api/hydration.py:20–37</code>) shapes each stored row into the AI SDK message form <code>{id, role, parts}</code> for <code>GET /api/sessions/{id}</code>. Add <code>senderUserId</code> (string or null) alongside those three fields on user-role messages.</p>
+        <p>The field rides the hydration payload only — the live streaming path (<code>POST /api/chat</code>) does not need it, because the sender of a live turn is always the viewer themself (see <a href="../frontend/chat-bubbles.html">Green bubbles → streaming</a>).</p>
+      </section>
+
+      <section id="migration">
+        <header class="section-header">
+          <h2>Migration</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="migration">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Two authorities, per the repo's schema rules:</p>
+        <ul>
+          <li><strong>SQLite (dev/test):</strong> the ORM model is the authority; <code>create_all</code> via <code>create_web_schema</code> picks the column up automatically. Nothing to do beyond the model edit.</li>
+          <li><strong>Postgres (prod):</strong> add alembic revision <code>025_add_message_sender</code> (down-revision <code>024_tenant_guc_wrapper</code>) following the established web-table pattern of revisions <code>019</code>/<code>023</code>: return early when the dialect is not postgresql, then <code>ALTER TABLE web.conversation_messages ADD COLUMN IF NOT EXISTS sender_user_id uuid</code>. Downgrade drops the column.</li>
+        </ul>
+        <p>Additive and nullable means the migration is safe to run against live data with no backfill, no lock concerns beyond an instant catalog change, and a trivial rollback.</p>
+      </section>
+
+      <section id="legacy-rows">
+        <header class="section-header">
+          <h2>Legacy rows and tests</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="legacy-rows">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Rows written before the change hydrate with <code>senderUserId: null</code>. The frontend's contract (see <a href="../frontend/chat-bubbles.html">Green bubbles</a>) is: a null sender renders as the viewer's own message — i.e. exactly today's behaviour. No backfill is attempted; attribution begins at deploy time.</p>
+        <p>Tests to add alongside the existing store/hydration suites:</p>
+        <ul>
+          <li><code>append_user_message</code> stamps the passed sender; assistant upserts leave it null.</li>
+          <li>A joint-session write stamps the <em>real</em> user id, not the nil UUID.</li>
+          <li><code>conversation_to_ui</code> emits <code>senderUserId</code> on user rows and null on legacy/assistant rows.</li>
+          <li>Idempotent re-append (same <code>ai_sdk_message_id</code>) does not clobber an existing sender.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="members-endpoint.html">Next: Members &amp; avatars API</a> · <a href="../frontend/chat-bubbles.html">Consumed by: Green bubbles</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "Participant icons & multi-user chat",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "shape-of-the-work", "tradeoffs"],
+    "children": [
+      {
+        "id": "backend",
+        "label": "Backend",
+        "href": "backend/index.html",
+        "sections": ["what-changes", "data-flow", "boundaries"],
+        "children": [
+          { "id": "backend-sender-attribution", "label": "Sender attribution", "href": "backend/sender-attribution.html", "sections": ["schema-change", "stamping", "surfacing", "migration", "legacy-rows"] },
+          { "id": "backend-members-endpoint", "label": "Members & avatars API", "href": "backend/members-endpoint.html", "sections": ["endpoint-shape", "clerk-adapter", "caching", "edge-cases"] },
+          { "id": "backend-conversations-api", "label": "Conversations API", "href": "backend/conversations-api.html", "sections": ["response-change", "multi-user-rule"] }
+        ]
+      },
+      {
+        "id": "frontend",
+        "label": "Frontend",
+        "href": "frontend/index.html",
+        "sections": ["what-changes", "data-plumbing", "no-upstream-changes"],
+        "children": [
+          { "id": "frontend-avatar-components", "label": "Avatar primitives", "href": "frontend/avatar-components.html", "sections": ["avatar", "avatar-stack", "members-hook"] },
+          { "id": "frontend-sidebar", "label": "History sidebar", "href": "frontend/sidebar.html", "sections": ["entry-layout", "when-to-show", "states"] },
+          { "id": "frontend-chat-bubbles", "label": "Green bubbles", "href": "frontend/chat-bubbles.html", "sections": ["render-branch", "bubble-style", "sender-resolution", "streaming-and-live"] }
+        ]
+      },
+      {
+        "id": "rollout",
+        "label": "Rollout & verification",
+        "href": "rollout/index.html",
+        "sections": ["commit-order", "verification", "requirements-txt", "manual-test"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>
