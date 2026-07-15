@@ -95,16 +95,18 @@ def resolve_or_provision_identity(
 
     Precedence:
       1. existing user by ``external_auth_id`` (survives email changes);
-      2. a **pending** invite row by email (``external_auth_id IS NULL``) → claim
-         it (stamp ``external_auth_id``) and join that household;
-      3. development only: re-bind a row whose subject is stale — same email,
-         different Clerk instance (a Neon test branch recreated from prod
-         carries prod subjects; the developer signs in with the dev instance);
-      4. otherwise auto-provision a fresh solo household.
+      2. an existing row by email:
+         - ``external_auth_id IS NULL`` → a **pending** invite: claim it (stamp
+           the subject) and join that household (phase-2 first-login linking);
+         - a different subject → development only: re-bind it (a Neon test
+           branch recreated from prod carries prod subjects; the developer
+           signs in with the dev instance). Production keeps strict subject
+           matching — one Clerk instance, subjects never drift — and returns
+           the row untouched;
+      3. no row → auto-provision a fresh solo household.
 
     The caller (``api/auth.py``) fails closed on unverified email before this
-    runs, so every branch below operates on a proven address. Production keeps
-    strict subject matching — one Clerk instance, subjects never drift.
+    runs, so every branch below operates on a proven address.
     """
     normalized = email.strip().lower()
     by_sub = (
@@ -114,32 +116,22 @@ def resolve_or_provision_identity(
     )
     if by_sub is not None:
         return by_sub.household_id, by_sub.user_id
-    # Claim a pending invite atomically (phase-2 first-login linking).
-    claimed = (
-        session.query(User)
-        .filter(User.email == normalized, User.external_auth_id.is_(None))
-        .one_or_none()
-    )
-    if claimed is not None:
-        claimed.external_auth_id = external_auth_id
-        session.flush()
-        return claimed.household_id, claimed.user_id
-    if penny_env() == "development":
-        stale = (
-            session.query(User)
-            .filter(User.email == normalized, User.external_auth_id.isnot(None))
-            .one_or_none()
+    by_email = session.query(User).filter(User.email == normalized).one_or_none()
+    if by_email is None:
+        return provision_solo_household(
+            session, email=normalized, external_auth_id=external_auth_id
         )
-        if stale is not None:
-            logger.bind(user_id=str(stale.user_id)).info(
-                "Re-linked user to new auth subject (PENNY_ENV=development)"
-            )
-            stale.external_auth_id = external_auth_id
-            session.flush()
-            return stale.household_id, stale.user_id
-    return provision_solo_household(
-        session, email=normalized, external_auth_id=external_auth_id
-    )
+    if by_email.external_auth_id is None:
+        # Claim a pending invite atomically (phase-2 first-login linking).
+        by_email.external_auth_id = external_auth_id
+        session.flush()
+    elif penny_env() == "development":
+        logger.bind(user_id=str(by_email.user_id)).info(
+            "Re-linked user to new auth subject (PENNY_ENV=development)"
+        )
+        by_email.external_auth_id = external_auth_id
+        session.flush()
+    return by_email.household_id, by_email.user_id
 
 
 def create_invite(
