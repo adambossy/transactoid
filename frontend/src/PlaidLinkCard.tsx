@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { usePlaidLink } from "react-plaid-link";
-import { Navigate, useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Button, Card } from "@penny/ui";
 import { authedFetch } from "./authFetch";
 import { conversationPath, useConversationId } from "./routes";
@@ -22,34 +22,54 @@ type Output = {
 type ToolPart = { state?: string; output?: unknown };
 
 /**
- * Where an OAuth-redirect Link flow stashes its conversation id: the bank
- * redirects to the static PLAID_REDIRECT_URI with only ?oauth_state_id, so
- * {@link PlaidOauthGate} reads this to reopen the conversation whose card
- * opened Link (letting `receivedRedirectUri` below resume the flow after
- * rehydration). localStorage, not sessionStorage — mobile banks can land the
- * redirect in a new tab, where a per-tab stash would be empty and the resume
- * would die.
+ * The OAuth-redirect Link stash: the bank redirects to the static
+ * PLAID_REDIRECT_URI with only ?oauth_state_id, so the card records at
+ * open time which conversation the flow belongs to, and {@link PlaidOauthGate}
+ * records the exact URL the bank landed on (Plaid validates the resume's
+ * `receivedRedirectUri` against the registered redirect URI, so the card must
+ * present the landing URL, not the post-navigation one).
+ *
+ * localStorage, not sessionStorage — mobile banks can land the redirect in a
+ * new tab, where a per-tab stash would be empty and the resume would die.
+ * A single slot: two Link flows opened concurrently (e.g. two tabs) are
+ * last-writer-wins, an accepted limitation — there is no join key available
+ * at open time to do better (Plaid assigns oauth_state_id at redirect time).
  */
 const PLAID_OAUTH_CONVERSATION_KEY = "penny:plaidOauthConversation";
+const PLAID_OAUTH_RETURN_KEY = "penny:plaidOauthReturnUrl";
+
+/** Forget a completed or abandoned OAuth round trip. */
+function clearOauthStash(): void {
+  localStorage.removeItem(PLAID_OAUTH_CONVERSATION_KEY);
+  localStorage.removeItem(PLAID_OAUTH_RETURN_KEY);
+}
 
 /**
- * Route gate for the Plaid OAuth return. Mounted around the `/` route element
- * (the redirect URI has no path context): when a Link flow is pending it
- * reopens the stashed conversation — query string intact, so the rehydrated
- * card's `receivedRedirectUri` completes the flow — and otherwise renders the
- * route unchanged. All Plaid-redirect knowledge stays in this module; the
- * routing layer composes the gate without knowing what it looks for.
+ * Gate for the Plaid OAuth return, mounted above the route table (the redirect
+ * lands with no path context). When a Link flow is pending it records the
+ * landing URL and reopens the stashed conversation — with a clean URL, so a
+ * lingering ?oauth_state_id can't put a later card into resume mode — and
+ * otherwise renders the app unchanged. All Plaid-redirect knowledge stays in
+ * this module; the routing layer composes the gate without knowing what it
+ * looks for.
  */
 export function PlaidOauthGate({ children }: { children: ReactNode }): ReactNode {
   const location = useLocation();
-  const resume = location.search.includes("oauth_state_id")
-    ? localStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY)
-    : null;
-  if (resume) {
-    return (
-      <Navigate to={{ pathname: conversationPath(resume), search: location.search }} replace />
-    );
-  }
+  const navigate = useNavigate();
+  const activeConversation = useConversationId();
+  const resume =
+    !activeConversation && location.search.includes("oauth_state_id")
+      ? localStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY)
+      : null;
+
+  useEffect(() => {
+    if (!resume) return;
+    localStorage.setItem(PLAID_OAUTH_RETURN_KEY, window.location.href);
+    void navigate(conversationPath(resume), { replace: true });
+  }, [resume, navigate]);
+
+  // Render nothing while redirecting so a draft chat never flashes underneath.
+  if (resume) return null;
   return children;
 }
 
@@ -92,19 +112,22 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
         }),
       });
       if (!res.ok) throw new Error(`Failed to link bank (${res.status})`);
-      localStorage.removeItem(PLAID_OAUTH_CONVERSATION_KEY);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
+  // Resuming an OAuth round trip presents the URL the bank actually landed on
+  // (recorded by PlaidOauthGate), which is what Plaid validates against the
+  // registered redirect URI — the in-app URL has since been rewritten.
+  const oauthReturnUrl = localStorage.getItem(PLAID_OAUTH_RETURN_KEY) ?? undefined;
+
   const { open, ready } = usePlaidLink({
     token: output?.link_token ?? null,
-    receivedRedirectUri: location.href.includes("oauth_state_id")
-      ? location.href
-      : undefined,
+    receivedRedirectUri: oauthReturnUrl,
     onSuccess: (publicToken) => {
+      clearOauthStash();
       // Update mode restores the existing item — no server-side exchange.
       if (isUpdate) {
         setDone(true);
@@ -112,6 +135,9 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
       }
       void exchange(publicToken);
     },
+    // An abandoned flow must not leave a stale stash that yanks a future
+    // OAuth return (or a later card's resume) into the wrong conversation.
+    onExit: () => clearOauthStash(),
   });
 
   // E2E hook: drive the success path without the hosted Plaid popup (which can't

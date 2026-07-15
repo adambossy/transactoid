@@ -24,9 +24,16 @@ test("first send replaces / with the conversation URL, without a page load", asy
   await page.goto("/");
   await expect(page.getByText(/what can i help with/i)).toBeVisible();
 
-  // Tag the window: a full page (re)load would lose this marker.
+  // Tag the window (lost on a full page load) and the transcript DOM node
+  // (lost on a React remount — the /  →  /c/:id promotion must keep the chat
+  // mounted so the in-flight first turn survives).
   await page.evaluate(() => {
     (window as unknown as { __penny_no_reload: boolean }).__penny_no_reload = true;
+    (
+      document.querySelector("[data-testid='transcript']") as unknown as {
+        __penny_same_node: boolean;
+      }
+    ).__penny_same_node = true;
   });
 
   await sendMessage(page, "Routing check: first send");
@@ -34,10 +41,16 @@ test("first send replaces / with the conversation URL, without a page load", asy
   await expect(page.locator("[data-message-role='user']")).toContainText(
     "Routing check: first send",
   );
-  const marker = await page.evaluate(
-    () => (window as unknown as { __penny_no_reload?: boolean }).__penny_no_reload,
-  );
-  expect(marker).toBe(true);
+  const markers = await page.evaluate(() => ({
+    noReload: (window as unknown as { __penny_no_reload?: boolean }).__penny_no_reload,
+    sameNode: (
+      document.querySelector("[data-testid='transcript']") as unknown as {
+        __penny_same_node?: boolean;
+      }
+    ).__penny_same_node,
+  }));
+  expect(markers.noReload).toBe(true);
+  expect(markers.sameNode).toBe(true);
 });
 
 test("a conversation URL is deep-linkable: a fresh load hydrates its history", async ({

@@ -111,10 +111,40 @@ function PendingThinking() {
 export function ChatRoute({ getToken }: { getToken: GetToken }) {
   const { id } = useParams();
   const location = useLocation();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const draftId = useMemo(() => crypto.randomUUID(), [location.key]);
-  const sessionId = id ?? draftId;
+  // The draft id lives in state, not useMemo — React may discard memo caches,
+  // which would remint the id and remount the draft mid-composition. The
+  // render-phase reset ("adjusting state when props change") mints a fresh id
+  // per navigation (location.key), so "New chat" always starts clean.
+  const [minted, setMinted] = useState(() => ({
+    key: location.key,
+    id: crypto.randomUUID(),
+  }));
+  if (minted.key !== location.key) {
+    setMinted({ key: location.key, id: crypto.randomUUID() });
+  }
+  const sessionId = id ?? minted.id;
   return <ChatScreen key={sessionId} sessionId={sessionId} draft={!id} getToken={getToken} />;
+}
+
+/** Hydration hit a genuine failure (5xx, network) — surface it, don't render
+ * an existing conversation as a deceptively empty chat the user would re-send
+ * context into. */
+function ConversationLoadFailed() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center bg-background text-center">
+      <h1 className="text-2xl font-semibold sm:text-3xl">Couldn't load this conversation</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Something went wrong fetching its history.
+      </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="mt-6 rounded-full border border-cream px-4 py-2 font-ui text-sm text-ink transition-colors hover:bg-cream-soft"
+      >
+        Try again
+      </button>
+    </div>
+  );
 }
 
 /** Deep link to a conversation that doesn't exist or isn't the principal's. */
@@ -144,11 +174,11 @@ export function ChatScreen({
   draft: boolean;
   getToken: GetToken;
 }) {
-  // What hydration produced: pending (null), a transcript, or "not-found".
-  // A draft starts hydrated-empty — it has no history to load, and the
-  // first-send `/` → `/c/<id>` URL replacement flips `draft` without
+  // What hydration produced: pending (null), a transcript, "not-found", or
+  // "error". A draft starts hydrated-empty — it has no history to load, and
+  // the first-send `/` → `/c/<id>` URL replacement flips `draft` without
   // remounting (same key), so fetching then would clobber the in-flight turn.
-  const [history, setHistory] = useState<AiUIMessage[] | "not-found" | null>(
+  const [history, setHistory] = useState<AiUIMessage[] | "not-found" | "error" | null>(
     draft ? [] : null,
   );
   // True when the hydrated transcript ends on a user message — i.e. the page was
@@ -177,23 +207,23 @@ export function ChatScreen({
     if (hydratedRef.current) return;
     let cancelled = false;
 
-    const hydrate = async (): Promise<AiUIMessage[] | "not-found"> => {
+    const hydrate = async (): Promise<AiUIMessage[] | "not-found" | "error"> => {
       try {
         const headers = await authHeaders(getToken);
         const res = await fetch(`/api/sessions/${sessionId}`, { headers });
         if (res.status === 404) return "not-found";
-        if (!res.ok) return [];
+        if (!res.ok) return "error";
         const data = (await res.json()) as { messages?: AiUIMessage[] };
         return data.messages ?? [];
       } catch {
-        return [];
+        return "error";
       }
     };
 
     void hydrate().then((outcome) => {
       if (cancelled) return;
       hydratedRef.current = true;
-      if (outcome !== "not-found") {
+      if (Array.isArray(outcome)) {
         const last = outcome[outcome.length - 1];
         setInitialIncomplete(last?.role === "user");
       }
@@ -206,6 +236,10 @@ export function ChatScreen({
 
   if (history === "not-found") {
     return <ConversationNotFound />;
+  }
+
+  if (history === "error") {
+    return <ConversationLoadFailed />;
   }
 
   if (history === null) {

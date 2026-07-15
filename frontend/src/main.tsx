@@ -30,28 +30,28 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefine
 const noToken = async () => null;
 
 // The signed-in screens, shared verbatim by both auth modes — only the token
-// source differs. `/` is always a new chat (gated for the Plaid OAuth return,
-// which lands there with no path context); a conversation lives at /c/:id;
+// source differs. `/` is always a new chat; a conversation lives at /c/:id;
 // anything unmatched goes home (replace, so the dead URL doesn't trap back).
+//
+// PlaidOauthGate sits ABOVE the route table (it intercepts the bank's OAuth
+// return, which lands with no path context) so both chat routes render the
+// identical element type — wrapping only `/` would change the tree shape
+// across the first-send replace-navigation and remount the in-flight chat,
+// defeating the stable key.
 function AppRoutes({ getToken }: { getToken: TokenGetter }) {
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <PlaidOauthGate>
-            <ChatRoute getToken={getToken} />
-          </PlaidOauthGate>
-        }
-      />
-      <Route path={CONVERSATION_PATH} element={<ChatRoute getToken={getToken} />} />
-      <Route
-        path="/settings/providers/*"
-        element={<ProvidersBillingScreen getToken={getToken} />}
-      />
-      <Route path="/invites/*" element={<InviteScreen getToken={getToken} />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <PlaidOauthGate>
+      <Routes>
+        <Route path="/" element={<ChatRoute getToken={getToken} />} />
+        <Route path={CONVERSATION_PATH} element={<ChatRoute getToken={getToken} />} />
+        <Route
+          path="/settings/providers/*"
+          element={<ProvidersBillingScreen getToken={getToken} />}
+        />
+        <Route path="/invites/*" element={<InviteScreen getToken={getToken} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </PlaidOauthGate>
   );
 }
 
