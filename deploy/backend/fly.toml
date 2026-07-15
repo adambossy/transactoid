@@ -30,6 +30,7 @@ primary_region = "iad"  # US East — close to the Neon/Supabase prod DB.
   PENNY_AGENT_MODEL = "gemini-3.5-flash"
   PENNY_CATEGORIZER_MODEL = "gemini-3.5-flash"
   PLAID_ENV = "production"
+  PENNY_SENTRY_ENVIRONMENT = "production"
 
 [http_service]
   internal_port = 8080
