@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deployment &amp; compatibility — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="compat" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; Deployment &amp; compatibility
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Environment</p>
+        <h1>Deployment &amp; compatibility</h1>
+        <p class="lede">What already works, what existing users will notice, and how this change dovetails with the auth widgets and the future landing page.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>A conversation link shared from the deployed product opens correctly for its owner — not a blank page or a server error.</li>
+          <li>Existing users lose nothing: every past conversation remains reachable from the history drawer.</li>
+          <li>Nothing in this change has to be undone when the public landing page arrives.</li>
+        </ol>
+      </section>
+
+      <section id="serving">
+        <header class="section-header">
+          <h2>Serving deep links — already solved</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="serving">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Both serving layers already fall back to the app shell for unknown paths, so <strong>no deploy-domain change is needed</strong> — a happy consequence of the deploy/app segregation:</p>
+        <ul>
+          <li><strong>Production</strong> — <code>deploy/frontend/nginx.conf.template</code> already contains the SPA fallback: <code>try_files $uri $uri/ /index.html;</code> under a comment that says exactly this ("SPA: fall back to index.html for client-side routes"). <code>/c/&lt;id&gt;</code> serves the shell today; only the client didn't know what to do with it.</li>
+          <li><strong>Dev</strong> — Vite's dev server ships SPA fallback by default (<code>appType: "spa"</code>), and the <code>/api</code> proxy matching is prefix-based, so app routes never collide with API calls.</li>
+        </ul>
+      </section>
+
+      <section id="legacy-state">
+        <header class="section-header">
+          <h2>Legacy client state</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="legacy-state">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Existing browsers hold a <code>penny:sessionId</code> local-storage key that pinned their "current" conversation. After this change it is simply never read again — no migration, no cleanup pass (an orphaned key is harmless; deleting it would be code that exists only to delete code's past).</p>
+        <p>The one user-visible behavior change: returning users land on a <em>new chat</em> instead of their last conversation. Their history is one drawer-click away, and every future visit benefits from the simpler rule. This was an explicit decision (<a href="../assumptions/index.html">asked and answered</a>), not a side effect.</p>
+      </section>
+
+      <section id="clerk-and-landing">
+        <header class="section-header">
+          <h2>Clerk widgets and the future landing page</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="clerk-and-landing">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Clerk</strong> — the sign-in/sign-up widgets use hash routing internally, orthogonal to the path router; their cross-links (<code>/</code> ↔ <code>/sign-up</code>) are ordinary navigations the router now handles client-side. No Clerk dashboard configuration changes: no redirect URLs move.</li>
+          <li><strong>Landing pages (bead fly-ikm)</strong> — that bead depends on this one. The prepared seam: <code>/</code> stays the app's root now; when landing pages arrive, the <code>/</code> route element becomes auth-conditional (signed-out visitors see the landing page, signed-in users see the new chat), and marketing routes join the top-level table beside <code>/ui</code>. Conversation, settings, and invite URLs are untouched by that future change — nothing in this plan gets redone.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="../implementation/index.html">← Sibling: Implementation stages</a> · <a href="../assumptions/index.html">Next: Assumptions &amp; open questions →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

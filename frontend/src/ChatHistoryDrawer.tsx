@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { SquarePen } from "lucide-react";
+import { Link } from "react-router";
 import { AvatarStack } from "@penny/ui";
 import { authHeaders } from "./authFetch";
 import type { TokenGetter } from "./authFetch";
-import { SESSION_KEY, openConversation, startNewChat } from "./session";
+import { conversationPath, useConversationId } from "./routes";
 import { useHouseholdMembers } from "./useHouseholdMembers";
 
 interface Conversation {
@@ -28,16 +29,21 @@ type LoadState =
  * still mounted for the width transition.
  *
  * The list is (re)fetched from `GET /api/conversations` each time the drawer
- * opens, so it reflects newly-started or newly-titled chats. Selecting an entry
- * (or "New chat") drives the shared session mechanism in `session.ts`.
+ * opens — and, since the desktop drawer stays open across client-side switches,
+ * whenever the active conversation changes — so it reflects newly-started or
+ * newly-titled chats. Entries (and "New chat") are plain links: the URL is the
+ * conversation mechanism. `onNavigate` fires on every link click; the shell
+ * owns whether that dismisses the drawer (overlay vs. push layout).
  */
 export function ChatHistoryDrawer({
   open,
   onClose,
+  onNavigate,
   getToken,
 }: {
   open: boolean;
   onClose: () => void;
+  onNavigate: () => void;
   getToken: TokenGetter;
 }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -54,12 +60,19 @@ export function ChatHistoryDrawer({
     return [me, other].map((m) => ({ name: m.display_name, imageUrl: m.image_url }));
   }, [members, me]);
 
-  // Refetch on each open so the list is fresh (a chat gains its title from the
-  // first user message, and new chats appear without a manual reload).
+  // The open conversation comes from the URL — the drawer renders outside the
+  // matched route, so it reads the path (routes.ts) rather than useParams.
+  const activeId = useConversationId();
+
+  // Refetch on each open, and on conversation switches while open (the desktop
+  // drawer stays open across client-side navigation), so the list is fresh —
+  // a chat gains its title from the first user message, and new chats appear
+  // without a manual reload. A refetch over an already-rendered list keeps it
+  // on screen (no loading flash) and swaps in the response when it lands.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setState({ status: "loading" });
+    setState((s) => (s.status === "ready" ? s : { status: "loading" }));
     authHeaders(getToken)
       .then((headers) => fetch("/api/conversations", { headers }))
       .then((res) => {
@@ -77,7 +90,7 @@ export function ChatHistoryDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, getToken]);
+  }, [open, getToken, activeId]);
 
   // ESC closes the drawer (and restores focus to the toggle via onClose).
   useEffect(() => {
@@ -88,8 +101,6 @@ export function ChatHistoryDrawer({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
-
-  const activeId = localStorage.getItem(SESSION_KEY);
 
   return (
     <aside
@@ -105,14 +116,14 @@ export function ChatHistoryDrawer({
       <div inert={!open} className="flex h-full w-72 flex-col">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <span className="font-ui text-sm font-medium text-ink">Chats</span>
-          <button
-            type="button"
-            onClick={startNewChat}
+          <Link
+            to="/"
+            onClick={onNavigate}
             className="inline-flex items-center gap-1.5 rounded-full border border-cream px-3 py-1.5 font-ui text-xs text-ink transition-colors hover:bg-cream-soft"
           >
             <SquarePen className="h-3.5 w-3.5" />
             New chat
-          </button>
+          </Link>
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
@@ -127,10 +138,10 @@ export function ChatHistoryDrawer({
           )}
           {state.status === "ready" &&
             state.items.map((conv) => (
-              <button
+              <Link
                 key={conv.id}
-                type="button"
-                onClick={() => openConversation(conv.id)}
+                to={conversationPath(conv.id)}
+                onClick={onNavigate}
                 aria-current={conv.id === activeId ? "true" : undefined}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left font-ui text-sm text-ink transition-colors hover:bg-cream-soft ${
                   conv.id === activeId ? "bg-cream-soft font-medium" : ""
@@ -143,7 +154,7 @@ export function ChatHistoryDrawer({
                 {conv.session_mode === "joint" && jointStack.length > 0 && (
                   <AvatarStack people={jointStack} />
                 )}
-              </button>
+              </Link>
             ))}
         </nav>
       </div>

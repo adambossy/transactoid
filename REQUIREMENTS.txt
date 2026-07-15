@@ -57,6 +57,17 @@ P6a. Multi-user conversation legibility
     before attribution existed keep their prior rendering; missing pictures
     degrade to initials and never block chat.
 
+P6b. URL routing & deep links
+    The URL is the source of truth for what's on screen: key views (new chat,
+    a specific conversation, settings, invites) each have their own route, and
+    browser back/forward walk between them. A conversation lives at a
+    deep-linkable URL that a fresh load (re)hydrates; opening the home route
+    always starts a new chat, whose URL becomes the conversation's on the first
+    message. A conversation URL the principal cannot access (or that doesn't
+    exist) shows an explicit not-found state — never someone else's thread and
+    never a silent empty chat (enforced by frontend/e2e/routing.spec.ts and
+    conversation-isolation.spec.ts).
+
 P7. Agent workspace
     Maintain a persistent per-user workspace (memory/, reports/) that carries
     user state (e.g. budget notes) across chat and scheduled runs. State lives

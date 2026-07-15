@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assumptions &amp; open questions — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="assumptions" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; Assumptions &amp; open questions
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Meta</p>
+        <h1>Assumptions &amp; open questions</h1>
+        <p class="lede">What was asked, what was assumed on your behalf, and what remains genuinely unresolved.</p>
+      </header>
+
+      <section id="asked">
+        <header class="section-header">
+          <h2>What I asked you</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="asked">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Question</th><th>Your answer</th></tr></thead>
+          <tbody>
+            <tr><td>Which routing approach?</td><td>React Router v7, declarative (library) mode — no framework-tier features.</td></tr>
+            <tr><td>Conversation URL scheme and new-chat behavior?</td><td><code>/c/:id</code>; <code>/</code> is always a new chat; the URL is the source of truth and local-storage pinning goes away.</td></tr>
+            <tr><td>How to prepare for the future landing page (fly-ikm)?</td><td>Keep the app rooted at <code>/</code> now; make <code>/</code> auth-conditional when landing pages arrive.</td></tr>
+            <tr><td>Depth of conversation switching?</td><td>Full client-side navigation; the reload-based switching pattern is retired.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="assumed">
+        <header class="section-header">
+          <h2>What I assumed without asking</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="assumed">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Assumption</th><th>Alternative</th><th>Why this default</th><th>Affects</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>The <code>/</code> → <code>/c/&lt;id&gt;</code> transition uses history <em>replace</em>, not push.</td>
+              <td>Push, leaving the empty-chat entry in history.</td>
+              <td>The swap is a rename of the view already on screen; back should not revisit a ghost empty chat. Matches other chat products.</td>
+              <td><a href="../routes/new-chat-flow.html">New-chat lifecycle</a></td>
+            </tr>
+            <tr>
+              <td>A hydration 404 on <code>/c/:id</code> renders an explicit "Conversation not found" state.</td>
+              <td>Today's silent empty-chat fallback.</td>
+              <td>Barely an assumption: the pre-written <code>conversation-isolation.spec.ts</code> already asserts a visible not-found message, and the empty-chat fallback lets a foreign URL mint a conversation with a foreign id.</td>
+              <td><a href="../routes/index.html">Route contract</a>, <a href="../implementation/testing.html">Testing</a></td>
+            </tr>
+            <tr>
+              <td>Unknown paths redirect to <code>/</code> rather than showing a 404 page.</td>
+              <td>A dedicated not-found page.</td>
+              <td>Six routes; "go home" is all a 404 page could offer. Revisit when marketing routes exist.</td>
+              <td><a href="../routes/index.html">Route contract</a></td>
+            </tr>
+            <tr>
+              <td>The orphaned local-storage key is left in place, never read.</td>
+              <td>A one-time cleanup that deletes it on boot.</td>
+              <td>The key is harmless; cleanup code would outlive its purpose. </td>
+              <td><a href="../compat/index.html">Compatibility</a></td>
+            </tr>
+            <tr>
+              <td>The new dependency is the consolidated <code>react-router</code> v7 package.</td>
+              <td>The legacy <code>react-router-dom</code> alias.</td>
+              <td>v7 merged the DOM bindings into the main package; the alias exists only for migration compatibility.</td>
+              <td><a href="../implementation/index.html">Stage 1</a></td>
+            </tr>
+            <tr>
+              <td>The requirements-of-record update (Product section: routable views, deep-linkable conversations) ships in the same PR.</td>
+              <td>A follow-up docs change.</td>
+              <td>Repo rule: reviewers treat the requirements file as scope-of-record; a behavior change without it is incomplete.</td>
+              <td><a href="../implementation/index.html">Stage 3</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="open-questions">
+        <header class="section-header">
+          <h2>Open questions</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="open-questions">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Should the drawer navigate-and-close also refresh its list?</strong> Today the list refetches on each open, which still holds. But a conversation started at <code>/</code> only appears in the list after the backend titles it — if that feels stale in practice, a refetch-on-navigate may be worth adding. Affects <a href="../architecture/session-retirement.html">drawer links</a>; decide from feel during the stage-2 manual pass.</li>
+          <li><strong>Does <code>/settings/providers</code> want a <code>/settings</code> parent eventually?</strong> Out of scope here (one settings screen exists), but the route table should not preclude it. Affects the <a href="../routes/index.html">route contract</a> only if more settings screens land.</li>
+          <li><strong>Is the Clerk-gated isolation spec runnable in CI today?</strong> It requires <code>PENNY_E2E_CLERK=1</code> plus Clerk test keys. If CI never sets that, the feature's strongest acceptance test only runs locally — worth confirming while wiring <a href="../implementation/testing.html">stage-3 coverage</a>.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="../index.html">← Back to the executive summary</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

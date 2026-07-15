@@ -9,14 +9,14 @@ test.skip(
 
 test("new-chat picker offers Individual and Joint", async ({ page }) => {
   await signInAsTestUser(page, USER_A);
-  await page.getByRole("button", { name: /new chat/i }).click();
+  await page.getByRole("link", { name: /new chat/i }).click();
   await expect(page.getByRole("radio", { name: /individual/i })).toBeVisible();
   await expect(page.getByRole("radio", { name: /joint|household/i })).toBeVisible();
 });
 
 test("creating a joint conversation persists that mode", async ({ page }) => {
   await signInAsTestUser(page, USER_A);
-  await page.getByRole("button", { name: /new chat/i }).click();
+  await page.getByRole("link", { name: /new chat/i }).click();
   await page.getByRole("radio", { name: /joint|household/i }).check();
   await page.getByRole("textbox", { name: /message/i }).fill("Household summary");
   await page.getByRole("button", { name: /send/i }).click();

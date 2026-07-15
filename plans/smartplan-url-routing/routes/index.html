@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Route map &amp; URL contract — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="routes" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; Route map &amp; URL contract
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Contract</p>
+        <h1>Route map &amp; URL contract</h1>
+        <p class="lede">Every view the app can show, its address, and who can see it. This table is the contract the rest of the plan implements.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>A user can bookmark any screen — a conversation, settings, invites — and get back to exactly that screen from the bookmark.</li>
+          <li>A signed-out visitor who follows a deep link is asked to sign in, and lands on the screen they asked for once signed in.</li>
+          <li>A mistyped or dead address never strands the user on a blank page — it lands them somewhere useful.</li>
+        </ol>
+      </section>
+
+      <section id="route-table">
+        <header class="section-header">
+          <h2>The route table</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="route-table">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <table>
+          <thead><tr><th>Path</th><th>View</th><th>Access</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>/</code></td><td>New chat</td><td>Signed in</td><td>Always a fresh conversation. URL is replaced with <code>/c/&lt;id&gt;</code> once the first message is sent — see <a href="new-chat-flow.html">New-chat lifecycle</a>.</td></tr>
+            <tr><td><code>/c/:id</code></td><td>Conversation</td><td>Signed in</td><td>Deep-linkable. Hydrates history from <code>GET /api/sessions/&lt;id&gt;</code> on mount; a 404 (unknown id, or another user's conversation) renders an explicit <em>"Conversation not found"</em> state — a contract already encoded in the pre-written isolation e2e spec.</td></tr>
+            <tr><td><code>/settings/providers</code></td><td>Providers &amp; billing</td><td>Signed in</td><td>Existing screen (<code>ProvidersBillingScreen</code>), same path as today — becomes a real route instead of a prefix check.</td></tr>
+            <tr><td><code>/invites</code></td><td>Household invites</td><td>Signed in</td><td>Existing screen (<code>InviteScreen</code>), same path as today.</td></tr>
+            <tr><td><code>/sign-up</code></td><td>Clerk sign-up</td><td>Signed out, Clerk mode only</td><td>Rendered by <code>AuthGate</code>; the sign-in/sign-up cross-links keep working. In dev-principal mode the path falls through to the app.</td></tr>
+            <tr><td><code>/ui/*</code></td><td>Design-system gallery</td><td>Dev builds only</td><td>Auth-free, outside the Clerk provider, guarded by <code>import.meta.env.DEV</code> exactly as today.</td></tr>
+            <tr><td><code>*</code> (anything else)</td><td>—</td><td>—</td><td>Client-side redirect to <code>/</code>. See <a href="#unknown-paths">Unknown paths</a>.</td></tr>
+          </tbody>
+        </table>
+        <div class="mermaid">
+flowchart LR
+  newchat["Slash — new chat"] -->|"first message sent"| conv["Conversation at /c/id"]
+  drawer["History drawer"] -->|"open a past chat"| conv
+  drawer -->|"New chat button"| newchat
+  header["Header nav"] --> settings["Settings and invites"]
+        </div>
+      </section>
+
+      <section id="url-source-of-truth">
+        <header class="section-header">
+          <h2>The URL is the source of truth</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="url-source-of-truth">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The invariant this plan establishes: <strong>everything needed to reconstruct the current view is in the path.</strong> Concretely:</p>
+        <ul>
+          <li>The conversation id is read from the route parameter, never from local storage. The <code>penny:sessionId</code> key and the module that owns it are retired (<a href="../architecture/session-retirement.html">details</a>).</li>
+          <li>Refreshing any URL re-renders the same view: <code>/c/&lt;id&gt;</code> re-hydrates that conversation's history; <code>/settings/providers</code> reopens settings.</li>
+          <li>Back/forward work because every view change is a history entry (with one deliberate exception — the new-chat URL replacement, covered in <a href="new-chat-flow.html">New-chat lifecycle</a>).</li>
+          <li>Module-level path checks (evaluated once at page load, in <code>main.tsx</code> and <code>AuthGate.tsx</code>) must all become route matches or <code>useLocation()</code> reads — a value captured at load time is stale the moment client-side navigation exists.</li>
+        </ul>
+      </section>
+
+      <section id="unknown-paths">
+        <header class="section-header">
+          <h2>Unknown paths</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="unknown-paths">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>A catch-all route redirects anything unmatched to <code>/</code> (a <code>&lt;Navigate to="/" replace /&gt;</code>). With a six-route app there is nothing useful a dedicated 404 page could offer beyond "go home", so we go home directly. Two nuances:</p>
+        <ul>
+          <li>The redirect uses <em>replace</em> so the dead URL doesn't linger in history and trap the back button.</li>
+          <li>A <em>well-formed but foreign</em> conversation URL (<code>/c/&lt;someone-else's-id&gt;</code>) is not "unknown" — it matches the route, its hydration 404s, and it renders a "Conversation not found" state with a link to start a new chat. This is a deliberate behavior change from today's silent empty-chat fallback: the pre-written spec <code>e2e/conversation-isolation.spec.ts</code> already asserts a visible not-found message, and it also closes the oddity where messaging into a foreign URL would create a conversation with that id.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="new-chat-flow.html">Deeper: New-chat lifecycle →</a> · <a href="../architecture/index.html">Sibling: Router integration →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

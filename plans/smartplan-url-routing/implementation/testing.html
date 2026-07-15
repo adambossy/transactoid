@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testing — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="testing" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; <a href="index.html">Implementation stages</a>
+        &nbsp;/&nbsp; Testing
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Execution · deep dive</p>
+        <h1>Testing</h1>
+        <p class="lede">What the existing Playwright suite already demands, which specs the change touches, and the new coverage that proves the acceptance criteria.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Every acceptance criterion on the bead — routable views, deep-linkable conversations, working back/forward — is proven by an automated test, not a manual claim.</li>
+          <li>The pre-existing test that forbids one user opening another user's conversation URL passes for real, instead of being skipped.</li>
+        </ol>
+      </section>
+
+      <section id="affected-specs">
+        <header class="section-header">
+          <h2>The suite today, and what the change touches</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="affected-specs">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Good news first: <strong>no spec seeds or reads the local-storage session key</strong>, so retiring it breaks no fixtures. Navigation in the suite is plain <code>goto()</code> calls on the paths this plan keeps (<code>/</code> ×9, <code>/settings/providers</code>, <code>/invites</code>, <code>/ui</code>, <code>/sign-up</code>), which continue to work unchanged.</p>
+        <p>One spec deserves special mention — it was written <em>ahead</em> of this feature and currently only runs Clerk-gated (<code>PENNY_E2E_CLERK=1</code>):</p>
+        <ul>
+          <li><strong><code>conversation-isolation.spec.ts</code></strong> already encodes this plan's contract: after user A sends a first message, <code>pageA.url()</code> is expected to be <code>/c/&lt;conversation-id&gt;</code>, and user B opening that URL must see a visible <em>not found / no access</em> message with zero assistant messages. Today this spec cannot pass (the URL never changes and a foreign id shows an empty chat). Stage 2 makes it honest — it is effectively the feature's pre-written acceptance test.</li>
+          <li><strong><code>chat-smoke.spec.ts</code></strong> and the other <code>/</code>-based chat specs — behavior at <code>/</code> is still "empty chat, send a message, reply streams", so they should pass as-is; the only new observable is the URL changing after the first send, which does not invalidate their assertions.</li>
+        </ul>
+      </section>
+
+      <section id="new-specs">
+        <header class="section-header">
+          <h2>New specs (stage 3)</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="new-specs">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>A new <code>routing.spec.ts</code> covering, in dev-principal mode (so it runs in every suite invocation, not just Clerk-gated):</p>
+        <ol>
+          <li><strong>URL replacement on first send</strong> — start at <code>/</code>, send a message, expect the URL to become <code>/c/&lt;id&gt;</code> without a page load (the transcript element identity survives).</li>
+          <li><strong>Deep-link hydration</strong> — capture that URL, <code>goto()</code> it in a fresh page, expect the same transcript to render.</li>
+          <li><strong>Back/forward</strong> — create conversation A, start a new chat, create conversation B, then walk <code>goBack()</code>/<code>goForward()</code> and assert the right transcript (and drawer highlight) at each step.</li>
+          <li><strong>Not-found state</strong> — <code>goto("/c/" + randomUUID())</code>, expect the "Conversation not found" message and no composer send into it.</li>
+          <li><strong>Unknown path</strong> — <code>goto("/nonsense")</code>, expect to land on <code>/</code>.</li>
+        </ol>
+      </section>
+
+      <section id="manual-checks">
+        <header class="section-header">
+          <h2>Manual checks</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="manual-checks">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Things worth a human pass in the dev loop, because they involve feel or timing that specs approximate poorly:</p>
+        <ul>
+          <li>Drawer switching between long conversations — no flash, header/drawer stay put, scroll lands at the bottom of the new transcript.</li>
+          <li>Refresh mid-stream on <code>/c/&lt;id&gt;</code> — the reply resumes (existing behavior, verify routing didn't disturb it).</li>
+          <li>Mobile-width drawer: tapping a conversation navigates <em>and</em> closes the overlay.</li>
+          <li>Cmd-click a drawer row — opens that conversation in a new tab (a new capability real links buy us).</li>
+          <li>In Clerk mode: sign out, deep-link a conversation, sign in — lands on that conversation.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="index.html">← Up: Implementation stages</a> · <a href="../compat/index.html">Sibling: Deployment &amp; compatibility →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>
