@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New-chat lifecycle — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="new-chat-flow" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; <a href="index.html">Route map &amp; URL contract</a>
+        &nbsp;/&nbsp; New-chat lifecycle
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Contract · deep dive</p>
+        <h1>New-chat lifecycle</h1>
+        <p class="lede">How <code>/</code> becomes <code>/c/&lt;id&gt;</code> — when the id is minted, what lands in browser history, and what the back button means.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Opening the app's home address always gives a clean, empty chat, ready for a first message.</li>
+          <li>The moment a conversation exists, its address appears in the location bar so the user can share or bookmark it immediately.</li>
+          <li>Pressing back from a conversation never lands the user on a ghost empty chat that duplicates the one they are in.</li>
+        </ol>
+      </section>
+
+      <section id="lifecycle">
+        <header class="section-header">
+          <h2>The lifecycle</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="lifecycle">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>On <code>/</code>, the chat screen mounts with a freshly minted UUID held <em>in memory only</em> — nothing persisted, nothing in the URL yet. The history-hydration fetch is skipped (a brand-new id has no history to load; today's code fetches and treats the 404 as empty — we can simply not ask). When the user sends the first message, the existing transport already POSTs with that id and the backend creates the conversation; at that moment the client replaces the URL with <code>/c/&lt;id&gt;</code>.</p>
+        <div class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant R as Router
+  participant C as Chat screen
+  participant B as Backend
+  U->>R: visit /
+  R->>C: mount with fresh id, held in memory
+  U->>C: send first message
+  C->>B: POST /api/chat with that id
+  C->>R: replace URL with /c/id
+  B-->>C: stream the reply
+        </div>
+        <p><strong>The URL swap must not remount the chat.</strong> The route element for <code>/</code> and <code>/c/:id</code> renders the same screen keyed by the conversation id, and the id is unchanged across the replace — so React reconciles in place and the in-flight stream is untouched. This is the one subtle implementation constraint on this page; <a href="../architecture/index.html#chat-remount">Router integration</a> covers the keying rule.</p>
+      </section>
+
+      <section id="history-semantics">
+        <header class="section-header">
+          <h2>History semantics: replace, not push</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="history-semantics">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>The <code>/</code> → <code>/c/&lt;id&gt;</code> transition uses <code>navigate(..., { replace: true })</code>. It is a <em>rename</em> of the view the user is already looking at, not a navigation — the empty-chat state no longer exists to go back to. With replace, back from a started conversation returns to whatever preceded <code>/</code> (often nothing, or the drawer's previous conversation), which matches what users expect from other chat products.</p>
+        <p>Every other transition — opening a conversation from the drawer, "New chat", settings, invites — is a normal <em>push</em>, so back/forward walk through them naturally.</p>
+        <p><strong>Design-it-twice: the rejected alternative.</strong> Minting the id at navigation time (the "New chat" button navigates straight to <code>/c/&lt;new-id&gt;</code>) was considered and rejected: it puts URLs for conversations that don't exist yet into history and the location bar, litters the drawer flow with empty conversations if the user wanders off before typing, and makes refresh-on-empty hit the not-found hydration path. Ephemeral-until-first-message avoids all three.</p>
+      </section>
+
+      <section id="edge-cases">
+        <header class="section-header">
+          <h2>Edge cases</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="edge-cases">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong>Refresh on <code>/</code> before the first message</strong> — a new id is minted; the old one never reached the server, so nothing leaks. Any draft text is lost, same as today.</li>
+          <li><strong>Refresh mid-stream on <code>/c/&lt;id&gt;</code></strong> — unchanged from today: hydration sees the transcript ending on a user message and immediately resumes the live stream (the existing <code>initialIncomplete</code> + <code>resumeStream</code> path). Routing does not touch this logic.</li>
+          <li><strong>Switching conversations mid-stream</strong> — client-side nav unmounts the streaming chat; the server keeps running the turn (existing behavior when a tab backgrounds). Navigating back to that conversation remounts, hydrates, and resumes the stream. No new code — this is the same resume path.</li>
+          <li><strong>Deep link to a foreign or unknown id</strong> — hydration 404s and renders a "Conversation not found" state (message + link to start a new chat) instead of today's silent empty chat. The pre-written isolation spec (<code>e2e/conversation-isolation.spec.ts</code>) already asserts this, and it removes the wrinkle where sending a message into a foreign URL would create a conversation <em>with that id</em>.</li>
+          <li><strong>Session-mode picker</strong> — the individual/joint picker shows only on an empty chat, which after this change is exactly the <code>/</code> route. The old 404-as-empty-chat path that also showed it is gone (it is now the not-found state), so the picker's appearance and the "new chat" concept coincide exactly.</li>
+        </ul>
+      </section>
+
+      <p class="foot"><a href="index.html">← Up: Route map &amp; URL contract</a> · <a href="../architecture/session-retirement.html">Related: Retiring the session module →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

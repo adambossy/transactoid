@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retiring the session module — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="session-retirement" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; <a href="index.html">Router integration</a>
+        &nbsp;/&nbsp; Retiring the session module
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Architecture · deep dive</p>
+        <h1>Retiring the session module</h1>
+        <p class="lede">The local-storage session mechanism was the pre-routing answer to "which conversation is open?". The URL now answers that, so the module and its key are deleted, not wrapped.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>Opening a conversation from the history drawer is instant — no page reload, no flash of blank screen.</li>
+          <li>The drawer always highlights the conversation the user is actually looking at.</li>
+          <li>There is exactly one place that records which conversation is open, so the app can never disagree with itself about it.</li>
+        </ol>
+      </section>
+
+      <section id="what-goes">
+        <header class="section-header">
+          <h2>What goes</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="what-goes">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p><code>frontend/src/session.ts</code> is deleted in full. Its three exports and their call sites:</p>
+        <table>
+          <thead><tr><th>Export</th><th>Used by</th><th>Fate</th></tr></thead>
+          <tbody>
+            <tr><td><code>loadOrCreateSessionId()</code></td><td><code>ChatScreen</code> (mount-time <code>useMemo</code>)</td><td>Replaced by the route param / minted-per-mount id (<a href="index.html#chat-remount">keying rule</a>).</td></tr>
+            <tr><td><code>openConversation(id)</code></td><td><code>ChatHistoryDrawer</code> rows</td><td>Replaced by client-side links to <code>/c/&lt;id&gt;</code>.</td></tr>
+            <tr><td><code>startNewChat()</code></td><td><code>ChatHistoryDrawer</code> "New chat" button</td><td>Replaced by a client-side link to <code>/</code>.</td></tr>
+            <tr><td><code>SESSION_KEY</code> (<code>penny:sessionId</code>)</td><td>Drawer's active-row highlight</td><td>Highlight derives from the route param instead. The stored key is never read again (<a href="../compat/index.html#legacy-state">legacy note</a>).</td></tr>
+          </tbody>
+        </table>
+        <p>With it goes the <code>window.location.assign("/")</code> full-reload pattern — the last non-router navigation in the app.</p>
+      </section>
+
+      <section id="what-replaces-it">
+        <header class="section-header">
+          <h2>What replaces it</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="what-replaces-it">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Nothing, deliberately — no new module. "Which conversation is open" becomes a fact about the URL, read where needed:</p>
+        <ul>
+          <li>The route table passes the <code>:id</code> param into the chat screen.</li>
+          <li>The drawer reads the same param (via <code>useParams()</code> or the location) for its highlight.</li>
+          <li>Navigation is the router's <code>&lt;Link&gt;</code> / <code>useNavigate()</code> — no bespoke helpers wrapping them, per the "distrust shallow pass-throughs" design rule. If a wrapper ever earns its keep (e.g. a typed <code>conversationPath(id)</code> builder used from 3+ places), it can be added when the third caller exists.</li>
+        </ul>
+      </section>
+
+      <section id="drawer-links">
+        <header class="section-header">
+          <h2>Drawer rows become links</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="drawer-links">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Each drawer row (currently a <code>&lt;button onClick=...&gt;</code>) becomes a <code>&lt;Link to={"/c/" + id}&gt;</code> styled identically, and "New chat" becomes <code>&lt;Link to="/"&gt;</code>. Real links buy middle-click / cmd-click "open in new tab" for free — one of the quiet payoffs of routing. Two behaviors to preserve:</p>
+        <ul>
+          <li><strong>Mobile drawer dismissal</strong> — on the overlay (mobile) layout, navigating should also close the drawer (call <code>onClose</code> in the link's click handler; the navigation itself is left to the link).</li>
+          <li><strong><code>aria-current</code></strong> — moves from the local-storage comparison to the route param comparison; the active row keeps its highlight through client-side switches without a refetch.</li>
+        </ul>
+        <p>The drawer's list-refetch-on-open behavior is unchanged; a fresh conversation still appears in the list the next time the drawer opens, once the backend has persisted and titled it.</p>
+      </section>
+
+      <p class="foot"><a href="index.html">← Up: Router integration</a> · <a href="../routes/new-chat-flow.html">Related: New-chat lifecycle →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

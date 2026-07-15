@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Executive summary — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="root" data-page-depth="0">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <header class="page-header">
+        <p class="eyebrow">SmartPlan · bead fly-wz0</p>
+        <h1>URL routing for the Penny frontend</h1>
+        <p class="lede">Give every view its own address so conversations can be shared, revisited, and navigated with the browser's own controls.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>A user can copy the address of a conversation, open it later or on another device, and see the same conversation with its full history.</li>
+          <li>The browser's back and forward buttons move between conversations and screens the way they do on any normal website.</li>
+          <li>Each key view — a new chat, a specific conversation, settings, invites — has its own address a user can bookmark.</li>
+          <li>Switching between conversations feels instant, with no full page reload.</li>
+        </ol>
+      </section>
+
+      <section id="the-goal">
+        <header class="section-header">
+          <h2>The goal</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="the-goal">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Today the frontend has no router. Which screen renders is decided by ad-hoc prefix checks on the page path, evaluated once at module load; which conversation is on screen lives in browser local storage; and switching conversations does a full page reload. Nothing about the current conversation appears in the URL, so nothing can be deep-linked, and back/forward do nothing meaningful.</p>
+        <p>This plan introduces client-side routing so that <strong>the URL becomes the single source of truth for what is on screen</strong>. The conversation id moves out of local storage and into the path (<code>/c/&lt;id&gt;</code>); the existing settings, invites, and sign-up paths become real routes; and all navigation becomes client-side transitions handled by the router.</p>
+      </section>
+
+      <section id="strategy">
+        <header class="section-header">
+          <h2>Strategy</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="strategy">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Adopt <strong>React Router v7 in plain declarative mode</strong> — routes as components, nothing from its framework tier (no loaders, no code-gen). The route surface is small (~6 routes), so the router stays a thin layer: one <code>BrowserRouter</code> at the top, one shared route table used by both auth modes (Clerk and dev-principal), and links instead of reload helpers.</p>
+        <p>The work lands in three small, independently verifiable stages: <a href="implementation/index.html">(1)</a> introduce the router with the existing screens mapped at their existing paths — zero behavior change; (2) add the conversation routes and retire the local-storage session mechanism; (3) polish — unknown-path redirect, new end-to-end specs for deep-linking and back/forward, and the requirements-of-record update.</p>
+        <p>The deployment layer is already ready: the production web server falls back to the app shell for unknown paths, so deep links work the moment the client can route them. See <a href="compat/index.html">Deployment &amp; compatibility</a>.</p>
+      </section>
+
+      <section id="key-decisions">
+        <header class="section-header">
+          <h2>Key decisions and tradeoffs</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="key-decisions">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li><strong><code>/</code> is always a new chat.</strong> The previous "reopen the last conversation" behavior (via local storage) is deliberately dropped; history lives in the drawer, and returning users click a conversation to resume it. This trades a small habit change for a much simpler mental model: one URL, one meaning. Details in <a href="routes/new-chat-flow.html">New-chat lifecycle</a>.</li>
+          <li><strong>Short conversation paths, <code>/c/&lt;id&gt;</code>.</strong> Matches the convention users already know from other chat products; leaves room for future top-level routes.</li>
+          <li><strong>The app stays rooted at <code>/</code>.</strong> The future public landing page (bead fly-ikm) will make <code>/</code> auth-conditional later; this plan avoids moving every authed URL now. See <a href="compat/index.html">compatibility</a>.</li>
+          <li><strong>Full client-side navigation.</strong> The reload-based switching helpers are retired, not wrapped. The chat screen remounts per conversation id, reusing the existing hydration and stream-resume logic unchanged. See <a href="architecture/index.html">Router integration</a>.</li>
+        </ul>
+        <p>Branches: <a href="routes/index.html">Route map &amp; URL contract</a> · <a href="architecture/index.html">Router integration</a> · <a href="implementation/index.html">Implementation stages</a> · <a href="compat/index.html">Deployment &amp; compatibility</a> · <a href="assumptions/index.html">Assumptions &amp; open questions</a></p>
+      </section>
+
+      <p class="foot"><a href="routes/index.html">Next: Route map &amp; URL contract →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="smartplan.js"></script>
+</body>
+</html>
