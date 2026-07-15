@@ -28,7 +28,7 @@ from penny.auth.identity import UnknownUserError, link_or_resolve_user
 from penny.auth.jwt_verifier import ClerkJwtVerifier, TokenError
 from penny.auth.settings import AuthSettings, load_auth_settings
 from penny.db import get_db
-from penny.households import resolve_or_provision_identity
+from penny.households import SubjectMismatchError, resolve_or_provision_identity
 from penny.tenancy.context import (
     RequestContext,
     reset_request_context,
@@ -87,9 +87,17 @@ def _authenticate(request: Request) -> RequestContext:
                     s, sub=sub, email=email, email_verified=email_verified
                 )
             except UnknownUserError:
-                household_id, user_id = resolve_or_provision_identity(
-                    s, email=email, external_auth_id=sub
-                )
+                try:
+                    household_id, user_id = resolve_or_provision_identity(
+                        s, email=email, external_auth_id=sub
+                    )
+                except SubjectMismatchError:
+                    # Production, verified email bound to a different subject —
+                    # a recycled-email takeover shape. Fail closed; the details
+                    # are already in the warning log.
+                    raise HTTPException(
+                        status_code=403, detail="identity conflict"
+                    ) from None
     return RequestContext(user_id=user_id, household_id=household_id)
 
 
