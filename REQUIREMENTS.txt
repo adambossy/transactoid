@@ -271,8 +271,10 @@ T12. Signup & invite integrity
      deletes an unclaimed pending row, never an active user. Auto-provision
      requires a verified email. Subject re-binding is environment-gated: only
      under PENNY_ENV=development (the default; deploy pins production) may a
-     verified email re-stamp a row's external_auth_id to a new Clerk subject —
-     production keeps strict subject matching. Enforced by backend/tests/test_signup.py,
+     verified email re-stamp a row's external_auth_id to a new Clerk subject.
+     Production keeps strict subject matching: a verified email bound to a
+     DIFFERENT subject is rejected (HTTP 403, recycled-email takeover shape),
+     never silently resolved. Enforced by backend/tests/test_signup.py,
      tests/api/test_invites.py, tests/api/test_me.py, tests/api/test_auth_*.py,
      and tests/adapters/db/test_signup_isolation.py (the last requires
      POSTGRES_TEST_URL).

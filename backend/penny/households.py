@@ -20,6 +20,7 @@ from typing import Protocol
 import uuid
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from penny.adapters.db.facade import apply_tenant_guc
@@ -87,6 +88,13 @@ def provision_solo_household(
     return hh.household_id, user.user_id
 
 
+class SubjectMismatchError(Exception):
+    """A verified email matched a row bound to a DIFFERENT auth subject in
+    production (maps to HTTP 403). Legitimate only when Clerk instances differ,
+    which production never does — so treat it as a possible recycled-email
+    takeover and fail closed."""
+
+
 def resolve_or_provision_identity(
     session: Session, *, email: str, external_auth_id: str
 ) -> tuple[uuid.UUID, uuid.UUID]:
@@ -95,14 +103,16 @@ def resolve_or_provision_identity(
 
     Precedence:
       1. existing user by ``external_auth_id`` (survives email changes);
-      2. an existing row by email:
+      2. an existing row by email (row-locked):
          - ``external_auth_id IS NULL`` → a **pending** invite: claim it (stamp
            the subject) and join that household (phase-2 first-login linking);
-         - a different subject → development only: re-bind it (a Neon test
-           branch recreated from prod carries prod subjects; the developer
-           signs in with the dev instance). Production keeps strict subject
-           matching — one Clerk instance, subjects never drift — and returns
-           the row untouched;
+         - a different subject in development → re-bind it (a Neon test branch
+           recreated from prod carries prod subjects; the developer signs in
+           with the dev instance);
+         - a different subject in production → raise ``SubjectMismatchError``
+           (strict subject matching: one Clerk instance, subjects never drift,
+           so a mismatch on a verified email is a recycled-email takeover
+           shape, not a login);
       3. no row → auto-provision a fresh solo household.
 
     The caller (``api/auth.py``) fails closed on unverified email before this
@@ -116,7 +126,15 @@ def resolve_or_provision_identity(
     )
     if by_sub is not None:
         return by_sub.household_id, by_sub.user_id
-    by_email = session.query(User).filter(User.email == normalized).one_or_none()
+    # Lowercase compare tolerates legacy mixed-case rows; the row lock keeps a
+    # concurrent revoke_invite / second claim from racing the stamp below
+    # (mirrors identity.py's locked first-login link; no-op on SQLite).
+    by_email = (
+        session.query(User)
+        .filter(func.lower(User.email) == normalized)
+        .with_for_update()
+        .one_or_none()
+    )
     if by_email is None:
         return provision_solo_household(
             session, email=normalized, external_auth_id=external_auth_id
@@ -126,11 +144,22 @@ def resolve_or_provision_identity(
         by_email.external_auth_id = external_auth_id
         session.flush()
     elif penny_env() == "development":
-        logger.bind(user_id=str(by_email.user_id)).info(
-            "Re-linked user to new auth subject (PENNY_ENV=development)"
-        )
+        logger.bind(
+            user_id=str(by_email.user_id),
+            old_subject=by_email.external_auth_id,
+            new_subject=external_auth_id,
+        ).info("Re-linked user to new auth subject (PENNY_ENV=development)")
         by_email.external_auth_id = external_auth_id
         session.flush()
+    else:
+        logger.bind(
+            user_id=str(by_email.user_id),
+            stored_subject=by_email.external_auth_id,
+            presented_subject=external_auth_id,
+        ).warning("Rejected sign-in: verified email bound to a different subject")
+        raise SubjectMismatchError(
+            f"email {normalized!r} is bound to a different auth subject"
+        )
     return by_email.household_id, by_email.user_id
 
 

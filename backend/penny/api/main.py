@@ -42,6 +42,7 @@ from penny.billing.prices import load_price_table  # noqa: E402
 from penny.billing.session import BillingSession  # noqa: E402
 from penny.billing.usage_subscriber import start_usage_subscriber_task  # noqa: E402
 from penny.bootstrap import bootstrap  # noqa: E402
+from penny.config import penny_env  # noqa: E402
 from penny.db import get_db  # noqa: E402
 from penny.observability import init_sentry  # noqa: E402
 from penny.tenancy.context import (  # noqa: E402
@@ -117,8 +118,10 @@ if _mcp_app is not None:
 
 
 # Fail closed at import: clerk mode requires issuer/JWKS/frontend-origin (the
-# origin also feeds CORS). Never `*` with credentials.
+# origin also feeds CORS). Never `*` with credentials. penny_env() is validated
+# here too so a typo'd PENNY_ENV fails the boot, not a login weeks later.
 _auth_settings = load_auth_settings()
+logger.info("PENNY_ENV tier: {}", penny_env())
 _origins = ["http://localhost:5173"]
 if _auth_settings.frontend_origin:
     _origins.append(_auth_settings.frontend_origin)
