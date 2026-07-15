@@ -82,8 +82,8 @@ def _provision_stale_subject_row():
 
 def test_development_relinks_row_with_stale_auth_subject(isolated_db, monkeypatch):
     # A local sign-in presents the dev-instance subject for the same verified
-    # email; in development (the PENNY_ENV default) the row is re-bound.
-    monkeypatch.delenv("PENNY_ENV", raising=False)
+    # email; development (explicit opt-in) re-binds the row.
+    monkeypatch.setenv("PENNY_ENV", "development")
     hid, uid = _provision_stale_subject_row()
     with get_db().session() as s:
         got = resolve_or_provision_identity(
@@ -95,11 +95,11 @@ def test_development_relinks_row_with_stale_auth_subject(isolated_db, monkeypatc
         assert u.external_auth_id == "clerk_dev_sub"
 
 
-def test_production_rejects_subject_mismatch(isolated_db, monkeypatch):
-    # In production subjects never legitimately drift (one Clerk instance), so
-    # a verified email bound to a different subject is a recycled-email
-    # takeover shape: fail closed, row untouched.
-    monkeypatch.setenv("PENNY_ENV", "production")
+def test_default_env_rejects_subject_mismatch(isolated_db, monkeypatch):
+    # PENNY_ENV unset means production (fail closed): subjects never
+    # legitimately drift there, so a verified email bound to a different
+    # subject is a recycled-email takeover shape — reject, row untouched.
+    monkeypatch.delenv("PENNY_ENV", raising=False)
     hid, uid = _provision_stale_subject_row()
     with get_db().session() as s:
         with pytest.raises(SubjectMismatchError):
@@ -113,7 +113,7 @@ def test_production_rejects_subject_mismatch(isolated_db, monkeypatch):
 
 def test_relink_matches_legacy_mixed_case_email(isolated_db, monkeypatch):
     # Legacy rows may store mixed-case emails; resolution compares lowercased.
-    monkeypatch.delenv("PENNY_ENV", raising=False)
+    monkeypatch.setenv("PENNY_ENV", "development")
     get_db().create_schema()
     with get_db().session() as s:
         hid, uid = provision_solo_household(

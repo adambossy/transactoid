@@ -14,11 +14,14 @@ Environment = Literal["production", "development"]
 def penny_env() -> Environment:
     """The environment tier this process runs in (``PENNY_ENV``).
 
-    Defaults to ``development``; deploy pins ``PENNY_ENV=production``
-    (``deploy/backend/fly.toml`` ``[env]``). Gate dev-only behavior on this
+    Fail closed: unset means ``production`` (dev-only conveniences off), so a
+    forgotten variable costs a developer a convenience, never a user a
+    protection. Local dev opts in with ``PENNY_ENV=development`` in
+    ``backend/.env``; deploy also pins ``production`` explicitly
+    (``deploy/env/deploy.env.template``). Gate dev-only behavior on this
     single var rather than minting per-feature flags.
     """
-    value = os.environ.get("PENNY_ENV", "").strip().lower() or "development"
+    value = os.environ.get("PENNY_ENV", "").strip().lower() or "production"
     if value not in ("production", "development"):
         raise ValueError(
             f"PENNY_ENV must be 'production' or 'development', got {value!r}"
