@@ -1,6 +1,6 @@
 """Thin adapter over Clerk's Invitations REST API.
 
-Implements the ``penny.signup.ClerkInvites`` seam so the signup service stays
+Implements the ``penny.households.ClerkInvites`` seam so the household service stays
 free of Clerk specifics. ``FakeClerkInvites`` stands in for this in tests; the
 real ``ClerkInvites`` here is what production wires in. It authenticates with the
 phase-2 ``CLERK_SECRET_KEY`` and speaks the documented endpoints:
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -106,17 +107,11 @@ class ClerkInvites:
         return None
 
 
-def fetch_user_identity(
-    sub: str, *, secret_key: str | None = None
-) -> tuple[str | None, bool]:
-    """Resolve ``(primary_email, email_verified)`` for a Clerk user via the API.
+def _get_user(sub: str, *, secret_key: str | None, op: str) -> dict[str, object]:
+    """``GET /v1/users/{id}`` — shared fetch for the identity/profile readers.
 
-    Clerk's default session token omits email claims, so the auth dependency
-    falls back to this on **first login** (when the subject is not yet linked to
-    a ``users`` row). One call per user at link time; returning users resolve by
-    ``external_auth_id`` and never reach here. ``GET /v1/users/{id}`` returns the
-    user's ``email_addresses`` with per-address ``verification.status`` and the
-    ``primary_email_address_id`` selecting the primary one.
+    Normalizes a non-dict payload to ``{}`` so callers can ``.get(...)``
+    without their own shape guard.
     """
     key = (secret_key or os.environ.get("CLERK_SECRET_KEY", "")).strip()
     if not key:
@@ -135,12 +130,35 @@ def fetch_user_identity(
 
         logger.bind(
             sub=sub, status=exc.code, body=body[:400].decode("utf-8", "replace")
-        ).error("Clerk fetch_user_identity failed")
+        ).error(f"Clerk {op} failed")
         raise ClerkError(
-            f"fetch_user_identity failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
+            f"{op} failed ({exc.code}): {body[:200].decode('utf-8', 'replace')}"
         ) from None
-    if not isinstance(user, dict):
-        return None, False
+    except (OSError, json.JSONDecodeError) as exc:
+        # URLError/TimeoutError/ConnectionError (all OSError) are the common
+        # outage modes — Clerk unreachable rather than answering with an HTTP
+        # error — and a garbled body decodes to JSONDecodeError. Translate them
+        # all so callers need to know only ClerkError.
+        from loguru import logger
+
+        logger.bind(sub=sub, error=repr(exc)).error(f"Clerk {op} failed")
+        raise ClerkError(f"{op} failed: {exc!r}") from None
+    return user if isinstance(user, dict) else {}
+
+
+def fetch_user_identity(
+    sub: str, *, secret_key: str | None = None
+) -> tuple[str | None, bool]:
+    """Resolve ``(primary_email, email_verified)`` for a Clerk user via the API.
+
+    Clerk's default session token omits email claims, so the auth dependency
+    falls back to this on **first login** (when the subject is not yet linked to
+    a ``users`` row). One call per user at link time; returning users resolve by
+    ``external_auth_id`` and never reach here. ``GET /v1/users/{id}`` returns the
+    user's ``email_addresses`` with per-address ``verification.status`` and the
+    ``primary_email_address_id`` selecting the primary one.
+    """
+    user = _get_user(sub, secret_key=secret_key, op="fetch_user_identity")
     primary_id = user.get("primary_email_address_id")
     for addr in user.get("email_addresses") or []:
         if isinstance(addr, dict) and addr.get("id") == primary_id:
@@ -148,6 +166,69 @@ def fetch_user_identity(
             verified = (addr.get("verification") or {}).get("status") == "verified"
             return (str(email) if email else None, bool(verified))
     return None, False
+
+
+# The empty profile: what a member without Clerk data (or with Clerk
+# unreachable) resolves to. Callers render initials from it.
+EMPTY_PROFILE: dict[str, str | None] = {"image_url": None, "first_name": None}
+
+# Profiles are fetched live (never persisted — the deliberate "no syncing"
+# decision) but callers render them often, so a short in-process cache bounds
+# Clerk traffic to ~one call per member per TTL. Failures are cached briefly
+# too, so a Clerk outage costs one timeout per member per window rather than
+# one per request.
+_PROFILE_TTL_SECONDS = 300.0
+_PROFILE_FAILURE_TTL_SECONDS = 45.0
+_profile_cache: dict[str, tuple[float, dict[str, str | None]]] = {}
+
+
+def fetch_user_profile(
+    sub: str, *, secret_key: str | None = None
+) -> dict[str, str | None]:
+    """Resolve ``{image_url, first_name}`` for a Clerk user, uncached.
+
+    The profile Clerk mirrors from the user's Google account — ``image_url`` is
+    the Gmail profile picture (a publicly loadable ``img.clerk.com`` URL, so it
+    can be handed straight to the browser). Raises ``ClerkError`` on failure; a
+    missing field comes back ``None``.
+    """
+    user = _get_user(sub, secret_key=secret_key, op="fetch_user_profile")
+
+    def _opt(field: str) -> str | None:
+        got = user.get(field)
+        return str(got) if got else None
+
+    return {
+        "image_url": _opt("image_url"),
+        "first_name": _opt("first_name"),
+    }
+
+
+def fetch_cached_user_profile(sub: str) -> dict[str, str | None]:
+    """``fetch_user_profile`` through the TTL cache, degradation absorbed.
+
+    A failed fetch (Clerk down, no secret key in dev) is a normal degraded
+    state for profile consumers — it resolves to ``EMPTY_PROFILE`` (rendered
+    as initials) and is negatively cached for a short window so the next
+    request retries soon without every request paying the timeout. Never
+    raises.
+    """
+    now = time.monotonic()
+    hit = _profile_cache.get(sub)
+    if hit is None or now >= hit[0]:
+        try:
+            profile = fetch_user_profile(sub)
+            expires = now + _PROFILE_TTL_SECONDS
+        except ClerkError as exc:
+            from loguru import logger
+
+            logger.bind(sub=sub).warning(f"profile fetch degraded: {exc}")
+            profile = EMPTY_PROFILE
+            expires = now + _PROFILE_FAILURE_TTL_SECONDS
+        hit = _profile_cache[sub] = (expires, profile)
+    # Copy on the way out: cache entries (and the EMPTY_PROFILE constant) must
+    # not be corruptible by a caller mutating the dict it received.
+    return dict(hit[1])
 
 
 def _is_duplicate(payload: object) -> bool:

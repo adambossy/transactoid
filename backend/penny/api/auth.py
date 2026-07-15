@@ -28,7 +28,7 @@ from penny.auth.identity import UnknownUserError, link_or_resolve_user
 from penny.auth.jwt_verifier import ClerkJwtVerifier, TokenError
 from penny.auth.settings import AuthSettings, load_auth_settings
 from penny.db import get_db
-from penny.signup import resolve_or_provision_identity
+from penny.households import resolve_or_provision_identity
 from penny.tenancy.context import (
     RequestContext,
     reset_request_context,

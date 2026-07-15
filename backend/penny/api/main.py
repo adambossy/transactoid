@@ -56,10 +56,10 @@ from penny.workspace_store.sync import flush, materialize  # noqa: E402
 from .auth import request_context  # noqa: E402
 from .billing_routes import router as billing_router  # noqa: E402
 from .bridge import _sse, stream_and_persist  # noqa: E402
+from .household_routes import router as household_router  # noqa: E402
 from .hydration import conversation_to_ui  # noqa: E402
 from .persistence.rehydrate import parts_to_messages  # noqa: E402
 from .persistence.store import ConversationAccessError, ConversationStore  # noqa: E402
-from .signup_routes import router as signup_router  # noqa: E402
 
 # Initialize error tracking before the app is built so startup and
 # request-handler failures are reported. Idempotent + no-op when unconfigured.
@@ -133,7 +133,7 @@ app.add_middleware(
 # BYO-credential / billing / provider-OAuth routes (website domain).
 app.include_router(billing_router)
 # Account bootstrap / household / invite routes (website domain).
-app.include_router(signup_router)
+app.include_router(household_router)
 
 _conversation_store: ConversationStore | None = None
 
@@ -416,6 +416,9 @@ async def list_conversations(
                 "id": row.conversation_id,
                 "title": row.title,
                 "updated_at": row.updated_at.isoformat(),
+                # individual / joint — the client marks joint threads as
+                # shared spaces (participant avatars) in the drawer.
+                "session_mode": row.session_mode,
             }
             for row in rows
         ]

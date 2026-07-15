@@ -3,22 +3,24 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
 import { AlertCircle, Brain } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
-import { loadOrCreateSessionId } from "./session";
+import type { TokenGetter } from "./authFetch";
+import { OtherUserMessage } from "./OtherUserMessage";
+import { conversationPath } from "./routes";
+import { useHouseholdMembers } from "./useHouseholdMembers";
 
 const MODEL = "gemini-3.5-flash";
 
-/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
-type GetToken = () => Promise<string | null>;
 type SessionMode = "individual" | "joint";
 
 // Reshape the AI SDK send body to the shape the backend's /api/chat expects,
 // attaching a fresh bearer token per request and the (creation-only) session
 // mode. The backend ignores sessionMode on an existing conversation.
 function makeTransport(
-  getToken: GetToken,
+  getToken: TokenGetter,
   getSessionMode: () => SessionMode,
 ): ChatTransport<AiUIMessage> {
   return new DefaultChatTransport<AiUIMessage>({
@@ -98,9 +100,88 @@ function PendingThinking() {
   );
 }
 
-export function ChatScreen({ getToken }: { getToken: GetToken }) {
-  const sessionId = useMemo(loadOrCreateSessionId, []);
-  const [history, setHistory] = useState<AiUIMessage[] | null>(null);
+/**
+ * Route adapter: derives the conversation id from the URL — the single source
+ * of truth for which conversation is on screen.
+ *
+ * On `/c/:id` the param is the id. On `/` (a draft chat) a fresh id is minted
+ * per navigation — keyed to `location.key` so "New chat" from anywhere always
+ * yields a clean conversation, while the first-send `/` → `/c/<id>` URL
+ * replacement keeps `key={sessionId}` stable and the in-flight turn mounted.
+ */
+export function ChatRoute({ getToken }: { getToken: TokenGetter }) {
+  const { id } = useParams();
+  const location = useLocation();
+  // The draft id lives in state, not useMemo — React may discard memo caches,
+  // which would remint the id and remount the draft mid-composition. The
+  // render-phase reset ("adjusting state when props change") mints a fresh id
+  // per navigation (location.key), so "New chat" always starts clean.
+  const [minted, setMinted] = useState(() => ({
+    key: location.key,
+    id: crypto.randomUUID(),
+  }));
+  if (minted.key !== location.key) {
+    setMinted({ key: location.key, id: crypto.randomUUID() });
+  }
+  const sessionId = id ?? minted.id;
+  return <ChatScreen key={sessionId} sessionId={sessionId} draft={!id} getToken={getToken} />;
+}
+
+/** Hydration hit a genuine failure (5xx, network) — surface it, don't render
+ * an existing conversation as a deceptively empty chat the user would re-send
+ * context into. */
+function ConversationLoadFailed() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center bg-background text-center">
+      <h1 className="text-2xl font-semibold sm:text-3xl">Couldn't load this conversation</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Something went wrong fetching its history.
+      </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="mt-6 rounded-full border border-cream px-4 py-2 font-ui text-sm text-ink transition-colors hover:bg-cream-soft"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
+/** Deep link to a conversation that doesn't exist or isn't the principal's. */
+function ConversationNotFound() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center bg-background text-center">
+      <h1 className="text-2xl font-semibold sm:text-3xl">Conversation not found</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        This conversation doesn't exist, or you don't have access to it.
+      </p>
+      <Link
+        to="/"
+        className="mt-6 rounded-full border border-cream px-4 py-2 font-ui text-sm text-ink transition-colors hover:bg-cream-soft"
+      >
+        Start a new chat
+      </Link>
+    </div>
+  );
+}
+
+export function ChatScreen({
+  sessionId,
+  draft,
+  getToken,
+}: {
+  sessionId: string;
+  draft: boolean;
+  getToken: TokenGetter;
+}) {
+  // What hydration produced: pending (null), a transcript, "not-found", or
+  // "error". A draft starts hydrated-empty — it has no history to load, and
+  // the first-send `/` → `/c/<id>` URL replacement flips `draft` without
+  // remounting (same key), so fetching then would clobber the in-flight turn.
+  const [history, setHistory] = useState<AiUIMessage[] | "not-found" | "error" | null>(
+    draft ? [] : null,
+  );
   // True when the hydrated transcript ends on a user message — i.e. the page was
   // (re)loaded mid-turn (the assistant's reply hasn't been finalized/persisted
   // yet), so the chat should immediately try to resume the live stream. A
@@ -114,27 +195,53 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
   }, [getToken]);
 
   // Hydrate persisted history before mounting the chat so refreshes and
-  // backend restarts don't blank the transcript. A conversation the principal
-  // cannot access (or that does not exist) 404s → treated as empty.
+  // backend restarts don't blank the transcript. A 404 (unknown id, or a
+  // conversation the principal cannot access) renders the not-found state
+  // rather than a silent empty chat a message could be sent into.
+  //
+  // Hydration happens once per mount (a draft counts as already hydrated):
+  // `hydratedRef` keeps a re-run (getToken identity churn) from refetching
+  // and — worse — flipping a live transcript into the not-found state if the
+  // conversation vanished server-side mid-view.
+  const hydratedRef = useRef(draft);
   useEffect(() => {
+    if (hydratedRef.current) return;
     let cancelled = false;
-    authHeaders(getToken)
-      .then((headers) => fetch(`/api/sessions/${sessionId}`, { headers }))
-      .then((res) => (res.ok ? res.json() : { messages: [] }))
-      .then((data) => {
-        if (cancelled) return;
-        const msgs = (data.messages ?? []) as AiUIMessage[];
-        const last = msgs[msgs.length - 1];
+
+    const hydrate = async (): Promise<AiUIMessage[] | "not-found" | "error"> => {
+      try {
+        const headers = await authHeaders(getToken);
+        const res = await fetch(`/api/sessions/${sessionId}`, { headers });
+        if (res.status === 404) return "not-found";
+        if (!res.ok) return "error";
+        const data = (await res.json()) as { messages?: AiUIMessage[] };
+        return data.messages ?? [];
+      } catch {
+        return "error";
+      }
+    };
+
+    void hydrate().then((outcome) => {
+      if (cancelled) return;
+      hydratedRef.current = true;
+      if (Array.isArray(outcome)) {
+        const last = outcome[outcome.length - 1];
         setInitialIncomplete(last?.role === "user");
-        setHistory(msgs);
-      })
-      .catch(() => {
-        if (!cancelled) setHistory([]);
-      });
+      }
+      setHistory(outcome);
+    });
     return () => {
       cancelled = true;
     };
   }, [sessionId, getToken]);
+
+  if (history === "not-found") {
+    return <ConversationNotFound />;
+  }
+
+  if (history === "error") {
+    return <ConversationLoadFailed />;
+  }
 
   if (history === null) {
     return (
@@ -147,6 +254,7 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
   return (
     <Chat
       sessionId={sessionId}
+      draft={draft}
       initialMessages={history}
       initialIncomplete={initialIncomplete}
       getToken={getToken}
@@ -156,15 +264,18 @@ export function ChatScreen({ getToken }: { getToken: GetToken }) {
 
 function Chat({
   sessionId,
+  draft,
   initialMessages,
   initialIncomplete,
   getToken,
 }: {
   sessionId: string;
+  draft: boolean;
   initialMessages: AiUIMessage[];
   initialIncomplete: boolean;
-  getToken: GetToken;
+  getToken: TokenGetter;
 }) {
+  const navigate = useNavigate();
   // Session mode is chosen before the first message and fixed thereafter
   // (immutable server-side). A ref feeds the transport without rebuilding it.
   const [sessionMode, setSessionMode] = useState<SessionMode>("individual");
@@ -182,6 +293,24 @@ function Chat({
     messages: initialMessages,
     generateId: () => crypto.randomUUID(),
   });
+
+  // "Mine vs theirs": a user message is the other member's iff its hydrated
+  // sender is known and isn't the viewer. A missing sender (legacy rows,
+  // members still loading, live sends) falls through to today's rendering —
+  // wrong-styling-by-guess would be worse than the status quo.
+  const { members, me } = useHouseholdMembers(getToken);
+
+  // Message id → sender user id, from the hydration payload's senderUserId.
+  // Derived here (not threaded as state) and kept beside the AI SDK's message
+  // state so useChat's typing stays untouched. Live sends never enter this
+  // map, which is correct: the sender of a live turn is always the viewer.
+  const senders = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of initialMessages as Array<{ id?: string; senderUserId?: string | null }>) {
+      if (m.id && m.senderUserId) map[m.id] = m.senderUserId;
+    }
+    return map;
+  }, [initialMessages]);
 
   // Resume a dropped SSE stream. The connection dies when the tab is
   // backgrounded (mobile app-switch) but the sandbox keeps running server-side,
@@ -272,14 +401,25 @@ function Chat({
               </fieldset>
             </div>
           ) : (
-            messages.map((m, i) => (
-              <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
-                <Message
-                  message={m as unknown as UIMessage}
-                  isStreaming={isStreaming && i === messages.length - 1}
-                />
-              </div>
-            ))
+            messages.map((m, i) => {
+              const senderId = m.role === "user" ? senders[m.id] : undefined;
+              const fromOtherMember = Boolean(senderId && me && senderId !== me.user_id);
+              return (
+                <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
+                  {fromOtherMember ? (
+                    <OtherUserMessage
+                      message={m as unknown as UIMessage}
+                      member={members.find((member) => member.user_id === senderId)}
+                    />
+                  ) : (
+                    <Message
+                      message={m as unknown as UIMessage}
+                      isStreaming={isStreaming && i === messages.length - 1}
+                    />
+                  )}
+                </div>
+              );
+            })
           )}
           {!showEmpty && (
             // Once created, the thread's fixed mode is shown (no picker).
@@ -304,7 +444,14 @@ function Chat({
 
       <Composer
         disabled={isStreaming}
-        onSend={(text) => sendMessage({ text })}
+        onSend={(text) => {
+          sendMessage({ text });
+          // First send promotes the draft: the conversation now exists
+          // server-side, so give it its real URL. Replace, not push — this
+          // renames the view in place; back should not revisit a ghost empty
+          // chat. The route re-renders with `draft` false, so this runs once.
+          if (draft) void navigate(conversationPath(sessionId), { replace: true });
+        }}
         modelLabel="Gemini 3.5 Flash"
         footerHint="Penny can make mistakes — verify important numbers"
       />

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation stages — URL routing for the Penny frontend</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-plan-id="url-routing" data-page-id="implementation" data-page-depth="1">
+<div class="sp-layout">
+
+  <aside class="sp-sidebar" id="smartplan-sidebar" aria-label="Plan navigation"></aside>
+
+  <div class="sp-main">
+    <div class="container">
+
+      <p class="crumbs">
+        <a href="../index.html">URL routing for the Penny frontend</a>
+        &nbsp;/&nbsp; Implementation stages
+      </p>
+
+      <header class="page-header">
+        <p class="eyebrow">Execution</p>
+        <h1>Implementation stages</h1>
+        <p class="lede">Three dependency-ordered commits on <code>feature/url-routing</code>, each leaving the app working and the test suite green.</p>
+      </header>
+
+      <section class="requirements">
+        <h2>Requirements</h2>
+        <ol>
+          <li>At no point during the work is the app broken — each stage can ship on its own if the work pauses.</li>
+          <li>Existing users notice nothing until the conversation URLs appear; settings and invites keep their current addresses throughout.</li>
+          <li>When the work is done, the project's requirements-of-record reflect the new deep-linking behavior.</li>
+        </ol>
+      </section>
+
+      <section id="stage-1">
+        <header class="section-header">
+          <h2>Stage 1 — router shell, zero behavior change</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="stage-1">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li>Add the <code>react-router</code> dependency (v7, the single consolidated package — not the legacy <code>react-router-dom</code> shim).</li>
+          <li>Wrap the app in <code>BrowserRouter</code> in <code>main.tsx</code>; convert the four module-level pathname constants (<code>/ui</code>, <code>/settings/providers</code>, <code>/invites</code> in <code>main.tsx</code>; <code>/sign-up</code> in <code>AuthGate.tsx</code>) into routes and a <code>useLocation()</code> read.</li>
+          <li>Collapse <code>authedScreen()</code> / <code>devScreen()</code> into one shared <code>AppRoutes</code> used by both auth modes (<a href="../architecture/index.html#component-tree">component tree</a>).</li>
+          <li>Chat still uses the local-storage session id at <code>/</code> — behavior is byte-for-byte today's.</li>
+        </ul>
+        <p><em>Gate:</em> full existing Playwright suite passes untouched. This proves the router landed without semantic change before any semantics change.</p>
+      </section>
+
+      <section id="stage-2">
+        <header class="section-header">
+          <h2>Stage 2 — conversation routes, session module retired</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="stage-2">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li>Add <code>/c/:id</code>; key the chat screen by conversation id; <code>/</code> mints an ephemeral id and replace-navigates on first send (<a href="../routes/new-chat-flow.html">lifecycle</a>).</li>
+          <li>Convert drawer rows and "New chat" to links; highlight from the route param (<a href="../architecture/session-retirement.html">details</a>).</li>
+          <li>Delete <code>session.ts</code>; add the catch-all redirect to <code>/</code>; render the "Conversation not found" state on hydration 404 (<a href="../routes/index.html#unknown-paths">contract</a>).</li>
+          <li>No existing spec seeds the local-storage key, so none need repair — and this stage is what makes the pre-written <code>conversation-isolation.spec.ts</code> (which already asserts <code>/c/&lt;id&gt;</code> URLs and a visible not-found message) actually passable (<a href="testing.html">testing</a>).</li>
+        </ul>
+        <p><em>Gate:</em> updated suite passes; manual pass over the <a href="../routes/new-chat-flow.html#edge-cases">edge cases</a>.</p>
+      </section>
+
+      <section id="stage-3">
+        <header class="section-header">
+          <h2>Stage 3 — new coverage and the record</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="stage-3">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <ul>
+          <li>New Playwright specs: deep-link hydration, back/forward across two conversations, new-chat URL replacement (<a href="testing.html#new-specs">list</a>).</li>
+          <li>Update <code>REQUIREMENTS.txt</code> (Product section): key views are routable; conversations are deep-linkable; browser navigation works. Per repo rules this lands in the same change that alters the behavior — stage 3 is part of the same PR.</li>
+          <li>Close the loop on the bead: verify each fly-wz0 acceptance criterion against the deployed preview, then close it.</li>
+        </ul>
+      </section>
+
+      <section id="verification">
+        <header class="section-header">
+          <h2>Verification per stage</h2>
+          <label class="section-check-wrap" title="Mark section as read">
+            <input type="checkbox" class="section-check" data-section-id="verification">
+            <span class="section-check-label">Read</span>
+          </label>
+        </header>
+        <p>Frontend-only change; the backend gates don't apply. Each stage runs:</p>
+        <ul>
+          <li><code>npm run build</code> (type-check + production build) from <code>frontend/</code>.</li>
+          <li><code>npm run e2e</code> (Playwright) — the specs listed on the <a href="testing.html">testing page</a>.</li>
+          <li>A manual dev-loop pass (backend on :8000, Vite dev server) covering drawer switching, refresh mid-conversation, and back/forward — the flows that automated specs approximate but a human should feel at least once.</li>
+        </ul>
+        <p>One PR, three commits, reviewed as a unit; the stage boundaries exist so a reviewer can follow the change and so a bisect lands on a working tree.</p>
+      </section>
+
+      <p class="foot"><a href="testing.html">Deeper: Testing →</a> · <a href="../compat/index.html">Sibling: Deployment &amp; compatibility →</a></p>
+
+    </div>
+  </div>
+</div>
+
+<script id="smartplan-tree" type="application/json">
+{
+  "title": "URL routing for the Penny frontend",
+  "root": {
+    "id": "root",
+    "label": "Executive summary",
+    "href": "index.html",
+    "sections": ["the-goal", "strategy", "key-decisions"],
+    "children": [
+      {
+        "id": "routes",
+        "label": "Route map & URL contract",
+        "href": "routes/index.html",
+        "sections": ["route-table", "url-source-of-truth", "unknown-paths"],
+        "children": [
+          {
+            "id": "new-chat-flow",
+            "label": "New-chat lifecycle",
+            "href": "routes/new-chat-flow.html",
+            "sections": ["lifecycle", "history-semantics", "edge-cases"]
+          }
+        ]
+      },
+      {
+        "id": "architecture",
+        "label": "Router integration",
+        "href": "architecture/index.html",
+        "sections": ["component-tree", "auth-modes", "chat-remount", "dev-gallery"],
+        "children": [
+          {
+            "id": "session-retirement",
+            "label": "Retiring the session module",
+            "href": "architecture/session-retirement.html",
+            "sections": ["what-goes", "what-replaces-it", "drawer-links"]
+          }
+        ]
+      },
+      {
+        "id": "implementation",
+        "label": "Implementation stages",
+        "href": "implementation/index.html",
+        "sections": ["stage-1", "stage-2", "stage-3", "verification"],
+        "children": [
+          {
+            "id": "testing",
+            "label": "Testing",
+            "href": "implementation/testing.html",
+            "sections": ["affected-specs", "new-specs", "manual-checks"]
+          }
+        ]
+      },
+      {
+        "id": "compat",
+        "label": "Deployment & compatibility",
+        "href": "compat/index.html",
+        "sections": ["serving", "legacy-state", "clerk-and-landing"]
+      },
+      {
+        "id": "assumptions",
+        "label": "Assumptions & open questions",
+        "href": "assumptions/index.html",
+        "sections": ["asked", "assumed", "open-questions"]
+      }
+    ]
+  }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="../smartplan.js"></script>
+</body>
+</html>

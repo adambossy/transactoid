@@ -47,6 +47,27 @@ P6. Conversation persistence
     a chat-history drawer, open any past conversation, and start a new chat —
     scoped to conversations the principal may see (their own, plus joint threads).
 
+P6a. Multi-user conversation legibility
+    Shared (joint) conversations are visually identified: in the chat-history
+    drawer they carry the participating members' profile pictures (the Google
+    picture mirrored by the auth provider — fetched live, never stored by
+    Penny), and within a shared conversation each user message written after
+    this feature shipped is attributed to its author, with another member's
+    messages rendered visually distinct from the viewer's own. Messages from
+    before attribution existed keep their prior rendering; missing pictures
+    degrade to initials and never block chat.
+
+P6b. URL routing & deep links
+    The URL is the source of truth for what's on screen: key views (new chat,
+    a specific conversation, settings, invites) each have their own route, and
+    browser back/forward walk between them. A conversation lives at a
+    deep-linkable URL that a fresh load (re)hydrates; opening the home route
+    always starts a new chat, whose URL becomes the conversation's on the first
+    message. A conversation URL the principal cannot access (or that doesn't
+    exist) shows an explicit not-found state — never someone else's thread and
+    never a silent empty chat (enforced by frontend/e2e/routing.spec.ts and
+    conversation-isolation.spec.ts).
+
 P7. Agent workspace
     Maintain a persistent per-user workspace (memory/, reports/) that carries
     user state (e.g. budget notes) across chat and scheduled runs. State lives

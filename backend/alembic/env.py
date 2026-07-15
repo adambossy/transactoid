@@ -2,7 +2,7 @@ from logging.config import fileConfig
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 
@@ -42,9 +42,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Get database URL from environment variables
-database_url = os.environ.get("DATABASE_URL") or config.get_main_option(
-    "sqlalchemy.url"
+# Resolve the target DB URL. An EXPLICIT sqlalchemy.url set on the config wins
+# (e.g. `penny.schema.upgrade_to_head(url)` or `alembic -x`), so callers can
+# migrate a chosen DB even when DATABASE_URL points elsewhere — otherwise a
+# stray DATABASE_URL (a shell/.env pointing at prod) would silently override
+# the requested target. The CLI/release path leaves sqlalchemy.url empty
+# (alembic.ini default), so it falls back to DATABASE_URL as before.
+database_url = config.get_main_option("sqlalchemy.url") or os.environ.get(
+    "DATABASE_URL"
 )
 
 if database_url:
@@ -98,6 +103,21 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # On a fresh Postgres, alembic would create alembic_version.version_num
+        # as VARCHAR(32); this repo's descriptive revision ids exceed that, so
+        # the chain would fail at 001. Pre-create the table wide (idempotent —
+        # existing DBs keep theirs). SQLite ignores VARCHAR length, so it's a
+        # no-op there.
+        if connection.dialect.name == "postgresql":
+            connection.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS alembic_version ("
+                    "version_num VARCHAR(128) NOT NULL, "
+                    "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+                )
+            )
+            connection.commit()
+
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():

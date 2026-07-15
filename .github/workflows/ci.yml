@@ -56,6 +56,18 @@ jobs:
         working-directory: backend
         run: uv run pytest -q
 
+      # The sandbox integration tests (relay/resume) import the sibling
+      # `sandbox/` project's runner/protocol packages; the default backend
+      # collection skips them (conftest collect_ignore). Run them here with
+      # `sandbox/` on PYTHONPATH — their deps (agent-harness/fastapi/pydantic)
+      # are already in the backend venv — so a relay/resume regression fails
+      # the gate instead of silently vanishing.
+      - name: Sandbox integration tests (relay/resume)
+        working-directory: backend
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sandbox
+        run: uv run pytest -q tests/test_relay.py tests/api/test_sandbox_resume.py
+
       # RLS is bypassed by superusers, so the isolation suites must run as a
       # dedicated NON-superuser role (mirrors Neon's neondb_owner).
       - name: Create non-superuser RLS role
@@ -69,6 +81,10 @@ jobs:
         working-directory: backend
         env:
           POSTGRES_TEST_URL: postgresql://penny_rls:penny_rls@127.0.0.1:5432/penny_ci
+          # Superuser URL: the fresh-Postgres migration/drift test creates and
+          # drops a throwaway database (the chain hardcodes the web/public
+          # schemas, so a per-test schema can't isolate the web migrations).
+          POSTGRES_SUPERUSER_URL: postgresql://postgres:postgres@127.0.0.1:5432/penny_ci
         run: uv run pytest -q -m postgres
 
       - name: Setup node

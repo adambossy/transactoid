@@ -123,6 +123,12 @@ class ConversationMessage(WebBase):
     ai_sdk_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False)  # user / assistant
+    # The household member who wrote a user turn (stamped from the real
+    # ``ctx.user_id``, never the joint nil sentinel). NULL on assistant turns
+    # and on rows written before attribution existed — absence is a normal
+    # state, so there is no backfill. Bare UUID, no cross-schema FK (mirrors
+    # ``Conversation.owner_user_id``).
+    sender_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     parts: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'complete'")

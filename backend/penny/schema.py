@@ -40,8 +40,10 @@ def _alembic_ini() -> Path:
 def upgrade_to_head(database_url: str | None = None) -> None:
     """Apply alembic migrations to head. Idempotent (no-op when already at head).
 
-    ``env.py`` honors ``DATABASE_URL``; ``database_url`` sets the config url
-    explicitly (used by tests and the CLI when the env var is not the target).
+    A passed ``database_url`` is authoritative: ``env.py`` prefers the explicit
+    ``sqlalchemy.url`` set here over ``DATABASE_URL``, so a caller can migrate a
+    chosen DB even when a stray ``DATABASE_URL`` points elsewhere. With no
+    argument (the CLI/release path) ``env.py`` falls back to ``DATABASE_URL``.
     """
     cfg = Config(str(_alembic_ini()))
     if database_url:

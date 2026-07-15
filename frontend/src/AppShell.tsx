@@ -32,6 +32,14 @@ export function AppShell({
     hamburgerRef.current?.focus();
   }, []);
 
+  // Drawer link clicks: below md the drawer overlays (see the md:hidden
+  // backdrop below — 768px is Tailwind's md) and must dismiss on navigation;
+  // on desktop it pushes content and stays open across client-side switches.
+  // The shell owns this policy so the layout split lives in one module.
+  const onDrawerNavigate = useCallback(() => {
+    if (!window.matchMedia("(min-width: 768px)").matches) closeDrawer();
+  }, [closeDrawer]);
+
   return (
     <div className="relative flex h-full w-full bg-background">
       {/* Mobile-only backdrop behind the overlay drawer; tap to dismiss. */}
@@ -43,7 +51,12 @@ export function AppShell({
           className="fixed inset-0 z-30 bg-black/30 md:hidden"
         />
       )}
-      <ChatHistoryDrawer open={drawerOpen} onClose={closeDrawer} getToken={getToken} />
+      <ChatHistoryDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        onNavigate={onDrawerNavigate}
+        getToken={getToken}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <HouseholdHeader
           getToken={getToken}

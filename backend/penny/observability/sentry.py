@@ -17,7 +17,10 @@ Configuration (see ``.env.example``):
   reporting on by default. Set it to an empty value to disable.
 * ``PENNY_SENTRY_ENABLED`` — explicit ``true``/``false`` override; default on
   iff a DSN is present.
-* ``PENNY_SENTRY_ENVIRONMENT`` — environment tag (e.g. ``production``).
+* ``PENNY_SENTRY_ENVIRONMENT`` — environment tag. Deploy sets ``production``
+  (fly ``[env]`` + the cron ``config.env``); unset means a local/dev process,
+  which reports as ``development``. Never rely on the SDK default — it is
+  ``production``, which made laptop dev servers page prod alerts.
 
 :func:`init_sentry` is idempotent and degrades to a strict no-op when disabled
 or unconfigured.
@@ -83,7 +86,10 @@ def init_sentry() -> None:
         return
     sentry_sdk.init(
         dsn=_dsn(),
-        environment=os.environ.get("PENNY_SENTRY_ENVIRONMENT", "").strip() or None,
+        # Unset ⇒ "development": only deploy-supplied env says "production".
+        # (Passing None would fall back to the SDK default — "production".)
+        environment=os.environ.get("PENNY_SENTRY_ENVIRONMENT", "").strip()
+        or "development",
         # Attach request headers and user IP/PII. See Sentry data-management
         # docs: https://docs.sentry.io/platforms/python/data-management/data-collected/
         send_default_pii=True,
