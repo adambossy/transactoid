@@ -32,15 +32,15 @@ export function FeatureSection({
     <section id={id} className={flip ? "bg-cream-soft py-20" : "py-20"}>
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-5 sm:px-8 lg:grid-cols-2">
         <div className={flip ? "order-1 lg:order-2" : ""}>
-          <span className="font-ui text-xs font-semibold uppercase tracking-[0.22em] text-orange">
+          <span className="font-ui text-xs uppercase tracking-[0.22em] text-orange">
             {eyebrow}
           </span>
-          <h2 className="mt-3 font-serif text-5xl font-semibold text-navy">
+          <h2 className="mt-3 font-serif text-5xl font-normal text-navy">
             {title}
             {titleAccent ? <> <AccentUnderline>{titleAccent}</AccentUnderline></> : null}
           </h2>
           <p className="mt-4 max-w-md font-ui text-lg text-ink">{body}</p>
-          <ButtonLink href="/sign-up" size="lg" className="mt-7">
+          <ButtonLink href="/sign-up" size="xl" className="mt-7">
             {cta} →
           </ButtonLink>
         </div>

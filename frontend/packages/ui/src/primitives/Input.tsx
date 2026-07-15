@@ -27,16 +27,16 @@ export function Input({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-full border border-cream bg-paper py-1.5 pl-5 pr-1.5">
+    <div className="flex items-center gap-2 rounded-full bg-cream-soft p-1.5 ring-2 ring-navy">
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent font-ui text-sm text-ink placeholder:text-steel focus:outline-none"
+        className="min-w-0 flex-1 bg-transparent px-4 font-ui text-sm text-ink placeholder:text-steel focus:outline-none"
       />
-      <Button variant="filled" onClick={() => onSubmit?.()}>
+      <Button variant="filled" size="lg" className="shrink-0" onClick={() => onSubmit?.()}>
         {buttonLabel}
       </Button>
     </div>

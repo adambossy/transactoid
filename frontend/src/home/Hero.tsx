@@ -14,7 +14,7 @@ export function Hero() {
       <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="animate-rise-in motion-reduce:animate-none">
           <EyebrowPill className="mb-6">{home.eyebrow}</EyebrowPill>
-          <h1 className="font-serif text-6xl font-semibold leading-[1.02] text-navy sm:text-7xl">
+          <h1 className="font-serif text-6xl font-normal leading-[1.02] text-navy sm:text-7xl">
             {home.hero.title1}
             <br />
             {home.hero.title2Pre}
@@ -41,7 +41,7 @@ export function Hero() {
           <div className="absolute bottom-5 left-6 h-7 w-7 rounded-full bg-navy" />
           <Logo
             variant="emblem"
-            size={240}
+            size={256}
             className="relative transition-transform duration-500 hover:-translate-y-1.5 hover:-rotate-1"
           />
         </div>

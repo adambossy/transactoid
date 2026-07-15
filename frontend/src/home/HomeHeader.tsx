@@ -6,7 +6,7 @@ import { home } from "./copy";
  *  @penny/ui Header (sticky + blur + wordmark-link are landing-only). */
 export function HomeHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-navy bg-paper/80 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b-[1.5px] border-navy bg-paper/[0.82] backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-3 sm:px-8">
         <a href="/" className="no-underline">
           <Wordmark size={44} className="text-navy" />

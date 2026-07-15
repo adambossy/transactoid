@@ -9,7 +9,7 @@ export interface EyebrowPillProps {
 export function EyebrowPill({ children, className = "" }: EyebrowPillProps) {
   return (
     <span
-      className={`inline-block rounded-full bg-navy px-3 py-1 font-ui text-xs font-medium uppercase tracking-[0.18em] text-cream ${className}`}
+      className={`inline-block rounded-full bg-navy px-4 py-1.5 font-ui text-xs uppercase tracking-[0.22em] text-cream ${className}`}
     >
       {children}
     </span>

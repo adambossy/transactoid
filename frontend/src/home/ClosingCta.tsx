@@ -10,11 +10,11 @@ export function ClosingCta() {
         <div className="absolute -bottom-12 -left-8 h-52 w-52 rounded-full bg-navy/10" />
         <div className="relative">
           <Logo variant="emblem" size={96} className="mx-auto mb-7" />
-          <h2 className="font-serif text-5xl font-semibold text-ink sm:text-6xl">
+          <h2 className="font-serif text-5xl font-normal text-ink sm:text-6xl">
             {home.closing.title}
           </h2>
           <p className="mx-auto mt-4 max-w-xl font-ui text-lg text-navy">{home.closing.body}</p>
-          <ButtonLink href="/sign-up" size="xl" className="mt-8">
+          <ButtonLink href="/sign-up" size="2xl" className="mt-8">
             {home.closing.cta} →
           </ButtonLink>
         </div>

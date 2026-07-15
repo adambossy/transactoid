@@ -14,7 +14,7 @@ export function AccentUnderline({
       {children}
       <span
         aria-hidden="true"
-        className="absolute bottom-[-0.08em] left-0 h-[3px] w-full bg-orange"
+        className="absolute bottom-[-0.12em] left-0 h-[3px] w-full bg-orange"
       />
     </span>
   );

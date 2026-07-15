@@ -15,7 +15,7 @@ export function Wordmark({ size = 40, className = "" }: WordmarkProps) {
     <span className={`flex items-center gap-3 ${className}`}>
       <Logo variant="flat" size={size} />
       <span
-        className={`font-serif font-semibold tracking-[0.22em] ${size < 40 ? "text-xl" : "text-2xl"}`}
+        className={`font-serif font-normal tracking-[0.22em] ${size < 40 ? "text-xl" : "text-2xl"}`}
       >
         PENNY
       </span>

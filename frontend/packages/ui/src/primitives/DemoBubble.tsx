@@ -12,15 +12,17 @@ export interface DemoBubbleProps {
 export function DemoBubble({ role, children }: DemoBubbleProps) {
   const shape =
     role === "user"
-      ? "ml-auto max-w-[80%] rounded-2xl rounded-tr-sm bg-orange text-ink"
-      : "mr-auto max-w-[96%] rounded-2xl rounded-tl-sm border border-cream bg-cream-soft text-ink";
+      ? "ml-auto max-w-[80%] rounded-2xl rounded-tr-[0.3rem] bg-orange text-ink"
+      : "mr-auto max-w-[96%] rounded-2xl rounded-tl-[0.3rem] border border-ink/8 bg-cream-soft text-ink";
   const tables =
-    "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs " +
-    "[&_th]:border [&_th]:border-ink/15 [&_th]:bg-navy/10 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold " +
-    "[&_td]:border [&_td]:border-ink/15 [&_td]:px-2 [&_td]:py-1 " +
+    "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-[0.76rem] " +
+    "[&_th]:border [&_th]:border-ink/16 [&_th]:bg-navy/8 [&_th]:px-[0.45rem] [&_th]:py-1 [&_th]:text-left [&_th]:font-bold " +
+    "[&_td]:border [&_td]:border-ink/16 [&_td]:px-[0.45rem] [&_td]:py-1 " +
     "[&_td:not(:first-child)]:text-right [&_th:not(:first-child)]:text-right";
   return (
-    <div className={`px-3.5 py-2.5 font-ui text-sm leading-relaxed ${shape} ${tables}`}>
+    <div
+      className={`px-[0.85rem] py-[0.6rem] font-ui text-[0.83rem] leading-[1.45] ${shape} ${tables}`}
+    >
       {children}
     </div>
   );
