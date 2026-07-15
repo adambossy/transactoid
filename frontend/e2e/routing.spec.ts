@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures/app";
 
 /**
@@ -12,7 +13,7 @@ import { expect, test } from "./fixtures/app";
 
 const UUID_RE = /\/c\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-async function sendMessage(page: import("@playwright/test").Page, text: string) {
+async function sendMessage(page: Page, text: string) {
   await page.getByRole("textbox", { name: /chat input/i }).fill(text);
   await page.getByRole("button", { name: /send/i }).click();
 }

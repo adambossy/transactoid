@@ -5,11 +5,13 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { Gallery } from "@penny/ui";
 import { registerToolRenderer } from "@adambossy/agent-ui";
 import { AppShell } from "./AppShell";
+import type { TokenGetter } from "./authFetch";
 import { AuthGate } from "./AuthGate";
 import { ChatRoute } from "./ChatScreen";
 import { InviteScreen } from "./InviteScreen";
-import { PlaidLinkCard } from "./PlaidLinkCard";
+import { PlaidLinkCard, PlaidOauthGate } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
+import { CONVERSATION_PATH } from "./routes";
 import "./index.css";
 
 // Render the connect_bank_account (new link) and relink_account (update-mode
@@ -27,17 +29,22 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefine
 // Dev-principal mode: no token (the backend uses the env-pinned principal).
 const noToken = async () => null;
 
-/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
-type GetToken = () => Promise<string | null>;
-
 // The signed-in screens, shared verbatim by both auth modes — only the token
-// source differs. `/` is always a new chat; a conversation lives at /c/:id;
+// source differs. `/` is always a new chat (gated for the Plaid OAuth return,
+// which lands there with no path context); a conversation lives at /c/:id;
 // anything unmatched goes home (replace, so the dead URL doesn't trap back).
-function AppRoutes({ getToken }: { getToken: GetToken }) {
+function AppRoutes({ getToken }: { getToken: TokenGetter }) {
   return (
     <Routes>
-      <Route path="/" element={<ChatRoute getToken={getToken} />} />
-      <Route path="/c/:id" element={<ChatRoute getToken={getToken} />} />
+      <Route
+        path="/"
+        element={
+          <PlaidOauthGate>
+            <ChatRoute getToken={getToken} />
+          </PlaidOauthGate>
+        }
+      />
+      <Route path={CONVERSATION_PATH} element={<ChatRoute getToken={getToken} />} />
       <Route
         path="/settings/providers/*"
         element={<ProvidersBillingScreen getToken={getToken} />}

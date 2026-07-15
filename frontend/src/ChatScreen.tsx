@@ -3,11 +3,11 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ChatTransport, UIMessage as AiUIMessage } from "ai";
 import { AlertCircle, Brain } from "lucide-react";
-import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
-import { PLAID_OAUTH_CONVERSATION_KEY } from "./PlaidLinkCard";
+import { conversationPath } from "./routes";
 
 const MODEL = "gemini-3.5-flash";
 
@@ -113,21 +113,6 @@ export function ChatRoute({ getToken }: { getToken: GetToken }) {
   const location = useLocation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftId = useMemo(() => crypto.randomUUID(), [location.key]);
-
-  // Plaid OAuth-redirect resume: the bank returns to the static
-  // PLAID_REDIRECT_URI carrying only ?oauth_state_id, with no path context.
-  // Reopen the conversation whose card opened Link (stashed at open time) —
-  // the query string rides along so the rehydrated card's receivedRedirectUri
-  // completes the flow. Pre-routing, the localStorage session pin did this.
-  if (!id && location.search.includes("oauth_state_id")) {
-    const resume = localStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY);
-    if (resume) {
-      return (
-        <Navigate to={{ pathname: `/c/${resume}`, search: location.search }} replace />
-      );
-    }
-  }
-
   const sessionId = id ?? draftId;
   return <ChatScreen key={sessionId} sessionId={sessionId} draft={!id} getToken={getToken} />;
 }
@@ -159,12 +144,13 @@ export function ChatScreen({
   draft: boolean;
   getToken: GetToken;
 }) {
-  // Hydration is a mount-time decision: the first-send `/` → `/c/<id>` URL
-  // replacement flips `draft` without remounting (same key), and fetching then
-  // would clobber the in-flight first turn. A draft has no history to load.
-  const [skipHydration] = useState(draft);
-  const [history, setHistory] = useState<AiUIMessage[] | null>(skipHydration ? [] : null);
-  const [notFound, setNotFound] = useState(false);
+  // What hydration produced: pending (null), a transcript, or "not-found".
+  // A draft starts hydrated-empty — it has no history to load, and the
+  // first-send `/` → `/c/<id>` URL replacement flips `draft` without
+  // remounting (same key), so fetching then would clobber the in-flight turn.
+  const [history, setHistory] = useState<AiUIMessage[] | "not-found" | null>(
+    draft ? [] : null,
+  );
   // True when the hydrated transcript ends on a user message — i.e. the page was
   // (re)loaded mid-turn (the assistant's reply hasn't been finalized/persisted
   // yet), so the chat should immediately try to resume the live stream. A
@@ -182,46 +168,43 @@ export function ChatScreen({
   // conversation the principal cannot access) renders the not-found state
   // rather than a silent empty chat a message could be sent into.
   //
-  // Hydration happens once per mount: `hydratedRef` keeps a re-run (getToken
-  // identity churn) from refetching and — worse — flipping a live transcript
-  // into the not-found state if the conversation vanished server-side mid-view.
-  const hydratedRef = useRef(false);
+  // Hydration happens once per mount (a draft counts as already hydrated):
+  // `hydratedRef` keeps a re-run (getToken identity churn) from refetching
+  // and — worse — flipping a live transcript into the not-found state if the
+  // conversation vanished server-side mid-view.
+  const hydratedRef = useRef(draft);
   useEffect(() => {
-    if (skipHydration || hydratedRef.current) return;
+    if (hydratedRef.current) return;
     let cancelled = false;
-    authHeaders(getToken)
-      .then((headers) => fetch(`/api/sessions/${sessionId}`, { headers }))
-      .then((res) => {
-        if (res.ok) return res.json();
-        if (res.status === 404) {
-          if (!cancelled) {
-            hydratedRef.current = true;
-            setNotFound(true);
-          }
-          return null;
-        }
-        return { messages: [] };
-      })
-      .then((data) => {
-        if (cancelled || data === null) return;
-        hydratedRef.current = true;
-        const msgs = (data.messages ?? []) as AiUIMessage[];
-        const last = msgs[msgs.length - 1];
+
+    const hydrate = async (): Promise<AiUIMessage[] | "not-found"> => {
+      try {
+        const headers = await authHeaders(getToken);
+        const res = await fetch(`/api/sessions/${sessionId}`, { headers });
+        if (res.status === 404) return "not-found";
+        if (!res.ok) return [];
+        const data = (await res.json()) as { messages?: AiUIMessage[] };
+        return data.messages ?? [];
+      } catch {
+        return [];
+      }
+    };
+
+    void hydrate().then((outcome) => {
+      if (cancelled) return;
+      hydratedRef.current = true;
+      if (outcome !== "not-found") {
+        const last = outcome[outcome.length - 1];
         setInitialIncomplete(last?.role === "user");
-        setHistory(msgs);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          hydratedRef.current = true;
-          setHistory([]);
-        }
-      });
+      }
+      setHistory(outcome);
+    });
     return () => {
       cancelled = true;
     };
-  }, [sessionId, getToken, skipHydration]);
+  }, [sessionId, getToken]);
 
-  if (notFound) {
+  if (history === "not-found") {
     return <ConversationNotFound />;
   }
 
@@ -403,7 +386,7 @@ function Chat({
           // server-side, so give it its real URL. Replace, not push — this
           // renames the view in place; back should not revisit a ghost empty
           // chat. The route re-renders with `draft` false, so this runs once.
-          if (draft) void navigate(`/c/${sessionId}`, { replace: true });
+          if (draft) void navigate(conversationPath(sessionId), { replace: true });
         }}
         modelLabel="Gemini 3.5 Flash"
         footerHint="Penny can make mistakes — verify important numbers"

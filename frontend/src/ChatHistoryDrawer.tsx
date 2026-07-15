@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { SquarePen } from "lucide-react";
-import { Link, useMatch } from "react-router";
+import { Link } from "react-router";
 import { authHeaders } from "./authFetch";
+import { conversationPath, useConversationId } from "./routes";
 
 /** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
 type GetToken = () => Promise<string | null>;
@@ -30,31 +31,35 @@ type LoadState =
  * opens — and, since the desktop drawer stays open across client-side switches,
  * whenever the active conversation changes — so it reflects newly-started or
  * newly-titled chats. Entries (and "New chat") are plain links: the URL is the
- * conversation mechanism.
+ * conversation mechanism. `onNavigate` fires on every link click; the shell
+ * owns whether that dismisses the drawer (overlay vs. push layout).
  */
 export function ChatHistoryDrawer({
   open,
   onClose,
+  onNavigate,
   getToken,
 }: {
   open: boolean;
   onClose: () => void;
+  onNavigate: () => void;
   getToken: GetToken;
 }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
-  // The open conversation comes from the URL — the drawer may render outside
-  // the matched route, so match the path directly rather than useParams.
-  const activeId = useMatch("/c/:id")?.params.id;
+  // The open conversation comes from the URL — the drawer renders outside the
+  // matched route, so it reads the path (routes.ts) rather than useParams.
+  const activeId = useConversationId();
 
   // Refetch on each open, and on conversation switches while open (the desktop
   // drawer stays open across client-side navigation), so the list is fresh —
   // a chat gains its title from the first user message, and new chats appear
-  // without a manual reload.
+  // without a manual reload. A refetch over an already-rendered list keeps it
+  // on screen (no loading flash) and swaps in the response when it lands.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setState({ status: "loading" });
+    setState((s) => (s.status === "ready" ? s : { status: "loading" }));
     authHeaders(getToken)
       .then((headers) => fetch("/api/conversations", { headers }))
       .then((res) => {
@@ -84,14 +89,6 @@ export function ChatHistoryDrawer({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  // Below md the drawer is an overlay; navigating should dismiss it. On
-  // desktop it pushes content and stays open across client-side switches.
-  // 768px is Tailwind's md — keep in sync with the max-md classes on the
-  // aside below and the backdrop's md:hidden in AppShell.
-  const closeIfOverlay = () => {
-    if (!window.matchMedia("(min-width: 768px)").matches) onClose();
-  };
-
   return (
     <aside
       aria-hidden={!open}
@@ -108,7 +105,7 @@ export function ChatHistoryDrawer({
           <span className="font-ui text-sm font-medium text-ink">Chats</span>
           <Link
             to="/"
-            onClick={closeIfOverlay}
+            onClick={onNavigate}
             className="inline-flex items-center gap-1.5 rounded-full border border-cream px-3 py-1.5 font-ui text-xs text-ink transition-colors hover:bg-cream-soft"
           >
             <SquarePen className="h-3.5 w-3.5" />
@@ -130,8 +127,8 @@ export function ChatHistoryDrawer({
             state.items.map((conv) => (
               <Link
                 key={conv.id}
-                to={`/c/${conv.id}`}
-                onClick={closeIfOverlay}
+                to={conversationPath(conv.id)}
+                onClick={onNavigate}
                 aria-current={conv.id === activeId ? "true" : undefined}
                 className={`block w-full truncate rounded-lg px-2 py-2 text-left font-ui text-sm text-ink transition-colors hover:bg-cream-soft ${
                   conv.id === activeId ? "bg-cream-soft font-medium" : ""

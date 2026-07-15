@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { usePlaidLink } from "react-plaid-link";
-import { useMatch } from "react-router";
+import { Navigate, useLocation } from "react-router";
 import { Button, Card } from "@penny/ui";
 import { authedFetch } from "./authFetch";
+import { conversationPath, useConversationId } from "./routes";
 
 /**
  * Structured output of the `connect_bank_account` (mode `"hosted"`) and
@@ -22,12 +24,34 @@ type ToolPart = { state?: string; output?: unknown };
 /**
  * Where an OAuth-redirect Link flow stashes its conversation id: the bank
  * redirects to the static PLAID_REDIRECT_URI with only ?oauth_state_id, so
- * ChatRoute reads this to reopen the conversation whose card opened Link
- * (letting `receivedRedirectUri` below resume the flow after rehydration).
- * localStorage, not sessionStorage — mobile banks can land the redirect in a
- * new tab, where a per-tab stash would be empty and the resume would die.
+ * {@link PlaidOauthGate} reads this to reopen the conversation whose card
+ * opened Link (letting `receivedRedirectUri` below resume the flow after
+ * rehydration). localStorage, not sessionStorage — mobile banks can land the
+ * redirect in a new tab, where a per-tab stash would be empty and the resume
+ * would die.
  */
-export const PLAID_OAUTH_CONVERSATION_KEY = "penny:plaidOauthConversation";
+const PLAID_OAUTH_CONVERSATION_KEY = "penny:plaidOauthConversation";
+
+/**
+ * Route gate for the Plaid OAuth return. Mounted around the `/` route element
+ * (the redirect URI has no path context): when a Link flow is pending it
+ * reopens the stashed conversation — query string intact, so the rehydrated
+ * card's `receivedRedirectUri` completes the flow — and otherwise renders the
+ * route unchanged. All Plaid-redirect knowledge stays in this module; the
+ * routing layer composes the gate without knowing what it looks for.
+ */
+export function PlaidOauthGate({ children }: { children: ReactNode }): ReactNode {
+  const location = useLocation();
+  const resume = location.search.includes("oauth_state_id")
+    ? localStorage.getItem(PLAID_OAUTH_CONVERSATION_KEY)
+    : null;
+  if (resume) {
+    return (
+      <Navigate to={{ pathname: conversationPath(resume), search: location.search }} replace />
+    );
+  }
+  return children;
+}
 
 /**
  * Inline Plaid Link card rendered as generative UI for the `connect_bank_account`
@@ -43,7 +67,7 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
   // The conversation the exchange resumes comes from the URL — the card only
   // renders inside a conversation transcript, whose route is /c/:id by the
   // time any tool output exists (the first send already promoted the draft).
-  const conversationId = useMatch("/c/:id")?.params.id ?? "default";
+  const conversationId = useConversationId();
 
   // Update mode (relink_account): re-authenticating an existing item. Plaid
   // restores the *same* item in place, so there is no public_token to exchange —
@@ -57,6 +81,9 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
   async function exchange(publicToken: string): Promise<void> {
     setError(null);
     try {
+      // If the /c/:id invariant above ever breaks, fail loudly (error card)
+      // rather than exchanging the bank link into a phantom conversation.
+      if (!conversationId) throw new Error("No conversation in the URL to link the bank to");
       const res = await authedFetch("/api/plaid/exchange", {
         method: "POST",
         body: JSON.stringify({
@@ -139,7 +166,9 @@ export function PlaidLinkCard({ part }: { part: ToolPart }) {
             // Stash the conversation for the OAuth-redirect round trip (see
             // PLAID_OAUTH_CONVERSATION_KEY). Harmless for non-OAuth banks —
             // the exchange clears it.
-            localStorage.setItem(PLAID_OAUTH_CONVERSATION_KEY, conversationId);
+            if (conversationId) {
+              localStorage.setItem(PLAID_OAUTH_CONVERSATION_KEY, conversationId);
+            }
             open();
           }}
           data-testid="plaid-connect"
