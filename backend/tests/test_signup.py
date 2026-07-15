@@ -69,10 +69,21 @@ def test_no_pending_row_provisions_solo(isolated_db):
         assert s.query(User).filter(User.household_id == hid).count() == 1
 
 
-def test_development_relinks_row_with_stale_auth_subject(isolated_db):
-    # A test branch recreated from prod carries prod-instance subjects; a local
-    # sign-in presents the dev-instance subject for the same verified email.
-    # In development (the PENNY_ENV default) the row is re-bound, not orphaned.
+# A test branch recreated from prod carries prod-instance subjects; a local
+# sign-in presents the dev-instance subject for the same verified email. In
+# development (the PENNY_ENV default) the row is re-bound; in production
+# subjects never legitimately drift (one Clerk instance), so the row resolves
+# by email but its stored subject stays exactly as it was.
+@pytest.mark.parametrize(
+    ("env", "expected_subject"),
+    [(None, "clerk_dev_sub"), ("production", "clerk_prod_sub")],
+    ids=["development-relinks", "production-keeps-subject"],
+)
+def test_stale_subject_resolution_by_env(
+    isolated_db, monkeypatch, env, expected_subject
+):
+    if env is not None:
+        monkeypatch.setenv("PENNY_ENV", env)
     get_db().create_schema()
     with get_db().session() as s:
         hid, uid = provision_solo_household(
@@ -85,28 +96,7 @@ def test_development_relinks_row_with_stale_auth_subject(isolated_db):
     assert got == (hid, uid)
     with get_db().session() as s:
         u = s.query(User).filter(User.user_id == uid).one()
-        assert u.external_auth_id == "clerk_dev_sub"
-
-
-def test_production_never_restamps_a_subject(isolated_db, monkeypatch):
-    # In production subjects never legitimately drift (one Clerk instance), so
-    # a mismatched subject must not rebind the row. The email-idempotent
-    # provision path still resolves to the same household; the stored subject
-    # stays exactly as it was.
-    monkeypatch.setenv("PENNY_ENV", "production")
-    get_db().create_schema()
-    with get_db().session() as s:
-        hid, uid = provision_solo_household(
-            s, email="sam@example.com", external_auth_id="clerk_prod_sub"
-        )
-    with get_db().session() as s:
-        got = resolve_or_provision_identity(
-            s, email="sam@example.com", external_auth_id="clerk_dev_sub"
-        )
-    assert got == (hid, uid)
-    with get_db().session() as s:
-        original = s.query(User).filter(User.user_id == uid).one()
-        assert original.external_auth_id == "clerk_prod_sub"
+        assert u.external_auth_id == expected_subject
 
 
 def test_invalid_penny_env_raises(monkeypatch):
