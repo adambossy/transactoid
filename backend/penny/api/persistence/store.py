@@ -238,7 +238,10 @@ class ConversationStore:
         """Persist a user turn; return its allocated ``seq``.
 
         User turns are always ``complete`` (no streaming). The ``parts`` array
-        mirrors what the bridge / hydration expects for user text.
+        mirrors what the bridge / hydration expects for user text. The sender
+        is stamped from the real ``ctx.user_id`` — not ``effective_user_id``,
+        which collapses to the nil sentinel in joint sessions, exactly where
+        attribution matters.
         """
         with self.session() as session:
             self._require_access(session, conversation_id, ctx)
@@ -249,6 +252,7 @@ class ConversationStore:
                     ai_sdk_message_id=ai_sdk_message_id,
                     seq=seq,
                     role="user",
+                    sender_user_id=ctx.user_id,
                     parts=[{"type": "text", "text": text}],
                     status="complete",
                 )

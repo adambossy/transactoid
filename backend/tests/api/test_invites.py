@@ -6,7 +6,7 @@ import pytest
 
 from penny.adapters.db.models import Household, User
 from penny.db import get_db
-from penny.signup import (
+from penny.households import (
     InviteError,
     create_invite,
     list_pending_invites,
@@ -52,7 +52,7 @@ def _client(ctx, clerk):
     from fastapi.testclient import TestClient
 
     from penny.api.auth import request_context
-    from penny.api.signup_routes import get_clerk_invites, router
+    from penny.api.household_routes import get_clerk_invites, router
 
     app = FastAPI()
     app.include_router(router)

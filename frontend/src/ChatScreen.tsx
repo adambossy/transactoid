@@ -7,19 +7,20 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Message, Composer } from "@adambossy/agent-ui";
 import type { UIMessage } from "@adambossy/agent-ui";
 import { authHeaders, setAuthTokenGetter } from "./authFetch";
+import type { TokenGetter } from "./authFetch";
+import { OtherUserMessage } from "./OtherUserMessage";
 import { conversationPath } from "./routes";
+import { useHouseholdMembers } from "./useHouseholdMembers";
 
 const MODEL = "gemini-3.5-flash";
 
-/** Injected token source: Clerk's getToken in clerk mode, a null no-op in dev. */
-type GetToken = () => Promise<string | null>;
 type SessionMode = "individual" | "joint";
 
 // Reshape the AI SDK send body to the shape the backend's /api/chat expects,
 // attaching a fresh bearer token per request and the (creation-only) session
 // mode. The backend ignores sessionMode on an existing conversation.
 function makeTransport(
-  getToken: GetToken,
+  getToken: TokenGetter,
   getSessionMode: () => SessionMode,
 ): ChatTransport<AiUIMessage> {
   return new DefaultChatTransport<AiUIMessage>({
@@ -108,7 +109,7 @@ function PendingThinking() {
  * yields a clean conversation, while the first-send `/` → `/c/<id>` URL
  * replacement keeps `key={sessionId}` stable and the in-flight turn mounted.
  */
-export function ChatRoute({ getToken }: { getToken: GetToken }) {
+export function ChatRoute({ getToken }: { getToken: TokenGetter }) {
   const { id } = useParams();
   const location = useLocation();
   // The draft id lives in state, not useMemo — React may discard memo caches,
@@ -172,7 +173,7 @@ export function ChatScreen({
 }: {
   sessionId: string;
   draft: boolean;
-  getToken: GetToken;
+  getToken: TokenGetter;
 }) {
   // What hydration produced: pending (null), a transcript, "not-found", or
   // "error". A draft starts hydrated-empty — it has no history to load, and
@@ -272,7 +273,7 @@ function Chat({
   draft: boolean;
   initialMessages: AiUIMessage[];
   initialIncomplete: boolean;
-  getToken: GetToken;
+  getToken: TokenGetter;
 }) {
   const navigate = useNavigate();
   // Session mode is chosen before the first message and fixed thereafter
@@ -292,6 +293,24 @@ function Chat({
     messages: initialMessages,
     generateId: () => crypto.randomUUID(),
   });
+
+  // "Mine vs theirs": a user message is the other member's iff its hydrated
+  // sender is known and isn't the viewer. A missing sender (legacy rows,
+  // members still loading, live sends) falls through to today's rendering —
+  // wrong-styling-by-guess would be worse than the status quo.
+  const { members, me } = useHouseholdMembers(getToken);
+
+  // Message id → sender user id, from the hydration payload's senderUserId.
+  // Derived here (not threaded as state) and kept beside the AI SDK's message
+  // state so useChat's typing stays untouched. Live sends never enter this
+  // map, which is correct: the sender of a live turn is always the viewer.
+  const senders = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of initialMessages as Array<{ id?: string; senderUserId?: string | null }>) {
+      if (m.id && m.senderUserId) map[m.id] = m.senderUserId;
+    }
+    return map;
+  }, [initialMessages]);
 
   // Resume a dropped SSE stream. The connection dies when the tab is
   // backgrounded (mobile app-switch) but the sandbox keeps running server-side,
@@ -382,14 +401,25 @@ function Chat({
               </fieldset>
             </div>
           ) : (
-            messages.map((m, i) => (
-              <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
-                <Message
-                  message={m as unknown as UIMessage}
-                  isStreaming={isStreaming && i === messages.length - 1}
-                />
-              </div>
-            ))
+            messages.map((m, i) => {
+              const senderId = m.role === "user" ? senders[m.id] : undefined;
+              const fromOtherMember = Boolean(senderId && me && senderId !== me.user_id);
+              return (
+                <div key={m.id ?? i} data-role={m.role} data-message-role={m.role}>
+                  {fromOtherMember ? (
+                    <OtherUserMessage
+                      message={m as unknown as UIMessage}
+                      member={members.find((member) => member.user_id === senderId)}
+                    />
+                  ) : (
+                    <Message
+                      message={m as unknown as UIMessage}
+                      isStreaming={isStreaming && i === messages.length - 1}
+                    />
+                  )}
+                </div>
+              );
+            })
           )}
           {!showEmpty && (
             // Once created, the thread's fixed mode is shown (no picker).

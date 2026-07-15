@@ -1,6 +1,6 @@
-"""Account provisioning + invites — the website-domain signup service.
+"""The website-domain household service: provisioning, invites, membership.
 
-Owns "provision-or-join": phase-2's auth dependency calls
+Owns the household lifecycle — "provision-or-join": phase-2's auth dependency calls
 ``resolve_or_provision_identity`` in its unknown-user branch, and the website's
 invite routes call ``create_invite`` / ``list_pending_invites`` /
 ``revoke_invite``. The invariant is **one individual = one household**: a solo
@@ -35,13 +35,18 @@ class ClerkInvites(Protocol):
     """The external invite provider seam (see ``penny.adapters.clerk``).
 
     A ``FakeClerkInvites`` stands in for it in tests; the real adapter calls the
-    Clerk Invitations REST API. Injecting it keeps the signup service free of any
+    Clerk Invitations REST API. Injecting it keeps the household service free of any
     Clerk specifics.
     """
 
     def create_invitation(self, email: str) -> None: ...
 
     def revoke_invitation(self, email: str) -> None: ...
+
+
+def email_local_part(email: str) -> str:
+    """A user's fallback human label: the part of their email before the ``@``."""
+    return email.strip().lower().split("@", 1)[0]
 
 
 def provision_solo_household(
@@ -57,8 +62,7 @@ def provision_solo_household(
     existing = session.query(User).filter(User.email == normalized).one_or_none()
     if existing is not None:
         return existing.household_id, existing.user_id
-    local = normalized.split("@", 1)[0]
-    hh = Household(name=f"{local}'s household")
+    hh = Household(name=f"{email_local_part(normalized)}'s household")
     session.add(hh)
     session.flush()
     user = User(
@@ -143,6 +147,25 @@ def create_invite(
         session.flush()
     clerk.create_invitation(normalized)
     return normalized
+
+
+def list_household_members(session: Session, ctx: RequestContext) -> list[User]:
+    """This household's members with a linked login, in a stable order.
+
+    The complement of ``list_pending_invites``: a member is a ``users`` row
+    whose invite has been claimed (``external_auth_id IS NOT NULL``).
+    ``created_at`` has second resolution, so members provisioned in the same
+    instant need the unique email as a deterministic tiebreak.
+    """
+    return (
+        session.query(User)
+        .filter(
+            User.household_id == ctx.household_id,
+            User.external_auth_id.isnot(None),
+        )
+        .order_by(User.created_at, User.email)
+        .all()
+    )
 
 
 def list_pending_invites(session: Session, ctx: RequestContext) -> list[str]:

@@ -12,10 +12,8 @@ from penny.adapters.db.facade import DB
 from penny.schema import upgrade_to_head
 
 
-def test_upgrade_to_head_builds_full_schema(tmp_path, monkeypatch):
+def test_upgrade_to_head_builds_full_schema(tmp_path):
     url = f"sqlite:///{tmp_path / 'mig.db'}"
-    # env.py prefers DATABASE_URL; point it at the throwaway target.
-    monkeypatch.setenv("DATABASE_URL", url)
     upgrade_to_head(url)
 
     insp = inspect(create_engine(url))
@@ -25,6 +23,20 @@ def test_upgrade_to_head_builds_full_schema(tmp_path, monkeypatch):
 
     # Idempotent: a second run is a no-op, not an error.
     upgrade_to_head(url)
+
+
+def test_explicit_url_wins_over_env_database_url(tmp_path, monkeypatch):
+    """The url passed to upgrade_to_head must win over a stray DATABASE_URL, so
+    `upgrade_to_head("sqlite:///tmp")` can never migrate a prod DB named in the
+    environment. Guards the env.py precedence (explicit sqlalchemy.url first)."""
+    target = f"sqlite:///{tmp_path / 'target.db'}"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'poison.db'}")
+
+    upgrade_to_head(target)
+
+    # The explicit target got the schema; the env-named DB was never touched.
+    assert "households" in inspect(create_engine(target)).get_table_names()
+    assert not (tmp_path / "poison.db").exists()
 
 
 def test_create_schema_refuses_postgres():
