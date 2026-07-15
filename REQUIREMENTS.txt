@@ -270,8 +270,9 @@ T12. Signup & invite integrity
      already has an active account (no takeover), and revoking an invite only ever
      deletes an unclaimed pending row, never an active user. Auto-provision
      requires a verified email. Subject re-binding is environment-gated: only
-     under PENNY_ENV=development (the default; deploy pins production) may a
-     verified email re-stamp a row's external_auth_id to a new Clerk subject.
+     under PENNY_ENV=development (an explicit local opt-in; unset fails closed
+     to production, which deploy also pins) may a verified email re-stamp a
+     row's external_auth_id to a new Clerk subject.
      Production keeps strict subject matching: a verified email bound to a
      DIFFERENT subject is rejected (HTTP 403, recycled-email takeover shape),
      never silently resolved. Enforced by backend/tests/test_signup.py,

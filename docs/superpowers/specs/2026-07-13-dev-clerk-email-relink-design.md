@@ -17,9 +17,11 @@ never recovers.
 
 1. **Environment identity, not a feature flag.** `config.py` gains the single
    environment reader: `PENNY_ENV` ∈ {`production`, `development`}, anything
-   else raises, **default `development`**. Deploy pins
-   `PENNY_ENV = "production"` in `deploy/backend/fly.toml` `[env]`. Future
-   dev-only behavior gates on this same var instead of minting new flags.
+   else raises, **default `production`** (fail closed — revised from the
+   original default-development decision after review). Local dev opts in via
+   `PENNY_ENV=development` in `backend/.env`; deploy also pins production
+   explicitly (`deploy/env/deploy.env.template` + `fly.toml`). Future dev-only
+   behavior gates on this same var instead of minting new flags.
 2. **Verified-email re-link, development only.** In
    `penny/households.py::resolve_or_provision_identity`, precedence becomes:
    1. by `external_auth_id` (unchanged)
