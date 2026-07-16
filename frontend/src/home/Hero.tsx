@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { AccentUnderline, Chip, EyebrowPill, Input, Logo } from "@penny/ui";
 import { home } from "./copy";
 
@@ -7,7 +8,8 @@ import { home } from "./copy";
  *  to sign-up — the landing page never talks to the agent. */
 export function Hero() {
   const [question, setQuestion] = useState("");
-  const goSignUp = () => window.location.assign("/sign-up");
+  const navigate = useNavigate();
+  const goSignUp = () => navigate("/sign-up");
 
   return (
     <section className="mx-auto max-w-7xl px-5 pt-14 pb-16 sm:px-8 sm:pt-20">

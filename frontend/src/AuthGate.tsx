@@ -1,6 +1,6 @@
 import { Show, SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 import { Wordmark } from "@penny/ui";
 import { AppShell } from "./AppShell";
 import { ChunkBoundary } from "./ChunkBoundary";
@@ -69,9 +69,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <Show when="signed-out">
         <div className="auth-gate flex h-full w-full flex-col bg-background">
-          <a href="/" className="inline-flex px-6 py-4 no-underline">
+          <Link to="/" className="inline-flex px-6 py-4 no-underline">
             <Wordmark size={36} className="text-navy" />
-          </a>
+          </Link>
           <div className="flex flex-1 items-center justify-center">
             {showSignUp ? (
               <SignUp routing="hash" signInUrl="/sign-in" fallbackRedirectUrl="/" />
