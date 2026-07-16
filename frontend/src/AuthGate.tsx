@@ -21,6 +21,17 @@ const HomeScreen = lazy(() =>
 const hasClerkTicket = new URLSearchParams(window.location.search).has("__clerk_ticket");
 const hasClerkHashFlow = window.location.hash.startsWith("#/");
 
+// Clerk leaves a synchronous session hint in the __client_uat cookie (a unix
+// timestamp, possibly suffixed per publishable key; 0 or absent = no session
+// on this browser). Read it at boot so a signed-in user hard-loading `/`
+// never sees the marketing page while clerk-js resolves. If the hint is
+// stale (cookie says session, Clerk resolves signed-out), the landing simply
+// appears once Clerk settles.
+const hasSessionHint = document.cookie.split(/;\s*/).some((entry) => {
+  const [name, value] = entry.split("=");
+  return name.startsWith("__client_uat") && !!value && value !== "0";
+});
+
 /**
  * Clerk auth shell. A signed-out visitor sees the landing page at `/` and the
  * hosted <SignUp> / <SignIn> (Google) on the auth paths; a signed-in user sees
@@ -53,8 +64,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // not wait for clerk-js: render it at `/` until Clerk positively reports a
   // signed-in session (isSignedIn is undefined while Clerk loads, and never
   // resolves if the script is blocked — the anonymous visitor still gets the
-  // page). A returning signed-in user sees the landing briefly on a hard load
-  // of `/`; in-app navigation is client-side and never re-enters this branch.
+  // page). The cookie hint covers the returning signed-in user: while Clerk
+  // is still resolving AND the browser carries a session cookie, hold a blank
+  // frame instead of flashing the marketing page before the app swaps in.
+  if (showHome && isSignedIn === undefined && hasSessionHint) {
+    return null;
+  }
   if (showHome && !isSignedIn) {
     return (
       <ChunkBoundary>
