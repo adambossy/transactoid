@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-import importlib.util
 import os
 from pathlib import Path
 import uuid
@@ -37,18 +36,6 @@ from penny.tenancy.context import (
 # Re-exported so the @pytest.mark.postgres suites find it; pytest only
 # auto-imports files named exactly conftest.py.
 from tests.conftest_postgres import pg_db  # noqa: F401
-
-# The sandbox integration tests import the sibling `sandbox/` project's
-# `runner` / `protocol` packages, which aren't in the backend venv (the sandbox
-# is a separate uv project). Skip those modules when the packages aren't
-# importable — they run in the sandbox project's own env — mirroring how the
-# postgres suites skip without POSTGRES_TEST_URL. Paths are relative to this
-# conftest (backend/tests/). Defined after imports so it doesn't trip E402.
-collect_ignore: list[str] = []
-if importlib.util.find_spec("runner") is None:
-    collect_ignore.append("test_relay.py")
-if importlib.util.find_spec("protocol") is None:
-    collect_ignore.append("api/test_sandbox_resume.py")
 
 # The well-known principal every test runs as (mirroring production, where
 # every request carries a RequestContext — see the autouse fixture below).
