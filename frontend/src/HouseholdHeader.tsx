@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { Menu } from "lucide-react";
+import { Link } from "react-router";
 import { Header, IconButton } from "@penny/ui";
 import { authHeaders } from "./authFetch";
 
@@ -116,12 +117,14 @@ export function HouseholdHeader({
       nav={
         <>
           {householdName}
-          <a href="/" className="hover:underline">
+          {/* Router Links, not <a href> — a hard navigation reboots the SPA and
+              (signed-in at `/`) flashes the marketing page while Clerk reloads. */}
+          <Link to="/" className="hover:underline">
             Chat
-          </a>
-          <a href="/invites" data-testid="nav-invites" className="hover:underline">
+          </Link>
+          <Link to="/invites" data-testid="nav-invites" className="hover:underline">
             Invite
-          </a>
+          </Link>
         </>
       }
       actions={actions}

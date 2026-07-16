@@ -1,5 +1,5 @@
 import { ClerkProvider, useAuth } from "@clerk/react";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { Gallery } from "@penny/ui";
@@ -8,11 +8,18 @@ import { AppShell } from "./AppShell";
 import type { TokenGetter } from "./authFetch";
 import { AuthGate } from "./AuthGate";
 import { ChatRoute } from "./ChatScreen";
+import { ChunkBoundary } from "./ChunkBoundary";
 import { InviteScreen } from "./InviteScreen";
 import { PlaidLinkCard, PlaidOauthGate } from "./PlaidLinkCard";
 import { ProvidersBillingScreen } from "./ProvidersBillingScreen";
 import { CONVERSATION_PATH } from "./routes";
 import "./index.css";
+
+// Lazy for the same reason as AuthGate's copy: keep the landing page's chunk
+// out of the always-loaded entry bundle.
+const HomeScreen = lazy(() =>
+  import("./home/HomeScreen").then((m) => ({ default: m.HomeScreen })),
+);
 
 // Render the connect_bank_account (new link) and relink_account (update-mode
 // re-auth) tool outputs as the same inline Plaid Link card — it branches on the
@@ -25,7 +32,6 @@ registerToolRenderer("relink_account", PlaidLinkCard);
 // dev-principal mode (backend reads PENNY_DEV_*) and sends no bearer token, so
 // the phase-1a e2e harness and local dev keep working without Clerk.
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
-
 // Dev-principal mode: no token (the backend uses the env-pinned principal).
 const noToken = async () => null;
 
@@ -72,11 +78,34 @@ function Root() {
           never exists in production. It sits above the auth split because the
           design system is intentionally auth-free (no ClerkProvider). */}
       {import.meta.env.DEV && <Route path="/ui/*" element={<Gallery />} />}
+      {/* Dev-only landing-page preview: `/home` renders the logged-out
+          HomeScreen without Clerk, mirroring the `/ui` pattern, so the
+          marketing page is developable and e2e-testable in dev-principal mode.
+          In production the page is the signed-out view of `/` (AuthGate). */}
+      {import.meta.env.DEV && (
+        <Route
+          path="/home/*"
+          element={
+            <ChunkBoundary>
+              <Suspense fallback={null}>
+                <HomeScreen />
+              </Suspense>
+            </ChunkBoundary>
+          }
+        />
+      )}
       <Route
         path="*"
         element={
           clerkKey ? (
-            <ClerkProvider publishableKey={clerkKey}>
+            // signInUrl/signUpUrl point Clerk-initiated redirects (component
+            // transfer flows, session-expired bounces) at the app's own auth
+            // screens instead of the instance default.
+            <ClerkProvider
+              publishableKey={clerkKey}
+              signInUrl="/sign-in"
+              signUpUrl="/sign-up"
+            >
               <AuthGate>
                 <AuthedRoutes />
               </AuthGate>

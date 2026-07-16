@@ -16,11 +16,16 @@ const PRIMITIVES = [
   "ui-eyebrowpill",
   "ui-logo-emblem",
   "ui-logo-flat",
+  "ui-wordmark",
   "ui-button-filled",
   "ui-button-outlined",
   "ui-chip",
   "ui-input",
   "ui-card",
+  "ui-navlink",
+  "ui-accent-underline",
+  "ui-buttonlink",
+  "ui-demobubble",
 ];
 
 test("gallery renders every primitive inside an AppShell with tokens applied", async ({ page }) => {

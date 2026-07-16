@@ -8,6 +8,11 @@ import { Chip } from "./primitives/Chip";
 import { EyebrowPill } from "./primitives/EyebrowPill";
 import { Card } from "./primitives/Card";
 import { Input } from "./primitives/Input";
+import { NavLink } from "./primitives/NavLink";
+import { AccentUnderline } from "./primitives/AccentUnderline";
+import { ButtonLink } from "./primitives/ButtonLink";
+import { DemoBubble } from "./primitives/DemoBubble";
+import { Wordmark } from "./primitives/Wordmark";
 
 /** A labeled block wrapping one primitive example, carrying a stable
  *  data-testid for the E2E gallery guard. */
@@ -60,6 +65,10 @@ export function Gallery() {
         <Logo variant="flat" size={64} />
       </Sample>
 
+      <Sample id="ui-wordmark" label="Wordmark">
+        <Wordmark className="text-navy" />
+      </Sample>
+
       <Sample id="ui-button-filled" label="Button — filled">
         <Button variant="filled">Ask Penny</Button>
       </Sample>
@@ -75,6 +84,55 @@ export function Gallery() {
       <Sample id="ui-input" label="Input">
         <div className="w-full max-w-md">
           <Input value={query} onChange={setQuery} placeholder="Ask Penny anything…" />
+        </div>
+      </Sample>
+
+      <Sample id="ui-navlink" label="NavLink">
+        <span className="text-navy">
+          <NavLink href="#ui-navlink">Analyze</NavLink>
+        </span>
+      </Sample>
+
+      <Sample id="ui-accent-underline" label="AccentUnderline">
+        <span className="font-serif text-3xl font-semibold text-navy">
+          your <AccentUnderline>finance savant.</AccentUnderline>
+        </span>
+      </Sample>
+
+      <Sample id="ui-buttonlink" label="ButtonLink">
+        <ButtonLink variant="filled" href="#ui-buttonlink">
+          Ask Penny →
+        </ButtonLink>
+        <ButtonLink variant="outlined" href="#ui-buttonlink">
+          Meet Penny
+        </ButtonLink>
+      </Sample>
+
+      <Sample id="ui-demobubble" label="DemoBubble">
+        <div className="flex w-full max-w-md flex-col gap-3">
+          <DemoBubble role="user">Where did my spending surge last year?</DemoBubble>
+          <DemoBubble role="penny">
+            Three months broke your baseline:
+            <table>
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Sep</td>
+                  <td>$5,900</td>
+                </tr>
+                <tr>
+                  <td>Dec</td>
+                  <td>$7,200</td>
+                </tr>
+              </tbody>
+            </table>
+            All <b>one-offs</b>, not a lifestyle shift.
+          </DemoBubble>
         </div>
       </Sample>
 

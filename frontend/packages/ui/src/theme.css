@@ -19,6 +19,20 @@
   --font-display: 'Fraunces',Georgia,serif;
   --font-serif: 'Cormorant Garamond','Fraunces',Georgia,serif;
   --font-ui: 'Work Sans',system-ui,sans-serif;
+
+  /* Landing-page reveal: rise up + fade in. Pair with motion-reduce:animate-none. */
+  --animate-rise-in: rise-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(26px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 /* Self-hosted woff2 (latin subset) — keeps the package portable and removes the
@@ -80,4 +94,22 @@
   font-weight: 600;
   font-display: swap;
   src: url('./assets/fonts/work-sans-600.woff2') format('woff2');
+}
+
+/* Brand motifs shared by marketing surfaces. */
+
+/* Subtle dotted-paper texture; pair with `pointer-events-none fixed inset-0`. */
+@utility grain {
+  background-image: radial-gradient(var(--color-navy) 0.6px, transparent 0.6px);
+  background-size: 18px 18px;
+  opacity: 0.05;
+}
+
+/* Brand text selection (template's ::selection treatment), scoped to
+   marketing surfaces — opt in by putting `marketing` on the surface root.
+   App screens keep the browser default: gold-on-cream selection over the
+   chat transcript (and orange UI elements) would be illegible. */
+.marketing ::selection {
+  background: var(--color-orange);
+  color: var(--color-paper);
 }
