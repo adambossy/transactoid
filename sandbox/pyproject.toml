@@ -2,12 +2,15 @@
 name = "penny-sandbox"
 version = "0.1.0"
 description = "Agent-runtime shell that runs the Penny agent loop inside a Modal sandbox"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 # Deliberately thin: agent-harness + a web server. NO finance stack — tools run
 # on Fly over MCP, so SQLAlchemy/Plaid/boto3/psycopg must never land here (a CI
-# denylist enforces it).
+# denylist enforces it). agent-harness is git-pinned like the backend's, so the
+# workspace lock is portable; to hack on agent-harness locally, opt in
+# per-machine with `uv pip install -e ~/code/agent-harness` after syncing.
 dependencies = [
-    "agent-harness",
+    "agent-harness @ git+https://github.com/adambossy/agent-harness.git@v0.2.0",
+    "penny-lib",
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "pydantic>=2",
@@ -15,7 +18,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-agent-harness = { path = "../../../../../agent-harness", editable = true }
+penny-lib = { workspace = true }
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
@@ -24,9 +27,13 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
-[tool.setuptools]
-packages = ["protocol", "runner"]
+[tool.hatch.metadata]
+# agent-harness is a git ("direct reference") dep.
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["runner"]
 
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
