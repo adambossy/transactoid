@@ -8,6 +8,13 @@ resolution-markers = [
     "python_full_version < '3.14' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "penny-backend",
+    "penny-lib",
+    "penny-sandbox",
+]
+
 [[package]]
 name = "agent-harness"
 version = "0.0.1"
@@ -1568,7 +1575,7 @@ wheels = [
 [[package]]
 name = "penny-backend"
 version = "0.1.0"
-source = { editable = "." }
+source = { editable = "backend" }
 dependencies = [
     { name = "agent-harness", extra = ["anthropic", "google", "openai", "otel"] },
     { name = "alembic" },
@@ -1582,6 +1589,7 @@ dependencies = [
     { name = "modal" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
+    { name = "penny-lib" },
     { name = "pglast" },
     { name = "promptorium-python" },
     { name = "psycopg2-binary" },
@@ -1598,6 +1606,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "penny-sandbox" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -1617,6 +1626,7 @@ requires-dist = [
     { name = "modal", specifier = ">=1.5.1" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
     { name = "opentelemetry-sdk", specifier = ">=1.27" },
+    { name = "penny-lib", editable = "lib" },
     { name = "pglast", specifier = ">=6.0" },
     { name = "promptorium-python", git = "https://github.com/adambossy/promptorium-python?rev=main" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
@@ -1633,9 +1643,72 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "penny-sandbox", editable = "sandbox" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.7" },
+]
+
+[[package]]
+name = "penny-lib"
+version = "0.1.0"
+source = { editable = "lib" }
+dependencies = [
+    { name = "agent-harness" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-harness", git = "https://github.com/adambossy/agent-harness.git?rev=v0.2.0" },
+    { name = "pydantic", specifier = ">=2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+]
+
+[[package]]
+name = "penny-sandbox"
+version = "0.1.0"
+source = { editable = "sandbox" }
+dependencies = [
+    { name = "agent-harness" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "penny-lib" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-harness", git = "https://github.com/adambossy/agent-harness.git?rev=v0.2.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "penny-lib", editable = "lib" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
 ]
 
 [[package]]

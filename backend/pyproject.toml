@@ -44,7 +44,14 @@ dependencies = [
     # sandboxed agent over streamable-HTTP MCP (agent-harness ships only the
     # MCP *client*; the server side is ours).
     "mcp>=1.0",
+    # Shared backend↔sandbox wire protocol (lib/protocol): the envelope codec
+    # the relay decodes and the TurnPayload the dispatcher encodes.
+    "penny-lib",
 ]
+
+[tool.uv.sources]
+penny-lib = { workspace = true }
+penny-sandbox = { workspace = true }
 
 [project.scripts]
 penny = "penny.cli:main"
@@ -71,6 +78,10 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.7",
+    # Dev-only: tests/test_relay.py drives the real sandbox runner in-process.
+    # Never a runtime dep — prod images sync --no-dev, so the runner stays out
+    # of the backend venv and the website→runner boundary holds by packaging.
+    "penny-sandbox",
 ]
 
 [tool.pytest.ini_options]

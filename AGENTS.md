@@ -85,8 +85,19 @@ backend/
 ├── .agent/skills/      # agent-harness SkillRegistry discovery root (6 skills)
 ├── configs/taxonomy.yaml  # seed data, synced from prod via scripts/
 └── scripts/
+lib/                    # penny-lib: packages shared by backend and sandbox —
+│                       #   protocol/ (sandbox wire codec: envelope + TurnPayload)
+sandbox/                # penny-sandbox: the Modal runner shell (runner/); thin
+                        #   by design — agent-harness + web server, NO finance stack
 frontend/               # Vite + React 19 + @ai-sdk/react + @adambossy/agent-ui
 ```
+
+The three Python projects (`backend/`, `sandbox/`, `lib/`) form a **uv
+workspace**: the root `pyproject.toml` declares the members, and a single
+root `uv.lock` + `.venv` covers all of them (there is no `backend/uv.lock`).
+`backend` depends on `penny-lib` at runtime (the protocol seam) and on
+`penny-sandbox` only in its dev group (integration tests) — the runner never
+ships in the backend image.
 
 ## Dev loop
 
@@ -101,12 +112,14 @@ backend/scripts/pennydb test exec -- uv run --project backend uvicorn penny.api.
 npm run dev
 ```
 
-- **agent-harness is a pinned git dep** (`@v0.2.0` in `[project.dependencies]`),
-  so `uv sync --frozen` installs the exact same set in dev, CI, and prod — the
-  lockfile is portable (no machine-local editable path). To hack on
-  agent-harness locally, opt in **per-machine** without touching the committed
-  lock: `uv sync --frozen && uv pip install -e ~/code/agent-harness` (re-run the
-  editable install after any `uv sync`, which reverts it to the pinned version).
+- **agent-harness is a pinned git dep** (`@v0.2.0` in `[project.dependencies]`
+  of all three workspace members — keep the refs identical or uv errors on
+  conflicting direct references), so `uv sync --frozen` installs the exact same
+  set in dev, CI, and prod — the lockfile is portable (no machine-local
+  editable path). To hack on agent-harness locally, opt in **per-machine**
+  without touching the committed lock: `uv sync --frozen && uv pip install -e
+  ~/code/agent-harness` (re-run the editable install after any `uv sync`,
+  which reverts it to the pinned version).
 - **agent-ui** live-dev is still wired via `vite.config.ts`, which aliases
   `@adambossy/agent-ui` to `~/code/agent-ui/packages/agent-ui/src` (with
   `resolve.dedupe` for react — do not remove it, removing it causes a blank
