@@ -56,17 +56,30 @@ jobs:
         working-directory: backend
         run: uv run pytest -q
 
-      # The sandbox integration tests (relay/resume) import the sibling
-      # `sandbox/` project's runner/protocol packages; the default backend
-      # collection skips them (conftest collect_ignore). Run them here with
-      # `sandbox/` on PYTHONPATH — their deps (agent-harness/fastapi/pydantic)
-      # are already in the backend venv — so a relay/resume regression fails
-      # the gate instead of silently vanishing.
-      - name: Sandbox integration tests (relay/resume)
-        working-directory: backend
-        env:
-          PYTHONPATH: ${{ github.workspace }}/sandbox
-        run: uv run pytest -q tests/test_relay.py tests/api/test_sandbox_resume.py
+      # The uv workspace installs penny-lib (protocol) as a backend runtime dep
+      # and penny-sandbox (runner) as a dev dep, so the relay/resume integration
+      # tests already ran in the backend suite above. The sandbox and lib
+      # members' own unit suites run here from their directories (each member's
+      # pyproject supplies its pytest config); --no-sync reuses the workspace
+      # venv the backend sync built instead of re-pruning it per member.
+      - name: Sandbox unit tests (runner + codec wire path)
+        working-directory: sandbox
+        run: uv run --no-sync pytest -q
+
+      - name: Lib unit tests (protocol codec)
+        working-directory: lib
+        run: uv run --no-sync pytest -q
+
+      # The sandbox image must stay thin: no finance stack in its resolved
+      # closure (tools run on Fly over MCP). The workspace lock covers all
+      # members, so check the sandbox member's own exported closure.
+      - name: Sandbox dependency denylist (no finance stack)
+        run: |
+          uv export --frozen --package penny-sandbox --no-dev --no-hashes > /tmp/sandbox-closure.txt
+          if grep -iE '^(sqlalchemy|plaid|boto3|psycopg)' /tmp/sandbox-closure.txt; then
+            echo "::error::finance-stack package leaked into the sandbox closure"
+            exit 1
+          fi
 
       # RLS is bypassed by superusers, so the isolation suites must run as a
       # dedicated NON-superuser role (mirrors Neon's neondb_owner).

@@ -6,9 +6,13 @@
 #   fly deploy --config deploy/backend/fly.toml \
 #              --dockerfile deploy/backend/Dockerfile
 #
-# backend/uv.lock pins agent-harness / promptorium-python to their git refs
-# (not a local path), so `uv sync --frozen` installs the exact locked set
-# identically here, in CI, and in dev — no divergence.
+# The repo is a uv workspace (root pyproject.toml + uv.lock): backend,
+# sandbox, and lib resolve/lock together, and the root uv.lock pins
+# agent-harness / promptorium-python to their git refs (not a local path), so
+# `uv sync --frozen` installs the exact locked set identically here, in CI,
+# and in dev — no divergence. penny-backend's runtime closure includes the
+# penny-lib workspace member (lib/protocol, the sandbox wire codec) and
+# NEVER penny-sandbox (dev-only), so the runner stays out of this image.
 
 # =============================================================================
 # Stage 1: builder
@@ -26,27 +30,33 @@ RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
-# Dependency metadata first for layer caching.
-COPY backend/pyproject.toml backend/uv.lock ./
+# Workspace + dependency metadata first for layer caching. uv validates every
+# member's pyproject when it reads the workspace, so all three are copied even
+# though only penny-backend (and its penny-lib dep) gets installed.
+COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml ./backend/
+COPY sandbox/pyproject.toml ./sandbox/
+COPY lib/pyproject.toml ./lib/
 
-# Install deps from the frozen lock (git-pinned agent-harness). --no-install-
-# project so the app code (copied next) is layered separately and dep layers
-# stay cached.
-RUN uv sync --frozen --no-dev --no-install-project
+# Install third-party deps from the frozen lock (git-pinned agent-harness).
+# --no-install-workspace so the workspace members' code (copied next) is
+# layered separately and dep layers stay cached.
+RUN uv sync --frozen --no-dev --no-install-workspace --package penny-backend
 
 # Application source (mirrors what penny imports + the data it reads).
-COPY backend/penny ./penny
-COPY backend/.prompts ./.prompts
-COPY backend/.agent ./.agent
-COPY backend/configs ./configs
-COPY backend/alembic ./alembic
-COPY backend/alembic.ini ./alembic.ini
+COPY lib/protocol ./lib/protocol
+COPY backend/penny ./backend/penny
+COPY backend/.prompts ./backend/.prompts
+COPY backend/.agent ./backend/.agent
+COPY backend/configs ./backend/configs
+COPY backend/alembic ./backend/alembic
+COPY backend/alembic.ini ./backend/alembic.ini
 # Version scripts (alembic.ini version_locations = %(here)s/db/migrations); the
 # release step (`penny migrate`) needs these to evolve the Postgres schema.
-COPY backend/db/migrations ./db/migrations
+COPY backend/db/migrations ./backend/db/migrations
 
-# Install the project itself (now that source is present).
-RUN uv sync --frozen --no-dev --no-editable
+# Install the project itself + penny-lib (now that source is present).
+RUN uv sync --frozen --no-dev --no-editable --package penny-backend
 
 # =============================================================================
 # Stage 2: production
@@ -60,15 +70,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Virtualenv + application source from the builder.
+# Virtualenv + application source from the builder. The runtime layout is
+# unchanged from before the workspace split: everything at /app, venv beside
+# it — only the builder is workspace-shaped.
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/penny /app/penny
-COPY --from=builder /app/.prompts /app/.prompts
-COPY --from=builder /app/.agent /app/.agent
-COPY --from=builder /app/configs /app/configs
-COPY --from=builder /app/alembic /app/alembic
-COPY --from=builder /app/alembic.ini /app/alembic.ini
-COPY --from=builder /app/db/migrations /app/db/migrations
+COPY --from=builder /app/backend/penny /app/penny
+COPY --from=builder /app/backend/.prompts /app/.prompts
+COPY --from=builder /app/backend/.agent /app/.agent
+COPY --from=builder /app/backend/configs /app/configs
+COPY --from=builder /app/backend/alembic /app/alembic
+COPY --from=builder /app/backend/alembic.ini /app/alembic.ini
+COPY --from=builder /app/backend/db/migrations /app/db/migrations
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

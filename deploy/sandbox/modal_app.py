@@ -16,8 +16,11 @@ from pathlib import Path
 
 import modal
 
-# The runner + protocol source (this repo's `sandbox/` package).
-_SANDBOX_SRC = str(Path(__file__).resolve().parents[2] / "sandbox")
+# The runner source (this repo's `sandbox/` package) and the shared wire
+# protocol (the `protocol` package from the `lib/` workspace member).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SANDBOX_SRC = str(_REPO_ROOT / "sandbox")
+_PROTOCOL_SRC = str(_REPO_ROOT / "lib" / "protocol")
 _HARNESS = (
     "agent-harness[mcp,google] @ "
     "git+https://github.com/adambossy/agent-harness.git@47228dd085202424157f0ffb65c2114c250b7d48"
@@ -44,6 +47,7 @@ image = (
     )
     # Vendor the runner + protocol packages at /app (copy=True bakes a layer).
     .add_local_dir(_SANDBOX_SRC, remote_path="/app", copy=True, ignore=["tests", "*.md", "**/__pycache__"])
+    .add_local_dir(_PROTOCOL_SRC, remote_path="/app/protocol", copy=True, ignore=["**/__pycache__"])
     .workdir("/app")
     .env({"PYTHONPATH": "/app"})
 )
