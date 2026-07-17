@@ -32,6 +32,26 @@ registerToolRenderer("relink_account", PlaidLinkCard);
 // dev-principal mode (backend reads PENNY_DEV_*) and sends no bearer token, so
 // the phase-1a e2e harness and local dev keep working without Clerk.
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+
+// Warm the Clerk origin while React boots: the publishable key encodes the
+// frontend-API domain (base64, "$"-terminated), so preconnect to it now and
+// clerk-js's script fetch + /v1/client handshake skip DNS/TLS setup. Two
+// links because the script loads no-cors while the handshake is a CORS
+// fetch — they use separate connection pools.
+if (clerkKey) {
+  try {
+    const clerkOrigin = `https://${atob(clerkKey.split("_").pop()!).replace(/\$$/, "")}`;
+    for (const crossOrigin of [false, true]) {
+      const link = document.createElement("link");
+      link.rel = "preconnect";
+      link.href = clerkOrigin;
+      if (crossOrigin) link.crossOrigin = "anonymous";
+      document.head.appendChild(link);
+    }
+  } catch {
+    // Malformed key — Clerk itself will surface that far more loudly.
+  }
+}
 // Dev-principal mode: no token (the backend uses the env-pinned principal).
 const noToken = async () => null;
 

@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { Wordmark } from "@penny/ui";
 import { AppShell } from "./AppShell";
+import { BootShell } from "./BootShell";
 import { ChunkBoundary } from "./ChunkBoundary";
 import { resetHouseholdMembersCache } from "./useHouseholdMembers";
 
@@ -60,16 +61,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
     resetHouseholdMembersCache();
   }, [userId]);
 
+  // A hinted session clerk-js hasn't confirmed yet (any path): paint the app
+  // chrome instead of a blank frame — the handshake still costs its round
+  // trip, but the returning user sees "the app" immediately, and never the
+  // marketing page. A stale hint degrades to the landing/auth screen once
+  // Clerk resolves signed-out.
+  if (isSignedIn === undefined && hasSessionHint) {
+    return <BootShell />;
+  }
   // The landing page is the one surface meant for anonymous reach, so it must
   // not wait for clerk-js: render it at `/` until Clerk positively reports a
   // signed-in session (isSignedIn is undefined while Clerk loads, and never
   // resolves if the script is blocked — the anonymous visitor still gets the
-  // page). The cookie hint covers the returning signed-in user: while Clerk
-  // is still resolving AND the browser carries a session cookie, hold a blank
-  // frame instead of flashing the marketing page before the app swaps in.
-  if (showHome && isSignedIn === undefined && hasSessionHint) {
-    return null;
-  }
+  // page).
   if (showHome && !isSignedIn) {
     return (
       <ChunkBoundary>
