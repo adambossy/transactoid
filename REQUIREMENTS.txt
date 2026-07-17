@@ -270,3 +270,17 @@ T13. System-reminder subsystem & onboarding state
      tests/test_onboarding.py, tests/test_reminder_queue.py,
      tests/test_domain_segregation.py, and
      tests/adapters/db/test_phase5_rls.py (the last requires POSTGRES_TEST_URL).
+
+T14. Categorizer-eval isolation & signal
+     The daily categorizer eval holds NO control-plane credential: it replays the
+     agent on an in-process, writable SQLite snapshot of prod finance data — no
+     live Neon branch, no Neon API key, no neonctl. Bulk finance reads run on the
+     SELECT-only role (PENNY_AGENT_READONLY_DATABASE_URL) under RLS (the snapshot
+     unions the household's principals); only the narrow eval-store writes use the
+     read-write role, and during the untrusted replay the process-global DB points
+     at the snapshot so the agent can never reach prod. The eval runs in its own
+     `penny-eval` Fly app with a reduced secret set (no PLAID_*/CLERK_*/MODAL_*),
+     spawned per the T6 scheduler contract. Every run emits exactly one status
+     email (heartbeat / report link / failure alert) and a failure records a
+     durable eval_runs row without advancing the watermark, so a stopped or broken
+     pipeline is never silent. Enforced by backend/tests/eval/test_job.py.
