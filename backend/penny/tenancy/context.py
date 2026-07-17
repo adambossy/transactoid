@@ -19,15 +19,13 @@ def cron_principal_from_env() -> tuple[uuid.UUID, list[uuid.UUID]]:
     """
     hh_raw = os.environ.get("PENNY_CRON_HOUSEHOLD_ID", "").strip()
     users_raw = os.environ.get("PENNY_CRON_USER_IDS", "").strip()
-    if not hh_raw or not users_raw:
+    user_ids = [uuid.UUID(u.strip()) for u in users_raw.split(",") if u.strip()]
+    if not hh_raw or not user_ids:
         raise RuntimeError(
             "PENNY_CRON_HOUSEHOLD_ID and PENNY_CRON_USER_IDS are required — "
             "refusing to run without a tenant principal"
         )
-    return (
-        uuid.UUID(hh_raw),
-        [uuid.UUID(u.strip()) for u in users_raw.split(",") if u.strip()],
-    )
+    return uuid.UUID(hh_raw), user_ids
 
 
 class SessionMode(enum.Enum):

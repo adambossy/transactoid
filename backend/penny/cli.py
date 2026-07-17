@@ -433,7 +433,10 @@ def sync(
 @app.command("eval-categorizer")
 def eval_categorizer(
     limit: int = typer.Option(
-        None, "--limit", help="Cap the cohort to the most recent N (for testing)."
+        None,
+        "--limit",
+        help="Sample the most recent N (for testing); a limited run does not "
+        "advance the watermark.",
     ),
     email: list[str] = typer.Option(
         None, "--email", help="Recipient(s) for the per-run status email (repeatable)."
