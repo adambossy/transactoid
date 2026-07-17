@@ -37,7 +37,7 @@
     },
     {
         "name": "penny-eval-categorizer-12h",
-        "app_name": "penny",
+        "app_name": "penny-eval",
         "schedule": "30 0,12 * * *",
         "region": "iad",
         "command": "-lc '/app/.venv/bin/penny eval-categorizer --email adambossy@gmail.com'",
@@ -61,7 +61,7 @@
             },
             "mounts": [
                 {
-                    "name": "penny_workspace",
+                    "name": "penny_eval_workspace",
                     "path": "/app/.transactoid"
                 }
             ],
