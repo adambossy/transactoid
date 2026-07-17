@@ -2340,7 +2340,9 @@ class DB:
             rows = query.order_by(DerivedTransaction.transaction_id).all()
             return [row[0] for row in rows]
 
-    def derived_ids_created_since(self, since: datetime | None) -> list[int]:
+    def derived_ids_created_since(
+        self, since: datetime | None, *, household_id: uuid.UUID | None = None
+    ) -> list[int]:
         """Transaction ids for derived rows ingested after ``since`` (oldest first).
 
         Powers the eval cohort: the transactions that arrived since the previous
@@ -2350,11 +2352,19 @@ class DB:
         ``since`` is None, returns the full table (first run). Investment trades
         (``reporting_mode='DEFAULT_EXCLUDE'``) are excluded — they are never
         categorized, so they don't belong in the eval cohort either.
+
+        ``household_id`` scopes the cohort to one household (all its users +
+        visibilities). The eval passes it so the cohort matches its RLS-scoped
+        snapshot of that same household — without it, the read-write role (which
+        bypasses RLS) would return every household's rows and the eval's
+        completeness guard would reject the run.
         """
         with self.session() as session:  # type: Session
             query = session.query(DerivedTransaction.transaction_id).filter(
                 _needs_categorization_clause()
             )
+            if household_id is not None:
+                query = query.filter(DerivedTransaction.household_id == household_id)
             if since is not None:
                 query = query.filter(DerivedTransaction.created_at > since)
             rows = query.order_by(

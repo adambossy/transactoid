@@ -193,36 +193,46 @@ async def _run_eval_core(
     explicit_cohort = cohort_ids is not None
     since = None if explicit_cohort else prod.last_eval_watermark()
 
-    # Cohort membership + watermark come from the read-WRITE role (prod): it is
-    # unscoped and sees every household's rows, so the cohort is COMPLETE and the
-    # watermark can never advance past a row we failed to see. (The RLS-scoped
-    # read-only snapshot below supplies only the replay's bulk row data; a
-    # completeness guard ties the two together.)
+    # Resolve the eval principals (the cron household's users) up front: they
+    # scope BOTH the cohort and the snapshot to the same household. On SQLite dev
+    # there are no roles/RLS, so principals stay None and nothing is scoped.
+    readonly = pdb.get_readonly_db()
+    if principals is None and readonly.dialect != "sqlite":
+        principals = _eval_principals()
+    household_id = principals[0].household_id if principals else None
+
+    # Cohort membership + watermark come from the read-WRITE role (prod), scoped
+    # to the eval household. That role bypasses RLS, so the household filter (not
+    # RLS) yields the COMPLETE household cohort — every user + visibility — which
+    # the RLS-scoped snapshot below must fully cover (a completeness guard ties
+    # the two together, catching a household member absent from the principals).
+    is_limited = limit is not None and not explicit_cohort
     if explicit_cohort:
         cohort_ids = list(cohort_ids or [])
     else:
-        cohort_ids = prod.derived_ids_created_since(since)
-        if limit is not None:
-            # Oldest-first: repeated capped runs drain the backlog forward, and
-            # the watermark never jumps past the rows a cap dropped.
-            cohort_ids = cohort_ids[:limit]
+        cohort_ids = prod.derived_ids_created_since(since, household_id=household_id)
+        if is_limited:
+            # Most-recent N. A limited run is a non-committing sample (watermark
+            # not advanced below), so it never strands the rows it dropped.
+            cohort_ids = cohort_ids[-limit:]
     if not cohort_ids:
         prod.record_eval_run(run_at=run_at, status="skipped_empty", cohort_size=0)
         logger.info("eval: empty cohort; skipped")
         return {"status": "skipped_empty", "cohort_size": 0, "disagreements": 0}
     progress["cohort_size"] = len(cohort_ids)
 
-    # A targeted rerun (explicit cohort) must not advance the daily watermark.
-    watermark = None if explicit_cohort else prod.max_created_at_for_ids(cohort_ids)
+    # A targeted rerun (explicit cohort) or a capped sample (--limit) must not
+    # advance the daily watermark — only a full daily cohort does.
+    watermark = (
+        None
+        if (explicit_cohort or is_limited)
+        else prod.max_created_at_for_ids(cohort_ids)
+    )
     run_label = f"eval-{run_at:%Y%m%dT%H%M%S}"
 
     # Build a writable SQLite snapshot of the finance closure through the read-only
     # role. On Postgres it is RLS-scoped, so union across the household's
     # principals (individual mode); SQLite dev needs no principals.
-    readonly = pdb.get_readonly_db()
-    if principals is None and readonly.dialect != "sqlite":
-        principals = _eval_principals()
-
     with tempfile.TemporaryDirectory() as tmp:
         snapshot = snapshot_finance_to_sqlite(
             readonly, principals, Path(tmp) / "fixture.sqlite"

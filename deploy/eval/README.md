@@ -52,12 +52,21 @@ this copy — follow-up may source rules from a shared location.
 
 ## First-run watermark (do once at cutover)
 
-The eval watermark is NULL, so the first successful run would replay the entire
-transaction history in one job and blow the 2h timeout. Before enabling the
-schedule, either seed a completed watermark row or run once with `--limit`:
+The eval watermark is NULL, so the first unbounded run would replay the entire
+transaction history in one job and blow the 2h timeout. Seed a completed
+watermark row so the first scheduled run only evaluates transactions going
+forward (skipping the historical backlog):
+
+```sql
+-- Start the daily eval "now": subsequent runs pick up everything ingested after.
+INSERT INTO eval_runs (run_at, status, cohort_size, cohort_max_created_at)
+VALUES (now(), 'completed', 0, now());
+```
+
+`--limit N` is a non-committing smoke test (most-recent N, watermark NOT
+advanced) — safe to run against prod without perturbing the daily cohort:
 
 ```bash
-# Smoke test + advance in a bounded step:
 fly machine run <penny image> -a penny-eval --rm --entrypoint /bin/sh \
-  -- -lc '/app/.venv/bin/penny eval-categorizer --limit 200 --email adambossy@gmail.com'
+  -- -lc '/app/.venv/bin/penny eval-categorizer --limit 20 --email adambossy@gmail.com'
 ```

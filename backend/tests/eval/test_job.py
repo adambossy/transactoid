@@ -177,6 +177,25 @@ async def test_snapshot_completeness_guard(tmp_path, monkeypatch, _stub_replay_a
         assert session.query(EvalRun).one().status == "failed"
 
 
+async def test_limit_run_does_not_advance_watermark(
+    tmp_path, monkeypatch, _stub_replay_and_r2
+):
+    """A --limit run is a non-committing sample: it never advances the watermark."""
+    url = _seed_prod(tmp_path)  # one txn
+    _point_env_at(monkeypatch, url)
+
+    result = await run_eval(email_to=None, limit=1)
+
+    assert result["status"] == "completed"
+    prod = DB(url, enforce_sqlite_fks=True)
+    with prod.session() as session:
+        run = session.query(EvalRun).one()
+        # watermark stays NULL, so last_eval_watermark() is unaffected and the
+        # sampled rows are re-selected by the next real (unlimited) run.
+        assert run.cohort_max_created_at is None
+    assert prod.last_eval_watermark() is None
+
+
 def test_no_neon_branch_dependency():
     """The eval must carry no neonctl/Neon-branch code."""
     job = importlib.import_module("penny.eval.job")
