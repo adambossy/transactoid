@@ -1,8 +1,12 @@
-"""Build / hydrate the per-run eval fixture.
+"""Snapshot prod finance data into a writable SQLite copy; build / hydrate the
+per-run eval fixture.
 
-At the end of an eval run the disposable Neon branch is copied into a fixture and
-uploaded to R2; the branch is then deleted. A backtest later hydrates the fixture
-and replays the categorizer against the exact frozen input + history.
+The eval replays the categorizer against a *writable, throwaway* copy of prod
+finance data. That copy is a local SQLite file built by `snapshot_to_sqlite`
+(and `snapshot_finance_to_sqlite` for the RLS-scoped read-only path) — no Neon
+branch, no control-plane credential. At the end of a run the same SQLite is
+bundled into a fixture and uploaded to R2 so a backtest can replay the exact
+frozen input + history.
 
 The fixture is a gzipped tar bundling two things, because the categorizer reads
 *both* the DB and one workspace file:
@@ -25,6 +29,7 @@ import io
 from pathlib import Path
 import tarfile
 import tempfile
+from typing import TYPE_CHECKING
 
 from sqlalchemy import insert, select
 
@@ -39,6 +44,9 @@ from penny.adapters.db.models import (
     TransactionCategoryEvent,
     TransactionTag,
 )
+
+if TYPE_CHECKING:
+    from penny.tenancy.context import RequestContext
 
 # Categorizer-reachable tables + their referential closure, in FK-safe insert
 # order. (FK enforcement is off on the fixture DB, but a sensible order keeps the
@@ -58,7 +66,14 @@ _SQLITE_MEMBER = "fixture.sqlite"
 _RULES_MEMBER = "merchant-rules.md"
 
 
-def _copy_tables(src_db: DB, dst_db: DB) -> None:
+def _copy_tables(src_db: DB, dst_db: DB, *, on_conflict_ignore: bool = False) -> None:
+    """Copy every ``_FIXTURE_MODELS`` table from ``src_db`` into ``dst_db``.
+
+    ``on_conflict_ignore`` uses SQLite's ``INSERT OR IGNORE`` so the same row may
+    be copied more than once without a primary-key collision — needed by the
+    principal-union snapshot, where a ``shared`` row surfaces under several
+    tenants' RLS-scoped views (``dst_db`` is always SQLite).
+    """
     for model in _FIXTURE_MODELS:
         table = model.__table__
         with src_db.session() as session:
@@ -66,8 +81,65 @@ def _copy_tables(src_db: DB, dst_db: DB) -> None:
                 dict(row) for row in session.execute(select(table)).mappings().all()
             ]
         if rows:
+            stmt = insert(table)
+            if on_conflict_ignore:
+                stmt = stmt.prefix_with("OR IGNORE")
             with dst_db.session() as session:
-                session.execute(insert(table), rows)
+                session.execute(stmt, rows)
+
+
+def snapshot_to_sqlite(src_db: DB, sqlite_path: str | Path) -> DB:
+    """Copy ``src_db``'s finance closure into a fresh writable SQLite at ``sqlite_path``.
+
+    Returns the open SQLite ``DB``. This is the neonctl-free replacement for a
+    disposable Neon branch: a writable copy the eval can replay (and write) on
+    without touching prod. Reads whatever ``src_db`` exposes — pair it with the
+    read-only role + a set tenant context for RLS-scoped reads, or use
+    ``snapshot_finance_to_sqlite`` to union across a household's principals.
+    """
+    dst_db = DB(f"sqlite:///{sqlite_path}", enforce_sqlite_fks=False)
+    dst_db.create_schema()
+    _copy_tables(src_db, dst_db)
+    return dst_db
+
+
+def snapshot_finance_to_sqlite(
+    readonly_db: DB,
+    principals: list[RequestContext] | None,
+    sqlite_path: str | Path,
+) -> DB:
+    """Snapshot the finance closure through the read-only role into writable SQLite.
+
+    On Postgres the read-only role is RLS-scoped, so a single connection sees only
+    one principal's rows. We iterate each ``principals`` context (individual mode:
+    the tenant's private rows + shared), pinning the tenant GUC per session, and
+    union the rows into SQLite (``INSERT OR IGNORE`` dedupes ``shared`` rows that
+    surface under multiple principals). On SQLite (dev/tests) there are no roles or
+    RLS, so a single unscoped copy is exact and ``principals`` is ignored.
+
+    Requiring ``principals`` on Postgres is deliberate: an unscoped read under the
+    RLS-scoped role with no tenant GUC set matches zero rows, which would silently
+    snapshot an empty finance set.
+    """
+    from penny.tenancy.context import reset_request_context, set_request_context
+
+    dst_db = DB(f"sqlite:///{sqlite_path}", enforce_sqlite_fks=False)
+    dst_db.create_schema()
+    if readonly_db.dialect == "sqlite":
+        _copy_tables(readonly_db, dst_db)  # dev/test: no roles, no RLS
+        return dst_db
+    if not principals:
+        raise ValueError(
+            "a Postgres finance snapshot requires tenant principals (RLS-scoped); "
+            "an unscoped read would return zero rows"
+        )
+    for ctx in principals:
+        token = set_request_context(ctx)
+        try:
+            _copy_tables(readonly_db, dst_db, on_conflict_ignore=True)
+        finally:
+            reset_request_context(token)
+    return dst_db
 
 
 def _read_merchant_rules() -> str:
@@ -88,9 +160,7 @@ def build_fixture_bytes(src_db: DB) -> bytes:
     """Bundle ``src_db``'s reachable tables + merchant-rules.md as gzipped tar bytes."""
     with tempfile.TemporaryDirectory() as tmp:
         sqlite_path = Path(tmp) / _SQLITE_MEMBER
-        dst_db = DB(f"sqlite:///{sqlite_path}", enforce_sqlite_fks=False)
-        dst_db.create_schema()
-        _copy_tables(src_db, dst_db)
+        snapshot_to_sqlite(src_db, sqlite_path)
         sqlite_bytes = sqlite_path.read_bytes()
     rules_bytes = _read_merchant_rules().encode("utf-8")
     buf = io.BytesIO()

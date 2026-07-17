@@ -995,7 +995,8 @@ class EvalRun(Base):
     __tablename__ = "eval_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('completed', 'skipped_empty', 'skipped_incomplete_baseline')",
+            "status IN ('completed', 'skipped_empty', "
+            "'skipped_incomplete_baseline', 'failed')",
             name="ck_eval_runs_status",
         ),
     )
@@ -1011,6 +1012,9 @@ class EvalRun(Base):
     cohort_max_created_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP, nullable=True
     )
+    # Per-run label, ``eval-{timestamp}``. Historical name: it once held the
+    # disposable Neon branch id; the eval now snapshots into local SQLite, so
+    # this is just a run label (column kept to avoid a rename migration).
     branch_name: Mapped[str | None] = mapped_column(String, nullable=True)
     r2_fixture_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Version stamp — what shaped the agent's decision space this run.
