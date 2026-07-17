@@ -22,14 +22,17 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import os
-import uuid as _uuid
 
 from dotenv import load_dotenv
 from loguru import logger
 import typer
 
 from penny.observability import init_sentry
-from penny.tenancy.context import RequestContext, SessionMode
+from penny.tenancy.context import (
+    RequestContext,
+    SessionMode,
+    cron_principal_from_env,
+)
 
 # Load env once at the entrypoint (project convention), without clobbering
 # anything deploy already injected into the environment.
@@ -67,15 +70,7 @@ def load_cron_jobs() -> list[CronJob]:
     runs RLS-unscoped. Yields one ``individual`` job per user id (each scoped to
     that user) plus one ``household`` (joint) job scoped to the whole household.
     """
-    hh_raw = os.environ.get("PENNY_CRON_HOUSEHOLD_ID", "").strip()
-    users_raw = os.environ.get("PENNY_CRON_USER_IDS", "").strip()
-    if not hh_raw or not users_raw:
-        raise RuntimeError(
-            "cron requires PENNY_CRON_HOUSEHOLD_ID and PENNY_CRON_USER_IDS — "
-            "refusing to run without a tenant principal"
-        )
-    household = _uuid.UUID(hh_raw)
-    user_ids = [_uuid.UUID(u.strip()) for u in users_raw.split(",") if u.strip()]
+    household, user_ids = cron_principal_from_env()
     jobs = [
         CronJob(
             ctx=RequestContext(user_id=u, household_id=household), kind="individual"
@@ -441,15 +436,17 @@ def eval_categorizer(
         None, "--limit", help="Cap the cohort to the most recent N (for testing)."
     ),
     email: list[str] = typer.Option(
-        None, "--email", help="Recipient(s) for disagreement reports (repeatable)."
+        None, "--email", help="Recipient(s) for the per-run status email (repeatable)."
     ),
 ) -> None:
     """Run one categorizer eval (every 12h schedule).
 
-    Branches off the Neon production branch, replays the new agent on the branch,
-    records durable eval rows to prod, dumps the branch to a SQLite fixture in R2,
-    deletes the branch, and emails the report only when legacy and agent disagree.
-    Right/wrong is read later from your corrections — there is no staging step.
+    Snapshots prod finance data into a local writable SQLite copy (through the
+    read-only role, RLS-scoped — no Neon branch, no control-plane credential),
+    replays the new agent on the copy, records durable eval rows to prod, uploads
+    a SQLite fixture + report to R2, and emails a status line every run (with the
+    report link when legacy and agent disagree). Right/wrong is read later from
+    your corrections — there is no staging step.
     """
     from penny.eval.job import run_eval
     import penny.observability as observability

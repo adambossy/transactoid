@@ -3,9 +3,31 @@ from __future__ import annotations
 import contextvars
 from dataclasses import dataclass
 import enum
+import os
 import uuid
 
 NIL_USER_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+
+def cron_principal_from_env() -> tuple[uuid.UUID, list[uuid.UUID]]:
+    """The cron tenant principal from the environment: (household_id, [user_id, …]).
+
+    Reads ``PENNY_CRON_HOUSEHOLD_ID`` / ``PENNY_CRON_USER_IDS``. Raises
+    ``RuntimeError`` if either is unset — scheduled work (reports, eval) never
+    runs RLS-unscoped. Callers shape the contexts they need (individual per user,
+    a joint household context, …).
+    """
+    hh_raw = os.environ.get("PENNY_CRON_HOUSEHOLD_ID", "").strip()
+    users_raw = os.environ.get("PENNY_CRON_USER_IDS", "").strip()
+    if not hh_raw or not users_raw:
+        raise RuntimeError(
+            "PENNY_CRON_HOUSEHOLD_ID and PENNY_CRON_USER_IDS are required — "
+            "refusing to run without a tenant principal"
+        )
+    return (
+        uuid.UUID(hh_raw),
+        [uuid.UUID(u.strip()) for u in users_raw.split(",") if u.strip()],
+    )
 
 
 class SessionMode(enum.Enum):

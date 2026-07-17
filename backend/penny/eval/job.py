@@ -1,10 +1,21 @@
 """The eval job: one unattended run (every 12h).
 
-Cohort (ingested since the last watermark) -> branch off prod -> replay the agent
-on the branch -> record durable eval rows to prod -> upload the run's artifacts
-(report HTML, SQLite fixture, items JSON) to R2 -> delete the branch -> email a
-link to the hosted report iff there are legacy!=agent disagreements. Nothing
-waits on a human; right/wrong is read later from your corrections.
+Cohort (ingested since the last watermark) -> writable SQLite snapshot of prod
+finance data (through the read-only role, RLS-scoped) -> replay the agent on the
+snapshot -> record durable eval rows to prod -> upload the run's artifacts
+(report HTML, SQLite fixture, items JSON) to R2 -> email a status line every run
+(a link to the hosted report when legacy!=agent disagree). Nothing waits on a
+human; right/wrong is read later from your corrections.
+
+No Neon branch, no ``neonctl``, no control-plane credential: the replay runs on
+a local SQLite copy, so the untrusted agent can never reach prod. Bulk finance
+reads go through the SELECT-only role (``PENNY_AGENT_READONLY_DATABASE_URL``);
+only the narrow eval-store writes use the read-write ``DATABASE_URL``.
+
+The eval deliberately reuses the agent's read-only role rather than minting a
+dedicated one: both are SELECT-only and RLS-scoped, so a second credential earns
+nothing. Split to a ``PENNY_EVAL_READONLY_DATABASE_URL`` only if the eval's read
+grants ever need to diverge from the agent's.
 """
 
 from __future__ import annotations
@@ -13,6 +24,8 @@ import contextlib
 from datetime import datetime
 import json
 import os
+from pathlib import Path
+import tempfile
 from typing import Any
 
 from loguru import logger
@@ -21,31 +34,65 @@ from sqlalchemy import select
 from penny.adapters.db.facade import DB
 from penny.adapters.db.models import Category, DerivedTransaction, PlaidTransaction
 from penny.adapters.storage.r2 import public_url_for_key, store_object_in_r2
-from penny.eval.branch import EvalBranchError, create_eval_branch, delete_eval_branch
-from penny.eval.fixture import build_fixture_bytes
+from penny.eval.fixture import build_fixture_bytes, snapshot_finance_to_sqlite
 from penny.eval.replay import replay_one
 from penny.eval.report import disagreements, render_eval_report
 from penny.eval.version import version_stamp
+from penny.tenancy.context import RequestContext, cron_principal_from_env
 
 
-def _send_report_link_email(
-    to: list[str], run_at: datetime, n_items: int, n_disagree: int, url: str
+def _eval_principals() -> list[RequestContext]:
+    """Individual-mode tenant contexts for the eval's RLS-scoped reads.
+
+    One ``RequestContext`` per cron user (all in the cron household). Unioning
+    each user's individual view yields the household's private + shared finance
+    rows (see ``snapshot_finance_to_sqlite``). Fails loudly if the cron principal
+    env is unset — the eval must never read RLS-unscoped.
+    """
+    household, user_ids = cron_principal_from_env()
+    return [RequestContext(user_id=u, household_id=household) for u in user_ids]
+
+
+def _send_status_email(
+    to: list[str],
+    run_at: datetime,
+    *,
+    status: str,
+    n_items: int = 0,
+    n_disagree: int = 0,
+    report_url: str | None = None,
+    error: BaseException | None = None,
 ) -> bool:
-    """Email a link to the R2-hosted report; return whether it went out."""
+    """Send the one-per-run status email (heartbeat / report link / failure alert).
+
+    Exactly one email goes out per run so that *no* email means the pipeline
+    itself stopped — a signal a disagreement-only email could never give.
+    """
     from penny.tools.delivery import _build_email_service
 
     service = _build_email_service()
     when = f"{run_at:%Y-%m-%d %H:%M}"
-    subject = f"Categorizer eval {when} — {n_disagree}/{n_items} disagreements"
-    text = (
-        f"Categorizer eval for {when}: {n_items} transactions, {n_disagree} "
-        f"legacy-vs-agent disagreements.\n\nReport: {url}\n"
-    )
-    html = (
-        f"<p>Categorizer eval for {when}: {n_items} transactions, "
-        f"{n_disagree} legacy-vs-agent disagreements.</p>"
-        f'<p><a href="{url}">Open the report</a></p>'
-    )
+    if status == "failed":
+        subject = f"Categorizer eval {when} — FAILED"
+        text = f"The categorizer eval failed: {error}\n"
+        html = f"<p>The categorizer eval <b>failed</b>: {error}</p>"
+    elif status == "skipped_empty":
+        subject = f"Categorizer eval {when} — nothing new"
+        text = "No new transactions to evaluate.\n"
+        html = "<p>No new transactions to evaluate.</p>"
+    else:  # completed
+        subject = f"Categorizer eval {when} — {n_disagree}/{n_items} disagreements"
+        text = (
+            f"Categorizer eval for {when}: {n_items} transactions, {n_disagree} "
+            "legacy-vs-agent disagreements.\n"
+        )
+        html = (
+            f"<p>Categorizer eval for {when}: {n_items} transactions, "
+            f"{n_disagree} legacy-vs-agent disagreements.</p>"
+        )
+        if report_url:
+            text += f"\nReport: {report_url}\n"
+            html += f'<p><a href="{report_url}">Open the report</a></p>'
     result = service.send_report(
         to=to, subject=subject, html_content=html, text_content=text
     )
@@ -57,48 +104,131 @@ async def run_eval(
     limit: int | None = None,
     email_to: list[str] | None = None,
     cohort_ids: list[int] | None = None,
+    principals: list[RequestContext] | None = None,
 ) -> dict[str, Any]:
     """Run one eval.
 
     ``limit`` caps the daily cohort to the most recent N (for testing).
     ``cohort_ids`` overrides cohort selection with an explicit set (a targeted
     rerun / backtest); in that mode the ingest watermark is left untouched so a
-    one-off run can't skip future daily cohorts.
+    one-off run can't skip future daily cohorts. ``principals`` overrides the
+    read-only snapshot's tenant contexts (defaults to the cron principal env).
     """
-    import penny.db as pdb
-
     prod_url = os.environ.get("DATABASE_URL", "").strip()
     if not prod_url:
         raise RuntimeError("DATABASE_URL is required for the eval job")
-    prod = DB(prod_url)
+    prod = DB(prod_url)  # read-write handle: eval-store reads + writes only
     if prod.dialect == "sqlite":
         prod.create_schema()  # dev/test: build eval_* (+ finance) from models
     # Postgres: eval_runs/eval_items are alembic-owned (migration 007) and
     # already present; create_all is refused on a durable schema.
     run_at = datetime.now()
+    # Populated with the real cohort size as soon as it is known, so a failure
+    # after cohort selection records a diagnostic size, not a misleading 0.
+    progress: dict[str, int] = {"cohort_size": 0}
+
+    try:
+        result = await _run_eval_core(
+            prod,
+            run_at,
+            limit=limit,
+            cohort_ids=cohort_ids,
+            principals=principals,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001 - re-raised after alerting
+        # Durable failure record (best-effort). cohort_max_created_at stays NULL,
+        # so the watermark does NOT advance and the cohort is retried next run.
+        with contextlib.suppress(Exception):
+            prod.record_eval_run(
+                run_at=run_at, status="failed", cohort_size=progress["cohort_size"]
+            )
+        logger.exception("eval: run failed")
+        if email_to:
+            _emit_status_email(email_to, run_at, status="failed", error=exc)
+        raise
+
+    # Heartbeat: one email on EVERY completed/skipped run so a silent pipeline
+    # (no email at all) is distinguishable from a healthy one.
+    if email_to:
+        _emit_status_email(
+            email_to,
+            run_at,
+            status=result["status"],
+            n_items=result.get("cohort_size", 0),
+            n_disagree=result.get("disagreements", 0),
+            report_url=result.get("report_url"),
+        )
+    return result
+
+
+def _emit_status_email(to: list[str], run_at: datetime, **kwargs: Any) -> None:
+    """Send the per-run status email; log (never raise) if it does not go out.
+
+    A soft failure (provider returns success=False without raising) would
+    otherwise look identical to a healthy silent run, defeating the heartbeat —
+    so a non-delivery is logged, not swallowed.
+    """
+    try:
+        sent = _send_status_email(to, run_at, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - email is non-critical
+        logger.warning("eval: status email raised (run unaffected): {}", exc)
+        return
+    if not sent:
+        logger.warning("eval: status email not delivered (provider returned failure)")
+
+
+async def _run_eval_core(
+    prod: DB,
+    run_at: datetime,
+    *,
+    limit: int | None,
+    cohort_ids: list[int] | None,
+    principals: list[RequestContext] | None,
+    progress: dict[str, int],
+) -> dict[str, Any]:
+    """Do the eval; return the result dict. Emailing is the caller's job."""
+    import penny.db as pdb
 
     explicit_cohort = cohort_ids is not None
+    since = None if explicit_cohort else prod.last_eval_watermark()
+
+    # Cohort membership + watermark come from the read-WRITE role (prod): it is
+    # unscoped and sees every household's rows, so the cohort is COMPLETE and the
+    # watermark can never advance past a row we failed to see. (The RLS-scoped
+    # read-only snapshot below supplies only the replay's bulk row data; a
+    # completeness guard ties the two together.)
     if explicit_cohort:
         cohort_ids = list(cohort_ids or [])
     else:
-        since = prod.last_eval_watermark()
         cohort_ids = prod.derived_ids_created_since(since)
         if limit is not None:
-            cohort_ids = cohort_ids[-limit:]
+            # Oldest-first: repeated capped runs drain the backlog forward, and
+            # the watermark never jumps past the rows a cap dropped.
+            cohort_ids = cohort_ids[:limit]
     if not cohort_ids:
         prod.record_eval_run(run_at=run_at, status="skipped_empty", cohort_size=0)
         logger.info("eval: empty cohort; skipped")
-        return {"status": "skipped_empty", "cohort_size": 0}
+        return {"status": "skipped_empty", "cohort_size": 0, "disagreements": 0}
+    progress["cohort_size"] = len(cohort_ids)
 
-    # A targeted rerun must not advance the daily watermark.
+    # A targeted rerun (explicit cohort) must not advance the daily watermark.
     watermark = None if explicit_cohort else prod.max_created_at_for_ids(cohort_ids)
-    branch_name = f"eval-{run_at:%Y%m%dT%H%M%S}"
-    logger.info("eval: cohort={} -> branch {}", len(cohort_ids), branch_name)
-    branch_id, branch_url = create_eval_branch(branch_name)
-    branch = DB(branch_url)
-    items: list[dict[str, Any]] = []
-    try:
-        with branch.session() as session:
+    run_label = f"eval-{run_at:%Y%m%dT%H%M%S}"
+
+    # Build a writable SQLite snapshot of the finance closure through the read-only
+    # role. On Postgres it is RLS-scoped, so union across the household's
+    # principals (individual mode); SQLite dev needs no principals.
+    readonly = pdb.get_readonly_db()
+    if principals is None and readonly.dialect != "sqlite":
+        principals = _eval_principals()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        snapshot = snapshot_finance_to_sqlite(
+            readonly, principals, Path(tmp) / "fixture.sqlite"
+        )
+
+        with snapshot.session() as session:
             rows = session.execute(
                 select(
                     DerivedTransaction.transaction_id,
@@ -130,10 +260,27 @@ async def run_eval(
             for r in rows
         }
 
-        # Replay the agent on the branch (point the global DB at it so the agent's
-        # tools + prompt history read the frozen branch state, not prod).
-        saved_db = pdb._db
-        pdb._db = branch
+        # Completeness guard: the RLS-scoped snapshot must contain every cohort
+        # row. A gap means a household member is absent from PENNY_CRON_USER_IDS
+        # (their private rows are invisible to every principal). Fail loudly — the
+        # watermark does not advance, so the cohort is retried once the config is
+        # fixed — rather than silently dropping those transactions.
+        missing = [tid for tid in cohort_ids if tid not in base]
+        if missing:
+            raise RuntimeError(
+                f"snapshot missing {len(missing)}/{len(cohort_ids)} cohort rows — a "
+                "household member is likely absent from PENNY_CRON_USER_IDS; refusing "
+                "to advance the watermark past unevaluated transactions"
+            )
+        logger.info("eval: cohort={} -> snapshot {}", len(cohort_ids), run_label)
+
+        # Replay the agent on the snapshot. Point BOTH the read-write and the
+        # read-only global handles at the local copy, so no agent tool (now or a
+        # future one backed by get_readonly_db) can reach live prod during the
+        # untrusted replay.
+        items: list[dict[str, Any]] = []
+        saved_db, saved_ro = pdb._db, pdb._readonly_db
+        pdb._db = pdb._readonly_db = snapshot
         try:
             for tid in cohort_ids:
                 meta = base.get(tid, {})
@@ -147,23 +294,28 @@ async def run_eval(
                 decision = await replay_one(txn)
                 items.append({**txn, "legacy_key": meta.get("legacy_key"), **decision})
         finally:
-            pdb._db = saved_db
+            pdb._db, pdb._readonly_db = saved_db, saved_ro
 
+        # Render BEFORE recording 'completed' so a render bug fails the run (the
+        # watermark does not advance) instead of contradicting an already-committed
+        # completed row.
+        version = version_stamp()
+        disagree = disagreements(items)
+        html_doc = render_eval_report(
+            items, run_at=run_at.isoformat(timespec="seconds"), version=version
+        )
+
+        # Atomic: the completed run + its items commit together (the watermark-
+        # advancing write) as the LAST fallible DB op — nothing after can crash and
+        # write a contradictory 'failed' row.
         run_id = prod.record_eval_run(
             run_at=run_at,
             status="completed",
             cohort_size=len(cohort_ids),
             cohort_max_created_at=watermark,
-            branch_name=branch_name,
-            version=version_stamp(),
-        )
-        prod.record_eval_items(run_id, items)
-
-        disagree = disagreements(items)
-        html_doc = render_eval_report(
-            items,
-            run_at=run_at.isoformat(timespec="seconds"),
-            version=version_stamp(),
+            branch_name=run_label,
+            version=version,
+            items=items,
         )
 
         # Upload the run's artifacts to R2 under one prefix: the report HTML, the
@@ -173,64 +325,49 @@ async def run_eval(
         # PUBLIC report bucket so its emailed link can be permanent. Best-effort:
         # a failed upload must not lose the run. r2_fixture_url stores the fixture
         # KEY (backtests download by key); report_url is a shareable link.
-        prefix = f"eval-runs/{branch_name}"
+        prefix = f"eval-runs/{run_label}"
         fixture_key = f"{prefix}/fixture.tar.gz"
         report_key = f"{prefix}/report.html"
         report_bucket = os.environ.get("R2_REPORT_BUCKET", "").strip() or None
-        meta = {"eval_run_id": str(run_id), "branch": branch_name}
+        r2_meta = {"eval_run_id": str(run_id), "run_label": run_label}
         report_url: str | None = None
         try:
             store_object_in_r2(
                 key=fixture_key,
-                body=build_fixture_bytes(branch),
+                body=build_fixture_bytes(snapshot),
                 content_type="application/gzip",
-                metadata=meta,
+                metadata=r2_meta,
             )
             prod.set_eval_run_fixture(run_id, fixture_key)
             store_object_in_r2(
                 key=f"{prefix}/items.json",
                 body=json.dumps(items, default=str, indent=2).encode("utf-8"),
                 content_type="application/json",
-                metadata=meta,
+                metadata=r2_meta,
             )
             store_object_in_r2(
                 key=report_key,
                 body=html_doc.encode("utf-8"),
                 content_type="text/html; charset=utf-8",
-                metadata=meta,
+                metadata=r2_meta,
                 bucket=report_bucket,
             )
             report_url = public_url_for_key(report_key, bucket=report_bucket)
         except Exception as exc:  # noqa: BLE001 - artifacts are non-critical
             logger.warning("eval: R2 artifact upload failed (run kept): {}", exc)
 
-        emailed = False
-        if disagree and email_to and report_url:
-            # Best-effort: a bounced email must not fail the eval (rows are kept).
-            try:
-                emailed = _send_report_link_email(
-                    email_to, run_at, len(items), len(disagree), report_url
-                )
-            except Exception as exc:  # noqa: BLE001 - email is non-critical
-                logger.warning("eval: report email failed (run kept): {}", exc)
         logger.info(
-            "eval: completed run {} ({} items, {} disagreements, emailed={})",
+            "eval: completed run {} ({} items, {} disagreements)",
             run_id,
             len(items),
             len(disagree),
-            emailed,
         )
         return {
             "status": "completed",
             "eval_run_id": run_id,
             "cohort_size": len(cohort_ids),
             "disagreements": len(disagree),
-            "branch": branch_name,
+            "run_label": run_label,
             "fixture_key": fixture_key,
             "report_url": report_url,
-            "emailed": emailed,
         }
-    finally:
-        with contextlib.suppress(EvalBranchError):
-            delete_eval_branch(branch_id)
-            logger.info("eval: deleted branch {}", branch_name)

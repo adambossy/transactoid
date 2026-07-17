@@ -2388,6 +2388,25 @@ class DB:
                 .scalar()
             )
 
+    @staticmethod
+    def _eval_item_rows(
+        eval_run_id: int, items: list[dict[str, Any]]
+    ) -> list[EvalItem]:
+        return [
+            EvalItem(
+                eval_run_id=eval_run_id,
+                transaction_id=item["transaction_id"],
+                merchant_descriptor=item.get("merchant_descriptor"),
+                legacy_key=item.get("legacy_key"),
+                agent_key=item.get("agent_key"),
+                agent_reasoning=item.get("agent_reasoning"),
+                agent_confidence=item.get("agent_confidence"),
+                method_at_eval_time=item["method_at_eval_time"],
+                trace_link=item.get("trace_link"),
+            )
+            for item in items
+        ]
+
     def record_eval_run(
         self,
         *,
@@ -2398,8 +2417,15 @@ class DB:
         branch_name: str | None = None,
         r2_fixture_url: str | None = None,
         version: dict[str, Any] | None = None,
+        items: list[dict[str, Any]] | None = None,
     ) -> int:
-        """Insert an ``eval_runs`` row and return its id."""
+        """Insert an ``eval_runs`` row (plus its ``items``, atomically) and return its id.
+
+        Passing ``items`` writes the run and its eval_items in ONE transaction, so
+        a ``completed`` row (which advances the watermark via
+        ``cohort_max_created_at``) never lands without its items — a partial write
+        can't skip the cohort while claiming success.
+        """
         version = version or {}
         with self.session() as session:  # type: Session
             run = EvalRun(
@@ -2417,6 +2443,8 @@ class DB:
             )
             session.add(run)
             session.flush()
+            if items:
+                session.add_all(self._eval_item_rows(run.eval_run_id, items))
             return run.eval_run_id
 
     def record_eval_items(self, eval_run_id: int, items: list[dict[str, Any]]) -> None:
@@ -2424,22 +2452,7 @@ class DB:
         if not items:
             return
         with self.session() as session:  # type: Session
-            session.add_all(
-                [
-                    EvalItem(
-                        eval_run_id=eval_run_id,
-                        transaction_id=item["transaction_id"],
-                        merchant_descriptor=item.get("merchant_descriptor"),
-                        legacy_key=item.get("legacy_key"),
-                        agent_key=item.get("agent_key"),
-                        agent_reasoning=item.get("agent_reasoning"),
-                        agent_confidence=item.get("agent_confidence"),
-                        method_at_eval_time=item["method_at_eval_time"],
-                        trace_link=item.get("trace_link"),
-                    )
-                    for item in items
-                ]
-            )
+            session.add_all(self._eval_item_rows(eval_run_id, items))
 
     def set_eval_run_fixture(self, eval_run_id: int, r2_fixture_url: str) -> None:
         """Record the R2 fixture URL once the branch has been dumped and uploaded."""
