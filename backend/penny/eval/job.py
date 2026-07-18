@@ -108,12 +108,15 @@ async def run_eval(
 ) -> dict[str, Any]:
     """Run one eval.
 
-    ``limit`` caps the daily cohort to the most recent N (for testing).
+    ``limit`` samples the most recent N (for testing); a limited run does not
+    advance the watermark. Must be a positive integer.
     ``cohort_ids`` overrides cohort selection with an explicit set (a targeted
     rerun / backtest); in that mode the ingest watermark is left untouched so a
     one-off run can't skip future daily cohorts. ``principals`` overrides the
     read-only snapshot's tenant contexts (defaults to the cron principal env).
     """
+    if limit is not None and limit <= 0:
+        raise ValueError(f"--limit must be a positive integer, got {limit}")
     prod_url = os.environ.get("DATABASE_URL", "").strip()
     if not prod_url:
         raise RuntimeError("DATABASE_URL is required for the eval job")
@@ -123,9 +126,10 @@ async def run_eval(
     # Postgres: eval_runs/eval_items are alembic-owned (migration 007) and
     # already present; create_all is refused on a durable schema.
     run_at = datetime.now()
-    # Populated with the real cohort size as soon as it is known, so a failure
-    # after cohort selection records a diagnostic size, not a misleading 0.
-    progress: dict[str, int] = {"cohort_size": 0}
+    # Carries the cohort size + household as soon as they are known, so a failure
+    # after cohort selection records a diagnostic size (not a misleading 0) and
+    # stamps the household on the failed row.
+    progress: dict[str, Any] = {"cohort_size": 0, "household_id": None}
 
     try:
         result = await _run_eval_core(
@@ -141,7 +145,10 @@ async def run_eval(
         # so the watermark does NOT advance and the cohort is retried next run.
         with contextlib.suppress(Exception):
             prod.record_eval_run(
-                run_at=run_at, status="failed", cohort_size=progress["cohort_size"]
+                run_at=run_at,
+                status="failed",
+                cohort_size=progress["cohort_size"],
+                household_id=progress["household_id"],
             )
         logger.exception("eval: run failed")
         if email_to:
@@ -185,27 +192,33 @@ async def _run_eval_core(
     limit: int | None,
     cohort_ids: list[int] | None,
     principals: list[RequestContext] | None,
-    progress: dict[str, int],
+    progress: dict[str, Any],
 ) -> dict[str, Any]:
     """Do the eval; return the result dict. Emailing is the caller's job."""
     import penny.db as pdb
 
     explicit_cohort = cohort_ids is not None
-    since = None if explicit_cohort else prod.last_eval_watermark()
 
     # Resolve the eval principals (the cron household's users) up front: they
-    # scope BOTH the cohort and the snapshot to the same household. On SQLite dev
-    # there are no roles/RLS, so principals stay None and nothing is scoped.
+    # scope the cohort, its watermark, and the snapshot to the SAME household. On
+    # SQLite dev there are no roles/RLS, so principals stay None and nothing is
+    # scoped (the watermark is then global).
     readonly = pdb.get_readonly_db()
     if principals is None and readonly.dialect != "sqlite":
         principals = _eval_principals()
     household_id = principals[0].household_id if principals else None
+    progress["household_id"] = household_id
 
-    # Cohort membership + watermark come from the read-WRITE role (prod), scoped
-    # to the eval household. That role bypasses RLS, so the household filter (not
-    # RLS) yields the COMPLETE household cohort — every user + visibility — which
-    # the RLS-scoped snapshot below must fully cover (a completeness guard ties
-    # the two together, catching a household member absent from the principals).
+    # Cohort membership + watermark come from the read-WRITE role (prod), both
+    # scoped to the eval household: the household-scoped watermark (only this
+    # household's completed runs) resumes exactly where this household's last
+    # cohort ended. That role bypasses RLS, so the household filter (not RLS)
+    # yields the COMPLETE household cohort — every user + visibility — which the
+    # RLS-scoped snapshot below must fully cover (a completeness guard ties the
+    # two together, catching a household member absent from the principals).
+    since = (
+        None if explicit_cohort else prod.last_eval_watermark(household_id=household_id)
+    )
     is_limited = limit is not None and not explicit_cohort
     if explicit_cohort:
         cohort_ids = list(cohort_ids or [])
@@ -216,7 +229,12 @@ async def _run_eval_core(
             # not advanced below), so it never strands the rows it dropped.
             cohort_ids = cohort_ids[-limit:]
     if not cohort_ids:
-        prod.record_eval_run(run_at=run_at, status="skipped_empty", cohort_size=0)
+        prod.record_eval_run(
+            run_at=run_at,
+            status="skipped_empty",
+            cohort_size=0,
+            household_id=household_id,
+        )
         logger.info("eval: empty cohort; skipped")
         return {"status": "skipped_empty", "cohort_size": 0, "disagreements": 0}
     progress["cohort_size"] = len(cohort_ids)
@@ -323,6 +341,7 @@ async def _run_eval_core(
             status="completed",
             cohort_size=len(cohort_ids),
             cohort_max_created_at=watermark,
+            household_id=household_id,
             branch_name=run_label,
             version=version,
             items=items,

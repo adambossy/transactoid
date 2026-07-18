@@ -59,8 +59,10 @@ forward (skipping the historical backlog):
 
 ```sql
 -- Start the daily eval "now": subsequent runs pick up everything ingested after.
-INSERT INTO eval_runs (run_at, status, cohort_size, cohort_max_created_at)
-VALUES (now(), 'completed', 0, now());
+-- household_id MUST match PENNY_CRON_HOUSEHOLD_ID — the watermark is resolved per
+-- household, so a row with a NULL/other household would not gate this cohort.
+INSERT INTO eval_runs (run_at, status, cohort_size, cohort_max_created_at, household_id)
+VALUES (now(), 'completed', 0, now(), '<PENNY_CRON_HOUSEHOLD_ID>');
 ```
 
 `--limit N` is a non-committing smoke test (most-recent N, watermark NOT

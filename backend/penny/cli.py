@@ -435,6 +435,7 @@ def eval_categorizer(
     limit: int = typer.Option(
         None,
         "--limit",
+        min=1,
         help="Sample the most recent N (for testing); a limited run does not "
         "advance the watermark.",
     ),

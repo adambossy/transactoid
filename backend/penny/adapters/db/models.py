@@ -1012,6 +1012,11 @@ class EvalRun(Base):
     cohort_max_created_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP, nullable=True
     )
+    # Household this run evaluated. The watermark is resolved PER household, so a
+    # run for one household never gates another's cohort. Nullable: dev/SQLite,
+    # the seed row, and legacy rows may leave it unset (they then match no
+    # household filter). Not an RLS/tenant column — eval infra, no owner/visibility.
+    household_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # Per-run label, ``eval-{timestamp}``. Historical name: it once held the
     # disposable Neon branch id; the eval now snapshots into local SQLite, so
     # this is just a run label (column kept to avoid a rename migration).
