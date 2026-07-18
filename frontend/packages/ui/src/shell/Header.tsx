@@ -12,16 +12,23 @@ export interface HeaderProps {
 
 /** Optional leading slot + Logo + PENNY wordmark (left), nav slot (center),
  *  actions slot (right), thin bottom border. Nav content and routing come from
- *  the app. */
+ *  the app. At md+ the nav is absolutely centered on the header (i.e. the
+ *  viewport), not on the leftover flex space — the logo group is wider than
+ *  the actions, which would otherwise push it visibly off-center. Below md it
+ *  stays in the flex flow, where it competes with the logo for room. */
 export function Header({ leading, nav, actions }: HeaderProps) {
   return (
-    <header className="flex items-center justify-between gap-6 border-b border-cream px-6 py-4">
+    <header className="relative flex items-center justify-between gap-6 border-b border-cream px-6 py-4">
       <div className="flex items-center gap-3">
         {leading}
         <Logo variant="emblem" size={40} />
         <span className="font-serif text-2xl font-semibold tracking-wide text-ink">PENNY</span>
       </div>
-      {nav ? <nav className="flex items-center gap-6 font-ui text-sm text-ink">{nav}</nav> : null}
+      {nav ? (
+        <nav className="flex items-center gap-6 font-ui text-sm text-ink md:absolute md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2">
+          {nav}
+        </nav>
+      ) : null}
       <div className="flex items-center gap-3">{actions}</div>
     </header>
   );
