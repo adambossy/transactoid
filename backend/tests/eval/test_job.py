@@ -196,6 +196,15 @@ async def test_limit_run_does_not_advance_watermark(
     assert prod.last_eval_watermark() is None
 
 
+async def test_negative_limit_rejected(tmp_path, monkeypatch, _stub_replay_and_r2):
+    """A non-positive --limit is rejected, not silently turned into a slice."""
+    url = _seed_prod(tmp_path)
+    _point_env_at(monkeypatch, url)
+    for bad in (-1, 0):
+        with pytest.raises(ValueError, match="positive integer"):
+            await run_eval(email_to=None, limit=bad)
+
+
 def test_no_neon_branch_dependency():
     """The eval must carry no neonctl/Neon-branch code."""
     job = importlib.import_module("penny.eval.job")

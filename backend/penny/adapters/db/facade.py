@@ -2386,17 +2386,24 @@ class DB:
 
     # ------------------------------------------------------------------ eval store
 
-    def last_eval_watermark(self) -> datetime | None:
+    def last_eval_watermark(
+        self, *, household_id: uuid.UUID | None = None
+    ) -> datetime | None:
         """High-water mark (max ``cohort_max_created_at``) over completed eval runs.
 
         The next eval cohort is everything ingested strictly after this.
+        ``household_id`` scopes the watermark to one household's runs so a
+        completed run for another household never gates this cohort — it MUST be
+        passed alongside a household-scoped cohort. When None (dev/SQLite, no
+        RLS), the watermark is global.
         """
         with self.session() as session:  # type: Session
-            return (
-                session.query(func.max(EvalRun.cohort_max_created_at))
-                .filter(EvalRun.status == "completed")
-                .scalar()
+            query = session.query(func.max(EvalRun.cohort_max_created_at)).filter(
+                EvalRun.status == "completed"
             )
+            if household_id is not None:
+                query = query.filter(EvalRun.household_id == household_id)
+            return query.scalar()
 
     @staticmethod
     def _eval_item_rows(
@@ -2424,6 +2431,7 @@ class DB:
         status: str,
         cohort_size: int,
         cohort_max_created_at: datetime | None = None,
+        household_id: uuid.UUID | None = None,
         branch_name: str | None = None,
         r2_fixture_url: str | None = None,
         version: dict[str, Any] | None = None,
@@ -2434,7 +2442,8 @@ class DB:
         Passing ``items`` writes the run and its eval_items in ONE transaction, so
         a ``completed`` row (which advances the watermark via
         ``cohort_max_created_at``) never lands without its items — a partial write
-        can't skip the cohort while claiming success.
+        can't skip the cohort while claiming success. ``household_id`` scopes the
+        run so ``last_eval_watermark`` resolves per household.
         """
         version = version or {}
         with self.session() as session:  # type: Session
@@ -2443,6 +2452,7 @@ class DB:
                 status=status,
                 cohort_size=cohort_size,
                 cohort_max_created_at=cohort_max_created_at,
+                household_id=household_id,
                 branch_name=branch_name,
                 r2_fixture_url=r2_fixture_url,
                 model=version.get("model"),

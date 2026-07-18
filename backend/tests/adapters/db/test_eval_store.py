@@ -178,6 +178,25 @@ def test_watermark_ignores_skipped_runs(tmp_path: Path) -> None:
     assert db.last_eval_watermark() == datetime(2026, 6, 3, 8, 0)
 
 
+def test_watermark_scoped_per_household(tmp_path: Path) -> None:
+    """A completed run for household A must not gate household B's watermark."""
+    db = _create_db(tmp_path)
+    hh_a, hh_b = uuid.uuid4(), uuid.uuid4()
+    db.record_eval_run(
+        run_at=datetime(2026, 6, 27, 0, 0),
+        status="completed",
+        cohort_size=1,
+        cohort_max_created_at=datetime(2026, 6, 3, 8, 0),
+        household_id=hh_a,
+    )
+    # B has no completed run yet: its watermark is None (not A's), so B's whole
+    # history is still in scope.
+    assert db.last_eval_watermark(household_id=hh_b) is None
+    assert db.last_eval_watermark(household_id=hh_a) == datetime(2026, 6, 3, 8, 0)
+    # Unscoped (dev/SQLite) still sees the global max.
+    assert db.last_eval_watermark() == datetime(2026, 6, 3, 8, 0)
+
+
 def test_version_stamp_is_best_effort() -> None:
     from penny.eval.version import version_stamp
 
