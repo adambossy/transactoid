@@ -430,3 +430,20 @@ Maintain it **in the same change** that alters reality:
   rejects any write/DDL/session statement before execution; in prod it also runs
   on a dedicated read-only Postgres role under RLS (see `REQUIREMENTS.txt` T2a /
   T8). Older notes calling it "unrestricted (read AND write)" are stale.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in Beads: data checked in under `.beads/`, operated via the
+`bd` CLI, issue prefix `fly-`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context: root `CONTEXT-MAP.md` pointing at per-package `CONTEXT.md` files
+(`backend/`, `frontend/`, `lib/`, `sandbox/`). See `docs/agents/domain.md`.
